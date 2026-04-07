@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release tag detection**: Fixed version tag detection by using full git fetch instead of shallow fetch.
 - **Duplicate release prevention**: Removed workflow_dispatch bypass in the release workflow to prevent duplicate GitHub releases.
+- **Update notification overflow**: Removed release body from update notification message to prevent UI overflow with long changelogs.
 
 ## [1.3.6] - 2026-04-05
 
