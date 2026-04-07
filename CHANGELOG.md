@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.8] - 2026-04-07
+
+### Fixed
+
+- **Update notification overflow**: Removed release body from update notification message to prevent UI overflow with long changelogs.
+
 ## [1.3.7] - 2026-04-07
 
 ### Added
@@ -25,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release tag detection**: Fixed version tag detection by using full git fetch instead of shallow fetch.
 - **Duplicate release prevention**: Removed workflow_dispatch bypass in the release workflow to prevent duplicate GitHub releases.
-- **Update notification overflow**: Removed release body from update notification message to prevent UI overflow with long changelogs.
 
 ## [1.3.6] - 2026-04-05
 
@@ -408,6 +413,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.3.8]: https://github.com/timwuhaotian/the-pair/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/timwuhaotian/the-pair/compare/v1.3.6...v1.3.7
 [1.3.0]: https://github.com/timwuhaotian/the-pair/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/timwuhaotian/the-pair/compare/v1.2.2...v1.2.3
