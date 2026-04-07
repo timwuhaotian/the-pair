@@ -31,8 +31,8 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
       <span
         className={cn(
           'inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium',
-          'bg-neutral-100 dark:bg-neutral-800 rounded-md',
-          'text-neutral-600 dark:text-neutral-400',
+          'bg-muted dark:bg-white/8 rounded-md',
+          'text-muted-foreground dark:text-white/60',
           className
         )}
         title={`Output: ${usage.outputTokens.toLocaleString()} tokens${usage.inputTokens ? `\nInput: ${usage.inputTokens.toLocaleString()} tokens` : ''}\nSource: ${usage.source}`}
@@ -49,8 +49,8 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
     <span
       className={cn(
         'inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium',
-        'bg-neutral-100 dark:bg-neutral-800 rounded-full',
-        'text-neutral-600 dark:text-neutral-400',
+        'bg-muted dark:bg-white/8 rounded-full',
+        'text-muted-foreground dark:text-white/60',
         'transition-colors duration-200',
         showLiveIndicator && 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400',
         className

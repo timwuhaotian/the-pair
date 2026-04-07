@@ -130,7 +130,7 @@ export function BranchPicker({
     return (
       <div
         className={cn(
-          'flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400',
+          'flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400',
           className
         )}
       >
@@ -142,7 +142,7 @@ export function BranchPicker({
 
   if (loadError) {
     return (
-      <div className={cn('flex flex-col gap-1 text-xs text-zinc-400', className)}>
+      <div className={cn('flex flex-col gap-1 text-xs text-slate-400', className)}>
         <div className="flex items-center gap-2">
           <GitBranch className="h-3.5 w-3.5" />
           <span>Could not check repository state</span>
@@ -158,7 +158,7 @@ export function BranchPicker({
 
   if (!repoState?.isGitRepo) {
     return (
-      <div className={cn('flex items-center gap-2 text-xs text-zinc-400', className)}>
+      <div className={cn('flex items-center gap-2 text-xs text-slate-400', className)}>
         <GitBranch className="h-3.5 w-3.5" />
         <span>Not a git repository — worktrees unavailable</span>
       </div>
@@ -188,31 +188,31 @@ export function BranchPicker({
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
-          'bg-white/5 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50',
-          'hover:bg-white/10 dark:hover:bg-zinc-700/50',
+          'bg-white/5 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50',
+          'hover:bg-white/10 dark:hover:bg-slate-700/50',
           value && 'border-blue-500/50 dark:border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10'
         )}
       >
         <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-zinc-400" />
+          <GitBranch className="h-4 w-4 text-slate-400" />
           {selectedBranch ? (
-            <span className="text-zinc-900 dark:text-zinc-100">{selectedBranch.name}</span>
+            <span className="text-slate-900 dark:text-slate-100">{selectedBranch.name}</span>
           ) : (
-            <span className="text-zinc-500 dark:text-zinc-400">Select branch (optional)</span>
+            <span className="text-slate-500 dark:text-slate-400">Select branch (optional)</span>
           )}
         </div>
         <ChevronDown
-          className={cn('h-4 w-4 text-zinc-400 transition-transform', isOpen && 'rotate-180')}
+          className={cn('h-4 w-4 text-slate-400 transition-transform', isOpen && 'rotate-180')}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-lg border border-zinc-200/50 dark:border-zinc-700/50 bg-white dark:bg-zinc-800 shadow-lg">
-          <div className="sticky top-0 z-10 border-b border-zinc-200/50 dark:border-zinc-700/50 bg-white dark:bg-zinc-800 px-2 py-1.5">
+        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-lg border border-slate-200/50 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-lg">
+          <div className="sticky top-0 z-10 border-b border-slate-200/50 dark:border-slate-700/50 bg-white dark:bg-slate-800 px-2 py-1.5">
             <div className="relative">
               <Search
                 size={12}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none"
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
               />
               <input
                 ref={searchInputRef}
@@ -230,13 +230,13 @@ export function BranchPicker({
                   }
                 }}
                 placeholder="Filter branches..."
-                className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md bg-zinc-100 dark:bg-zinc-900 border border-transparent focus:border-blue-500/40 focus:outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400"
+                className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-blue-500/40 focus:outline-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                 >
                   <X size={11} />
                 </button>
@@ -248,8 +248,8 @@ export function BranchPicker({
             type="button"
             onClick={handleClear}
             className={cn(
-              'w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
-              !value && 'bg-zinc-100 dark:bg-zinc-700'
+              'w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
+              !value && 'bg-slate-100 dark:bg-slate-700'
             )}
           >
             <span>No branch (work in directory)</span>
@@ -262,8 +262,8 @@ export function BranchPicker({
           )}
 
           {filteredLocal.length > 0 && (
-            <div className="border-t border-zinc-200/50 dark:border-zinc-700/50">
-              <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900">
+            <div className="border-t border-slate-200/50 dark:border-slate-700/50">
+              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900">
                 Local branches
               </div>
               {filteredLocal.map((branch) => {
@@ -275,7 +275,7 @@ export function BranchPicker({
                     disabled={repoState.isDirty && !isCurrent}
                     onClick={() => handleSelect(branch.name)}
                     className={cn(
-                      'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
+                      'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
                       value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
                       repoState.isDirty && !isCurrent && 'opacity-50 cursor-not-allowed'
                     )}
@@ -288,7 +288,7 @@ export function BranchPicker({
                       )}
                       <span
                         className={cn(
-                          'text-zinc-900 dark:text-zinc-100',
+                          'text-slate-900 dark:text-slate-100',
                           isCurrent && 'font-medium'
                         )}
                       >
@@ -296,7 +296,7 @@ export function BranchPicker({
                       </span>
                     </div>
                     {branch.lastCommitMessage && (
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-32 ml-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-32 ml-2">
                         {branch.lastCommitMessage}
                       </span>
                     )}
@@ -307,8 +307,8 @@ export function BranchPicker({
           )}
 
           {filteredRemote.length > 0 && (
-            <div className="border-t border-zinc-200/50 dark:border-zinc-700/50">
-              <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900">
+            <div className="border-t border-slate-200/50 dark:border-slate-700/50">
+              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900">
                 Remote branches
               </div>
               {filteredRemote.map((branch) => (
@@ -318,13 +318,13 @@ export function BranchPicker({
                   disabled={repoState.isDirty}
                   onClick={() => handleSelect(branch.name)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
+                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
                     value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
                     repoState.isDirty && 'opacity-50 cursor-not-allowed'
                   )}
                 >
                   <div className="flex flex-col items-start">
-                    <span className="text-zinc-900 dark:text-zinc-100">{branch.name}</span>
+                    <span className="text-slate-900 dark:text-slate-100">{branch.name}</span>
                     {!branch.isCheckedOutLocally && (
                       <span className="text-xs text-blue-500">
                         Will create local tracking branch
@@ -332,7 +332,7 @@ export function BranchPicker({
                     )}
                   </div>
                   {branch.lastCommitDate && (
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
                       {formatDate(branch.lastCommitDate)}
                     </span>
                   )}
@@ -342,7 +342,7 @@ export function BranchPicker({
           )}
 
           {search && filteredLocal.length === 0 && filteredRemote.length === 0 && (
-            <div className="px-3 py-4 text-xs text-zinc-400 text-center">
+            <div className="px-3 py-4 text-xs text-slate-400 text-center">
               No branches match &ldquo;{search}&rdquo;
             </div>
           )}

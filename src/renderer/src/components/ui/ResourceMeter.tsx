@@ -94,7 +94,12 @@ function MeterBar({
   const c = colorMap[color]
 
   return (
-    <div className={cn('glass-card flex flex-col', compact ? 'p-1.5 gap-1' : 'p-3 gap-2')}>
+    <div
+      className={cn(
+        'flex flex-col rounded-xl border border-border/60 bg-card/60 dark:bg-slate-800/60 backdrop-blur-sm',
+        compact ? 'p-1.5 gap-1' : 'p-3 gap-2'
+      )}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1">
           <span className={c.text}>{icon}</span>
