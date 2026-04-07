@@ -723,7 +723,7 @@ function App(): React.ReactNode {
         setUpdate(update)
         setVersion(update.version)
         setReleaseBody(update.body || null)
-        setMessage(update.body?.trim() || `Version ${update.version} is available`)
+        setMessage(`Version ${update.version} is available`)
         setPhase('available')
         setShowModal(true)
       } catch (error) {
