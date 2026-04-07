@@ -110,3 +110,38 @@ Four provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `clau
 - **State:** Use `usePairStore` for pair-related global state. Add new stores in `src/renderer/src/store/` only if the concern is orthogonal.
 - **Tauri Commands:** Add new commands to the appropriate Rust module and register them in `lib.rs`'s `invoke_handler`.
 - **Models:** Update `model_catalog.rs` when adding new model entries; update `provider_registry.rs` for new provider detection logic.
+
+## Release Process (Automated)
+
+**⚠️ CRITICAL: Never manually create or push git tags!**
+
+The release workflow (`build-signed-mac.yml`) is fully automated:
+
+1. **Prepare release:**
+   - Update version in `package.json` using `npm run bump <version>`
+   - Update `CHANGELOG.md` with release notes
+   - Run quality gates locally: `npm test && npm run typecheck && npm run lint`
+
+2. **Publish:**
+   - Commit changes: `git commit -m "chore: bump version to X.Y.Z"`
+   - Push to main: `git push`
+   - **Do NOT run `git tag` or `git push --tags`**
+
+3. **Workflow automation:**
+   - GitHub Actions detects version bump
+   - Auto-creates tag `vX.Y.Z`
+   - Builds macOS, Windows, Linux binaries
+   - Publishes GitHub release with changelog
+   - Uploads signed artifacts
+
+4. **Verify:**
+   - Monitor at: https://github.com/timwuhaotian/the-pair/actions
+   - Check release page for correct artifacts and notes
+
+**Fallback:** If workflow fails to trigger, run:
+
+```bash
+gh workflow run build-signed-mac.yml
+```
+
+See `docs/RELEASE_CHECKLIST.md` for detailed checklist.

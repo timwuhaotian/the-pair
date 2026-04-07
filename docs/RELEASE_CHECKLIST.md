@@ -2,6 +2,16 @@
 
 Use this checklist before cutting a public release of The Pair.
 
+**⚠️ CRITICAL: The release workflow is fully automated. Never manually create or push tags.**
+
+The GitHub Actions workflow (`build-signed-mac.yml`) automatically:
+
+- Detects version bumps in package.json
+- Creates tags
+- Builds all platform binaries
+- Publishes GitHub releases
+- Uploads signed artifacts
+
 ## 1. Repo Hygiene
 
 - [ ] Working tree is clean except for the intended release commit
@@ -43,12 +53,30 @@ npm run build
 - [ ] Release artifacts are generated for macOS, Windows, and Linux
 - [ ] `npm run preflight`, `npm run build:mac`, `npm run build:win`, or `npm run build:linux` work for the target platform
 
-## 5. GitHub Release
+## 5. GitHub Release (Automated)
 
-- [ ] Tag the release with a `v` prefix, for example `v1.1.4`
-- [ ] Publish the GitHub release after assets are attached
+**⚠️ IMPORTANT: Do NOT create or push tags manually!**
+
+The release workflow is fully automated:
+
+- [ ] Push the version bump commit to main branch (`git push`)
+- [ ] Wait for GitHub Actions workflow to detect version bump
+- [ ] Workflow auto-creates tag and publishes release with all artifacts
+- [ ] Monitor workflow at: https://github.com/timwuhaotian/the-pair/actions
 - [ ] Verify the release page downloads without authentication
 - [ ] Verify the release notes are readable and complete
+
+**Workflow flow:**
+
+1. `detect-version-bump` checks if version in package.json changed
+2. If tag doesn't exist → auto-publishes (lints, builds, tags, releases)
+3. If tag already exists → skips (prevents duplicate releases)
+
+**Manual trigger (fallback):**
+
+```bash
+gh workflow run build-signed-mac.yml
+```
 
 ## 6. Post-Release Verification
 

@@ -34,7 +34,9 @@ if (!changelog.includes(`## [${newVersion}]`)) {
   console.error(`## [${newVersion}] - ${new Date().toISOString().split('T')[0]}\n`)
   console.error(`### Fixed`)
   console.error(`- Fixed ...\n`)
-  console.error(`Then run: git add -A && git commit -m "chore: bump version to ${newVersion}" && git tag v${newVersion} && git push && git push --tags`)
+  console.error(
+    `Then run: git add -A && git commit -m "chore: bump version to ${newVersion}" && git push`
+  )
   process.exit(1)
 }
 
@@ -43,5 +45,6 @@ console.log(`✅ Changelog entry exists`)
 console.log(`\nNext steps:`)
 console.log(`  git add -A`)
 console.log(`  git commit -m "chore: bump version to ${newVersion}"`)
-console.log(`  git tag v${newVersion}`)
-console.log(`  git push && git push --tags`)
+console.log(`  git push`)
+console.log(`\n⚠️  IMPORTANT: Do NOT create or push tags manually!`)
+console.log(`   The GitHub Actions workflow will auto-detect the version bump and publish.`)
