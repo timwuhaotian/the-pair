@@ -565,7 +565,7 @@ function PairDetail({
                                 }}
                               >
                                 <XCircle size={12} />
-                                终止进程
+                                Kill Process
                               </GlassButton>
                             </div>
                           )}

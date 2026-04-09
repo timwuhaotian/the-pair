@@ -43,7 +43,7 @@ export function ActivityIndicator({
       >
         <AlertTriangle size={10} className="text-red-400" />
         <span className="text-[9px] font-medium text-red-400">
-          卡住{lastOutputAge > 0 && ` · ${formatDuration(lastOutputAge)} 无输出`}
+          Stalled{lastOutputAge > 0 && ` · ${formatDuration(lastOutputAge)} no output`}
         </span>
       </div>
     )
@@ -57,7 +57,7 @@ export function ActivityIndicator({
           className
         )}
       >
-        <span className="text-[9px] font-medium text-red-400">错误</span>
+        <span className="text-[9px] font-medium text-red-400">Error</span>
       </div>
     )
   }
@@ -72,14 +72,14 @@ export function ActivityIndicator({
       >
         <Loader2 size={9} className="animate-spin text-blue-400" />
         <span className="text-[9px] font-medium text-blue-400">
-          推理{elapsed > 0 && ` · ${formatDuration(elapsed)}`}
+          Thinking{elapsed > 0 && ` · ${formatDuration(elapsed)}`}
         </span>
       </div>
     )
   }
 
   if (activity.phase === 'using_tools') {
-    const label = activity.detail?.trim() || activity.label.trim() || '工具调用'
+    const label = activity.detail?.trim() || activity.label.trim() || 'Tool call'
     return (
       <div
         className={cn(
@@ -90,7 +90,7 @@ export function ActivityIndicator({
         <span className="text-[9px] font-medium text-amber-400">
           {label}
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
-            ? ` · ${activity.outputLineCount} 行`
+            ? ` · ${activity.outputLineCount} lines`
             : ''}
         </span>
       </div>
@@ -106,12 +106,14 @@ export function ActivityIndicator({
         )}
       >
         <span className="text-[9px] font-medium text-purple-400">
-          输出
+          Output
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
-            ? ` · ${activity.outputLineCount} 行`
+            ? ` · ${activity.outputLineCount} lines`
             : ''}
           {elapsed > 0 && ` · ${formatDuration(elapsed)}`}
-          {lastOutputAge > 5 && elapsed > 0 ? ` · 最后活动 ${formatDuration(lastOutputAge)}前` : ''}
+          {lastOutputAge > 5 && elapsed > 0
+            ? ` · last activity ${formatDuration(lastOutputAge)} ago`
+            : ''}
         </span>
       </div>
     )

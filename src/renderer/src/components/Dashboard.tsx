@@ -46,9 +46,9 @@ export function Dashboard({
         <div className="relative z-10 flex h-full flex-col p-6">
           <div className="mb-6 flex items-end justify-between gap-6">
             <div>
-              <h1 className="flex items-center gap-3 text-3xl font-semibold tracking-tight text-foreground">
+              <h1 className="flex items-center gap-3 text-2xl font-semibold tracking-tight text-foreground">
                 Pair Containers
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
+                <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 border border-primary/20 px-3 py-1.5 text-[10px] font-semibold text-primary shadow-sm">
                   <span className="relative flex h-2 w-2">
                     {pairs.length > 0 && (
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
@@ -88,15 +88,15 @@ export function Dashboard({
                       hoverable
                       onClick={() => onSelectPair(pair)}
                       glow={getPairGlow(pair.status)}
-                      className="flex min-h-[140px] flex-col gap-2.5 p-4"
+                      className="flex min-h-[152px] flex-col gap-3 p-4"
                     >
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
                             {pair.name}
                           </h3>
                           <p
-                            className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
+                            className="mt-1 truncate font-mono text-xs text-muted-foreground"
                             title={pair.directory}
                           >
                             {pair.directory}
@@ -127,41 +127,39 @@ export function Dashboard({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className="rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                           Run {pair.runCount}
                         </span>
-                        <span className="rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                           {pair.runHistory.length} archived
                         </span>
                         {pair.status === 'Paused' ? (
-                          <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
+                          <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                             Paused
                           </span>
                         ) : (
                           !isPairActive(pair.status) && (
-                            <span className="rounded-full border border-green-500/20 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
+                            <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-green-700 dark:text-green-400">
                               Ready for new task
                             </span>
                           )
                         )}
                         {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
-                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-700 dark:text-amber-400">
                             Models queued
                           </span>
                         )}
                       </div>
 
-                      <div className="flex-1 text-xs leading-snug text-muted-foreground line-clamp-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      <p className="flex-1 text-xs leading-relaxed text-muted-foreground line-clamp-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         {pair.spec}
-                      </div>
+                      </p>
 
-                      <div className="mt-auto space-y-1.5 border-t border-border/40 pt-2.5">
-                        {/* 资源监控 */}
+                      <div className="mt-auto space-y-2 border-t border-border/40 pt-3">
                         <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} compact hideLabels />
 
-                        {/* 状态和模型信息 */}
-                        <div className="flex items-center justify-between text-[9px]">
+                        <div className="flex items-center justify-between text-[10px]">
                           <div className="flex items-center gap-1.5 font-mono text-muted-foreground">
                             <RefreshCw
                               size={10}
@@ -176,16 +174,20 @@ export function Dashboard({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-4">
                             <div className="flex items-center gap-1">
-                              <span className="font-bold text-blue-600">M</span>
-                              <span className="max-w-[70px] truncate font-mono text-muted-foreground">
+                              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                                M
+                              </span>
+                              <span className="max-w-[72px] truncate font-mono text-[10px] text-muted-foreground">
                                 {(pair.pendingMentorModel ?? pair.mentorModel).split('/').pop()}
                               </span>
                             </div>
                             <div className="flex items-center gap-1">
-                              <span className="font-bold text-purple-600">E</span>
-                              <span className="max-w-[70px] truncate font-mono text-muted-foreground">
+                              <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400">
+                                E
+                              </span>
+                              <span className="max-w-[72px] truncate font-mono text-[10px] text-muted-foreground">
                                 {(pair.pendingExecutorModel ?? pair.executorModel).split('/').pop()}
                               </span>
                             </div>

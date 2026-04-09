@@ -435,8 +435,8 @@ impl MessageBroker {
         pair_id_string: String,
         active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
     ) {
-        const STALL_WARNING_SECS: u64 = 60;
-        const STALL_CRITICAL_SECS: u64 = 180;
+        const STALL_WARNING_SECS: u64 = 120;
+        const STALL_CRITICAL_SECS: u64 = 600;
 
         tauri::async_runtime::spawn(async move {
             let mut sys = sysinfo::System::new_all();
