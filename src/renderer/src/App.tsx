@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react'
-import { Pause, Play, RefreshCw, RotateCcw, Terminal, Zap } from 'lucide-react'
+import { Pause, Play, RefreshCw, RotateCcw, Terminal, Zap, XCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
@@ -26,6 +26,7 @@ import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { buildTimeline } from './lib/timeline'
 import { isPairActive } from './lib/pairStatus'
+import { ActivityIndicator } from './components/ActivityIndicator'
 import { isAgentExecuting } from './lib/helpers'
 import { useMinimumVisibleText } from './hooks/useMinimumVisibleText'
 import { Dashboard } from './components/Dashboard'
@@ -44,6 +45,7 @@ function PairDetail({
   onRestoreTask: (spec: string, mentorModel: string, executorModel: string) => void
 }): React.ReactNode {
   const retryTurn = usePairStore((s) => s.retryTurn)
+  const killProcess = usePairStore((s) => s.killProcess)
   const isStoreBusy = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
@@ -540,18 +542,51 @@ function PairDetail({
                     ))}
                   </div>
                 )}
-                {pair.currentTurnCard && (
+                {(pair.currentTurnCard || isPairActive(pair.status)) && (
                   <div className="pt-1">
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={pair.currentTurnCard.id}
-                        initial={false}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, transition: { duration: 0.15 } }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        <TurnCardView card={pair.currentTurnCard} />
-                      </motion.div>
+                    <AnimatePresence mode="popLayout">
+                      {pair.currentTurnCard ? (
+                        <motion.div
+                          key={pair.currentTurnCard.id}
+                          initial={false}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          <TurnCardView card={pair.currentTurnCard} />
+                          {pair.currentTurnCard.activity.phase === 'stalled' && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <GlassButton
+                                variant="destructive"
+                                size="sm"
+                                className="w-full gap-1.5"
+                                onClick={() => {
+                                  void killProcess(pair.id, pair.currentTurnCard!.role)
+                                }}
+                              >
+                                <XCircle size={12} />
+                                终止进程
+                              </GlassButton>
+                            </div>
+                          )}
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="active-placeholder"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-glass-panel text-sm text-muted-foreground">
+                            <ActivityIndicator
+                              activity={
+                                pair.turn === 'mentor' ? pair.mentorActivity : pair.executorActivity
+                              }
+                            />
+                          </div>
+                        </motion.div>
+                      )}
                     </AnimatePresence>
                   </div>
                 )}

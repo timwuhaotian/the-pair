@@ -727,6 +727,51 @@ pub fn repo_list_branches(directory: String) -> Result<Vec<BranchInfo>, String> 
     crate::worktree_manager::list_branches(&directory)
 }
 
+#[tauri::command]
+pub async fn kill_process(
+    state: tauri::State<'_, std::sync::Mutex<PairManager>>,
+    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
+    spawner: tauri::State<'_, ProcessSpawner>,
+    pair_id: String,
+    role: String,
+) -> Result<(), String> {
+    {
+        let manager = state.lock().unwrap();
+        if !manager.pairs.contains_key(&pair_id) {
+            return Err(format!("Pair {} not found", pair_id));
+        }
+    }
+
+    let key = format!("{}-{}", pair_id, role);
+    {
+        let mut active_processes = spawner.active_processes.lock().unwrap();
+        if let Some(mut child) = active_processes.remove(&key) {
+            println!("[kill_process] Killing {} process for pair {}", role, pair_id);
+            let _ = child.start_kill();
+        } else {
+            return Err(format!("No active {} process found for pair {}", role, pair_id));
+        }
+    }
+
+    {
+        let broker = broker.lock().unwrap();
+        broker.update_agent_activity(
+            &pair_id,
+            &role,
+            crate::types::ActivityPhase::Idle,
+            "Process killed".to_string(),
+            Some("Terminated by user".to_string()),
+        );
+        broker.set_pair_status(
+            &pair_id,
+            PairStatus::Paused,
+            Some(format!("{} process terminated", role)),
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

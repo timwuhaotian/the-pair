@@ -46,7 +46,14 @@ export type PairStatus =
   | 'Error'
   | 'Finished'
 
-export type ActivityPhase = 'idle' | 'thinking' | 'using_tools' | 'responding' | 'waiting' | 'error'
+export type ActivityPhase =
+  | 'idle'
+  | 'thinking'
+  | 'using_tools'
+  | 'responding'
+  | 'waiting'
+  | 'error'
+  | 'stalled'
 
 export interface AgentActivity {
   phase: ActivityPhase
@@ -54,6 +61,8 @@ export interface AgentActivity {
   detail?: string
   startedAt: number
   updatedAt: number
+  lastOutputAt?: number
+  outputLineCount?: number
 }
 
 export interface ResourceInfo {
@@ -160,6 +169,7 @@ export interface Pair {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  turnStartedAt?: number
 }
 
 interface PairStateSnapshot {
@@ -181,6 +191,7 @@ interface PairStateSnapshot {
   mentor?: { tokenUsage: TurnTokenUsage | null }
   executor?: { tokenUsage: TurnTokenUsage | null }
   messages?: Message[]
+  turnStartedAt?: number
 }
 
 interface PairMessageEvent {
@@ -242,6 +253,7 @@ interface PairStore {
   pausePair: (id: string) => Promise<void>
   resumePair: (id: string) => Promise<void>
   deletePair: (id: string) => Promise<void>
+  killProcess: (pairId: string, role: string) => Promise<void>
   updatePairStatus: (id: string, status: PairStatus) => void
   updatePairUsage: (id: string, cpu: number, mem: number) => void
   addMessage: (pairId: string, message: Message) => void
@@ -266,7 +278,9 @@ function createIdleActivity(label: string): AgentActivity {
     phase: 'idle',
     label,
     startedAt: now,
-    updatedAt: now
+    updatedAt: now,
+    lastOutputAt: undefined,
+    outputLineCount: 0
   }
 }
 
@@ -386,15 +400,20 @@ function buildTurnCardContent(activity: AgentActivity, fallbackLabel: string): s
   return fallbackLabel
 }
 
+function stableTurnCardId(role: 'mentor' | 'executor', iteration: number): string {
+  return `turn-${role}-iter${iteration}`
+}
+
 function createTurnCard(
   role: 'mentor' | 'executor',
   activity: AgentActivity,
   content: string,
-  state: 'live' | 'final' = 'live'
+  state: 'live' | 'final' = 'live',
+  stableId?: string
 ): TurnCard {
   const now = Date.now()
   return {
-    id: `turn-${role}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    id: stableId ?? `turn-${role}-${now}-${Math.random().toString(36).slice(2, 8)}`,
     role,
     state,
     content,
@@ -615,28 +634,57 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
       (latestFromTurn.type === 'plan' ||
         latestFromTurn.type === 'result' ||
         latestFromTurn.type === 'acceptance')
-    if (hasFinalMessageFromTurnRole) {
-      currentTurnCard = undefined
-    } else {
-      const nextContent = buildTurnCardContent(
-        nextActiveActivity,
-        nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
-      )
-      const nextTokenUsage =
-        nextTurn === 'mentor'
-          ? resolveCurrentTurnTokenUsage(
-              state.mentor?.tokenUsage,
-              currentTurnCard?.tokenUsage,
-              pair.mentorTokenUsage
-            )
-          : resolveCurrentTurnTokenUsage(
-              state.executor?.tokenUsage,
-              currentTurnCard?.tokenUsage,
-              pair.executorTokenUsage
-            )
 
+    const nextContent = buildTurnCardContent(
+      nextActiveActivity,
+      nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
+    )
+    const nextTokenUsage =
+      nextTurn === 'mentor'
+        ? resolveCurrentTurnTokenUsage(
+            state.mentor?.tokenUsage,
+            currentTurnCard?.tokenUsage,
+            pair.mentorTokenUsage
+          )
+        : resolveCurrentTurnTokenUsage(
+            state.executor?.tokenUsage,
+            currentTurnCard?.tokenUsage,
+            pair.executorTokenUsage
+          )
+
+    if (hasFinalMessageFromTurnRole) {
+      const activityPhase = nextActiveActivity.phase
+      if (activityPhase === 'idle' || activityPhase === 'waiting') {
+        currentTurnCard = undefined
+      } else {
+        if (!currentTurnCard) {
+          currentTurnCard = createTurnCard(
+            nextTurn,
+            nextActiveActivity,
+            nextContent,
+            'live',
+            stableTurnCardId(nextTurn, pair.iterations)
+          )
+          currentTurnCard.tokenUsage = nextTokenUsage
+        } else if (currentTurnCard.role === nextTurn) {
+          currentTurnCard = {
+            ...currentTurnCard,
+            activity: nextActiveActivity,
+            content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
+            updatedAt: nextActiveActivity.updatedAt,
+            tokenUsage: nextTokenUsage
+          }
+        }
+      }
+    } else {
       if (!currentTurnCard) {
-        currentTurnCard = createTurnCard(nextTurn, nextActiveActivity, nextContent, 'live')
+        currentTurnCard = createTurnCard(
+          nextTurn,
+          nextActiveActivity,
+          nextContent,
+          'live',
+          stableTurnCardId(nextTurn, pair.iterations)
+        )
         currentTurnCard.tokenUsage = nextTokenUsage
       } else if (currentTurnCard.role === nextTurn) {
         currentTurnCard = {
@@ -673,7 +721,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     latestAcceptance: state.latestAcceptance ?? pair.latestAcceptance,
     mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
     executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
-    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt)
+    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt),
+    turnStartedAt: state.turnStartedAt ?? pair.turnStartedAt
   }
 }
 
@@ -883,7 +932,13 @@ export const usePairStore = create<PairStore>((set) => ({
 
             const nextContent = progress.detail || buildTurnCardContent(nextActivity, 'Working...')
             if (!currentTurnCard) {
-              currentTurnCard = createTurnCard(role, nextActivity, nextContent, 'live')
+              currentTurnCard = createTurnCard(
+                role,
+                nextActivity,
+                nextContent,
+                'live',
+                stableTurnCardId(role, pair.iterations)
+              )
             } else {
               currentTurnCard = {
                 ...currentTurnCard,
@@ -1448,6 +1503,18 @@ export const usePairStore = create<PairStore>((set) => ({
 
   retryTurn: async (id) => {
     await window.api.pair.retryTurn(id)
+  },
+
+  killProcess: async (pairId, role) => {
+    set({ isLoading: true, error: null })
+    try {
+      await window.api.pair.killProcess(pairId, role)
+      set({ isLoading: false })
+    } catch (error) {
+      const message = extractErrorMessage(error, 'Failed to kill process')
+      set({ isLoading: false, error: message })
+      throw error instanceof Error ? error : new Error(message)
+    }
   },
 
   updatePairStatus: (id, status) =>

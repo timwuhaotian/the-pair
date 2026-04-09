@@ -488,6 +488,8 @@ fn idle_activity() -> AgentActivity {
         detail: None,
         started_at: now,
         updated_at: now,
+        last_output_at: None,
+        output_line_count: 0,
     }
 }
 
@@ -646,6 +648,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         finished_at: snapshot.current_run_finished_at,
         latest_acceptance: snapshot.latest_acceptance.clone(),
         worktree_path: snapshot.worktree_path.clone(),
+        turn_started_at: None,
     }
 }
 
@@ -1126,6 +1129,8 @@ mod tests {
             detail: None,
             started_at: 0,
             updated_at: 0,
+            last_output_at: None,
+            output_line_count: 0,
         }
     }
 

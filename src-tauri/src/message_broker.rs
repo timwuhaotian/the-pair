@@ -33,6 +33,8 @@ impl MessageBroker {
             detail: None,
             started_at: now,
             updated_at: now,
+            last_output_at: None,
+            output_line_count: 0,
         }
     }
 
@@ -129,6 +131,7 @@ impl MessageBroker {
             finished_at: None,
             latest_acceptance: None,
             worktree_path: effective_directory.map(|s| s.to_string()),
+            turn_started_at: None,
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -432,6 +435,9 @@ impl MessageBroker {
         pair_id_string: String,
         active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
     ) {
+        const STALL_WARNING_SECS: u64 = 60;
+        const STALL_CRITICAL_SECS: u64 = 180;
+
         tauri::async_runtime::spawn(async move {
             let mut sys = sysinfo::System::new_all();
             loop {
@@ -444,6 +450,7 @@ impl MessageBroker {
                             | PairStatus::Error
                             | PairStatus::Idle
                             | PairStatus::AwaitingHumanReview
+                            | PairStatus::Paused
                     ) {
                         break;
                     }
@@ -452,8 +459,75 @@ impl MessageBroker {
                     let active = active_processes.clone();
                     crate::resource_monitor::ResourceMonitor::update_state(state, &mut sys, active);
 
-                    if let Some(handle) = &app_handle {
-                        let _ = handle.emit("pair:state", state.clone());
+                    let now = now_millis();
+                    let active_role = if state.turn == AgentRole::Mentor {
+                        "mentor"
+                    } else {
+                        "executor"
+                    };
+                    let activity = if state.turn == AgentRole::Mentor {
+                        &state.mentor_activity
+                    } else {
+                        &state.executor_activity
+                    };
+
+                    let mut activity_for_update = false;
+                    let mut new_phase = activity.phase.clone();
+                    let mut new_label = activity.label.clone();
+                    let mut new_detail = activity.detail.clone();
+
+                    if activity.last_output_at.is_some() {
+                        let elapsed_secs = (now - activity.last_output_at.unwrap()) / 1000;
+                        if elapsed_secs >= STALL_CRITICAL_SECS {
+                            new_phase = ActivityPhase::Stalled;
+                            new_label = format!("No output for {}s — process may be stuck", elapsed_secs);
+                            new_detail = Some(format!("Stalled after {}s of inactivity", elapsed_secs));
+                            activity_for_update = true;
+                        } else if elapsed_secs >= STALL_WARNING_SECS
+                            && activity.phase != ActivityPhase::Stalled
+                        {
+                            new_detail = Some(format!("No new output for {}s", elapsed_secs));
+                            activity_for_update = true;
+                        }
+                    } else if let Some(started) = state.turn_started_at {
+                        let elapsed_secs = (now - started) / 1000;
+                        if elapsed_secs >= STALL_CRITICAL_SECS {
+                            new_phase = ActivityPhase::Stalled;
+                            new_label = format!("No output after {}s — process may be stuck", elapsed_secs);
+                            new_detail = Some(format!("Waiting for first output for {}s", elapsed_secs));
+                            activity_for_update = true;
+                        } else if elapsed_secs >= STALL_WARNING_SECS
+                            && activity.phase != ActivityPhase::Stalled
+                        {
+                            new_detail = Some(format!("Waiting for first output... ({}s)", elapsed_secs));
+                            activity_for_update = true;
+                        }
+                    }
+
+                    drop(guard);
+                    if activity_for_update {
+                        let mut guard2 = pair_states.lock().unwrap();
+                        if let Some(state) = guard2.get_mut(&pair_id_string) {
+                            let activity = if active_role == "mentor" {
+                                &mut state.mentor_activity
+                            } else {
+                                &mut state.executor_activity
+                            };
+                            activity.phase = new_phase;
+                            activity.label = new_label;
+                            activity.detail = new_detail;
+                            activity.updated_at = now_millis();
+                            if let Some(handle) = &app_handle {
+                                let _ = handle.emit("pair:state", state.clone());
+                            }
+                        }
+                    } else {
+                        let mut guard2 = pair_states.lock().unwrap();
+                        if let Some(state) = guard2.get_mut(&pair_id_string) {
+                            if let Some(handle) = &app_handle {
+                                let _ = handle.emit("pair:state", state.clone());
+                            }
+                        }
                     }
                 } else {
                     break;
@@ -615,6 +689,58 @@ impl MessageBroker {
         }
     }
 
+    pub fn update_output_progress(&self, pair_id: &str, role: &str) {
+        let now = now_millis();
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            let activity = if role == "mentor" {
+                &mut state.mentor_activity
+            } else {
+                &mut state.executor_activity
+            };
+
+            if activity.phase == ActivityPhase::Stalled {
+                activity.phase = ActivityPhase::Responding;
+                activity.label = "Processing response".to_string();
+                activity.detail = None;
+            }
+
+            activity.last_output_at = Some(now);
+            activity.output_line_count += 1;
+            activity.updated_at = now;
+
+            let should_notify =
+                activity.output_line_count <= 5 || activity.output_line_count % 10 == 0;
+
+            drop(pair_states);
+            if should_notify {
+                let pair_states = self.pair_states.lock().unwrap();
+                if let Some(state) = pair_states.get(pair_id) {
+                    self.notify_state_update(pair_id, state);
+                }
+            }
+        }
+    }
+
+    pub fn set_turn_started_at(&self, pair_id: &str, timestamp: u64) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            let activity = if state.turn == AgentRole::Mentor {
+                &mut state.mentor_activity
+            } else {
+                &mut state.executor_activity
+            };
+            activity.output_line_count = 0;
+            activity.last_output_at = None;
+            activity.phase = ActivityPhase::Thinking;
+            activity.label = "Starting process...".to_string();
+            activity.detail = None;
+            activity.updated_at = timestamp;
+            state.turn_started_at = Some(timestamp);
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
     pub fn update_token_usage(&self, pair_id: &str, role: &str, usage: TurnTokenUsage) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -748,6 +874,8 @@ mod tests {
             detail: None,
             started_at: 0,
             updated_at: 0,
+            last_output_at: None,
+            output_line_count: 0,
         }
     }
 
@@ -802,6 +930,7 @@ mod tests {
             finished_at: None,
             latest_acceptance: None,
             worktree_path: None,
+            turn_started_at: None,
         }
     }
 

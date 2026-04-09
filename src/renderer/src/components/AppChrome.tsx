@@ -87,7 +87,17 @@ export function AppChrome({
                   timwuhaotian
                 </span>
               </a>
-              {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
+              {selectedPair ? (
+                <StatusBadge
+                  status={selectedPair.status}
+                  stalled={
+                    (selectedPair.turn === 'mentor' &&
+                      selectedPair.mentorActivity.phase === 'stalled') ||
+                    (selectedPair.turn === 'executor' &&
+                      selectedPair.executorActivity.phase === 'stalled')
+                  }
+                />
+              ) : null}
               {selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel ? (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
                   Models queued

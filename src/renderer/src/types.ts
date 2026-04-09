@@ -106,11 +106,13 @@ export interface PairModelSelection {
 }
 
 export interface AgentActivity {
-  phase: 'idle' | 'thinking' | 'using_tools' | 'responding' | 'waiting' | 'error'
+  phase: 'idle' | 'thinking' | 'using_tools' | 'responding' | 'waiting' | 'error' | 'stalled'
   label: string
   detail?: string
   startedAt: number
   updatedAt: number
+  lastOutputAt?: number
+  outputLineCount?: number
 }
 
 export interface SnapshotTurnCard {

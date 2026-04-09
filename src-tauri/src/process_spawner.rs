@@ -1,18 +1,19 @@
 use crate::acceptance::{
     canonical_acceptance_verdict_json, parse_acceptance_verdict, run_acceptance_checks,
 };
+use crate::message_broker::MessageBroker;
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
-    AcceptanceRecord, PairStatus, TokenUsageSource, TurnTokenUsage,
+    AcceptanceRecord, ActivityPhase, PairStatus, TokenUsageSource, TurnTokenUsage,
 };
 use crate::util::is_mock_mode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -648,6 +649,15 @@ impl ProcessSpawner {
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
                     let broker = broker.lock().unwrap();
                     broker.reset_token_usage(&pair_id_mock, &role_mock);
+                    let now = crate::util::now_millis();
+                    broker.update_agent_activity(
+                        &pair_id_mock,
+                        &role_mock,
+                        ActivityPhase::Thinking,
+                        "Starting process...".to_string(),
+                        None,
+                    );
+                    broker.set_turn_started_at(&pair_id_mock, now);
                 }
 
                 let current_iteration =
@@ -685,6 +695,7 @@ impl ProcessSpawner {
                     if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
                         let broker = broker.lock().unwrap();
                         broker.add_log_line(&pair_id_mock, &role_mock, line);
+                        broker.update_output_progress(&pair_id_mock, &role_mock);
                     }
                 }
 
@@ -933,6 +944,19 @@ impl ProcessSpawner {
             .spawn()
             .map_err(|e| format!("Failed to spawn process: {}", e))?;
 
+        let now = crate::util::now_millis();
+        if let Some(broker) = app.try_state::<Mutex<MessageBroker>>() {
+            let broker = broker.lock().unwrap();
+            broker.update_agent_activity(
+                &pair_id,
+                &role,
+                ActivityPhase::Thinking,
+                "Starting process...".to_string(),
+                None,
+            );
+            broker.set_turn_started_at(&pair_id, now);
+        }
+
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
         let mut reader = BufReader::new(stdout).lines();
@@ -1008,6 +1032,7 @@ impl ProcessSpawner {
                 if let Some(event) = parse_json_event(&line) {
                     is_internal_json = true;
                     let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let event_type_lower = event_type.to_lowercase();
 
                     if !event_type.is_empty() {
                         println!(
@@ -1032,6 +1057,94 @@ impl ProcessSpawner {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                             let broker = broker.lock().unwrap();
                             broker.update_token_usage(&pair_id_clone, &role_clone, usage);
+                        }
+                    }
+
+                    if first_output {
+                        if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                            let broker = broker.lock().unwrap();
+                            let (phase, label, detail) = if event_type_lower.contains("tool")
+                                || event_type_lower.contains("function_call")
+                            {
+                                let tool_name = event
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("tool");
+                                (
+                                    ActivityPhase::UsingTools,
+                                    format!("Calling {}", tool_name),
+                                    None,
+                                )
+                            } else if event_type_lower.contains("content_block_delta")
+                                || event_type_lower.contains("text")
+                                || event_type_lower.contains("content")
+                            {
+                                (
+                                    ActivityPhase::Responding,
+                                    "Processing response".to_string(),
+                                    None,
+                                )
+                            } else if event_type_lower.contains("message_start")
+                                || event_type_lower.contains("turn_start")
+                            {
+                                (
+                                    ActivityPhase::Thinking,
+                                    "Analyzing task".to_string(),
+                                    None,
+                                )
+                            } else if event_type_lower.contains("thinking") {
+                                (
+                                    ActivityPhase::Thinking,
+                                    "Reasoning...".to_string(),
+                                    None,
+                                )
+                            } else if event_type_lower.contains("step_start") {
+                                (
+                                    ActivityPhase::Thinking,
+                                    "Starting step".to_string(),
+                                    None,
+                                )
+                            } else if event_type_lower.contains("result")
+                                || event_type_lower.contains("complete")
+                                || event_type_lower.contains("done")
+                            {
+                                (
+                                    ActivityPhase::Responding,
+                                    "Finalizing response".to_string(),
+                                    None,
+                                )
+                            } else {
+                                (
+                                    ActivityPhase::Responding,
+                                    "Processing response".to_string(),
+                                    None,
+                                )
+                            };
+                            broker.update_agent_activity(
+                                &pair_id_clone,
+                                &role_clone,
+                                phase,
+                                label,
+                                detail,
+                            );
+                        }
+                        first_output = false;
+                    } else if event_type_lower.contains("tool")
+                        || event_type_lower.contains("function_call")
+                    {
+                        if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                            let broker = broker.lock().unwrap();
+                            let tool_name = event
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("tool");
+                            broker.update_agent_activity(
+                                &pair_id_clone,
+                                &role_clone,
+                                ActivityPhase::UsingTools,
+                                format!("Calling {}", tool_name),
+                                None,
+                            );
                         }
                     }
 
@@ -1069,20 +1182,20 @@ impl ProcessSpawner {
                         "[ProcessSpawner] [{}] {}: {}",
                         pair_id_clone, role_clone, line
                     );
-                }
 
-                if first_output {
-                    if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
-                        broker.update_agent_activity(
-                            &pair_id_clone,
-                            &role_clone,
-                            ActivityPhase::Responding,
-                            "Processing response".to_string(),
-                            None,
-                        );
+                    if first_output {
+                        if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                            let broker = broker.lock().unwrap();
+                            broker.update_agent_activity(
+                                &pair_id_clone,
+                                &role_clone,
+                                ActivityPhase::Responding,
+                                "Processing response".to_string(),
+                                None,
+                            );
+                        }
+                        first_output = false;
                     }
-                    first_output = false;
                 }
 
                 // Keep detailed logs, but avoid polluting plain output fallback with JSON internals.
@@ -1096,6 +1209,10 @@ impl ProcessSpawner {
                 }
 
                 if !is_internal_json && !should_skip_plain_output_line(&line) {
+                    if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.update_output_progress(&pair_id_clone, &role_clone);
+                    }
                     if !accumulated_plain_output.is_empty() {
                         accumulated_plain_output.push('\n');
                     }

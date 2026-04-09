@@ -14,6 +14,7 @@ interface Window {
       stop: (pairId: string) => Promise<unknown>
       delete: (pairId: string) => Promise<unknown>
       retryTurn: (pairId: string) => Promise<unknown>
+      killProcess: (pairId: string, role: string) => Promise<unknown>
       list: () => Promise<unknown>
       getMessages: (pairId: string) => Promise<unknown>
       getState: (pairId: string) => Promise<unknown>

@@ -1,7 +1,14 @@
 import React from 'react'
 import { cn } from '../lib/utils'
 
-export function StatusBadge({ status }: { status: string }): React.ReactNode {
+interface StatusBadgeProps {
+  status: string
+  stalled?: boolean
+}
+
+export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactNode {
+  const isStalled = stalled || false
+
   const config: Record<string, { bg: string; text: string; border: string; glow: string }> = {
     Idle: {
       bg: 'bg-muted dark:bg-white/8',
@@ -56,29 +63,41 @@ export function StatusBadge({ status }: { status: string }): React.ReactNode {
   const s = config[status] || config['Idle']
   const isActive = status === 'Mentoring' || status === 'Executing'
 
+  const pulseColor = isStalled
+    ? 'bg-red-400'
+    : status === 'Mentoring'
+      ? 'bg-blue-400'
+      : status === 'Executing'
+        ? 'bg-purple-400'
+        : null
+
   return (
     <span
       className={cn(
         'text-[10px] font-medium px-2.5 py-1.5 rounded-full border inline-flex items-center gap-1.5',
         s.bg,
-        s.text,
+        isStalled
+          ? 'bg-red-500/20 dark:bg-red-500/25 text-red-400 border-red-500/40 dark:border-red-500/45 shadow-red-500/20 dark:shadow-red-500/25 shadow-[0_0_14px_rgba(239,68,68,0.2)]'
+          : s.text,
         s.border,
-        s.glow
+        isStalled
+          ? 'border-red-500/40 dark:border-red-500/45 shadow-red-500/20 dark:shadow-red-500/25 shadow-[0_0_14px_rgba(239,68,68,0.2)]'
+          : s.glow
       )}
     >
-      {isActive && (
+      {isActive && pulseColor && (
         <span className="relative flex h-1.5 w-1.5">
           <span
             className={cn(
               'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
-              status === 'Mentoring' ? 'bg-blue-400' : 'bg-purple-400'
+              pulseColor
             )}
             style={{ animationDuration: '2s' }}
           />
           <span
             className={cn(
               'relative inline-flex rounded-full h-1.5 w-1.5',
-              status === 'Mentoring' ? 'bg-blue-500' : 'bg-purple-500'
+              pulseColor.replace('400', '500')
             )}
           />
         </span>

@@ -9,6 +9,7 @@ import { TokenChip } from './TokenChip'
 import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
 import { TurnCard } from '../store/usePairStore'
+import { ActivityIndicator } from './ActivityIndicator'
 
 export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const prevCardId = usePrevious(card.id)
@@ -46,6 +47,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         borderAccent,
         animState === 'final' && isMentor && 'border-blue-400/40',
         animState === 'final' && !isMentor && 'border-purple-400/40',
+        card.activity.phase === 'stalled' && 'border-red-500/50 shadow-red-500/10',
         bg,
         'metal-sheen-surface'
       )}
@@ -58,6 +60,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70 transition-all duration-300">
           {card.state === 'live' ? 'working' : 'result'}
         </span>
+        {card.state === 'live' && <ActivityIndicator activity={card.activity} />}
         <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
       </div>
       <div

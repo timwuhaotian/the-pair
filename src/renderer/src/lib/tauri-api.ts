@@ -37,6 +37,10 @@ export const tauriApi = {
     pause: async (pairId: string): Promise<void> => {
       if (!isTauri) throw new Error('Not running in Tauri')
       return await invoke('pair_pause', { pairId })
+    },
+    killProcess: async (pairId: string, role: string): Promise<void> => {
+      if (!isTauri) throw new Error('Not running in Tauri')
+      return await invoke('kill_process', { pairId, role })
     }
   },
   repo: {

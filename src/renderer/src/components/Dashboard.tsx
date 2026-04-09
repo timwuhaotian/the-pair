@@ -103,7 +103,14 @@ export function Dashboard({
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <StatusBadge status={pair.status} />
+                          <StatusBadge
+                            status={pair.status}
+                            stalled={
+                              (pair.turn === 'mentor' && pair.mentorActivity.phase === 'stalled') ||
+                              (pair.turn === 'executor' &&
+                                pair.executorActivity.phase === 'stalled')
+                            }
+                          />
                           <GlassButton
                             variant="destructive"
                             size="sm"

@@ -144,7 +144,7 @@ pub enum MessageSender {
     Human,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ActivityPhase {
     Idle,
@@ -154,6 +154,7 @@ pub enum ActivityPhase {
     Responding,
     Waiting,
     Error,
+    Stalled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,6 +166,10 @@ pub struct AgentActivity {
     pub started_at: u64,
     #[serde(rename = "updatedAt")]
     pub updated_at: u64,
+    #[serde(rename = "lastOutputAt", skip_serializing_if = "Option::is_none")]
+    pub last_output_at: Option<u64>,
+    #[serde(rename = "outputLineCount", default)]
+    pub output_line_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +303,8 @@ pub struct PairState {
     pub latest_acceptance: Option<AcceptanceRecord>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
+    #[serde(rename = "turnStartedAt", skip_serializing_if = "Option::is_none")]
+    pub turn_started_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

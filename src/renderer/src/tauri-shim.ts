@@ -16,6 +16,8 @@ const api = {
     stop: (pairId: string) => invoke('pair_pause', { pairId }) as Promise<unknown>,
     delete: (pairId: string) => invoke('pair_delete', { pairId }) as Promise<unknown>,
     retryTurn: (pairId: string) => invoke('pair_retry_turn', { pairId }) as Promise<unknown>,
+    killProcess: (pairId: string, role: string) =>
+      invoke('kill_process', { pairId, role }) as Promise<unknown>,
     list: () => invoke('pair_list') as Promise<unknown>,
     getMessages: (pairId: string) => invoke('pair_get_messages', { pairId }) as Promise<unknown>,
     getState: (pairId: string) => invoke('pair_get_state', { pairId }) as Promise<unknown>,
