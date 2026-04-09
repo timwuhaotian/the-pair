@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.9] - 2026-04-10
+
+### Added
+
+- **Stalled activity detection**: New `stalled` activity phase for agents that haven't updated in over 60 seconds, with visual indicator in StatusBadge and ActivityIndicator.
+- **Process termination**: Backend support for gracefully terminating running pair processes with cleanup, preventing zombie processes when stopping or deleting pairs.
+- **Turn card tracking**: Improved turn card state tracking with stall detection and proper phase transitions in the frontend store.
+
+### Changed
+
+- **Dashboard visual polish**: Refined spacing scale consistency (gap-2/3/4), standardized badge typography to text-[10px] with refined tracking, and improved card layout alignment with grid-aligned min-height.
+- **Color palette migration**: Migrated from zinc to slate color palette across BranchPicker, TokenChip, and ResourceMeter for improved UI consistency with the rest of the app.
+- **UI localization**: Localized remaining Chinese comments and labels to English in Dashboard, AppChrome, and ResourceMeter components.
+- **Dark mode refinements**: Added proper dark mode variants for all status badge and model indicator colors for improved contrast.
+
+### Fixed
+
+- **Activity indicator positioning**: Fixed layout positioning for ActivityIndicator component to prevent overflow in constrained spaces.
+
 ## [1.3.8] - 2026-04-07
 
 ### Fixed
@@ -413,6 +432,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.3.9]: https://github.com/timwuhaotian/the-pair/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/timwuhaotian/the-pair/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/timwuhaotian/the-pair/compare/v1.3.6...v1.3.7
 [1.3.0]: https://github.com/timwuhaotian/the-pair/compare/v1.2.3...v1.3.0
