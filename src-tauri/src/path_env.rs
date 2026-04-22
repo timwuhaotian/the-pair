@@ -60,6 +60,7 @@ pub(crate) fn fallback_path_dirs(
 
         if let Some(home) = home {
             dirs.push(home.join(".local/bin"));
+            dirs.push(home.join("go/bin"));
             dirs.push(home.join(".npm-global/bin"));
             dirs.push(home.join(".volta/bin"));
             dirs.extend(nvm_bin_dirs(&home));
@@ -165,6 +166,7 @@ mod tests {
         let dirs = fallback_path_dirs(Some(PathBuf::from("/Users/alex")), None, None, false);
 
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.local/bin")));
+        assert!(dirs.contains(&PathBuf::from("/Users/alex/go/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.npm-global/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.volta/bin")));
     }

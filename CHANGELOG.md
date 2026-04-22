@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.10] - 2026-04-23
+
+### Fixed
+
+- **OpenCode detection on Linux (.deb installs):** Added `~/go/bin` to the fallback PATH directory list so that `opencode` installed via `go install` is correctly detected even when the app is launched from a `.desktop` file with a minimal inherited PATH (#4).
+
 ## [1.3.9] - 2026-04-10
 
 ### Added
