@@ -60,17 +60,20 @@ pub struct AcceptanceNextStep {
     pub instructions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptanceVerdict {
     pub verdict: AcceptanceVerdictDecision,
     pub risk: AcceptanceRisk,
+    pub confidence: f64,        // Required: 0.0-1.0
+    pub issues: Vec<String>,    // Required: can be empty
     pub evidence: Vec<String>,
+    pub reasoning: String,      // Required: detailed assessment
     pub summary: String,
     pub next_step: AcceptanceNextStep,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptanceRecord {
     pub iteration: u32,
@@ -91,6 +94,54 @@ pub struct AcceptanceRecord {
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ValidationStatus {
+    Pass,
+    Fail,
+    NotFound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidationResult {
+    pub test: ValidationStatus,
+    pub lint: ValidationStatus,
+    pub typecheck: ValidationStatus,
+    pub build: ValidationStatus,
+    pub logs: Vec<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IterationMetric {
+    pub iteration: u32,
+    pub duration_ms: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub files_changed: Vec<ModifiedFile>,
+    pub error_logs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionReport {
+    pub session_id: String,
+    pub pair_name: String,
+    pub task_spec: String,
+    pub started_at: u64,
+    pub finished_at: u64,
+    pub iterations: u32,
+    pub final_verdict: AcceptanceVerdict,
+    pub validation_history: Vec<AcceptanceRecord>,
+    pub git_changes: Vec<ModifiedFile>,
+    pub messages: Vec<Message>,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub iteration_metrics: Vec<IterationMetric>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
