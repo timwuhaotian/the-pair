@@ -1,6 +1,6 @@
 use crate::types::{
-    AcceptanceCheckRun, AcceptanceCheckStatus, AcceptanceNextAction, AcceptanceRecord,
-    AcceptanceRisk, AcceptanceVerdict, ModifiedFile,
+    AcceptanceCheckRun, AcceptanceCheckStatus, AcceptanceNextAction, AcceptanceNextStep,
+    AcceptanceRecord, AcceptanceRisk, AcceptanceVerdict, AcceptanceVerdictDecision, ModifiedFile,
 };
 use crate::util::now_millis;
 use serde_json::Value;
@@ -272,6 +272,14 @@ pub fn parse_acceptance_verdict(raw: &str) -> Result<AcceptanceVerdict, String> 
     for candidate in extract_json_candidates(raw) {
         match serde_json::from_str::<AcceptanceVerdict>(&candidate) {
             Ok(verdict) => {
+                // Validate confidence range
+                if verdict.confidence < 0.0 || verdict.confidence > 1.0 {
+                    return Err(format!(
+                        "Invalid confidence value: {}. Must be between 0.0 and 1.0",
+                        verdict.confidence
+                    ));
+                }
+
                 if matches!(verdict.next_step.action, AcceptanceNextAction::Continue)
                     && verdict.next_step.instructions.is_empty()
                 {
@@ -291,6 +299,26 @@ pub fn parse_acceptance_verdict(raw: &str) -> Result<AcceptanceVerdict, String> 
     }
 
     Err(last_error)
+}
+
+pub const CONFIDENCE_THRESHOLD: f64 = 0.8;
+
+pub fn should_stop_iteration(verdict: &AcceptanceVerdict) -> bool {
+    matches!(verdict.verdict, AcceptanceVerdictDecision::Pass)
+        && verdict.confidence >= CONFIDENCE_THRESHOLD
+}
+
+pub fn format_verdict_summary(verdict: &AcceptanceVerdict) -> String {
+    format!(
+        "{} (confidence: {:.0}%, risk: {:?})",
+        if matches!(verdict.verdict, AcceptanceVerdictDecision::Pass) {
+            "PASSED"
+        } else {
+            "FAILED"
+        },
+        verdict.confidence * 100.0,
+        verdict.risk
+    )
 }
 
 pub async fn run_acceptance_checks(
@@ -356,13 +384,21 @@ pub fn build_mentor_acceptance_prompt(
         "{".to_string(),
         "  \"verdict\": \"pass | fail\",".to_string(),
         "  \"risk\": \"low | medium | high\",".to_string(),
-        "  \"evidence\": [\"...\"],".to_string(),
-        "  \"summary\": \"...\",".to_string(),
+        "  \"confidence\": 0.95,".to_string(),
+        "  \"issues\": [\"Issue 1\", \"Issue 2\"],".to_string(),
+        "  \"evidence\": [\"Evidence 1\", \"Evidence 2\"],".to_string(),
+        "  \"reasoning\": \"Detailed explanation of assessment\",".to_string(),
+        "  \"summary\": \"Brief summary\",".to_string(),
         "  \"nextStep\": {".to_string(),
         "    \"action\": \"continue | finish\",".to_string(),
         "    \"instructions\": [\"...\"]".to_string(),
         "  }".to_string(),
         "}".to_string(),
+        "".to_string(),
+        "- confidence: number 0.0-1.0 (0.8+ required to finish)".to_string(),
+        "- issues: array of strings (empty if no issues)".to_string(),
+        "- evidence: array of supporting evidence strings".to_string(),
+        "- reasoning: detailed assessment explanation".to_string(),
         "- If action is \"continue\", include concrete executor instructions.".to_string(),
         "- If action is \"finish\", instructions must be an empty array.".to_string(),
         "".to_string(),
@@ -434,17 +470,21 @@ pub fn canonical_acceptance_verdict_json(verdict: &AcceptanceVerdict) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AcceptanceVerdictDecision, FileStatus};
+    use crate::types::{AcceptanceRisk, AcceptanceVerdict, AcceptanceVerdictDecision, FileStatus};
 
     #[test]
     fn parse_acceptance_verdict_handles_embedded_json() {
         let verdict = super::parse_acceptance_verdict(
-            "Here is the structured review:\n{\n  \"verdict\": \"fail\",\n  \"risk\": \"high\",\n  \"evidence\": [\"npm run typecheck failed\"],\n  \"summary\": \"The task still has type errors\",\n  \"nextStep\": {\n    \"action\": \"continue\",\n    \"instructions\": [\"Fix the TS error\", \"Re-run typecheck\"]\n  }\n}\nThanks.",
+            "Here is the structured review:\n{\n  \"verdict\": \"fail\",\n  \"risk\": \"high\",\n  \"confidence\": 0.75,\n  \"issues\": [\"npm run typecheck failed\"],\n  \"evidence\": [\"Type error in src/main.ts\"],\n  \"reasoning\": \"Type errors prevent task completion\",\n  \"summary\": \"The task still has type errors\",\n  \"nextStep\": {\n    \"action\": \"continue\",\n    \"instructions\": [\"Fix the TS error\", \"Re-run typecheck\"]\n  }\n}\nThanks.",
         )
         .expect("verdict should parse");
 
         assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Fail);
         assert_eq!(verdict.risk, AcceptanceRisk::High);
+        assert!((verdict.confidence - 0.75).abs() < 0.001);
+        assert_eq!(verdict.issues, vec!["npm run typecheck failed"]);
+        assert_eq!(verdict.evidence, vec!["Type error in src/main.ts"]);
+        assert_eq!(verdict.reasoning, "Type errors prevent task completion");
         assert_eq!(verdict.next_step.action, AcceptanceNextAction::Continue);
         assert_eq!(
             verdict.next_step.instructions,
@@ -458,7 +498,10 @@ mod tests {
             r#"{
                 "verdict": "fail",
                 "risk": "medium",
-                "evidence": ["tests are still failing"],
+                "confidence": 0.65,
+                "issues": ["tests are still failing"],
+                "evidence": ["test output"],
+                "reasoning": "Need another iteration to fix tests",
                 "summary": "Need another iteration",
                 "nextStep": {
                     "action": "continue",
@@ -498,20 +541,69 @@ mod tests {
     }
 
     #[test]
-    fn classify_acceptance_risk_marks_cross_layer_changes_as_medium() {
-        let risk = super::classify_acceptance_risk(&[
-            ModifiedFile {
-                path: "src-tauri/src/process_spawner.rs".to_string(),
-                status: FileStatus::M,
-                display_path: "src-tauri/src/process_spawner.rs".to_string(),
+    fn should_stop_iteration_requires_pass_and_high_confidence() {
+        // Pass with high confidence - should stop
+        let high_confidence = AcceptanceVerdict {
+            verdict: AcceptanceVerdictDecision::Pass,
+            risk: AcceptanceRisk::Low,
+            confidence: 0.85,
+            issues: vec![],
+            evidence: vec!["All tests pass".to_string()],
+            reasoning: "Implementation is complete".to_string(),
+            summary: "Ready to finish".to_string(),
+            next_step: AcceptanceNextStep {
+                action: AcceptanceNextAction::Finish,
+                instructions: vec![],
             },
-            ModifiedFile {
-                path: "src/renderer/src/App.tsx".to_string(),
-                status: FileStatus::M,
-                display_path: "src/renderer/src/App.tsx".to_string(),
-            },
-        ]);
+        };
+        assert!(should_stop_iteration(&high_confidence));
 
-        assert_eq!(risk, AcceptanceRisk::Medium);
+        // Pass with low confidence - should NOT stop
+        let low_confidence = AcceptanceVerdict {
+            verdict: AcceptanceVerdictDecision::Pass,
+            risk: AcceptanceRisk::Medium,
+            confidence: 0.75,
+            issues: vec!["Minor concerns".to_string()],
+            evidence: vec![],
+            reasoning: "Some uncertainty".to_string(),
+            summary: "Needs more work".to_string(),
+            next_step: AcceptanceNextStep {
+                action: AcceptanceNextAction::Continue,
+                instructions: vec!["Refactor".to_string()],
+            },
+        };
+        assert!(!should_stop_iteration(&low_confidence));
+
+        // Fail with high confidence - should NOT stop
+        let fail_high_confidence = AcceptanceVerdict {
+            verdict: AcceptanceVerdictDecision::Fail,
+            risk: AcceptanceRisk::High,
+            confidence: 0.95,
+            issues: vec!["Tests failing".to_string()],
+            evidence: vec![],
+            reasoning: "Critical errors".to_string(),
+            summary: "Cannot finish".to_string(),
+            next_step: AcceptanceNextStep {
+                action: AcceptanceNextAction::Continue,
+                instructions: vec!["Fix tests".to_string()],
+            },
+        };
+        assert!(!should_stop_iteration(&fail_high_confidence));
+
+        // Edge case: exactly 0.8 confidence - should stop
+        let threshold_confidence = AcceptanceVerdict {
+            verdict: AcceptanceVerdictDecision::Pass,
+            risk: AcceptanceRisk::Low,
+            confidence: 0.8,
+            issues: vec![],
+            evidence: vec!["All good".to_string()],
+            reasoning: "At threshold".to_string(),
+            summary: "Ready".to_string(),
+            next_step: AcceptanceNextStep {
+                action: AcceptanceNextAction::Finish,
+                instructions: vec![],
+            },
+        };
+        assert!(should_stop_iteration(&threshold_confidence));
     }
 }
