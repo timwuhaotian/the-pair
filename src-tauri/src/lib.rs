@@ -9,6 +9,7 @@ mod path_env;
 mod process_spawner;
 mod provider_adapter;
 mod provider_registry;
+mod report_generator;
 mod resource_monitor;
 mod session_snapshot;
 mod skill_discovery;
