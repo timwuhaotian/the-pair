@@ -1,9 +1,12 @@
 use crate::acceptance::{
-    canonical_acceptance_verdict_json, parse_acceptance_verdict, run_acceptance_checks,
+    build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
+    build_mentor_acceptance_repair_prompt, canonical_acceptance_verdict_json,
+    parse_acceptance_verdict, run_acceptance_checks, should_stop_iteration,
 };
 use crate::message_broker::MessageBroker;
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
+use crate::report_generator::{generate_session_report, save_report_to_file};
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AcceptanceRecord, ActivityPhase, PairStatus, TokenUsageSource, TurnTokenUsage,
@@ -823,14 +826,12 @@ impl ProcessSpawner {
                     if is_mentor_review_turn {
                         if let Some(acceptance) = parsed_acceptance.as_ref() {
                             if let Some(verdict) = acceptance.verdict.as_ref() {
-                                if matches!(
-                                    verdict.next_step.action,
-                                    crate::types::AcceptanceNextAction::Finish
-                                ) {
+                                if should_stop_iteration(verdict) {
                                     broker.set_pair_status(
                                         &pair_id_mock,
                                         crate::types::PairStatus::Finished,
-                                        Some("Mock: Mentor acceptance marked task finished".to_string()),
+                                        Some(format!("Mock: Mentor acceptance with {:.0}% confidence - task finished", 
+                                            verdict.confidence * 100.0)),
                                     );
                                     should_handoff = false;
                                 }
@@ -1375,20 +1376,78 @@ impl ProcessSpawner {
                 if is_mentor_review_turn {
                     if let Some(acceptance) = parsed_acceptance.as_ref() {
                         if let Some(verdict) = acceptance.verdict.as_ref() {
-                            if matches!(
-                                verdict.next_step.action,
-                                crate::types::AcceptanceNextAction::Finish
-                            ) {
+                            if should_stop_iteration(verdict) {
                                 println!(
-                                    "[ProcessSpawner] [{}] Mentor acceptance finished the task",
-                                    pair_id_clone
+                                    "[ProcessSpawner] [{}] Mentor acceptance with {:.0}% confidence - finishing task",
+                                    pair_id_clone, verdict.confidence * 100.0
                                 );
                                 broker.set_pair_status(
                                     &pair_id_clone,
                                     crate::types::PairStatus::Finished,
-                                    Some("Mentor acceptance marked the task finished".to_string()),
+                                    Some(format!("Task completed with {:.0}% confidence", verdict.confidence * 100.0)),
                                 );
                                 should_handoff = false;
+
+                                // Generate session report on successful completion
+                                if let Some(state) = broker.get_state(&pair_id_clone) {
+                                    // Get the task spec from first human message
+                                    let task_spec = state
+                                        .messages
+                                        .iter()
+                                        .find(|m| matches!(m.from, crate::types::MessageSender::Human) && m.to == "mentor")
+                                        .map(|m| m.content.clone())
+                                        .unwrap_or_default();
+                                    
+                                    let started_at = state
+                                        .messages
+                                        .iter()
+                                        .find(|m| matches!(m.from, crate::types::MessageSender::Human))
+                                        .map(|m| m.timestamp)
+                                        .unwrap_or_else(crate::util::now_millis);
+                                    
+                                    // Collect acceptance records from session state
+                                    let acceptance_records = if let Some(acceptance) = &state.latest_acceptance {
+                                        vec![acceptance.clone()]
+                                    } else {
+                                        vec![]
+                                    };
+                                    
+                                    if let Ok(report) = generate_session_report(
+                                        &pair_id_clone,
+                                        &pair_id_clone, // TODO: Get actual pair name from PairManager
+                                        &task_spec,
+                                        started_at,
+                                        &acceptance_records,
+                                        &state.modified_files,
+                                        &state.messages,
+                                    ) {
+                                        // Save report to .pair/reports/{sessionId}.md
+                                        let workspace_root = std::path::Path::new(&state.directory);
+                                        match save_report_to_file(&report, workspace_root) {
+                                            Ok(report_path) => {
+                                                println!(
+                                                    "[ProcessSpawner] [{}] Session report saved to {:?}",
+                                                    pair_id_clone, report_path
+                                                );
+                                                
+                                                // Emit event for UI
+                                                let _ = app_clone.emit(
+                                                    "pair:report_generated",
+                                                    serde_json::json!({
+                                                        "pairId": pair_id_clone,
+                                                        "reportPath": report_path.to_string_lossy().to_string()
+                                                    }),
+                                                );
+                                            }
+                                            Err(e) => {
+                                                println!(
+                                                    "[ProcessSpawner] [{}] Failed to save session report: {}",
+                                                    pair_id_clone, e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         } else if let Some(error) = acceptance_error.as_ref() {
                             // Verdict parse failed — retry or pause
