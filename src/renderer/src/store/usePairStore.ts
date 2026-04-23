@@ -1078,129 +1078,143 @@ export const usePairStore = create<PairStore>((set) => ({
     window.api.pair.onHandoff(async (payload) => {
       const data = payload as PairHandoffEvent
 
-      let backendState: BackendPairState | null = null
       try {
-        backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
-      } catch (error) {
-        console.warn('[usePairStore] Failed to load backend state before handoff processing', error)
-      }
-
-      if (backendState?.status === 'Finished') {
-        return
-      }
-
-      if (backendState?.status === 'Paused') {
-        return
-      }
-
-      const state = usePairStore.getState()
-      const pair = state.pairs.find((p) => p.id === data.pairId)
-
-      if (!pair) {
-        console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
-        return
-      }
-
-      if (
-        shouldIgnoreHandoffEvent({
-          pairStatus: pair.status,
-          backendStatus: backendState?.status
-        })
-      ) {
-        return
-      }
-
-      let contextMessages = pair.messages
-      try {
-        if (backendState?.messages?.length) {
-          contextMessages = backendState.messages
+        let backendState: BackendPairState | null = null
+        try {
+          backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
+        } catch (error) {
+          console.warn(
+            '[usePairStore] Failed to load backend state before handoff processing',
+            error
+          )
         }
-      } catch (error) {
-        console.warn(
-          '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
-          error
-        )
-      }
 
-      // Build context-aware message for the next agent
-      let message = ''
-      const lastMentorMessage = [...contextMessages]
-        .reverse()
-        .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
-      const lastExecutorMessage = [...contextMessages]
-        .reverse()
-        .find((m) => m.from === 'executor' && m.type === 'result')
-      const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
-
-      if (data.nextRole === 'executor') {
-        if (latestAcceptance?.verdict?.nextStep.action === 'continue' && lastExecutorMessage) {
-          message = buildExecutorAcceptanceFollowupPrompt({
-            taskSpec: pair.spec,
-            previousExecutorResult: lastExecutorMessage.content,
-            verdict: latestAcceptance.verdict,
-            acceptance: latestAcceptance
-          })
-
-          const { assignTask } = state
-          await assignTask(data.pairId, message, data.nextRole)
+        if (backendState?.status === 'Finished') {
           return
         }
 
-        message =
-          '### ROLE: EXECUTOR\n' +
-          'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-          '- DO NOT create new plans.\n' +
-          '- DO NOT review your own work.\n' +
-          '- JUST EXECUTE THE STEPS and report results.\n' +
-          '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
-          '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
-          '--- COMMAND TO EXECUTE ---\n'
+        if (backendState?.status === 'Paused') {
+          return
+        }
 
-        if (lastMentorMessage) {
-          message += lastMentorMessage.content
+        const state = usePairStore.getState()
+        const pair = state.pairs.find((p) => p.id === data.pairId)
+
+        if (!pair) {
+          console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
+          return
+        }
+
+        if (
+          shouldIgnoreHandoffEvent({
+            pairStatus: pair.status,
+            backendStatus: backendState?.status
+          })
+        ) {
+          return
+        }
+
+        let contextMessages = pair.messages
+        try {
+          if (backendState?.messages?.length) {
+            contextMessages = backendState.messages
+          }
+        } catch (error) {
+          console.warn(
+            '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
+            error
+          )
+        }
+
+        let message = ''
+        const lastMentorMessage = [...contextMessages]
+          .reverse()
+          .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
+        const lastExecutorMessage = [...contextMessages]
+          .reverse()
+          .find((m) => m.from === 'executor' && m.type === 'result')
+        const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
+
+        if (data.nextRole === 'executor') {
+          if (latestAcceptance?.verdict?.nextStep.action === 'continue') {
+            message = buildExecutorAcceptanceFollowupPrompt({
+              taskSpec: pair.spec,
+              previousExecutorResult:
+                lastExecutorMessage?.content ?? '(previous executor result unavailable)',
+              verdict: latestAcceptance.verdict,
+              acceptance: latestAcceptance
+            })
+
+            const { assignTask } = state
+            await assignTask(data.pairId, message, data.nextRole)
+            return
+          }
+
+          message =
+            '### ROLE: EXECUTOR\n' +
+            'Your mission is ONLY to EXECUTE the plan provided below. \n' +
+            '- DO NOT create new plans.\n' +
+            '- DO NOT review your own work.\n' +
+            '- JUST EXECUTE THE STEPS and report results.\n' +
+            '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
+            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
+            '--- COMMAND TO EXECUTE ---\n'
+
+          if (lastMentorMessage) {
+            message += lastMentorMessage.content
+          } else {
+            message +=
+              'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
+          }
         } else {
+          if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
+            message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
+
+            const { assignTask } = state
+            await assignTask(data.pairId, message, data.nextRole)
+            return
+          }
+
+          if (latestAcceptance && lastExecutorMessage) {
+            message = buildMentorAcceptancePrompt({
+              taskSpec: pair.spec,
+              executorResult: lastExecutorMessage.content,
+              acceptance: latestAcceptance
+            })
+
+            const { assignTask } = state
+            await assignTask(data.pairId, message, data.nextRole)
+            return
+          }
+
+          message =
+            '### ROLE: MENTOR\n' +
+            'Your mission is ONLY to PLAN and REVIEW. \n' +
+            '- DO NOT execute any code or tools that modify files.\n' +
+            '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
+            '--- REVIEW REQUEST ---\n' +
+            'The executor has finished a turn. Review their results below:\n\n'
+
+          if (lastExecutorMessage) {
+            message += lastExecutorMessage.content + '\n\n'
+          }
+
           message +=
-            'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
-        }
-      } else {
-        if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
-          message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
-
-          const { assignTask } = state
-          await assignTask(data.pairId, message, data.nextRole)
-          return
+            'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
         }
 
-        if (latestAcceptance && lastExecutorMessage) {
-          message = buildMentorAcceptancePrompt({
-            taskSpec: pair.spec,
-            executorResult: lastExecutorMessage.content,
-            acceptance: latestAcceptance
-          })
-
-          const { assignTask } = state
-          await assignTask(data.pairId, message, data.nextRole)
-          return
+        const { assignTask } = state
+        await assignTask(data.pairId, message, data.nextRole)
+      } catch (error) {
+        console.error('[usePairStore] Handoff processing failed:', error)
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        set({ error: `Handoff failed: ${errorMessage}` })
+        try {
+          await window.api.pair.pause(data.pairId)
+        } catch (pauseError) {
+          console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
         }
-
-        message =
-          '### ROLE: MENTOR\n' +
-          'Your mission is ONLY to PLAN and REVIEW. \n' +
-          '- DO NOT execute any code or tools that modify files.\n' +
-          '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-          '--- REVIEW REQUEST ---\n' +
-          'The executor has finished a turn. Review their results below:\n\n'
-
-        if (lastExecutorMessage) {
-          message += lastExecutorMessage.content + '\n\n'
-        }
-
-        message +=
-          'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
       }
-
-      const { assignTask } = state
-      await assignTask(data.pairId, message, data.nextRole)
     })
   },
 
