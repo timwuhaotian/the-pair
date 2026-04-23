@@ -210,6 +210,7 @@ export function buildExecutorAcceptanceFollowupPrompt(input: {
     '- DO NOT create a new plan.',
     '- DO NOT review your own work.',
     '- Apply the mentor follow-up instructions exactly, then report what changed.',
+    '- If a requested tool or method is unavailable to you, immediately continue with alternative text-based approaches instead of stopping. Report the limitation and proceed with what you CAN do.',
     '',
     '### TASK SPEC',
     input.taskSpec.trim(),

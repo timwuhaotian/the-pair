@@ -1157,7 +1157,8 @@ export const usePairStore = create<PairStore>((set) => ({
             '- DO NOT review your own work.\n' +
             '- JUST EXECUTE THE STEPS and report results.\n' +
             '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
-            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
+            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n' +
+            '- If you cannot perform a requested action, propose and execute alternative text-based methods instead of stopping.\n\n' +
             '--- COMMAND TO EXECUTE ---\n'
 
           if (lastMentorMessage) {
