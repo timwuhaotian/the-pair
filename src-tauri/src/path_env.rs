@@ -125,7 +125,31 @@ pub fn capture_login_shell_path() -> Option<String> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn capture_login_shell_path() -> Option<String> {
-    None
+    capture_windows_shell_path()
+}
+
+#[cfg(target_os = "windows")]
+fn capture_windows_shell_path() -> Option<String> {
+    // Try cmd.exe to capture the full shell PATH including npm directories.
+    // This is more reliable than the inherited process PATH when the app is
+    // launched from the Start Menu, taskbar, or file explorer.
+    let output = Command::new("cmd.exe")
+        .arg("/c")
+        .arg("@echo off & echo %PATH%")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout);
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 #[cfg(test)]
