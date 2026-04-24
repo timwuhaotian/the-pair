@@ -97,6 +97,14 @@ pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString
         overrides.push((OsString::from("LOCALAPPDATA"), local_appdata));
     }
 
+    // Explicitly propagate the current process PATH (which may have been refreshed
+    // with fallback npm/Homebrew/nvm directories) to child processes.  Without this,
+    // Tauri apps launched from a launcher or desktop shortcut can inherit a minimal
+    // PATH that doesn't include global npm packages.
+    if let Some(path) = std::env::var_os("PATH") {
+        overrides.push((OsString::from("PATH"), path));
+    }
+
     overrides
 }
 
@@ -106,25 +114,35 @@ fn prepare_cli_command(command: &mut Command, home: &std::path::Path) {
     }
 }
 
-fn which_binary(name: &str) -> bool {
+fn which_binary(name: &str) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     let cmd = "where";
     #[cfg(not(target_os = "windows"))]
     let cmd = "which";
 
-    if Command::new(cmd)
-        .arg(name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return true;
+    // Try `which`/`where` first — the first line of output is the resolved path.
+    if let Ok(output) = Command::new(cmd).arg(name).output() {
+        if output.status.success() {
+            if let Some(path) = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .map(PathBuf::from)
+            {
+                return Some(path);
+            }
+        }
     }
 
     // Fallback: check known install locations directly in case PATH was not
     // captured from the login shell (common when app is launched from Finder/Dock
     // on Apple Silicon where Homebrew installs to /opt/homebrew/bin).
-    binary_exists_at_known_locations(name, &homedir())
+    resolve_binary_at_known_locations(name, &homedir())
+}
+
+fn which_binary_exists(name: &str) -> bool {
+    which_binary(name).is_some()
 }
 
 fn safe_read_json<T: DeserializeOwned>(path: impl AsRef<std::path::Path>) -> Option<T> {
@@ -144,7 +162,7 @@ fn detected_at_now() -> u64 {
         .as_secs()
 }
 
-fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
+fn resolve_binary_at_known_locations(name: &str, home: &std::path::Path) -> Option<PathBuf> {
     let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
     let local_appdata = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
     let fallback_dirs = fallback_path_dirs(
@@ -154,35 +172,40 @@ fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool 
         false,
     );
     for dir in &fallback_dirs {
-        if binary_exists_in_dir(dir, name) {
-            return true;
+        if let Some(path) = resolve_binary_in_dir(dir, name) {
+            return Some(path);
         }
     }
 
     let windows_fallback_dirs =
         fallback_path_dirs(Some(home.to_path_buf()), appdata, local_appdata, true);
     for dir in &windows_fallback_dirs {
-        if binary_exists_in_dir(dir, name) {
-            return true;
+        if let Some(path) = resolve_binary_in_dir(dir, name) {
+            return Some(path);
         }
     }
 
-    false
+    None
 }
 
-fn binary_exists_in_dir(dir: &std::path::Path, name: &str) -> bool {
+fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
+    resolve_binary_at_known_locations(name, home).is_some()
+}
+
+fn resolve_binary_in_dir(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
     let candidate = dir.join(name);
     if candidate.exists() {
-        return true;
+        return Some(candidate);
     }
 
     for suffix in [".cmd", ".exe", ".bat"] {
-        if dir.join(format!("{name}{suffix}")).exists() {
-            return true;
+        let full = dir.join(format!("{name}{suffix}"));
+        if full.exists() {
+            return Some(full);
         }
     }
 
-    false
+    None
 }
 
 fn push_unique_model_id(model_ids: &mut Vec<String>, model_id: &str) {
@@ -575,7 +598,8 @@ fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
 }
 
 fn capture_claude_help_text(home: &std::path::Path) -> Option<String> {
-    let mut command = Command::new("claude");
+    let bin_path = which_binary("claude")?;
+    let mut command = Command::new(bin_path);
     command.arg("--help");
     prepare_cli_command(&mut command, home);
     let output = command.output().ok()?;
@@ -683,7 +707,8 @@ impl ProviderRegistry {
     }
 
     pub fn detect_opencode() -> DetectedProviderProfile {
-        let installed = which_binary("opencode");
+        let opencode_path = which_binary("opencode");
+        let installed = opencode_path.is_some();
         let mut models = Vec::new();
         let mut authenticated = false;
 
@@ -732,7 +757,8 @@ impl ProviderRegistry {
 
         // 3. Detect from 'opencode models' command output
         if installed {
-            let mut command = Command::new("opencode");
+            let bin_path = opencode_path.expect("opencode path should be resolved");
+            let mut command = Command::new(bin_path);
             command.arg("models");
             prepare_cli_command(&mut command, &homedir());
             let output = command.output();
@@ -806,7 +832,7 @@ impl ProviderRegistry {
     }
 
     pub fn detect_codex() -> DetectedProviderProfile {
-        let installed = which_binary("codex");
+        let installed = which_binary_exists("codex");
         let homedir = homedir();
         let auth_path = homedir.join(".codex/auth.json");
         let config_path = homedir.join(".codex/config.toml");
@@ -835,14 +861,16 @@ impl ProviderRegistry {
     }
 
     pub fn detect_claude() -> DetectedProviderProfile {
-        let installed = which_binary("claude");
+        let claude_path = which_binary("claude");
+        let installed = claude_path.is_some();
         let homedir = homedir();
         let mut authenticated = false;
         let mut subscription_label = "api-backed".to_string();
         let mut model_ids = Vec::new();
 
         if installed {
-            let mut command = Command::new("claude");
+            let bin_path = claude_path.expect("claude path should be resolved");
+            let mut command = Command::new(bin_path.clone());
             command.arg("auth").arg("status");
             prepare_cli_command(&mut command, &homedir);
             let output = command.output();
@@ -891,7 +919,7 @@ impl ProviderRegistry {
     }
 
     pub fn detect_gemini() -> DetectedProviderProfile {
-        let installed = which_binary("gemini");
+        let installed = which_binary_exists("gemini");
         let homedir = homedir();
         let settings_path = homedir.join(".gemini/settings.json");
         let mut authenticated = false;
