@@ -5,7 +5,11 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -120,6 +124,45 @@ pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString
 fn prepare_cli_command(command: &mut Command, home: &std::path::Path) {
     for (key, value) in cli_environment_overrides(home) {
         command.env(key, value);
+    }
+}
+
+fn capture_command_output_with_timeout(
+    command_path: &Path,
+    args: &[&str],
+    home: &std::path::Path,
+    timeout: Duration,
+) -> Option<String> {
+    let mut command = Command::new(command_path);
+    command.args(args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::null());
+    prepare_cli_command(&mut command, home);
+
+    let mut child = command.spawn().ok()?;
+    let started = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let output = child.wait_with_output().ok()?;
+                if !status.success() {
+                    return None;
+                }
+                return String::from_utf8(output.stdout).ok();
+            }
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
     }
 }
 
@@ -620,16 +663,7 @@ fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>
 }
 
 fn capture_claude_help_text(home: &std::path::Path, command_path: &Path) -> Option<String> {
-    let mut command = Command::new(command_path);
-
-    command.arg("--help");
-    prepare_cli_command(&mut command, home);
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    String::from_utf8(output.stdout).ok()
+    capture_command_output_with_timeout(command_path, &["--help"], home, CLI_PROBE_TIMEOUT)
 }
 
 fn claude_credentials_paths(home: &std::path::Path) -> Vec<PathBuf> {
@@ -681,11 +715,18 @@ pub struct ProviderRegistry;
 
 impl ProviderRegistry {
     pub fn detect_all() -> Vec<DetectedProviderProfile> {
+        let opencode = thread::spawn(Self::detect_opencode);
+        let codex = thread::spawn(Self::detect_codex);
+        let claude = thread::spawn(Self::detect_claude);
+        let gemini = thread::spawn(Self::detect_gemini);
+
         vec![
-            Self::detect_opencode(),
-            Self::detect_codex(),
-            Self::detect_claude(),
-            Self::detect_gemini(),
+            opencode
+                .join()
+                .expect("OpenCode detection should not panic"),
+            codex.join().expect("Codex detection should not panic"),
+            claude.join().expect("Claude detection should not panic"),
+            gemini.join().expect("Gemini detection should not panic"),
         ]
     }
 
@@ -781,63 +822,59 @@ impl ProviderRegistry {
         // 3. Detect from 'opencode models' command output
         if installed {
             let bin_path = opencode_path.expect("opencode path should be resolved");
-            let mut command = Command::new(bin_path);
+            if let Some(content) = capture_command_output_with_timeout(
+                &bin_path,
+                &["models"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            ) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
 
-            command.arg("models");
-            prepare_cli_command(&mut command, &homedir());
-            let output = command.output();
+                    // Check if we already added this model from config
+                    if models.iter().any(|m| m.model_id == line) {
+                        continue;
+                    }
 
-            if let Ok(o) = output {
-                if o.status.success() {
-                    let content = String::from_utf8_lossy(&o.stdout);
-                    for line in content.lines() {
-                        let line = line.trim();
-                        if line.is_empty() {
-                            continue;
-                        }
+                    let parts: Vec<&str> = line.split('/').collect();
+                    if parts.len() >= 2 {
+                        let provider_id = parts[0];
+                        let model_name = parts[1..].join("/");
 
-                        // Check if we already added this model from config
-                        if models.iter().any(|m| m.model_id == line) {
-                            continue;
-                        }
+                        // Check if this model belongs to an authenticated provider (either internal or custom).
+                        // The "opencode" provider_id represents zen-backed models that are available
+                        // whenever opencode is installed — they don't appear in auth.json.
+                        let is_authenticated = provider_id == "opencode"
+                            || internal_providers.contains(&provider_id.to_string())
+                            || models
+                                .iter()
+                                .any(|m| m.source_provider.as_deref() == Some(provider_id));
 
-                        let parts: Vec<&str> = line.split('/').collect();
-                        if parts.len() >= 2 {
-                            let provider_id = parts[0];
-                            let model_name = parts[1..].join("/");
+                        if is_authenticated {
+                            // Derive family from model name for OpenCode models
+                            // e.g., "minimax-m2.5" -> "minimax", "claude-3-5-sonnet" -> "claude"
+                            let family = if provider_id == "opencode" {
+                                model_name.split('-').next().map(|s| s.to_string())
+                            } else {
+                                None
+                            };
 
-                            // Check if this model belongs to an authenticated provider (either internal or custom).
-                            // The "opencode" provider_id represents zen-backed models that are available
-                            // whenever opencode is installed — they don't appear in auth.json.
-                            let is_authenticated = provider_id == "opencode"
-                                || internal_providers.contains(&provider_id.to_string())
-                                || models
-                                    .iter()
-                                    .any(|m| m.source_provider.as_deref() == Some(provider_id));
-
-                            if is_authenticated {
-                                // Derive family from model name for OpenCode models
-                                // e.g., "minimax-m2.5" -> "minimax", "claude-3-5-sonnet" -> "claude"
-                                let family = if provider_id == "opencode" {
-                                    model_name.split('-').next().map(|s| s.to_string())
+                            models.push(DetectedModelOption {
+                                model_id: line.to_string(),
+                                display_name: model_name,
+                                source_provider: Some(provider_id.to_string()),
+                                family,
+                                subscription_label: if provider_id == "opencode" {
+                                    "zen-backed".into()
                                 } else {
-                                    None
-                                };
-
-                                models.push(DetectedModelOption {
-                                    model_id: line.to_string(),
-                                    display_name: model_name,
-                                    source_provider: Some(provider_id.to_string()),
-                                    family,
-                                    subscription_label: if provider_id == "opencode" {
-                                        "zen-backed".into()
-                                    } else {
-                                        "internal-provider".into()
-                                    },
-                                    supports_pair_execution: true,
-                                    runnable: true,
-                                });
-                            }
+                                    "internal-provider".into()
+                                },
+                                supports_pair_execution: true,
+                                runnable: true,
+                            });
                         }
                     }
                 }
@@ -896,14 +933,12 @@ impl ProviderRegistry {
 
         if installed {
             let bin_path = claude_path.expect("claude path should be resolved");
-            let mut command = Command::new(bin_path.clone());
-
-            command.arg("auth").arg("status");
-            prepare_cli_command(&mut command, &homedir);
-            let output = command.output();
-
-            if let Ok(o) = output {
-                let status_str = String::from_utf8_lossy(&o.stdout);
+            if let Some(status_str) = capture_command_output_with_timeout(
+                &bin_path,
+                &["auth", "status"],
+                &homedir,
+                CLI_PROBE_TIMEOUT,
+            ) {
                 if let Ok(status) = serde_json::from_str::<serde_json::Value>(&status_str) {
                     if status
                         .get("loggedIn")
@@ -984,6 +1019,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::Mutex;
+    use std::time::{Duration, Instant};
     use uuid::Uuid;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -1729,5 +1765,36 @@ fi
                 .any(|model| model.model_id == "claude-sonnet-4-7"),
             "Claude should still discover models when auth falls back to local credentials"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_timeout_returns_none_for_slow_command() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp_home).expect("failed to create temp home");
+        let script = write_executable_script(
+            &temp_home,
+            "slow-provider",
+            r#"#!/bin/sh
+sleep 2
+printf '%s\n' 'eventual output'
+"#,
+        );
+
+        let started = Instant::now();
+        let output = capture_command_output_with_timeout(
+            &script,
+            &["--help"],
+            &temp_home,
+            Duration::from_millis(100),
+        );
+
+        assert!(output.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "slow provider command should be bounded by timeout"
+        );
+
+        let _ = fs::remove_dir_all(temp_home);
     }
 }

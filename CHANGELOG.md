@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.12] - 2026-04-26
+
+### Fixed
+
+- **Startup responsiveness:** Rendered the app shell immediately during startup instead of holding a blank window while initial IPC calls complete.
+- **Provider model loading:** Load cached model data first, then refresh provider/model detection in the background so startup is no longer gated on CLI scans.
+- **Provider probe stalls:** Added bounded CLI probe timeouts and parallel provider detection to reduce startup stalls when provider commands are slow.
+
 ## [1.3.11] - 2026-04-25
 
 ### Fixed

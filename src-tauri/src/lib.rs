@@ -107,6 +107,8 @@ pub fn run() {
             stubs::pair_get_messages,
             stubs::pair_get_state,
             stubs::config_get_models,
+            stubs::config_get_cached_models,
+            stubs::config_refresh_models,
             stubs::config_get_providers,
             stubs::config_read,
             stubs::config_open_file,

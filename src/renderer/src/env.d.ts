@@ -33,6 +33,8 @@ interface Window {
     }
     config: {
       getModels: () => Promise<unknown>
+      getCachedModels: () => Promise<unknown>
+      refreshModels: () => Promise<unknown>
       getProviders: () => Promise<unknown>
       read: () => Promise<unknown>
       openFile: () => Promise<unknown>

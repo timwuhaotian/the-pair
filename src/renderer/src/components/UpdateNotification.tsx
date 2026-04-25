@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDownToLine, Loader2, X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { useUpdateStore } from '../store/useUpdateStore'
 import { overlayVariants, modalVariants } from '../lib/animations'
+
+const MarkdownContent = lazy(() =>
+  import('./MarkdownContent').then(({ MarkdownContent }) => ({
+    default: MarkdownContent
+  }))
+)
 
 export function UpdateNotification(): React.ReactNode {
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
@@ -99,7 +103,9 @@ export function UpdateNotification(): React.ReactNode {
                 {message && <p className="mb-4 text-sm text-muted-foreground">{message}</p>}
                 {releaseBody && (
                   <div className="mb-6 max-h-[40vh] overflow-y-auto rounded-lg border border-border bg-muted/20 p-4 prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{releaseBody}</ReactMarkdown>
+                    <Suspense fallback={null}>
+                      <MarkdownContent content={releaseBody} />
+                    </Suspense>
                   </div>
                 )}
                 <div className="flex items-center gap-3">

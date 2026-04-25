@@ -10,6 +10,7 @@ interface AppChromeProps {
   selectedPair?: Pair | null
   readyModelCount: number
   totalModelCount: number
+  modelsLoading?: boolean
   theme: 'light' | 'dark'
   onToggleTheme: () => void
   onNewPair: () => void
@@ -22,6 +23,7 @@ export function AppChrome({
   selectedPair,
   readyModelCount,
   totalModelCount,
+  modelsLoading = false,
   theme,
   onToggleTheme,
   onNewPair,
@@ -107,7 +109,9 @@ export function AppChrome({
             <p className="truncate text-xs text-muted-foreground">
               {selectedPair
                 ? selectedPair.spec || selectedPair.directory
-                : `${readyModelCount}/${totalModelCount} detected models are ready for pair execution`}
+                : modelsLoading && totalModelCount === 0
+                  ? 'Detecting models...'
+                  : `${readyModelCount}/${totalModelCount} detected models are ready for pair execution`}
             </p>
           </div>
         </div>

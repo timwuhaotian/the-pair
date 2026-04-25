@@ -11,10 +11,10 @@ const appSource = await readFile(new URL('../src/renderer/src/App.tsx', import.m
 
 test('update release notes render only through markdown in the modal', () => {
   const markdownReleaseBodyRenders = updateNotificationSource.match(
-    /<ReactMarkdown\b[^>]*>\{releaseBody\}<\/ReactMarkdown>/g
+    /<MarkdownContent\s+content=\{releaseBody\}\s*\/>/g
   )
   const sourceWithoutMarkdownRender = updateNotificationSource.replace(
-    /<ReactMarkdown\b[^>]*>\{releaseBody\}<\/ReactMarkdown>/g,
+    /<MarkdownContent\s+content=\{releaseBody\}\s*\/>/g,
     ''
   )
 

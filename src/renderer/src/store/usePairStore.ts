@@ -224,6 +224,9 @@ interface PairStore {
   pairs: Pair[]
   availableModels: AvailableModel[]
   isLoading: boolean
+  isLoadingModels: boolean
+  modelsLastUpdatedAt: number | null
+  modelsError: string | null
   error: string | null
   viewingRunId: string | null
   restoringSpec: { spec: string; mentorModel: string; executorModel: string } | null
@@ -892,6 +895,9 @@ export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
   availableModels: [],
   isLoading: false,
+  isLoadingModels: false,
+  modelsLastUpdatedAt: null,
+  modelsError: null,
   error: null,
   viewingRunId: null,
   restoringSpec: null,
@@ -1265,14 +1271,25 @@ export const usePairStore = create<PairStore>((set) => ({
   loadAvailableModels: async () => {
     if (_modelsLoading) return
     _modelsLoading = true
+    set({ isLoadingModels: true, modelsError: null })
     try {
-      const models = await window.api.config.getModels()
-      set({ availableModels: models as AvailableModel[] })
+      const cachedModels = (await window.api.config.getCachedModels()) as AvailableModel[]
+      if (cachedModels.length > 0) {
+        set({ availableModels: cachedModels })
+      }
+
+      const models = (await window.api.config.refreshModels()) as AvailableModel[]
+      set({
+        availableModels: models,
+        modelsLastUpdatedAt: Date.now(),
+        modelsError: null
+      })
     } catch (error) {
       console.error('Failed to load models:', error)
-      set({ error: 'Failed to load models' })
+      set({ error: 'Failed to load models', modelsError: 'Failed to load models' })
     } finally {
       _modelsLoading = false
+      set({ isLoadingModels: false })
     }
   },
 

@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { Check, Clipboard, Clock, Download } from 'lucide-react'
 import { GlassButton } from './ui/GlassButton'
 import { TimelineIterationGroup } from './TimelineIterationGroup'
-import { copyMarkdownReport, exportAsHtml } from '../lib/reportExport'
 import type { TimelineData } from '../lib/timeline'
 import { formatDuration, formatTokenCount } from '../lib/timeline'
 
@@ -30,6 +29,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
   const hasEvents = timeline.iterations.length > 0
 
   const handleCopy = async () => {
+    const { copyMarkdownReport } = await import('../lib/reportExport')
     const ok = await copyMarkdownReport(timeline)
     if (ok) {
       setCopied(true)
@@ -39,6 +39,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
 
   const handleExport = async () => {
     try {
+      const { exportAsHtml } = await import('../lib/reportExport')
       await exportAsHtml(timeline)
     } catch (err) {
       console.error('Failed to export timeline report:', err)

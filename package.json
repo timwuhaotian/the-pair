@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.3.11",
+  "version": "1.3.12",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",

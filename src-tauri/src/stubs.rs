@@ -2,15 +2,26 @@ use crate::config_paths::opencode_config_path;
 use crate::model_catalog::{AvailableModel, ModelCatalog};
 use crate::provider_registry::{DetectedProviderProfile, ProviderRegistry};
 use crate::util::is_mock_mode;
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 
 const MODEL_CACHE_TTL: Duration = Duration::from_secs(60);
+const MODEL_CACHE_FILE_NAME: &str = "model-cache.json";
 
 static MODEL_CACHE: OnceLock<Mutex<Option<(Instant, Vec<AvailableModel>)>>> = OnceLock::new();
 static PROVIDER_CACHE: OnceLock<Mutex<Option<(Instant, Vec<DetectedProviderProfile>)>>> =
     OnceLock::new();
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelCacheRecord {
+    saved_at: u64,
+    models: Vec<AvailableModel>,
+}
 
 fn detect_profiles() -> Vec<DetectedProviderProfile> {
     if is_mock_mode() {
@@ -18,6 +29,75 @@ fn detect_profiles() -> Vec<DetectedProviderProfile> {
     } else {
         ProviderRegistry::detect_all()
     }
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn model_cache_path_in_dir(dir: &Path) -> PathBuf {
+    dir.join(MODEL_CACHE_FILE_NAME)
+}
+
+fn model_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(model_cache_path_in_dir(
+        &app.path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to resolve app data dir: {}", e))?,
+    ))
+}
+
+fn read_model_cache_in_dir(dir: &Path) -> Result<Option<ModelCacheRecord>, String> {
+    let path = model_cache_path_in_dir(dir);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    match serde_json::from_str::<ModelCacheRecord>(&raw) {
+        Ok(record) => Ok(Some(record)),
+        Err(error) => {
+            println!("[Tauri] Ignoring corrupt model cache {:?}: {}", path, error);
+            Ok(None)
+        }
+    }
+}
+
+fn write_model_cache_in_dir(
+    dir: &Path,
+    models: &[AvailableModel],
+) -> Result<ModelCacheRecord, String> {
+    fs::create_dir_all(dir).map_err(|e| format!("Failed to create model cache dir: {}", e))?;
+    let record = ModelCacheRecord {
+        saved_at: now_millis(),
+        models: models.to_vec(),
+    };
+    let path = model_cache_path_in_dir(dir);
+    let tmp_path = path.with_extension("tmp");
+    let payload = serde_json::to_vec_pretty(&record).map_err(|e| e.to_string())?;
+    fs::write(&tmp_path, payload).map_err(|e| format!("Failed to write model cache: {}", e))?;
+    fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to move model cache: {}", e))?;
+    Ok(record)
+}
+
+fn set_model_memory_cache(models: Vec<AvailableModel>) {
+    let cache = MODEL_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap();
+    *guard = Some((Instant::now(), models));
+}
+
+fn cached_models_from_memory() -> Option<Vec<AvailableModel>> {
+    let cache = MODEL_CACHE.get_or_init(|| Mutex::new(None));
+    let guard = cache.lock().unwrap();
+    guard.as_ref().map(|(_, models)| models.clone())
+}
+
+fn detect_model_catalog() -> Vec<AvailableModel> {
+    let profiles = detect_profiles();
+    ModelCatalog::build_catalog(profiles)
 }
 
 #[tauri::command]
@@ -47,10 +127,42 @@ pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
             return Ok(models.clone());
         }
     }
-    let profiles = detect_profiles();
-    let catalog = ModelCatalog::build_catalog(profiles);
+    let catalog = detect_model_catalog();
     println!("[Tauri] config_get_models found {} models", catalog.len());
     *guard = Some((Instant::now(), catalog.clone()));
+    Ok(catalog)
+}
+
+#[tauri::command]
+pub fn config_get_cached_models(app: tauri::AppHandle) -> Result<Vec<AvailableModel>, String> {
+    if let Some(models) = cached_models_from_memory() {
+        return Ok(models);
+    }
+
+    let path = model_cache_path(&app)?;
+    let Some(dir) = path.parent() else {
+        return Ok(Vec::new());
+    };
+    let Some(record) = read_model_cache_in_dir(dir)? else {
+        return Ok(Vec::new());
+    };
+
+    set_model_memory_cache(record.models.clone());
+    Ok(record.models)
+}
+
+#[tauri::command]
+pub fn config_refresh_models(app: tauri::AppHandle) -> Result<Vec<AvailableModel>, String> {
+    let catalog = detect_model_catalog();
+    let path = model_cache_path(&app)?;
+    if let Some(dir) = path.parent() {
+        let _record = write_model_cache_in_dir(dir, &catalog)?;
+    }
+    set_model_memory_cache(catalog.clone());
+    println!(
+        "[Tauri] config_refresh_models found {} models",
+        catalog.len()
+    );
     Ok(catalog)
 }
 
@@ -139,4 +251,65 @@ pub fn config_open_file() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider_registry::ProviderKind;
+    use uuid::Uuid;
+
+    fn temp_cache_dir() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("the-pair-model-cache-test-{}", Uuid::new_v4()))
+    }
+
+    fn test_model(model_id: &str) -> AvailableModel {
+        AvailableModel {
+            provider: ProviderKind::Codex,
+            model_id: model_id.to_string(),
+            display_name: model_id.to_string(),
+            available: true,
+            provider_label: "Codex".to_string(),
+            source_provider: Some("openai".to_string()),
+            source_provider_label: "OpenAI".to_string(),
+            billing_kind: "plan".to_string(),
+            billing_label: "Included with plan".to_string(),
+            access_label: "ChatGPT plan".to_string(),
+            plan_label: Some("subscription-backed".to_string()),
+            availability_status: "ready".to_string(),
+            availability_reason: None,
+            supports_pair_execution: true,
+            recommended_roles: vec!["mentor".to_string(), "executor".to_string()],
+            reasoning_effort_levels: None,
+        }
+    }
+
+    #[test]
+    fn model_cache_round_trips_models_from_disk() {
+        let dir = temp_cache_dir();
+        let models = vec![test_model("gpt-test-startup")];
+
+        write_model_cache_in_dir(&dir, &models).expect("cache write should succeed");
+        let cached = read_model_cache_in_dir(&dir)
+            .expect("cache read should not fail")
+            .expect("cache should exist");
+
+        assert_eq!(cached.models.len(), 1);
+        assert_eq!(cached.models[0].model_id, "gpt-test-startup");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn corrupt_model_cache_returns_none() {
+        let dir = temp_cache_dir();
+        std::fs::create_dir_all(&dir).expect("cache dir should be created");
+        std::fs::write(model_cache_path_in_dir(&dir), "{not-json").expect("cache should be seeded");
+
+        let cached = read_model_cache_in_dir(&dir).expect("corrupt cache should be non-fatal");
+
+        assert!(cached.is_none());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

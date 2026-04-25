@@ -44,6 +44,8 @@ const api = {
   },
   config: {
     getModels: () => invoke('config_get_models') as Promise<unknown>,
+    getCachedModels: () => invoke('config_get_cached_models') as Promise<unknown>,
+    refreshModels: () => invoke('config_refresh_models') as Promise<unknown>,
     getProviders: () => invoke('config_get_providers') as Promise<unknown>,
     read: () => invoke('config_read') as Promise<unknown>,
     openFile: () => invoke('config_open_file') as Promise<unknown>,

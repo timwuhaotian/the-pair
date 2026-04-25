@@ -4,7 +4,6 @@ import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
 import type { PairRunSummary } from '../store/usePairStore'
 import type { TimelineData } from '../lib/timeline'
-import { copyMarkdownReport, exportAsHtml } from '../lib/reportExport'
 
 interface TaskHistoryPanelProps {
   runHistory: PairRunSummary[]
@@ -142,6 +141,7 @@ export function TaskHistoryPanel({
                       variant="ghost"
                       size="sm"
                       onClick={async () => {
+                        const { copyMarkdownReport } = await import('../lib/reportExport')
                         await copyMarkdownReport(timeline)
                       }}
                       icon={<Clipboard size={9} />}
@@ -153,6 +153,7 @@ export function TaskHistoryPanel({
                       variant="ghost"
                       size="sm"
                       onClick={async () => {
+                        const { exportAsHtml } = await import('../lib/reportExport')
                         await exportAsHtml(timeline)
                       }}
                       icon={<Download size={9} />}

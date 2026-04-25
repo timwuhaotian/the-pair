@@ -1,8 +1,8 @@
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableModel {
     pub provider: ProviderKind,
