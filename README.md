@@ -64,7 +64,7 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - **Resource Monitoring** — CPU and memory usage per agent, updated every second
 - **Git Change Tracking** — Automatic detection of modified, added, or deleted files
 - **Conversation History** — Full transcript of all agent interactions
-- **Local-First** — Runs entirely on your machine, no cloud dependencies
+- **Local Orchestration** — Runs the app and agent coordination locally; model calls depend on your selected provider or local model
 - **Multi-Provider** — Works with opencode, Claude Code, Codex, and Gemini CLI
 - **Reasoning Controls** — Adjust thinking effort per agent role (low/medium/high)
 - **Token Tracking** — Real-time per-turn token usage displayed inline
@@ -76,10 +76,10 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 ## Screenshots
 
 Review Result - Fail With Evidence
-<img width="2800" height="2000" alt="intro-1" src="https://github.com/user-attachments/assets/c4e2bc4e-cac3-4365-93ac-26b663634c9b" />
+<img width="2800" height="2000" alt="Review result showing failed evidence" src="./docs/assets/intro-1.png" />
 
 Review Result - Pass With Evidence
-<img width="2800" height="2000" alt="intro-3" src="https://github.com/user-attachments/assets/deeb1361-bcbe-462c-8c04-55b47551b777" />
+<img width="2800" height="2000" alt="Review result showing passing evidence" src="./docs/assets/intro-3.png" />
 
 ---
 
@@ -119,10 +119,10 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 Install one or more of the supported CLIs:
 
-- **opencode** — https://opencode.ai/install
-- **Claude Code** — `npm install -g @anthropic-ai/claude-code`
+- **opencode** — `curl -fsSL https://opencode.ai/install | bash` or `npm install -g opencode-ai`
+- **Claude Code** — see [Claude Code setup](https://docs.anthropic.com/en/docs/claude-code/getting-started), or use `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Gemini CLI** — see [Gemini CLI docs](https://github.com/google-gemini/gemini-cli)
+- **Gemini CLI** — `npm install -g @google/gemini-cli` or `npx @google/gemini-cli`
 
 ### 2. Configure AI Models (Optional)
 
@@ -201,11 +201,14 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 ├─────────────────────────────────────────────────────────┤
 │  Backend (Rust)                                         │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ ProcessSpawner  │    │
-│  │ (Lifecycle)  │ (State Machine)│ (Multi-Provider)│    │
+│  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
+│  │ (Lifecycle)  │(State Machine)│(Multi-Provider) │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ Git Tracker  │Resource Mon. │ Activity Tracker │    │
+│  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
+│  └──────────────┴──────────────┴──────────────────┘    │
+│  ┌──────────────┬──────────────┬──────────────────┐    │
+│  │Resource Mon. │ Acceptance   │ Report Generator │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 └─────────────────────────────────────────────────────────┘
                             ↕
@@ -290,9 +293,16 @@ the-pair/
 | `npm run preflight:win`     | Check Windows build prerequisites   |
 | `npm run preflight:linux`   | Check Linux build prerequisites     |
 | `npm test`                  | Run JavaScript and Rust unit tests  |
+| `npm run test:js`           | Run Node/TypeScript unit tests      |
+| `npm run test:rust`         | Run Rust unit tests                 |
 | `npm run typecheck`         | Check TypeScript types              |
 | `npm run lint`              | Run ESLint                          |
 | `npm run format`            | Format with Prettier                |
+| `npm run e2e:setup`         | Install the Appium macOS driver     |
+| `npm run e2e`               | Run mocked end-to-end tests         |
+| `npm run dev:mock`          | Start the app with mocked agents    |
+| `npm run dev:smoke`         | Start the app in smoke-test mode    |
+| `npm run clean`             | Remove generated build artifacts    |
 | `npm run build:mac`         | Build local macOS DMG               |
 | `npm run build:mac:release` | Build macOS release ZIP bundle      |
 | `npm run build:win`         | Build for Windows                   |
