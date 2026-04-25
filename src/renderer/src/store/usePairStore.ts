@@ -201,7 +201,7 @@ interface PairMessageEvent {
 
 interface PairHandoffEvent {
   pairId: string
-  nextRole: string
+  nextRole: 'mentor' | 'executor'
 }
 
 interface PairCreatedResponse {
@@ -215,6 +215,7 @@ interface PairCreatedResponse {
 interface BackendPairState {
   pairId?: string
   status?: PairStatus | string
+  iteration?: number
   messages?: Message[]
   latestAcceptance?: AcceptanceRecord
 }
@@ -271,6 +272,8 @@ interface PairStore {
 }
 
 let _listenersInitialized = false
+let _modelsLoading = false
+const _handoffLocks = new Map<string, Promise<void>>()
 
 function createIdleActivity(label: string): AgentActivity {
   const now = Date.now()
@@ -390,9 +393,13 @@ async function saveSnapshotForPair(pair: Pair): Promise<void> {
   }
 }
 
-function buildTurnCardContent(activity: AgentActivity, fallbackLabel: string): string {
+function buildTurnCardContent(
+  activity: AgentActivity,
+  fallbackLabel: string,
+  role: 'mentor' | 'executor'
+): string {
   const detail = activity.detail?.trim()
-  if (detail) return detail
+  if (detail) return sanitizeProgressDetail(detail, fallbackLabel, role)
 
   const label = activity.label.trim()
   if (label) return label
@@ -430,8 +437,8 @@ function castMessageType(
   return type as 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
 }
 
-export function turnCardToMessage(card: TurnCard): Message {
-  const result = turnCardToMessageImpl(card as TokenUsageTurnCard) as TokenUsageMessage
+export function turnCardToMessage(card: TurnCard, iteration = 0): Message {
+  const result = turnCardToMessageImpl(card as TokenUsageTurnCard, iteration) as TokenUsageMessage
   return {
     id: result.id,
     timestamp: result.timestamp,
@@ -446,9 +453,9 @@ export function turnCardToMessage(card: TurnCard): Message {
 
 export const syncTokenUsage = syncTokenUsageImpl
 
-function commitTurnCard(messages: Message[], card?: TurnCard): Message[] {
+function commitTurnCard(messages: Message[], card?: TurnCard, iteration = 0): Message[] {
   if (!card) return messages
-  return [...messages, turnCardToMessage({ ...card, state: 'final' })]
+  return [...messages, turnCardToMessage({ ...card, state: 'final' }, iteration)]
 }
 
 function sanitizeProgressDetail(
@@ -637,7 +644,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
 
     const nextContent = buildTurnCardContent(
       nextActiveActivity,
-      nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
+      nextTurn === 'mentor' ? 'Mentor working' : 'Executor working',
+      nextTurn
     )
     const nextTokenUsage =
       nextTurn === 'mentor'
@@ -718,7 +726,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
-    latestAcceptance: state.latestAcceptance ?? pair.latestAcceptance,
+    latestAcceptance:
+      state.latestAcceptance !== undefined ? state.latestAcceptance : pair.latestAcceptance,
     mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
     executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
     currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt),
@@ -906,6 +915,15 @@ export const usePairStore = create<PairStore>((set) => ({
           pairs: state.pairs.map((pair) => {
             if (pair.id !== data.pairId) return pair
 
+            if (
+              pair.status === 'Finished' ||
+              pair.status === 'Paused' ||
+              pair.status === 'Error' ||
+              pair.status === 'Idle'
+            ) {
+              return pair
+            }
+
             const role = incoming.from === 'mentor' ? 'mentor' : 'executor'
             const nextActivity =
               role === 'mentor'
@@ -926,11 +944,12 @@ export const usePairStore = create<PairStore>((set) => ({
             let currentTurnCard = pair.currentTurnCard
 
             if (currentTurnCard && currentTurnCard.role !== role) {
-              messages = commitTurnCard(messages, currentTurnCard)
+              messages = commitTurnCard(messages, currentTurnCard, pair.iterations)
               currentTurnCard = undefined
             }
 
-            const nextContent = progress.detail || buildTurnCardContent(nextActivity, 'Working...')
+            const nextContent =
+              progress.detail || buildTurnCardContent(nextActivity, 'Working...', role)
             if (!currentTurnCard) {
               currentTurnCard = createTurnCard(
                 role,
@@ -1000,7 +1019,7 @@ export const usePairStore = create<PairStore>((set) => ({
                 let currentTurnCard = p.currentTurnCard
 
                 if (currentTurnCard) {
-                  messages = commitTurnCard(messages, currentTurnCard)
+                  messages = commitTurnCard(messages, currentTurnCard, p.iterations)
                   currentTurnCard = undefined
                 }
 
@@ -1012,7 +1031,8 @@ export const usePairStore = create<PairStore>((set) => ({
                       ...incoming,
                       type: castMessageType(incoming.type),
                       content:
-                        incoming.content.trim() || buildTurnCardContent(nextActivity, 'Working...')
+                        incoming.content.trim() ||
+                        buildTurnCardContent(nextActivity, 'Working...', role)
                     }
                   ]
                 }
@@ -1078,154 +1098,181 @@ export const usePairStore = create<PairStore>((set) => ({
     window.api.pair.onHandoff(async (payload) => {
       const data = payload as PairHandoffEvent
 
-      try {
-        let backendState: BackendPairState | null = null
+      const existing = _handoffLocks.get(data.pairId)
+      if (existing) return
+      const promise = (async () => {
         try {
-          backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
-        } catch (error) {
-          console.warn(
-            '[usePairStore] Failed to load backend state before handoff processing',
-            error
-          )
-        }
-
-        if (backendState?.status === 'Finished') {
-          return
-        }
-
-        if (backendState?.status === 'Paused') {
-          return
-        }
-
-        const state = usePairStore.getState()
-        const pair = state.pairs.find((p) => p.id === data.pairId)
-
-        if (!pair) {
-          console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
-          return
-        }
-
-        if (
-          shouldIgnoreHandoffEvent({
-            pairStatus: pair.status,
-            backendStatus: backendState?.status
-          })
-        ) {
-          return
-        }
-
-        let contextMessages = pair.messages
-        try {
-          if (backendState?.messages?.length) {
-            contextMessages = backendState.messages
+          let backendState: BackendPairState | null = null
+          try {
+            backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
+          } catch (error) {
+            console.warn(
+              '[usePairStore] Failed to load backend state before handoff processing',
+              error
+            )
           }
-        } catch (error) {
-          console.warn(
-            '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
-            error
-          )
-        }
 
-        let message = ''
-        const lastMentorMessage = [...contextMessages]
-          .reverse()
-          .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
-        const lastExecutorMessage = [...contextMessages]
-          .reverse()
-          .find((m) => m.from === 'executor' && m.type === 'result')
-        const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
-
-        if (data.nextRole === 'executor') {
-          if (latestAcceptance?.verdict?.nextStep.action === 'continue') {
-            message = buildExecutorAcceptanceFollowupPrompt({
-              taskSpec: pair.spec,
-              previousExecutorResult:
-                lastExecutorMessage?.content ?? '(previous executor result unavailable)',
-              verdict: latestAcceptance.verdict,
-              acceptance: latestAcceptance
-            })
-
-            const { assignTask } = state
-            await assignTask(data.pairId, message, data.nextRole)
+          if (backendState?.status === 'Finished') {
             return
           }
 
-          message =
-            '### ROLE: EXECUTOR\n' +
-            'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-            '- DO NOT create new plans.\n' +
-            '- DO NOT review your own work.\n' +
-            '- JUST EXECUTE THE STEPS and report results.\n' +
-            '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
-            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n' +
-            '- If you cannot perform a requested action, propose and execute alternative text-based methods instead of stopping.\n\n' +
-            '--- COMMAND TO EXECUTE ---\n'
+          if (backendState?.status === 'Paused') {
+            return
+          }
 
-          if (lastMentorMessage) {
-            message += lastMentorMessage.content
+          const state = usePairStore.getState()
+          const pair = state.pairs.find((p) => p.id === data.pairId)
+
+          if (!pair) {
+            console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
+            return
+          }
+
+          if (
+            shouldIgnoreHandoffEvent({
+              pairStatus: pair.status,
+              backendStatus: backendState?.status
+            })
+          ) {
+            return
+          }
+
+          let contextMessages = pair.messages
+          try {
+            if (backendState?.messages?.length) {
+              contextMessages = backendState.messages
+            }
+          } catch (error) {
+            console.warn(
+              '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
+              error
+            )
+          }
+
+          let message = ''
+          const lastMentorMessage = [...contextMessages]
+            .reverse()
+            .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
+          const lastExecutorMessage = [...contextMessages]
+            .reverse()
+            .find((m) => m.from === 'executor' && m.type === 'result')
+          const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
+
+          if (data.nextRole === 'executor') {
+            if (latestAcceptance?.verdict?.nextStep.action === 'continue' && lastExecutorMessage) {
+              message = buildExecutorAcceptanceFollowupPrompt({
+                taskSpec: pair.spec,
+                previousExecutorResult:
+                  lastExecutorMessage?.content ?? '(previous executor result unavailable)',
+                verdict: latestAcceptance.verdict,
+                acceptance: latestAcceptance
+              })
+
+              const { assignTask } = state
+              await assignTask(data.pairId, message, data.nextRole)
+              return
+            }
+
+            const isSmokeTest =
+              pair.spec.includes('This is a smoke test of the pair execution loop') &&
+              pair.spec.includes('Each time the executor sends a greeting')
+
+            if (isSmokeTest) {
+              message =
+                '### ROLE: EXECUTOR (Smoke Test)\n' +
+                'Your ONLY task is to send a numbered greeting to the Mentor.\n' +
+                '- DO NOT create new plans.\n' +
+                '- DO NOT run any tools or commands.\n' +
+                '- DO NOT modify any files.\n' +
+                '- JUST output the greeting text (e.g., "Greeting 1/3") and nothing else.\n' +
+                '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
+                '--- COMMAND TO EXECUTE ---\n' +
+                (lastMentorMessage?.content ?? 'Send Greeting 1/3')
+            } else {
+              message =
+                '### ROLE: EXECUTOR\n' +
+                'Your mission is ONLY to EXECUTE the plan provided below. \n' +
+                '- DO NOT create new plans.\n' +
+                '- DO NOT review your own work.\n' +
+                '- JUST EXECUTE THE STEPS and report results.\n' +
+                '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
+                '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n' +
+                '- If you cannot perform a requested action, propose and execute alternative text-based methods instead of stopping.\n\n' +
+                '--- COMMAND TO EXECUTE ---\n'
+
+              if (lastMentorMessage) {
+                message += lastMentorMessage.content
+              } else {
+                message +=
+                  'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
+              }
+            }
           } else {
+            if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
+              message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
+
+              const { assignTask } = state
+              await assignTask(data.pairId, message, data.nextRole)
+              return
+            }
+
+            if (latestAcceptance && lastExecutorMessage) {
+              message = buildMentorAcceptancePrompt({
+                taskSpec: pair.spec,
+                executorResult: lastExecutorMessage.content,
+                acceptance: latestAcceptance
+              })
+
+              const { assignTask } = state
+              await assignTask(data.pairId, message, data.nextRole)
+              return
+            }
+
+            message =
+              '### ROLE: MENTOR\n' +
+              'Your mission is ONLY to PLAN and REVIEW. \n' +
+              '- DO NOT execute any code or tools that modify files.\n' +
+              '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
+              '--- REVIEW REQUEST ---\n' +
+              'The executor has finished a turn. Review their results below:\n\n'
+
+            if (lastExecutorMessage) {
+              message += lastExecutorMessage.content + '\n\n'
+            }
+
             message +=
-              'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
-          }
-        } else {
-          if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
-            message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
-
-            const { assignTask } = state
-            await assignTask(data.pairId, message, data.nextRole)
-            return
+              'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
           }
 
-          if (latestAcceptance && lastExecutorMessage) {
-            message = buildMentorAcceptancePrompt({
-              taskSpec: pair.spec,
-              executorResult: lastExecutorMessage.content,
-              acceptance: latestAcceptance
-            })
-
-            const { assignTask } = state
-            await assignTask(data.pairId, message, data.nextRole)
-            return
+          const { assignTask } = state
+          await assignTask(data.pairId, message, data.nextRole)
+        } catch (error) {
+          console.error('[usePairStore] Handoff processing failed:', error)
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          set({ error: `Handoff failed: ${errorMessage}` })
+          try {
+            await window.api.pair.pause(data.pairId)
+          } catch (pauseError) {
+            console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
           }
-
-          message =
-            '### ROLE: MENTOR\n' +
-            'Your mission is ONLY to PLAN and REVIEW. \n' +
-            '- DO NOT execute any code or tools that modify files.\n' +
-            '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-            '--- REVIEW REQUEST ---\n' +
-            'The executor has finished a turn. Review their results below:\n\n'
-
-          if (lastExecutorMessage) {
-            message += lastExecutorMessage.content + '\n\n'
-          }
-
-          message +=
-            'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
         }
-
-        const { assignTask } = state
-        await assignTask(data.pairId, message, data.nextRole)
-      } catch (error) {
-        console.error('[usePairStore] Handoff processing failed:', error)
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        set({ error: `Handoff failed: ${errorMessage}` })
-        try {
-          await window.api.pair.pause(data.pairId)
-        } catch (pauseError) {
-          console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
-        }
-      }
+      })()
+      _handoffLocks.set(data.pairId, promise)
+      promise.finally(() => _handoffLocks.delete(data.pairId))
     })
   },
 
   loadAvailableModels: async () => {
+    if (_modelsLoading) return
+    _modelsLoading = true
     try {
       const models = await window.api.config.getModels()
       set({ availableModels: models as AvailableModel[] })
     } catch (error) {
       console.error('Failed to load models:', error)
       set({ error: 'Failed to load models' })
+    } finally {
+      _modelsLoading = false
     }
   },
 
@@ -1259,7 +1306,8 @@ export const usePairStore = create<PairStore>((set) => ({
         executor: executorConfig,
         mentorReasoningEffort: input.mentorReasoningEffort,
         executorReasoningEffort: input.executorReasoningEffort,
-        branch: input.branch
+        branch: input.branch,
+        maxIterations: input.maxIterations
       })) as PairCreatedResponse
 
       const now = Date.now()

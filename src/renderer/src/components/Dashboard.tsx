@@ -120,7 +120,6 @@ export function Dashboard({
                             }}
                             disabled={deletingPairId === pair.id}
                             icon={<Trash2 size={12} />}
-                            className="opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                           >
                             {deletingPairId === pair.id ? 'Deleting...' : 'Delete'}
                           </GlassButton>

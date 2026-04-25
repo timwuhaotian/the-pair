@@ -1,6 +1,7 @@
 import type { AcceptanceRecord, AcceptanceVerdict, TurnTokenUsage } from '../types'
 import { stripSystemPrompt } from './utils'
-import { isAcceptanceVerdictContent, parseAcceptanceVerdict } from './acceptance'
+import { isAcceptanceVerdictContent, parseAcceptanceVerdictForDisplay } from './acceptance'
+import { collapseConsecutiveConsoleMessages } from './consoleMessages'
 
 // ── Types ──────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ export interface TimelineEvent {
   content: string
   tokenUsage?: TurnTokenUsage
   durationMs?: number
-  acceptanceVerdict?: { verdict: 'pass' | 'fail'; risk: string; summary: string }
+  acceptanceVerdict?: AcceptanceVerdict
 }
 
 export interface IterationGroup {
@@ -129,7 +130,7 @@ export function eventTitle(type: TimelineEventType): string {
 function tryParseAcceptance(content: string): AcceptanceVerdict | null {
   try {
     if (isAcceptanceVerdictContent(content)) {
-      return parseAcceptanceVerdict(content)
+      return parseAcceptanceVerdictForDisplay(content)
     }
   } catch {
     // not parseable, skip
@@ -160,13 +161,15 @@ function groupMessagesByIteration(messages: TimelineMessage[]): Map<number, Time
 
 export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): TimelineData {
   // Filter out noise
-  const filtered = messages.filter((msg) => {
-    if (msg.type === 'handoff') return false
-    if (isEmptyContent(msg.content)) return false
-    if (!msg.content) return false
-    if (isTechnicalHandoff(msg.content) && msg.from !== 'human') return false
-    return true
-  })
+  const filtered = collapseConsecutiveConsoleMessages(
+    messages.filter((msg) => {
+      if (msg.type === 'handoff') return false
+      if (!msg.content || isEmptyContent(msg.content)) return false
+      if (msg.type === 'plan' || msg.type === 'result' || msg.type === 'acceptance') return true
+      if (isTechnicalHandoff(msg.content) && msg.from !== 'human') return false
+      return true
+    })
+  )
 
   // Group by iteration
   const iterationMap = groupMessagesByIteration(filtered)
@@ -198,9 +201,7 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
         content: displayContent,
         tokenUsage: msg.tokenUsage,
         durationMs: nextTs ? nextTs - msg.timestamp : undefined,
-        acceptanceVerdict: acceptance
-          ? { verdict: acceptance.verdict, risk: acceptance.risk, summary: acceptance.summary }
-          : undefined
+        acceptanceVerdict: acceptance ?? undefined
       }
     })
 
@@ -216,6 +217,35 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
     }
   })
 
+  // Merge acceptance-gate-only iterations into previous iteration
+  const processedIterations: IterationGroup[] = []
+  for (const iter of iterations) {
+    const hasSubstantiveEvents = iter.events.some((e) => e.type !== 'acceptance-gate')
+    if (!hasSubstantiveEvents && processedIterations.length > 0) {
+      const prev = processedIterations[processedIterations.length - 1]
+      prev.events.push(...iter.events)
+      prev.endedAt = Math.max(prev.endedAt, iter.endedAt)
+      prev.durationMs = prev.endedAt - prev.startedAt
+      prev.totalTokens += iter.totalTokens
+      continue
+    }
+    processedIterations.push(iter)
+  }
+
+  // Deduplicate consecutive acceptance-gate events, keeping the latest
+  for (const iter of processedIterations) {
+    const deduped: TimelineEvent[] = []
+    for (const event of iter.events) {
+      const prev = deduped[deduped.length - 1]
+      if (prev && prev.type === 'acceptance-gate' && event.type === 'acceptance-gate') {
+        deduped[deduped.length - 1] = event
+      } else {
+        deduped.push(event)
+      }
+    }
+    iter.events = deduped
+  }
+
   const mentorTokens = sumTokensForRole(filtered, 'mentor')
   const executorTokens = sumTokensForRole(filtered, 'executor')
 
@@ -227,7 +257,7 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
     startedAt: pair.currentRunStartedAt,
     finishedAt: pair.currentRunFinishedAt,
     status: pair.status,
-    iterations,
+    iterations: processedIterations,
     totalOutputTokens: mentorTokens + executorTokens,
     mentorOutputTokens: mentorTokens,
     executorOutputTokens: executorTokens,

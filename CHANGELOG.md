@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.11] - 2026-04-25
+
+### Fixed
+
+- **Turn card message loss:** Restored turn card commit logic so in-progress agent output is properly archived to the message history instead of being discarded.
+- **Handoff race condition:** Added concurrency guard to prevent multiple rapid handoff events from processing simultaneously.
+- **Executor followup prompt:** Guarded the acceptance followup path to avoid sending placeholder text to agents when no prior executor output exists.
+- **Acceptance card misclassification:** Restored role guard in TurnCardView to prevent executor output from being rendered as acceptance cards.
+- **Report filename sanitization:** Sanitized session IDs in report filenames to prevent path traversal.
+- **PATH race condition:** Fixed PATH refresh to merge login shell entries instead of overwriting fallback directories.
+- **Duplicate check keys:** Fixed React key warnings in acceptance check list rendering.
+
 ## [1.3.10] - 2026-04-23
 
 ### Fixed
@@ -438,6 +450,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.3.11]: https://github.com/timwuhaotian/the-pair/compare/v1.3.10...v1.3.11
+[1.3.10]: https://github.com/timwuhaotian/the-pair/compare/v1.3.9...v1.3.10
 [1.3.9]: https://github.com/timwuhaotian/the-pair/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/timwuhaotian/the-pair/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/timwuhaotian/the-pair/compare/v1.3.6...v1.3.7

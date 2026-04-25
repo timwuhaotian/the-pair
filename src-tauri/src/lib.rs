@@ -80,7 +80,8 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            path_env::refresh_path_from_login_shell();
+            path_env::apply_fallback_path();
+            std::thread::spawn(path_env::refresh_path_from_login_shell);
             setup_menu(app.handle())?;
 
             let broker = app.state::<Mutex<MessageBroker>>();

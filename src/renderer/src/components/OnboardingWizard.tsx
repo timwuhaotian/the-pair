@@ -131,6 +131,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   )
 
   useEffect(() => {
+    if (availableModels.length > 0) return
     let cancelled = false
     setIsCheckingProviders(true)
     void (async () => {
@@ -143,7 +144,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     return () => {
       cancelled = true
     }
-  }, [loadAvailableModels])
+  }, [loadAvailableModels, availableModels.length])
 
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '' && executorModel === '') {
@@ -220,7 +221,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
         mentorModel,
         executorModel,
         branch,
-        maxIterations: selectedPreset?.defaultMaxIterations
+        maxIterations: undefined
       })
       onComplete()
     } catch (e) {

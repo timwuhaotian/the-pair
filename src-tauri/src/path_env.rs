@@ -3,13 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub fn refresh_path_from_login_shell() {
+pub fn apply_fallback_path() {
     let current = std::env::var_os("PATH").unwrap_or_default();
-    let base = if let Some(shell_path) = capture_login_shell_path() {
-        OsString::from(shell_path)
-    } else {
-        current.clone()
-    };
 
     let extra_dirs = fallback_path_dirs(
         std::env::var_os(if cfg!(target_os = "windows") {
@@ -23,8 +18,39 @@ pub fn refresh_path_from_login_shell() {
         cfg!(target_os = "windows"),
     );
 
-    if let Ok(merged) = merge_path_entries(&base, &extra_dirs) {
+    if let Ok(merged) = merge_path_entries(&current, &extra_dirs) {
         std::env::set_var("PATH", merged);
+    }
+}
+
+pub fn refresh_path_from_login_shell() {
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let extra_dirs = fallback_path_dirs(
+        std::env::var_os(if cfg!(target_os = "windows") {
+            "USERPROFILE"
+        } else {
+            "HOME"
+        })
+        .map(PathBuf::from),
+        std::env::var_os("APPDATA").map(PathBuf::from),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        cfg!(target_os = "windows"),
+    );
+
+    if let Some(shell_path) = capture_login_shell_path() {
+        let base = OsString::from(shell_path);
+        if let Ok(shell_merged) = merge_path_entries(&base, &extra_dirs) {
+            // Merge with current PATH to preserve fallback dirs applied before this runs
+            let mut paths: Vec<PathBuf> = std::env::split_paths(&current).collect();
+            for entry in std::env::split_paths(&shell_merged) {
+                if !paths.iter().any(|existing| existing == &entry) {
+                    paths.push(entry);
+                }
+            }
+            if let Ok(final_merged) = std::env::join_paths(paths) {
+                std::env::set_var("PATH", final_merged);
+            }
+        }
     }
 }
 
@@ -51,13 +77,6 @@ pub(crate) fn fallback_path_dirs(
             dirs.push(path.join("npm"));
         }
     } else {
-        dirs.extend([
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/opt/homebrew/sbin"),
-            PathBuf::from("/usr/local/bin"),
-            PathBuf::from("/usr/bin"),
-        ]);
-
         if let Some(home) = home {
             dirs.push(home.join(".local/bin"));
             dirs.push(home.join("go/bin"));
@@ -65,6 +84,13 @@ pub(crate) fn fallback_path_dirs(
             dirs.push(home.join(".volta/bin"));
             dirs.extend(nvm_bin_dirs(&home));
         }
+
+        dirs.extend([
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/opt/homebrew/sbin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/bin"),
+        ]);
     }
 
     dirs
@@ -123,16 +149,8 @@ pub fn capture_login_shell_path() -> Option<String> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn capture_login_shell_path() -> Option<String> {
-    capture_windows_shell_path()
-}
-
 #[cfg(target_os = "windows")]
-fn capture_windows_shell_path() -> Option<String> {
-    // Try cmd.exe to capture the full shell PATH including npm directories.
-    // This is more reliable than the inherited process PATH when the app is
-    // launched from the Start Menu, taskbar, or file explorer.
+pub fn capture_login_shell_path() -> Option<String> {
     let output = Command::new("cmd.exe")
         .arg("/c")
         .arg("@echo off & echo %PATH%")
@@ -165,6 +183,14 @@ mod tests {
             assert!(!path.trim().is_empty());
             assert!(path.contains('/'));
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn capture_login_shell_path_returns_a_value_on_windows_desktops() {
+        let path = capture_login_shell_path().expect("expected login shell PATH");
+        assert!(!path.trim().is_empty());
+        assert!(path.contains(';'));
     }
 
     #[test]

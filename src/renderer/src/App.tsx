@@ -32,6 +32,7 @@ import { useMinimumVisibleText } from './hooks/useMinimumVisibleText'
 import { Dashboard } from './components/Dashboard'
 import { MessageCard } from './components/MessageCard'
 import { TurnCardView } from './components/TurnCardView'
+import { collapseConsecutiveConsoleMessages } from './lib/consoleMessages'
 
 function PairDetail({
   pair,
@@ -108,6 +109,10 @@ function PairDetail({
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
 
+  const deduplicatedConsoleMessages = useMemo(() => {
+    return collapseConsecutiveConsoleMessages<Message>(consoleMessages)
+  }, [consoleMessages])
+
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages
     return {
@@ -151,6 +156,14 @@ function PairDetail({
       el.scrollTop = el.scrollHeight
     }
   }, [pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+
+  const visibleCurrentTurnCard =
+    pair.currentTurnCard &&
+    (deduplicatedConsoleMessages.length === 0 ||
+      deduplicatedConsoleMessages[deduplicatedConsoleMessages.length - 1].from !==
+        pair.currentTurnCard.role)
+      ? pair.currentTurnCard
+      : null
 
   if (!pair || !pair.id || !pair.name) {
     console.error('[PairDetail] Invalid pair data:', pair)
@@ -527,7 +540,7 @@ function PairDetail({
           <div className="relative flex min-h-0 flex-1 flex-col bg-background/20">
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
               <div className="flex flex-col gap-4 p-6 pb-20">
-                {consoleMessages.length === 0 && !pair.currentTurnCard ? (
+                {deduplicatedConsoleMessages.length === 0 && !pair.currentTurnCard ? (
                   <div className="flex h-[400px] flex-col items-center justify-center space-y-4 opacity-40">
                     <div className="h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/30 animate-[spin_10s_linear_infinite]" />
                     <div className="text-center space-y-1">
@@ -537,31 +550,31 @@ function PairDetail({
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4">
-                    {consoleMessages.map((msg: Message) => (
+                    {deduplicatedConsoleMessages.map((msg: Message) => (
                       <MessageCard msg={msg} key={msg.id} />
                     ))}
                   </div>
                 )}
-                {(pair.currentTurnCard || isPairActive(pair.status)) && (
+                {(isPairActive(pair.status) || visibleCurrentTurnCard) && (
                   <div className="pt-1">
                     <AnimatePresence mode="popLayout">
-                      {pair.currentTurnCard ? (
+                      {visibleCurrentTurnCard ? (
                         <motion.div
-                          key={pair.currentTurnCard.id}
+                          key={visibleCurrentTurnCard.id}
                           initial={false}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, transition: { duration: 0.15 } }}
                           transition={{ duration: 0.15 }}
                         >
-                          <TurnCardView card={pair.currentTurnCard} />
-                          {pair.currentTurnCard.activity.phase === 'stalled' && (
+                          <TurnCardView card={visibleCurrentTurnCard} />
+                          {visibleCurrentTurnCard.activity.phase === 'stalled' && (
                             <div className="mt-2 flex items-center gap-2">
                               <GlassButton
                                 variant="destructive"
                                 size="sm"
                                 className="w-full gap-1.5"
                                 onClick={() => {
-                                  void killProcess(pair.id, pair.currentTurnCard!.role)
+                                  void killProcess(pair.id, visibleCurrentTurnCard.role)
                                 }}
                               >
                                 <XCircle size={12} />

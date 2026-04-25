@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { PairPreset } from '../types'
-import { HARDCODED_PRESETS } from './presetUtils'
+import { getPresets } from './presetUtils'
 
 interface UsePresetsResult {
   presets: PairPreset[]
@@ -18,7 +18,8 @@ export function usePresets(): UsePresetsResult {
     setLoading(true)
     setError(null)
     try {
-      setPresets(HARDCODED_PRESETS)
+      const isDev = !import.meta.env.PROD
+      setPresets(getPresets(isDev))
     } catch {
       setError('Failed to load presets')
     } finally {

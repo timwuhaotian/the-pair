@@ -30,7 +30,10 @@ export interface TokenUsageMessage {
   tokenUsage?: TurnTokenUsage
 }
 
-export function turnCardToMessage(card: TokenUsageTurnCard): TokenUsageMessage {
+export function turnCardToMessage(
+  card: TokenUsageTurnCard,
+  iteration: number = 0
+): TokenUsageMessage {
   const type =
     card.role === 'mentor'
       ? isAcceptanceVerdictContent(card.content)
@@ -45,7 +48,7 @@ export function turnCardToMessage(card: TokenUsageTurnCard): TokenUsageMessage {
     to: 'human',
     type,
     content: card.content,
-    iteration: 0,
+    iteration,
     tokenUsage: card.tokenUsage
   }
 }

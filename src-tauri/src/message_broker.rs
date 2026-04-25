@@ -61,7 +61,12 @@ impl MessageBroker {
         executor_detail: Option<String>,
     ) {
         Self::update_activity(mentor_activity, mentor_phase, mentor_label, mentor_detail);
-        Self::update_activity(executor_activity, executor_phase, executor_label, executor_detail);
+        Self::update_activity(
+            executor_activity,
+            executor_phase,
+            executor_label,
+            executor_detail,
+        );
     }
 
     pub fn initialize_pair(
@@ -99,7 +104,7 @@ impl MessageBroker {
             directory,
             status: PairStatus::Idle,
             iteration: 0,
-            max_iterations: 9999,
+            max_iterations: input.max_iterations.unwrap_or(9999),
             turn: AgentRole::Mentor,
             mentor: AgentState {
                 status: PairStatus::Idle,
@@ -130,6 +135,7 @@ impl MessageBroker {
             git_review_available: false,
             finished_at: None,
             latest_acceptance: None,
+            acceptance_history: Vec::new(),
             worktree_path: effective_directory.map(|s| s.to_string()),
             turn_started_at: None,
         };
@@ -316,6 +322,8 @@ impl MessageBroker {
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.messages.clear();
             state.iteration = 0;
+            state.latest_acceptance = None;
+            state.acceptance_history.clear();
             println!("[MessageBroker] Session reset for pair {}", pair_id);
         }
     }
@@ -366,6 +374,7 @@ impl MessageBroker {
                     state.iteration = 1;
                     state.status = PairStatus::Mentoring;
                     state.latest_acceptance = None;
+                    state.acceptance_history.clear();
                     state.mentor.status = PairStatus::Executing;
                     Self::update_both_activities(
                         &mut state.mentor_activity,
@@ -480,8 +489,10 @@ impl MessageBroker {
                         let elapsed_secs = (now - activity.last_output_at.unwrap()) / 1000;
                         if elapsed_secs >= STALL_CRITICAL_SECS {
                             new_phase = ActivityPhase::Stalled;
-                            new_label = format!("No output for {}s — process may be stuck", elapsed_secs);
-                            new_detail = Some(format!("Stalled after {}s of inactivity", elapsed_secs));
+                            new_label =
+                                format!("No output for {}s — process may be stuck", elapsed_secs);
+                            new_detail =
+                                Some(format!("Stalled after {}s of inactivity", elapsed_secs));
                             activity_for_update = true;
                         } else if elapsed_secs >= STALL_WARNING_SECS
                             && activity.phase != ActivityPhase::Stalled
@@ -493,13 +504,16 @@ impl MessageBroker {
                         let elapsed_secs = (now - started) / 1000;
                         if elapsed_secs >= STALL_CRITICAL_SECS {
                             new_phase = ActivityPhase::Stalled;
-                            new_label = format!("No output after {}s — process may be stuck", elapsed_secs);
-                            new_detail = Some(format!("Waiting for first output for {}s", elapsed_secs));
+                            new_label =
+                                format!("No output after {}s — process may be stuck", elapsed_secs);
+                            new_detail =
+                                Some(format!("Waiting for first output for {}s", elapsed_secs));
                             activity_for_update = true;
                         } else if elapsed_secs >= STALL_WARNING_SECS
                             && activity.phase != ActivityPhase::Stalled
                         {
-                            new_detail = Some(format!("Waiting for first output... ({}s)", elapsed_secs));
+                            new_detail =
+                                Some(format!("Waiting for first output... ({}s)", elapsed_secs));
                             activity_for_update = true;
                         }
                     }
@@ -650,6 +664,9 @@ impl MessageBroker {
     pub fn set_latest_acceptance(&self, pair_id: &str, acceptance: Option<AcceptanceRecord>) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
+            if let Some(ref record) = acceptance {
+                state.acceptance_history.push(record.clone());
+            }
             state.latest_acceptance = acceptance;
             self.notify_state_update(pair_id, state);
         }
@@ -860,9 +877,9 @@ impl MessageBroker {
 mod tests {
     use super::*;
     use crate::types::{
-        ActivityPhase, AgentActivity, AgentConfig, AgentRole, AgentState, CreatePairInput,
-        GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
-        ResourceInfo,
+        AcceptanceRecord, AcceptanceRisk, ActivityPhase, AgentActivity, AgentConfig, AgentRole,
+        AgentState, CreatePairInput, GitTracking, Message, MessageSender, MessageType,
+        PairResources, PairState, PairStatus, ResourceInfo,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -929,6 +946,7 @@ mod tests {
             git_review_available: false,
             finished_at: None,
             latest_acceptance: None,
+            acceptance_history: Vec::new(),
             worktree_path: None,
             turn_started_at: None,
         }
@@ -953,6 +971,7 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            max_iterations: None,
             branch: None,
         }
     }
@@ -986,6 +1005,35 @@ mod tests {
             state.executor_activity.phase,
             ActivityPhase::Waiting
         ));
+    }
+
+    #[test]
+    fn prepare_run_clears_acceptance_history_before_new_mentor_planning_run() {
+        let broker = MessageBroker::new();
+        let mut state = pair_state(PairStatus::Finished, 4);
+        let prior_acceptance = AcceptanceRecord {
+            iteration: 3,
+            risk: AcceptanceRisk::Medium,
+            checks: Vec::new(),
+            summary: "prior run check".to_string(),
+            started_at: 100,
+            finished_at: 200,
+            verdict: None,
+            raw_verdict: None,
+            error: None,
+            repair_attempts: 0,
+        };
+
+        state.latest_acceptance = Some(prior_acceptance.clone());
+        state.acceptance_history = vec![prior_acceptance];
+
+        broker.restore_state(state).unwrap();
+
+        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert!(state.acceptance_history.is_empty());
+        assert!(state.latest_acceptance.is_none());
     }
 
     #[test]

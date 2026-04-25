@@ -26,7 +26,10 @@ export interface AcceptanceNextStep {
 export interface AcceptanceVerdict {
   verdict: AcceptanceVerdictDecision
   risk: AcceptanceRisk
+  confidence: number
+  issues: string[]
   evidence: string[]
+  reasoning: string
   summary: string
   nextStep: AcceptanceNextStep
 }
@@ -90,6 +93,7 @@ export interface CreatePairInput {
   mentorReasoningEffort?: string
   executorReasoningEffort?: string
   branch?: string
+  maxIterations?: number
 }
 
 export interface AssignTaskInput {
@@ -262,7 +266,6 @@ export interface PairPreset {
   icon: string
   mentorPromptTemplate: string
   executorPromptTemplate: string
-  defaultMaxIterations: number
   recommendedSkills: string[]
   recommendedMentorModel?: string
   recommendedExecutorModel?: string

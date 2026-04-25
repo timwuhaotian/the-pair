@@ -1,6 +1,7 @@
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { marked } from 'marked'
+import type { AcceptanceVerdict } from '../types'
 import type { TimelineData, TimelineEvent } from './timeline'
 import {
   formatDuration,
@@ -60,15 +61,37 @@ export function generateMarkdownReport(timeline: TimelineData): string {
           `**${eventTitle(event.type)}** — ${formatTimestamp(event.timestamp)}${event.tokenUsage ? ` — ${formatTokenCount(event.tokenUsage.outputTokens)} tok` : ''}`
         )
         lines.push('')
-        lines.push(event.content || event.summary)
-        lines.push('')
 
-        if (event.acceptanceVerdict) {
-          lines.push(`- Verdict: \`${event.acceptanceVerdict.verdict.toUpperCase()}\``)
-          lines.push(`- Risk: \`${event.acceptanceVerdict.risk}\``)
-          lines.push(`- Summary: ${event.acceptanceVerdict.summary}`)
+        if (event.type === 'acceptance-gate' && event.acceptanceVerdict) {
+          const v = event.acceptanceVerdict
+          lines.push(
+            `**Verdict:** \`${v.verdict.toUpperCase()}\` · **Risk:** \`${v.risk}\` · **Confidence:** ${(v.confidence * 100).toFixed(0)}%`
+          )
           lines.push('')
+          lines.push(v.summary)
+          if (v.reasoning) {
+            lines.push('')
+            lines.push(v.reasoning)
+          }
+          if (v.issues.length > 0) {
+            lines.push('')
+            lines.push('**Issues:**')
+            for (const issue of v.issues) {
+              lines.push(`- ${issue}`)
+            }
+          }
+          if (v.evidence.length > 0) {
+            lines.push('')
+            lines.push('**Evidence:**')
+            for (const ev of v.evidence) {
+              lines.push(`- ${ev}`)
+            }
+          }
+        } else {
+          lines.push(event.content || event.summary)
         }
+
+        lines.push('')
       }
     }
   }
@@ -398,16 +421,30 @@ function renderMarkdown(md: string): string {
 }
 
 function renderHtmlEvent(event: TimelineEvent): string {
+  const isAcceptanceGate = event.type === 'acceptance-gate' && event.acceptanceVerdict
+
   const badges = event.acceptanceVerdict
     ? ` <span class="badge badge-${event.acceptanceVerdict.verdict}">${event.acceptanceVerdict.verdict.toUpperCase()}</span> <span class="badge" style="background:var(--card-bg);color:var(--muted);border:1px solid var(--border)">${escapeHtml(event.acceptanceVerdict.risk)}</span>`
     : ''
 
-  const hasFullContent =
-    event.content && event.content !== event.summary && event.content.length > 120
-  const detailHtml = hasFullContent ? renderMarkdown(event.content) : ''
-  const detailSection = hasFullContent
-    ? `\n        <div class="event-detail">${detailHtml}</div>`
-    : ''
+  let summaryText: string
+  let detailHtml: string
+  let hasDetail: boolean
+
+  if (isAcceptanceGate) {
+    const v = event.acceptanceVerdict!
+    summaryText = v.summary
+    detailHtml = renderAcceptanceVerdictHtml(v)
+    hasDetail = true
+  } else {
+    const hasFullContent =
+      event.content && event.content !== event.summary && event.content.length > 120
+    summaryText = event.summary
+    detailHtml = hasFullContent ? renderMarkdown(event.content) : ''
+    hasDetail = !!hasFullContent
+  }
+
+  const detailSection = hasDetail ? `\n        <div class="event-detail">${detailHtml}</div>` : ''
 
   return `
       <div class="event" style="--dot-color: ${dotColor(event)}">
@@ -416,8 +453,41 @@ function renderHtmlEvent(event: TimelineEvent): string {
           <span class="event-time">${formatTimestamp(event.timestamp)}</span>${event.tokenUsage ? `<span class="event-tokens">${formatTokenCount(event.tokenUsage.outputTokens)} tok</span>` : ''}
           ${badges}
         </div>
-        <div class="event-summary${hasFullContent ? ' expandable' : ''}">${escapeHtml(event.summary)}</div>${detailSection}
+        <div class="event-summary${hasDetail ? ' expandable' : ''}">${escapeHtml(summaryText)}</div>${detailSection}
       </div>`
+}
+
+function renderAcceptanceVerdictHtml(verdict: AcceptanceVerdict): string {
+  const parts: string[] = []
+  parts.push(
+    `<p><strong>Verdict:</strong> ${verdict.verdict.toUpperCase()} &middot; <strong>Risk:</strong> ${verdict.risk} &middot; <strong>Confidence:</strong> ${(verdict.confidence * 100).toFixed(0)}%</p>`
+  )
+  parts.push(`<p>${escapeHtml(verdict.summary)}</p>`)
+  if (verdict.reasoning) {
+    parts.push(`<p><strong>Reasoning:</strong> ${escapeHtml(verdict.reasoning)}</p>`)
+  }
+  if (verdict.issues.length > 0) {
+    parts.push('<p><strong>Issues:</strong></p><ul>')
+    for (const issue of verdict.issues) {
+      parts.push(`<li>${escapeHtml(issue)}</li>`)
+    }
+    parts.push('</ul>')
+  }
+  if (verdict.evidence.length > 0) {
+    parts.push('<p><strong>Evidence:</strong></p><ul>')
+    for (const ev of verdict.evidence) {
+      parts.push(`<li>${escapeHtml(ev)}</li>`)
+    }
+    parts.push('</ul>')
+  }
+  if (verdict.nextStep.instructions.length > 0) {
+    parts.push('<p><strong>Next Steps:</strong></p><ol>')
+    for (const inst of verdict.nextStep.instructions) {
+      parts.push(`<li>${escapeHtml(inst)}</li>`)
+    }
+    parts.push('</ol>')
+  }
+  return parts.join('\n')
 }
 
 function escapeHtml(str: string): string {

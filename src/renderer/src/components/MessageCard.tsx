@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn, stripSystemPrompt } from '../lib/utils'
-import { isAcceptanceVerdictContent } from '../lib/acceptance'
+import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
 import { isTechnicalHandoff } from '../lib/timeline'
 import { formatTimestamp } from '../lib/timeline'
 import { getRoleColors } from '../lib/helpers'
@@ -18,7 +18,8 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const displayContent = isHuman ? stripSystemPrompt(msg.content.trim()) : msg.content.trim()
   const isAcceptance =
     msg.type === 'acceptance' ||
-    (msg.from === 'mentor' && isAcceptanceVerdictContent(displayContent))
+    isAcceptanceVerdictContent(displayContent) ||
+    isAcceptanceRecordContent(displayContent)
 
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null

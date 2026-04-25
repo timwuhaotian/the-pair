@@ -1,6 +1,15 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Bug, RefreshCw, Sparkles, Shield, Check, AlertCircle, HelpCircle } from 'lucide-react'
+import {
+  Bug,
+  RefreshCw,
+  Sparkles,
+  Shield,
+  Check,
+  AlertCircle,
+  HelpCircle,
+  FlaskConical
+} from 'lucide-react'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
 import type { PairPreset } from '../types'
@@ -18,7 +27,8 @@ const iconMap: Record<string, React.ReactNode> = {
   Bug: <Bug size={16} />,
   RefreshCw: <RefreshCw size={16} />,
   Sparkles: <Sparkles size={16} />,
-  Shield: <Shield size={16} />
+  Shield: <Shield size={16} />,
+  FlaskConical: <FlaskConical size={16} />
 }
 
 const presetColors: Record<
@@ -48,16 +58,20 @@ const presetColors: Record<
     background: 'bg-amber-500/12 dark:bg-amber-500/14',
     icon: 'text-amber-600 dark:text-amber-400',
     glow: 'hover:shadow-amber-500/20'
+  },
+  'dev-smoke-test': {
+    border: 'border-emerald-500/30',
+    background: 'bg-emerald-500/12 dark:bg-emerald-500/14',
+    icon: 'text-emerald-600 dark:text-emerald-400',
+    glow: 'hover:shadow-emerald-500/20'
   }
 }
 
 function PresetPopover({
   preset,
-  colors,
   children
 }: {
   preset: PairPreset
-  colors: (typeof presetColors)[keyof typeof presetColors]
   children: React.ReactNode | ((show: () => void, hide: () => void) => React.ReactNode)
 }): React.ReactNode {
   const [open, setOpen] = useState(false)
@@ -126,16 +140,6 @@ function PresetPopover({
             <div className="mb-2 text-muted-foreground leading-relaxed">{preset.description}</div>
             <div className="space-y-1.5">
               <div className="flex flex-wrap gap-1">
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border',
-                    colors.border,
-                    colors.background,
-                    colors.icon
-                  )}
-                >
-                  {preset.defaultMaxIterations} iterations
-                </span>
                 {preset.recommendedSkills.map((skill) => (
                   <span
                     key={skill}
@@ -218,7 +222,7 @@ function PresetCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
             <h3 className="text-xs font-semibold text-foreground truncate">{preset.name}</h3>
-            <PresetPopover preset={preset} colors={colors}>
+            <PresetPopover preset={preset}>
               {
                 ((show: () => void, hide: () => void) => (
                   <button

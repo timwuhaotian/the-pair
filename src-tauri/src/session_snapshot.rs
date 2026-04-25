@@ -1,19 +1,17 @@
+use crate::acceptance::{
+    build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
+    build_mentor_acceptance_repair_prompt,
+};
 use crate::message_broker::MessageBroker;
 use crate::pair_manager::PairManager;
 use crate::process_spawner::{ProcessContext, ProcessSpawner};
 use crate::provider_adapter::ProviderAdapter;
 use crate::provider_registry::ProviderKind;
-use crate::util::{build_mentor_planning_prompt, now_millis};
-use crate::{
-    acceptance::{
-        build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
-        build_mentor_acceptance_repair_prompt,
-    },
-};
 use crate::types::{
     AcceptanceRecord, AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType,
     ModifiedFile, Pair, PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
 };
+use crate::util::{build_mentor_planning_prompt, now_millis};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,6 +59,8 @@ pub struct SnapshotProcessContext {
     pub mentor_session_id: Option<String>,
     pub executor_session_id: Option<String>,
     pub run_generation: u32,
+    #[serde(default)]
+    pub is_smoke_test: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +100,8 @@ pub struct SessionSnapshotRecord {
     pub automation_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_acceptance: Option<AcceptanceRecord>,
+    #[serde(default)]
+    pub acceptance_history: Vec<AcceptanceRecord>,
     pub current_turn_card: Option<SnapshotTurnCard>,
     pub run_count: u32,
     pub run_history: Vec<SnapshotRunSummary>,
@@ -147,6 +149,8 @@ pub struct SessionSnapshotDraft {
     pub automation_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_acceptance: Option<AcceptanceRecord>,
+    #[serde(default)]
+    pub acceptance_history: Vec<AcceptanceRecord>,
     pub current_turn_card: Option<SnapshotTurnCard>,
     pub run_count: u32,
     pub run_history: Vec<SnapshotRunSummary>,
@@ -206,7 +210,10 @@ fn resolve_provider_kind(provider: Option<ProviderKind>, model: &str) -> Provide
 fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
     if let Some(acceptance) = snapshot.latest_acceptance.as_ref() {
         if let Some(verdict) = acceptance.verdict.as_ref() {
-            if matches!(verdict.next_step.action, crate::types::AcceptanceNextAction::Continue) {
+            if matches!(
+                verdict.next_step.action,
+                crate::types::AcceptanceNextAction::Continue
+            ) {
                 let previous_executor_result = snapshot
                     .messages
                     .iter()
@@ -286,7 +293,11 @@ fn build_mentor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
                     last_executor_message
                 };
 
-                return build_mentor_acceptance_prompt(&snapshot.spec, &executor_result, acceptance);
+                return build_mentor_acceptance_prompt(
+                    &snapshot.spec,
+                    &executor_result,
+                    acceptance,
+                );
             }
 
             let mut prompt = String::from(
@@ -571,6 +582,7 @@ fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
         mentor_reasoning_effort: snapshot.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
         run_generation: snapshot.provider_sessions.run_generation,
+        is_smoke_test: snapshot.provider_sessions.is_smoke_test,
     }
 }
 
@@ -647,6 +659,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         git_review_available: snapshot.git_tracking.git_review_available.unwrap_or(false),
         finished_at: snapshot.current_run_finished_at,
         latest_acceptance: snapshot.latest_acceptance.clone(),
+        acceptance_history: snapshot.acceptance_history.clone(),
         worktree_path: snapshot.worktree_path.clone(),
         turn_started_at: None,
     }
@@ -668,6 +681,7 @@ fn build_snapshot_from_state(
         mentor_reasoning_effort: pair.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
         run_generation: 0,
+        is_smoke_test: false,
     });
 
     let current_turn_card = state
@@ -731,6 +745,7 @@ fn build_snapshot_from_state(
         git_tracking: state.git_tracking.clone(),
         automation_mode: state.automation_mode.clone(),
         latest_acceptance: state.latest_acceptance.clone(),
+        acceptance_history: state.acceptance_history.clone(),
         current_turn_card,
         run_count: 1,
         run_history: Vec::new(),
@@ -745,6 +760,7 @@ fn build_snapshot_from_state(
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
             run_generation: context.run_generation,
+            is_smoke_test: context.is_smoke_test,
         },
         branch: pair.branch.clone(),
         repo_path: pair.repo_path.clone(),
@@ -767,6 +783,7 @@ fn build_snapshot_from_draft(
         mentor_reasoning_effort: draft.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: draft.executor_reasoning_effort.clone(),
         run_generation: 0,
+        is_smoke_test: false,
     });
 
     SessionSnapshotRecord {
@@ -801,6 +818,7 @@ fn build_snapshot_from_draft(
         git_tracking: draft.git_tracking,
         automation_mode: draft.automation_mode,
         latest_acceptance: draft.latest_acceptance,
+        acceptance_history: draft.acceptance_history,
         current_turn_card: draft.current_turn_card,
         run_count: draft.run_count,
         run_history: draft.run_history,
@@ -811,6 +829,7 @@ fn build_snapshot_from_draft(
             mentor_session_id: context.mentor_session_id,
             executor_session_id: context.executor_session_id,
             run_generation: context.run_generation,
+            is_smoke_test: context.is_smoke_test,
         },
         branch: draft.branch,
         repo_path: draft.repo_path,
@@ -869,6 +888,7 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
     snapshot.latest_acceptance = state.latest_acceptance.clone();
+    snapshot.acceptance_history = state.acceptance_history.clone();
     if snapshot.current_run_finished_at.is_none()
         && matches!(
             state.status,
@@ -885,6 +905,10 @@ pub fn persist_pair_snapshot_from_state(
             .as_ref()
             .and_then(|ctx| ctx.executor_session_id.clone()),
         run_generation: context.as_ref().map(|ctx| ctx.run_generation).unwrap_or(0),
+        is_smoke_test: context
+            .as_ref()
+            .map(|ctx| ctx.is_smoke_test)
+            .unwrap_or(false),
     };
 
     upsert_snapshot_record(app, &snapshot)
@@ -1092,6 +1116,7 @@ pub async fn restore_session(
             .executor_session_id
             .clone(),
         run_generation: updated_snapshot.provider_sessions.run_generation,
+        is_smoke_test: updated_snapshot.provider_sessions.is_smoke_test,
     };
     upsert_snapshot_record(&app, &updated_snapshot)?;
 
@@ -1195,6 +1220,7 @@ mod tests {
             },
             automation_mode: "full-auto".to_string(),
             latest_acceptance: None,
+            acceptance_history: Vec::new(),
             current_turn_card: Some(SnapshotTurnCard {
                 id: "turn-1".to_string(),
                 role: turn.clone(),
@@ -1214,6 +1240,7 @@ mod tests {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
                 run_generation: 0,
+                is_smoke_test: false,
             },
             branch: None,
             repo_path: None,
@@ -1266,6 +1293,7 @@ mod tests {
             },
             automation_mode: "full-auto".to_string(),
             latest_acceptance: None,
+            acceptance_history: Vec::new(),
             current_turn_card: None,
             run_count: 1,
             run_history: vec![],

@@ -2,7 +2,7 @@ use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use serde::Serialize;
 use std::collections::HashSet;
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableModel {
     pub provider: ProviderKind,

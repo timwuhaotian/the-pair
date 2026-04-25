@@ -65,10 +65,10 @@ pub struct AcceptanceNextStep {
 pub struct AcceptanceVerdict {
     pub verdict: AcceptanceVerdictDecision,
     pub risk: AcceptanceRisk,
-    pub confidence: f64,        // Required: 0.0-1.0
-    pub issues: Vec<String>,    // Required: can be empty
+    pub confidence: f64,     // Required: 0.0-1.0
+    pub issues: Vec<String>, // Required: can be empty
     pub evidence: Vec<String>,
-    pub reasoning: String,      // Required: detailed assessment
+    pub reasoning: String, // Required: detailed assessment
     pub summary: String,
     pub next_step: AcceptanceNextStep,
 }
@@ -94,25 +94,6 @@ pub struct AcceptanceRecord {
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ValidationStatus {
-    Pass,
-    Fail,
-    NotFound,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidationResult {
-    pub test: ValidationStatus,
-    pub lint: ValidationStatus,
-    pub typecheck: ValidationStatus,
-    pub build: ValidationStatus,
-    pub logs: Vec<String>,
-    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +267,8 @@ pub struct CreatePairInput {
     #[serde(rename = "executorReasoningEffort")]
     pub executor_reasoning_effort: Option<String>,
     pub branch: Option<String>,
+    #[serde(rename = "maxIterations")]
+    pub max_iterations: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -350,8 +333,10 @@ pub struct PairState {
     pub git_review_available: bool,
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<u64>,
-    #[serde(rename = "latestAcceptance", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "latestAcceptance")]
     pub latest_acceptance: Option<AcceptanceRecord>,
+    #[serde(rename = "acceptanceHistory", default)]
+    pub acceptance_history: Vec<AcceptanceRecord>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
     #[serde(rename = "turnStartedAt", skip_serializing_if = "Option::is_none")]

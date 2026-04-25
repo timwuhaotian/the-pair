@@ -18,29 +18,37 @@ export interface TauriPair {
   worktreePath?: string
 }
 
-const isTauri = '__TAURI__' in window
+const isTauriRuntime = () => typeof window !== 'undefined' && '__TAURI__' in window
+
+const requireTauriRuntime = () => {
+  if (!isTauriRuntime()) {
+    throw new Error('Not running in Tauri')
+  }
+}
+
+const invokeTauri = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+  requireTauriRuntime()
+  return await invoke<T>(command, args)
+}
+
+const isTauri = isTauriRuntime()
 
 export const tauriApi = {
   pair: {
     create: async (input: CreatePairInput): Promise<TauriPair> => {
-      if (!isTauri) throw new Error('Not running in Tauri')
-      return await invoke('pair_create', { input })
+      return await invokeTauri('pair_create', { input })
     },
     list: async (): Promise<TauriPair[]> => {
-      if (!isTauri) throw new Error('Not running in Tauri')
-      return await invoke('pair_list')
+      return await invokeTauri('pair_list')
     },
     delete: async (pairId: string): Promise<void> => {
-      if (!isTauri) throw new Error('Not running in Tauri')
-      return await invoke('pair_delete', { pairId })
+      return await invokeTauri('pair_delete', { pairId })
     },
     pause: async (pairId: string): Promise<void> => {
-      if (!isTauri) throw new Error('Not running in Tauri')
-      return await invoke('pair_pause', { pairId })
+      return await invokeTauri('pair_pause', { pairId })
     },
     killProcess: async (pairId: string, role: string): Promise<void> => {
-      if (!isTauri) throw new Error('Not running in Tauri')
-      return await invoke('kill_process', { pairId, role })
+      return await invokeTauri('kill_process', { pairId, role })
     }
   },
   repo: {
@@ -48,13 +56,13 @@ export const tauriApi = {
       if (!isTauri) {
         return mockRepoState
       }
-      return (await invoke('repo_check_state', { directory })) as RepoState
+      return await invokeTauri('repo_check_state', { directory })
     },
     listBranches: async (directory: string): Promise<BranchInfo[]> => {
       if (!isTauri) {
         return mockRepoState.branches
       }
-      return await invoke('repo_list_branches', { directory })
+      return await invokeTauri('repo_list_branches', { directory })
     }
   }
 }

@@ -54,15 +54,15 @@ test('parseAcceptanceVerdict accepts strict JSON with next-step instructions', (
     }
   }`)
 
-  assert.deepEqual(verdict, {
-    verdict: 'fail',
-    risk: 'high',
-    evidence: ['npm run typecheck failed', 'src/App.tsx still has TS2322'],
-    summary: 'The iteration is not ready yet',
-    nextStep: {
-      action: 'continue',
-      instructions: ['Fix the TS2322 error in App.tsx', 'Re-run typecheck before handing back']
-    }
+  assert.equal(verdict.verdict, 'fail')
+  assert.equal(verdict.risk, 'high')
+  assert.deepEqual(verdict.issues, [])
+  assert.deepEqual(verdict.evidence, ['npm run typecheck failed', 'src/App.tsx still has TS2322'])
+  assert.equal(verdict.reasoning, 'The iteration is not ready yet')
+  assert.equal(verdict.summary, 'The iteration is not ready yet')
+  assert.deepEqual(verdict.nextStep, {
+    action: 'continue',
+    instructions: ['Fix the TS2322 error in App.tsx', 'Re-run typecheck before handing back']
   })
 })
 
@@ -109,6 +109,44 @@ test('isAcceptanceVerdictContent rejects ordinary mentor markdown', () => {
   )
 })
 
+test('parseAcceptanceVerdict rejects pass verdicts that request continuation', () => {
+  assert.throws(
+    () =>
+      parseAcceptanceVerdict(`{
+        "verdict": "pass",
+        "risk": "low",
+        "confidence": 0.95,
+        "issues": [],
+        "evidence": ["Only one chat round completed"],
+        "summary": "More rounds are required",
+        "nextStep": {
+          "action": "continue",
+          "instructions": ["Send round 2"]
+        }
+      }`),
+    /pass.*finish/i
+  )
+})
+
+test('parseAcceptanceVerdict rejects fail verdicts that request finish', () => {
+  assert.throws(
+    () =>
+      parseAcceptanceVerdict(`{
+        "verdict": "fail",
+        "risk": "low",
+        "confidence": 0.65,
+        "issues": ["Task incomplete"],
+        "evidence": ["Only one chat round completed"],
+        "summary": "More rounds are required",
+        "nextStep": {
+          "action": "finish",
+          "instructions": []
+        }
+      }`),
+    /fail.*continue/i
+  )
+})
+
 test('buildMentorAcceptancePrompt embeds executor result and acceptance report', () => {
   const prompt = buildMentorAcceptancePrompt({
     taskSpec: 'Implement structured acceptance gates',
@@ -143,8 +181,34 @@ test('buildExecutorAcceptanceFollowupPrompt uses structured next-step instructio
   assert.match(prompt, /ONLY to EXECUTE the acceptance follow-up/i)
   assert.match(prompt, /Fix the type error in App.tsx/)
   assert.match(prompt, /Run npm run typecheck/)
-  assert.match(prompt, /typecheck failed/)
-  assert.doesNotMatch(prompt, /TASK_COMPLETE/)
+  assert.doesNotMatch(prompt, /typecheck failed/)
+  assert.doesNotMatch(prompt, /Needs one more pass/)
+  assert.doesNotMatch(prompt, /Added the first draft/)
+  assert.match(prompt, /Do not append.*TASK_COMPLETE/i)
+})
+
+test('buildExecutorAcceptanceFollowupPrompt requires exact text-only follow-up output', () => {
+  const prompt = buildExecutorAcceptanceFollowupPrompt({
+    taskSpec: 'Smoke greeting task',
+    previousExecutorResult: 'Greeting 2/3',
+    verdict: {
+      verdict: 'fail',
+      risk: 'low',
+      evidence: ['Greeting 2/3 received'],
+      summary: 'One more greeting is required',
+      nextStep: {
+        action: 'continue',
+        instructions: ['Send Greeting 3/3']
+      }
+    },
+    acceptance: sampleAcceptanceRecord()
+  })
+
+  assert.match(prompt, /output exactly the requested instruction result/i)
+  assert.match(prompt, /do not append/i)
+  assert.doesNotMatch(prompt, /received/i)
+  assert.match(prompt, /TASK_COMPLETE/i)
+  assert.doesNotMatch(prompt, /report what changed/i)
 })
 
 test('buildMentorAcceptanceRepairPrompt explains the JSON validation error', () => {

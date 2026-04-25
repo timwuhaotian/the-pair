@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.3.10",
+  "version": "1.3.11",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
@@ -65,6 +65,7 @@
     "e2e:setup": "appium driver install mac2",
     "e2e": "THE_PAIR_E2E_MOCK=true wdio run e2e/wdio.conf.ts",
     "dev:mock": "THE_PAIR_E2E_MOCK=true npm run dev",
+    "dev:smoke": "THE_PAIR_E2E_MOCK=true THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke npm run dev",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {

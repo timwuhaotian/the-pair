@@ -90,6 +90,9 @@ mod tests {
     fn build_opencode_auth_path_uses_windows_layout_when_requested() {
         let path = build_opencode_auth_path("/Users/alex/AppData/Roaming", true);
 
-        assert_eq!(path, PathBuf::from("/Users/alex/AppData/Roaming/opencode/auth.json"));
+        assert_eq!(
+            path,
+            PathBuf::from("/Users/alex/AppData/Roaming/opencode/auth.json")
+        );
     }
 }

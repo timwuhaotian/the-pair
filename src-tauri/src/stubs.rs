@@ -3,6 +3,22 @@ use crate::model_catalog::{AvailableModel, ModelCatalog};
 use crate::provider_registry::{DetectedProviderProfile, ProviderRegistry};
 use crate::util::is_mock_mode;
 use std::fs;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+const MODEL_CACHE_TTL: Duration = Duration::from_secs(60);
+
+static MODEL_CACHE: OnceLock<Mutex<Option<(Instant, Vec<AvailableModel>)>>> = OnceLock::new();
+static PROVIDER_CACHE: OnceLock<Mutex<Option<(Instant, Vec<DetectedProviderProfile>)>>> =
+    OnceLock::new();
+
+fn detect_profiles() -> Vec<DetectedProviderProfile> {
+    if is_mock_mode() {
+        ProviderRegistry::detect_all_mock()
+    } else {
+        ProviderRegistry::detect_all()
+    }
+}
 
 #[tauri::command]
 pub fn config_read() -> Result<Option<serde_json::Value>, String> {
@@ -24,22 +40,32 @@ pub fn config_read() -> Result<Option<serde_json::Value>, String> {
 
 #[tauri::command]
 pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
-    let profiles = if is_mock_mode() {
-        ProviderRegistry::detect_all_mock()
-    } else {
-        ProviderRegistry::detect_all()
-    };
+    let cache = MODEL_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap();
+    if let Some((ts, ref models)) = *guard {
+        if ts.elapsed() < MODEL_CACHE_TTL {
+            return Ok(models.clone());
+        }
+    }
+    let profiles = detect_profiles();
     let catalog = ModelCatalog::build_catalog(profiles);
     println!("[Tauri] config_get_models found {} models", catalog.len());
+    *guard = Some((Instant::now(), catalog.clone()));
     Ok(catalog)
 }
 
 #[tauri::command]
 pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
-    if is_mock_mode() {
-        return Ok(ProviderRegistry::detect_all_mock());
+    let cache = PROVIDER_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap();
+    if let Some((ts, ref profiles)) = *guard {
+        if ts.elapsed() < MODEL_CACHE_TTL {
+            return Ok(profiles.clone());
+        }
     }
-    Ok(ProviderRegistry::detect_all())
+    let profiles = detect_profiles();
+    *guard = Some((Instant::now(), profiles.clone()));
+    Ok(profiles)
 }
 
 #[tauri::command]
@@ -70,8 +96,11 @@ pub fn config_open_file() -> Result<(), String> {
 
     // Create default config if file doesn't exist
     if !path.exists() {
-        let parent = path.parent().ok_or("Could not determine config directory")?;
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config directory: {}", e))?;
+        let parent = path
+            .parent()
+            .ok_or("Could not determine config directory")?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
 
         // Minimal default config - OpenCode CLI detects free models automatically
         // This file is only needed for custom BYOK providers
@@ -81,7 +110,8 @@ pub fn config_open_file() -> Result<(), String> {
 
         let content = serde_json::to_string_pretty(&default_config)
             .map_err(|e| format!("Failed to serialize default config: {}", e))?;
-        std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))?;
+        std::fs::write(&path, content)
+            .map_err(|e| format!("Failed to write config file: {}", e))?;
     }
 
     #[cfg(target_os = "macos")]

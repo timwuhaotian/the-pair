@@ -12,6 +12,16 @@ export type ModelOverrides = {
   executorModel?: string
 }
 
+export function getAssignableTaskModels(
+  pair: PairLike,
+  restoringModels?: ModelOverrides
+): { mentorModel: string; executorModel: string } {
+  return {
+    mentorModel: restoringModels?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel,
+    executorModel: restoringModels?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
+  }
+}
+
 export function resolveEffectiveModels(
   pair: PairLike,
   overrides?: ModelOverrides

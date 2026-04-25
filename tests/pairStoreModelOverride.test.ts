@@ -20,6 +20,7 @@ import {
   resolveEffectiveModels,
   buildUpdateModelsPayload,
   shouldSyncModelsToBackend,
+  getAssignableTaskModels,
   type PairLike,
   type ModelOverrides
 } from '../src/renderer/src/lib/modelResolution.ts'
@@ -71,6 +72,31 @@ test('resolution: default used when no override or pending', () => {
 
   assert.equal(result.mentorModel, 'default-mentor', 'default should be used')
   assert.equal(result.executorModel, 'default-executor', 'default should be used')
+})
+
+test('assign modal defaults: restoring wins, then pending, then pair defaults', () => {
+  const pair: PairLike = {
+    mentorModel: 'default-mentor',
+    executorModel: 'default-executor',
+    pendingMentorModel: 'pending-mentor',
+    pendingExecutorModel: 'pending-executor'
+  }
+
+  assert.deepEqual(getAssignableTaskModels(pair), {
+    mentorModel: 'pending-mentor',
+    executorModel: 'pending-executor'
+  })
+
+  assert.deepEqual(
+    getAssignableTaskModels(pair, {
+      mentorModel: 'restore-mentor',
+      executorModel: 'restore-executor'
+    }),
+    {
+      mentorModel: 'restore-mentor',
+      executorModel: 'restore-executor'
+    }
+  )
 })
 
 test('resolution: partial override only affects specified role', () => {

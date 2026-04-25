@@ -1,4 +1,7 @@
-use crate::types::{AcceptanceRecord, AcceptanceVerdict, AcceptanceVerdictDecision, ModifiedFile, SessionReport, IterationMetric, Message, MessageSender, MessageType};
+use crate::types::{
+    AcceptanceRecord, AcceptanceVerdictDecision, IterationMetric, Message, ModifiedFile,
+    SessionReport,
+};
 use crate::util::now_millis;
 use std::fs;
 use std::path::Path;
@@ -22,7 +25,7 @@ pub fn generate_session_report(
     messages: &[Message],
 ) -> Result<SessionReport, String> {
     let finished_at = now_millis();
-    
+
     // Get the final verdict from the last acceptance record
     let final_verdict = acceptance_records
         .last()
@@ -32,7 +35,7 @@ pub fn generate_session_report(
     // Calculate token usage from messages
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;
-    
+
     for msg in messages {
         if let Some(usage) = &msg.token_usage {
             total_input_tokens += usage.input_tokens.unwrap_or(0);
@@ -42,26 +45,26 @@ pub fn generate_session_report(
 
     // Build iteration metrics
     let mut iteration_metrics: Vec<IterationMetric> = Vec::new();
-    
+
     for record in acceptance_records {
         let duration_ms = record.finished_at.saturating_sub(record.started_at);
-        
+
         // Find messages for this iteration
         let iteration_messages: Vec<&Message> = messages
             .iter()
             .filter(|m| m.iteration == record.iteration)
             .collect();
-        
+
         let input_tokens: u64 = iteration_messages
             .iter()
             .filter_map(|m| m.token_usage.as_ref().and_then(|u| u.input_tokens))
             .sum();
-        
+
         let output_tokens: u64 = iteration_messages
             .iter()
             .map(|m| m.token_usage.as_ref().map_or(0, |u| u.output_tokens))
             .sum();
-        
+
         // Collect error logs from failed checks
         let error_logs: Vec<String> = record
             .checks
@@ -69,7 +72,7 @@ pub fn generate_session_report(
             .filter(|check| matches!(check.status, crate::types::AcceptanceCheckStatus::Failed))
             .map(|check| format!("{}: {}", check.name, check.summary))
             .collect();
-        
+
         iteration_metrics.push(IterationMetric {
             iteration: record.iteration,
             duration_ms,
@@ -99,39 +102,62 @@ pub fn generate_session_report(
 
 pub fn format_report_markdown(report: &SessionReport) -> String {
     let mut md = String::new();
-    
+
     // Header
     md.push_str(&format!("# Session Report: {}\n\n", report.pair_name));
     md.push_str(&format!("**Session ID:** {}\n\n", report.session_id));
     md.push_str(&format!("**Task:** {}\n\n", report.task_spec));
-    md.push_str(&format!("**Status:** {}\n\n", 
-        if matches!(report.final_verdict.verdict, AcceptanceVerdictDecision::Pass) {
+    md.push_str(&format!(
+        "**Status:** {}\n\n",
+        if matches!(
+            report.final_verdict.verdict,
+            AcceptanceVerdictDecision::Pass
+        ) {
             "✅ PASSED"
         } else {
             "❌ FAILED"
         }
     ));
-    
+
     // Summary
     md.push_str("## Summary\n\n");
     md.push_str(&format!("- **Iterations:** {}\n", report.iterations));
-    md.push_str(&format!("- **Duration:** {:.1} minutes\n", 
-        (report.finished_at - report.started_at) as f64 / 1000.0 / 60.0));
-    md.push_str(&format!("- **Confidence:** {:.0}%\n", report.final_verdict.confidence * 100.0));
-    md.push_str(&format!("- **Risk Level:** {:?}\n", report.final_verdict.risk));
-    md.push_str(&format!("- **Total Tokens:** {} input, {} output\n\n", 
-        report.total_input_tokens, report.total_output_tokens));
-    
+    md.push_str(&format!(
+        "- **Duration:** {:.1} minutes\n",
+        (report.finished_at - report.started_at) as f64 / 1000.0 / 60.0
+    ));
+    md.push_str(&format!(
+        "- **Confidence:** {:.0}%\n",
+        report.final_verdict.confidence * 100.0
+    ));
+    md.push_str(&format!(
+        "- **Risk Level:** {:?}\n",
+        report.final_verdict.risk
+    ));
+    md.push_str(&format!(
+        "- **Total Tokens:** {} input, {} output\n\n",
+        report.total_input_tokens, report.total_output_tokens
+    ));
+
     // Final Verdict
     md.push_str("## Final Verdict\n\n");
-    md.push_str(&format!("**Decision:** {:?}\n", report.final_verdict.verdict));
-    md.push_str(&format!("**Confidence:** {:.0}%\n", report.final_verdict.confidence * 100.0));
+    md.push_str(&format!(
+        "**Decision:** {:?}\n",
+        report.final_verdict.verdict
+    ));
+    md.push_str(&format!(
+        "**Confidence:** {:.0}%\n",
+        report.final_verdict.confidence * 100.0
+    ));
     md.push_str(&format!("**Risk:** {:?}\n", report.final_verdict.risk));
-    md.push_str(&format!("**Summary:** {}\n\n", report.final_verdict.summary));
+    md.push_str(&format!(
+        "**Summary:** {}\n\n",
+        report.final_verdict.summary
+    ));
     md.push_str("### Reasoning\n\n");
     md.push_str(&report.final_verdict.reasoning);
     md.push_str("\n\n");
-    
+
     if !report.final_verdict.issues.is_empty() {
         md.push_str("### Issues\n\n");
         for issue in &report.final_verdict.issues {
@@ -139,7 +165,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         }
         md.push_str("\n");
     }
-    
+
     if !report.final_verdict.evidence.is_empty() {
         md.push_str("### Evidence\n\n");
         for evidence in &report.final_verdict.evidence {
@@ -147,12 +173,16 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         }
         md.push_str("\n");
     }
-    
+
     // Iteration Metrics
     md.push_str("## Iteration Metrics\n\n");
-    md.push_str("| Iteration | Duration | Input Tokens | Output Tokens | Files Changed | Errors |\n");
-    md.push_str("|-----------|----------|--------------|---------------|---------------|--------|\n");
-    
+    md.push_str(
+        "| Iteration | Duration | Input Tokens | Output Tokens | Files Changed | Errors |\n",
+    );
+    md.push_str(
+        "|-----------|----------|--------------|---------------|---------------|--------|\n",
+    );
+
     for metric in &report.iteration_metrics {
         md.push_str(&format!(
             "| {} | {:.1}m | {} | {} | {} | {} |\n",
@@ -161,11 +191,15 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
             metric.input_tokens,
             metric.output_tokens,
             metric.files_changed.len(),
-            if metric.error_logs.is_empty() { "-".to_string() } else { format!("{} errors", metric.error_logs.len()) }
+            if metric.error_logs.is_empty() {
+                "-".to_string()
+            } else {
+                format!("{} errors", metric.error_logs.len())
+            }
         ));
     }
     md.push_str("\n");
-    
+
     // Git Changes
     if !report.git_changes.is_empty() {
         md.push_str("## Git Changes\n\n");
@@ -176,16 +210,18 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         }
         md.push_str("\n");
     }
-    
+
     // Validation History
     md.push_str("## Validation History\n\n");
     for record in &report.validation_history {
         md.push_str(&format!("### Iteration {}\n\n", record.iteration));
         md.push_str(&format!("- **Risk:** {:?}\n", record.risk));
         md.push_str(&format!("- **Summary:** {}\n", record.summary));
-        md.push_str(&format!("- **Duration:** {:.1}s\n", 
-            (record.finished_at - record.started_at) as f64 / 1000.0));
-        
+        md.push_str(&format!(
+            "- **Duration:** {:.1}s\n",
+            (record.finished_at - record.started_at) as f64 / 1000.0
+        ));
+
         if !record.checks.is_empty() {
             md.push_str("\n**Checks:**\n\n");
             for check in &record.checks {
@@ -199,7 +235,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         }
         md.push_str("\n");
     }
-    
+
     md
 }
 
@@ -208,13 +244,18 @@ pub fn save_report_to_file(
     workspace_root: &Path,
 ) -> Result<std::path::PathBuf, String> {
     let reports_dir = ensure_reports_dir(workspace_root)?;
-    let filename = format!("{}.md", report.session_id);
+    let safe_id: String = report
+        .session_id
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    let filename = format!("{}.md", safe_id);
     let filepath = reports_dir.join(&filename);
-    
+
     let markdown = format_report_markdown(report);
-    fs::write(&filepath, markdown)
-        .map_err(|e| format!("Failed to write report file: {}", e))?;
-    
+    fs::write(&filepath, markdown).map_err(|e| format!("Failed to write report file: {}", e))?;
+
     Ok(filepath)
 }
 
@@ -243,18 +284,16 @@ mod tests {
         AcceptanceRecord {
             iteration,
             risk: AcceptanceRisk::Low,
-            checks: vec![
-                AcceptanceCheckRun {
-                    name: "git diff --check".to_string(),
-                    command: "git diff --check".to_string(),
-                    status: AcceptanceCheckStatus::Passed,
-                    exit_code: Some(0),
-                    duration_ms: 100,
-                    summary: "No whitespace errors".to_string(),
-                    stdout: String::new(),
-                    stderr: String::new(),
-                },
-            ],
+            checks: vec![AcceptanceCheckRun {
+                name: "git diff --check".to_string(),
+                command: "git diff --check".to_string(),
+                status: AcceptanceCheckStatus::Passed,
+                exit_code: Some(0),
+                duration_ms: 100,
+                summary: "No whitespace errors".to_string(),
+                stdout: String::new(),
+                stderr: String::new(),
+            }],
             summary: "All checks passed".to_string(),
             started_at: 1000,
             finished_at: 2000,
@@ -271,17 +310,15 @@ mod tests {
             create_test_acceptance_record(1),
             create_test_acceptance_record(2),
         ];
-        
-        let git_changes = vec![
-            ModifiedFile {
-                path: "src/main.rs".to_string(),
-                status: FileStatus::M,
-                display_path: "src/main.rs".to_string(),
-            },
-        ];
-        
+
+        let git_changes = vec![ModifiedFile {
+            path: "src/main.rs".to_string(),
+            status: FileStatus::M,
+            display_path: "src/main.rs".to_string(),
+        }];
+
         let messages: Vec<Message> = vec![];
-        
+
         let report = generate_session_report(
             "test-session-1",
             "Test Pair",
@@ -290,15 +327,19 @@ mod tests {
             &acceptance_records,
             &git_changes,
             &messages,
-        ).expect("should generate report");
-        
+        )
+        .expect("should generate report");
+
         assert_eq!(report.session_id, "test-session-1");
         assert_eq!(report.pair_name, "Test Pair");
         assert_eq!(report.task_spec, "Implement feature X");
         assert_eq!(report.iterations, 2);
         assert_eq!(report.git_changes.len(), 1);
         assert_eq!(report.validation_history.len(), 2);
-        assert!(matches!(report.final_verdict.verdict, AcceptanceVerdictDecision::Pass));
+        assert!(matches!(
+            report.final_verdict.verdict,
+            AcceptanceVerdictDecision::Pass
+        ));
         assert!((report.final_verdict.confidence - 0.95).abs() < 0.001);
     }
 
@@ -307,7 +348,7 @@ mod tests {
         let acceptance_records = vec![create_test_acceptance_record(1)];
         let git_changes = vec![];
         let messages = vec![];
-        
+
         let report = generate_session_report(
             "test-session-2",
             "Test Pair",
@@ -316,10 +357,11 @@ mod tests {
             &acceptance_records,
             &git_changes,
             &messages,
-        ).expect("should generate report");
-        
+        )
+        .expect("should generate report");
+
         let markdown = format_report_markdown(&report);
-        
+
         assert!(markdown.contains("# Session Report: Test Pair"));
         assert!(markdown.contains("Session ID:** test-session-2"));
         assert!(markdown.contains("Task:** Test task"));

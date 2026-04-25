@@ -10,7 +10,9 @@ use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus,
 };
-use crate::util::{build_mentor_planning_prompt, now_millis};
+use crate::util::{
+    build_mentor_planning_prompt, now_millis,
+};
 use crate::worktree_manager::{
     check_repo_state, create_worktree, delete_worktree, ensure_gitignore_worktrees,
     ensure_local_tracking_branch, BranchInfo, RepoState,
@@ -30,7 +32,7 @@ impl PairManager {
 
     pub fn create_pair(
         &mut self,
-        input: CreatePairInput,
+        input: &CreatePairInput,
         broker: &MessageBroker,
     ) -> Result<Pair, String> {
         println!("[PairManager::create_pair] Starting pair creation...");
@@ -145,7 +147,7 @@ impl PairManager {
 
         println!("[PairManager::create_pair] Initializing broker state...");
         let effective_dir = pair.worktree_path.as_deref().or(Some(&pair.directory));
-        if let Err(e) = broker.initialize_pair(&pair_id, input, effective_dir) {
+        if let Err(e) = broker.initialize_pair(&pair_id, input.clone(), effective_dir) {
             if let Some(wt_path) = &pair.worktree_path {
                 println!(
                     "[PairManager::create_pair] Broker init failed, cleaning up worktree: {}",
@@ -222,16 +224,15 @@ pub async fn pair_create(
     );
     println!("[pair_create] Initial task spec: {}", input.spec);
 
-    let task_spec = input.spec.clone();
     let mentor_reasoning_effort = input.mentor_reasoning_effort.clone();
     let executor_reasoning_effort = input.executor_reasoning_effort.clone();
-    let mentor_bootstrap_prompt = build_mentor_planning_prompt(&task_spec);
+    let mentor_bootstrap_prompt = build_mentor_planning_prompt(&input.spec);
 
     let pair = {
         let mut manager = state.lock().unwrap();
         let broker_guard = broker.lock().unwrap();
 
-        let pair = manager.create_pair(input, &broker_guard)?;
+        let pair = manager.create_pair(&input, &broker_guard)?;
         let pair_id = pair.pair_id.clone();
 
         println!(
@@ -259,6 +260,7 @@ pub async fn pair_create(
                     mentor_reasoning_effort,
                     executor_reasoning_effort,
                     run_generation: 0,
+                    is_smoke_test: false,
                 },
             );
         }
@@ -272,7 +274,7 @@ pub async fn pair_create(
     let pair_id = pair.pair_id.clone();
 
     // Trigger the initial task
-    if !task_spec.trim().is_empty() {
+    if !input.spec.trim().is_empty() {
         println!("[pair_create] Starting initial task...");
         spawner
             .trigger_turn(app, pair_id, "mentor".to_string(), mentor_bootstrap_prompt)
@@ -354,8 +356,16 @@ pub async fn pair_assign_task(
             existing_run_generation,
         ) = existing
             .as_ref()
-            .map(|(mp, ep, ms, es, _, _, gen)| (*mp, *ep, ms.clone(), es.clone(), *gen))
-            .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None, 0));
+            .map(|(mp, ep, ms, es, _, _, gen)| {
+                (*mp, *ep, ms.clone(), es.clone(), *gen)
+            })
+            .unwrap_or((
+                pair.mentor_provider,
+                pair.executor_provider,
+                None,
+                None,
+                0u32,
+            ));
 
         let mentor_provider_changed = inferred_mentor_provider != existing_mentor_provider;
         let executor_provider_changed = inferred_executor_provider != existing_executor_provider;
@@ -408,6 +418,7 @@ pub async fn pair_assign_task(
                 } else {
                     existing_run_generation
                 },
+                is_smoke_test: false,
             },
         );
     }
@@ -493,7 +504,9 @@ pub fn pair_delete(
 
     let worktree_path: Option<String> = {
         let manager = state.lock().unwrap();
-        manager.get_pair(&pair_id).and_then(|p| p.worktree_path.clone())
+        manager
+            .get_pair(&pair_id)
+            .and_then(|p| p.worktree_path.clone())
     };
 
     if let Some(wt_path) = worktree_path {
@@ -569,7 +582,10 @@ fn build_live_resume_prompt(
     if turn == "executor" {
         if let Some(acceptance) = latest_acceptance.as_ref() {
             if let Some(verdict) = acceptance.verdict.as_ref() {
-                if matches!(verdict.next_step.action, crate::types::AcceptanceNextAction::Continue) {
+                if matches!(
+                    verdict.next_step.action,
+                    crate::types::AcceptanceNextAction::Continue
+                ) {
                     return build_executor_acceptance_followup_prompt(
                         task_spec,
                         &last_executor.unwrap_or_default(),
@@ -746,10 +762,16 @@ pub async fn kill_process(
     {
         let mut active_processes = spawner.active_processes.lock().unwrap();
         if let Some(mut child) = active_processes.remove(&key) {
-            println!("[kill_process] Killing {} process for pair {}", role, pair_id);
+            println!(
+                "[kill_process] Killing {} process for pair {}",
+                role, pair_id
+            );
             let _ = child.start_kill();
         } else {
-            return Err(format!("No active {} process found for pair {}", role, pair_id));
+            return Err(format!(
+                "No active {} process found for pair {}",
+                role, pair_id
+            ));
         }
     }
 
@@ -821,13 +843,14 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            max_iterations: None,
             branch: None,
         };
         let broker_new = broker.lock().unwrap();
         manager
             .lock()
             .unwrap()
-            .create_pair(input, &broker_new)
+            .create_pair(&input, &broker_new)
             .unwrap();
         let created_pair_id = manager.lock().unwrap().list_pairs()[0].pair_id.clone();
         drop(broker_new);
@@ -1013,6 +1036,7 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            max_iterations: None,
             branch: None,
         }
     }
@@ -1023,7 +1047,7 @@ mod tests {
         let broker = MessageBroker::new();
 
         let pair = manager
-            .create_pair(sample_input(), &broker)
+            .create_pair(&sample_input(), &broker)
             .expect("pair should be created");
 
         assert_eq!(pair.mentor_provider, ProviderKind::Opencode);
@@ -1057,7 +1081,7 @@ mod tests {
         let mut manager = PairManager::new();
         let broker = MessageBroker::new();
 
-        let pair = manager.create_pair(sample_input(), &broker).unwrap();
+        let pair = manager.create_pair(&sample_input(), &broker).unwrap();
         let pair_id = pair.pair_id.clone();
 
         let input = crate::types::UpdatePairModelsInput {
@@ -1097,7 +1121,7 @@ mod tests {
         let mut manager = PairManager::new();
         let broker = MessageBroker::new();
 
-        let pair = manager.create_pair(sample_input(), &broker).unwrap();
+        let pair = manager.create_pair(&sample_input(), &broker).unwrap();
         let pair_id = pair.pair_id.clone();
 
         let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();

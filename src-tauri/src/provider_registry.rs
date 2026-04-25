@@ -4,7 +4,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
@@ -97,11 +97,20 @@ pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString
         overrides.push((OsString::from("LOCALAPPDATA"), local_appdata));
     }
 
-    // Explicitly propagate the current process PATH (which may have been refreshed
-    // with fallback npm/Homebrew/nvm directories) to child processes.  Without this,
-    // Tauri apps launched from a launcher or desktop shortcut can inherit a minimal
-    // PATH that doesn't include global npm packages.
-    if let Some(path) = std::env::var_os("PATH") {
+    let fallback_dirs = fallback_path_dirs(
+        Some(home.to_path_buf()),
+        std::env::var_os("APPDATA").map(PathBuf::from),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        cfg!(target_os = "windows"),
+    );
+    let base_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut path_entries: Vec<PathBuf> = std::env::split_paths(&base_path).collect();
+    for dir in fallback_dirs {
+        if !path_entries.iter().any(|entry| entry == &dir) {
+            path_entries.push(dir);
+        }
+    }
+    if let Ok(path) = std::env::join_paths(path_entries) {
         overrides.push((OsString::from("PATH"), path));
     }
 
@@ -115,6 +124,16 @@ fn prepare_cli_command(command: &mut Command, home: &std::path::Path) {
 }
 
 fn which_binary(name: &str) -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("PATH").and_then(|value| {
+        std::env::split_paths(&value).find_map(|dir| resolve_binary_in_dir(&dir, name))
+    }) {
+        return Some(path);
+    }
+
+    if let Some(path) = resolve_binary_at_known_locations(name, &homedir()) {
+        return Some(path);
+    }
+
     #[cfg(target_os = "windows")]
     let cmd = "where";
     #[cfg(not(target_os = "windows"))]
@@ -135,10 +154,7 @@ fn which_binary(name: &str) -> Option<PathBuf> {
         }
     }
 
-    // Fallback: check known install locations directly in case PATH was not
-    // captured from the login shell (common when app is launched from Finder/Dock
-    // on Apple Silicon where Homebrew installs to /opt/homebrew/bin).
-    resolve_binary_at_known_locations(name, &homedir())
+    None
 }
 
 fn which_binary_exists(name: &str) -> bool {
@@ -188,6 +204,7 @@ fn resolve_binary_at_known_locations(name: &str, home: &std::path::Path) -> Opti
     None
 }
 
+#[allow(dead_code)]
 fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
     resolve_binary_at_known_locations(name, home).is_some()
 }
@@ -450,7 +467,9 @@ fn beautify_claude_display_name(model_id: &str) -> String {
     }
 
     // Handle old format: claude-{major}-{minor}-{name} (e.g., claude-3-5-sonnet)
-    if parts.len() >= 4 && parts[1].len() == 1 && parts[2].len() == 1
+    if parts.len() >= 4
+        && parts[1].len() == 1
+        && parts[2].len() == 1
         && parts[1].chars().all(|c| c.is_ascii_digit())
         && parts[2].chars().all(|c| c.is_ascii_digit())
     {
@@ -575,12 +594,15 @@ fn discover_gemini_model_ids(home: &std::path::Path) -> Vec<String> {
     model_ids
 }
 
-fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
+fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>) -> Vec<String> {
     let mut model_ids = Vec::new();
 
-    if let Some(help_text) = capture_claude_help_text(home) {
-        let help_predicate = |value: &str| is_plausible_model_id(value) && !value.starts_with("--");
-        collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
+    if let Some(command_path) = command_path {
+        if let Some(help_text) = capture_claude_help_text(home, command_path) {
+            let help_predicate =
+                |value: &str| is_plausible_model_id(value) && !value.starts_with("--");
+            collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
+        }
     }
 
     let history_predicate = |value: &str| is_claude_model_id(value);
@@ -597,9 +619,9 @@ fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
     model_ids
 }
 
-fn capture_claude_help_text(home: &std::path::Path) -> Option<String> {
-    let bin_path = which_binary("claude")?;
-    let mut command = Command::new(bin_path);
+fn capture_claude_help_text(home: &std::path::Path, command_path: &Path) -> Option<String> {
+    let mut command = Command::new(command_path);
+
     command.arg("--help");
     prepare_cli_command(&mut command, home);
     let output = command.output().ok()?;
@@ -709,6 +731,7 @@ impl ProviderRegistry {
     pub fn detect_opencode() -> DetectedProviderProfile {
         let opencode_path = which_binary("opencode");
         let installed = opencode_path.is_some();
+
         let mut models = Vec::new();
         let mut authenticated = false;
 
@@ -759,6 +782,7 @@ impl ProviderRegistry {
         if installed {
             let bin_path = opencode_path.expect("opencode path should be resolved");
             let mut command = Command::new(bin_path);
+
             command.arg("models");
             prepare_cli_command(&mut command, &homedir());
             let output = command.output();
@@ -833,6 +857,7 @@ impl ProviderRegistry {
 
     pub fn detect_codex() -> DetectedProviderProfile {
         let installed = which_binary_exists("codex");
+
         let homedir = homedir();
         let auth_path = homedir.join(".codex/auth.json");
         let config_path = homedir.join(".codex/config.toml");
@@ -863,6 +888,7 @@ impl ProviderRegistry {
     pub fn detect_claude() -> DetectedProviderProfile {
         let claude_path = which_binary("claude");
         let installed = claude_path.is_some();
+
         let homedir = homedir();
         let mut authenticated = false;
         let mut subscription_label = "api-backed".to_string();
@@ -871,6 +897,7 @@ impl ProviderRegistry {
         if installed {
             let bin_path = claude_path.expect("claude path should be resolved");
             let mut command = Command::new(bin_path.clone());
+
             command.arg("auth").arg("status");
             prepare_cli_command(&mut command, &homedir);
             let output = command.output();
@@ -899,7 +926,7 @@ impl ProviderRegistry {
                 authenticated = true;
             }
 
-            model_ids = discover_claude_model_ids(&homedir);
+            model_ids = discover_claude_model_ids(&homedir, Some(&bin_path));
         }
 
         let mut claude_models = build_detected_models(model_ids, "anthropic", &subscription_label);
@@ -920,6 +947,7 @@ impl ProviderRegistry {
 
     pub fn detect_gemini() -> DetectedProviderProfile {
         let installed = which_binary_exists("gemini");
+
         let homedir = homedir();
         let settings_path = homedir.join(".gemini/settings.json");
         let mut authenticated = false;
@@ -1256,6 +1284,49 @@ exit 0
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn which_binary_returns_resolved_path_in_nvm_layout() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let claude_dir = temp_root.join(".nvm/versions/node/v24.14.0/bin");
+        fs::create_dir_all(&claude_dir).expect("failed to create temp claude dir");
+
+        write_executable_script(
+            &claude_dir,
+            "opencode",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+
+        std::env::set_var("HOME", &temp_root);
+        std::env::set_var("PATH", "/usr/bin:/bin");
+
+        let resolved = which_binary("opencode");
+
+        if let Some(value) = original_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(value) = original_path {
+            std::env::set_var("PATH", value);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert_eq!(
+            resolved,
+            Some(claude_dir.join("opencode")),
+            "which_binary should return resolved binary path, not bool"
+        );
+    }
+
     #[test]
     fn binary_exists_at_known_locations_finds_windows_global_npm_bins() {
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
@@ -1266,6 +1337,21 @@ exit 0
         assert!(
             binary_exists_at_known_locations("claude", &temp_root),
             "claude should be discoverable in the standard Windows global npm directory"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn binary_path_in_dir_prefers_windows_cmd_launcher() {
+        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let bin_dir = temp_root.join("windows-bin");
+        fs::create_dir_all(&bin_dir).expect("failed to create temp windows bin dir");
+        fs::write(bin_dir.join("claude"), "sh wrapper").expect("failed to seed bare shim");
+        fs::write(bin_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd shim");
+
+        assert_eq!(
+            binary_path_in_dir(&bin_dir, "claude"),
+            Some(bin_dir.join("claude.cmd"))
         );
     }
 
@@ -1347,6 +1433,24 @@ exit 0
             overrides.get(&OsString::from("LOCALAPPDATA")),
             Some(&local.as_os_str().to_owned())
         );
+
+        let path_override = overrides.get(&OsString::from("PATH"));
+        assert!(
+            path_override.is_some(),
+            "PATH should be propagated to CLI child env"
+        );
+        #[cfg(unix)]
+        {
+            assert!(
+                std::env::split_paths(path_override.unwrap()).any(|path| {
+                    path == temp_home.join(".local/bin")
+                        || path == temp_home.join("go/bin")
+                        || path == temp_home.join(".npm-global/bin")
+                        || path == temp_home.join(".volta/bin")
+                }),
+                "PATH should include common Unix fallback directories"
+            );
+        }
     }
 
     #[cfg(unix)]

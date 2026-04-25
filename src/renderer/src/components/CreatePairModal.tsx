@@ -134,7 +134,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         mentorReasoningEffort,
         executorReasoningEffort,
         branch,
-        maxIterations: selectedPreset?.defaultMaxIterations,
+        maxIterations: undefined,
         pauseOnIteration: selectedPreset?.pauseOnIteration,
         autoAttachGitBaseline: selectedPreset?.autoAttachGitBaseline
       })

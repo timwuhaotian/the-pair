@@ -4,7 +4,7 @@ import { Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { usePrevious } from '../lib/usePrevious'
 import { turnCardFinalize } from '../lib/animations'
-import { isAcceptanceVerdictContent } from '../lib/acceptance'
+import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
 import { TokenChip } from './TokenChip'
 import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
@@ -33,7 +33,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
   const isAcceptance = useMemo(() => {
     if (card.role !== 'mentor' || card.state !== 'final') return false
-    return isAcceptanceVerdictContent(currentAction)
+    return isAcceptanceVerdictContent(currentAction) || isAcceptanceRecordContent(currentAction)
   }, [card.role, card.state, currentAction])
 
   return (

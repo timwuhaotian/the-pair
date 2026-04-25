@@ -9,6 +9,7 @@ import { SkillPicker } from './SkillPicker'
 import { PresetPicker } from './PresetPicker'
 import { usePresets } from '../lib/usePresets'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
+import { getAssignableTaskModels } from '../lib/modelResolution'
 import type { PairPreset } from '../types'
 
 interface AssignTaskModalProps {
@@ -31,11 +32,55 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     reload: loadPresets
   } = usePresets()
 
-  const [tempMentorModel, setTempMentorModel] = useState(
-    () => restoringSpec?.mentorModel ?? pair?.pendingMentorModel ?? pair?.mentorModel ?? ''
+  const taskModelDefaults = useMemo(
+    () =>
+      pair
+        ? getAssignableTaskModels(pair, restoringSpec ?? undefined)
+        : { mentorModel: '', executorModel: '' },
+    [pair, restoringSpec]
   )
-  const [tempExecutorModel, setTempExecutorModel] = useState(
-    () => restoringSpec?.executorModel ?? pair?.pendingExecutorModel ?? pair?.executorModel ?? ''
+
+  const restoringKey = restoringSpec
+    ? `${restoringSpec.spec}:${restoringSpec.mentorModel}:${restoringSpec.executorModel}`
+    : 'new'
+  const modelDraftKey = `${isOpen ? 'open' : 'closed'}:${pair?.id ?? 'none'}:${restoringKey}:${taskModelDefaults.mentorModel}:${taskModelDefaults.executorModel}`
+  const [modelDraft, setModelDraft] = useState(() => ({
+    key: modelDraftKey,
+    mentorModel: taskModelDefaults.mentorModel,
+    executorModel: taskModelDefaults.executorModel
+  }))
+
+  const activeModelDraft = useMemo(
+    () =>
+      modelDraft.key === modelDraftKey
+        ? modelDraft
+        : {
+            key: modelDraftKey,
+            mentorModel: taskModelDefaults.mentorModel,
+            executorModel: taskModelDefaults.executorModel
+          },
+    [modelDraft, modelDraftKey, taskModelDefaults]
+  )
+
+  const tempMentorModel = activeModelDraft.mentorModel
+  const tempExecutorModel = activeModelDraft.executorModel
+  const setTempMentorModel = useCallback(
+    (mentorModel: string) => {
+      setModelDraft({
+        ...activeModelDraft,
+        mentorModel
+      })
+    },
+    [activeModelDraft]
+  )
+  const setTempExecutorModel = useCallback(
+    (executorModel: string) => {
+      setModelDraft({
+        ...activeModelDraft,
+        executorModel
+      })
+    },
+    [activeModelDraft]
   )
 
   const isRestoring = !!restoringSpec
@@ -117,9 +162,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               tempExecutorModel !== effectiveExecutorModel ? tempExecutorModel : undefined
           }
         : undefined
-      await assignTask(pair.id, finalSpec, undefined, modelOverrides, {
-        maxIterations: selectedPreset?.defaultMaxIterations
-      })
+      await assignTask(pair.id, finalSpec, undefined, modelOverrides)
       setSpec('')
       setFileContexts(new Map())
       setRestoringSpec(null)
