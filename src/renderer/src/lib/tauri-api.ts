@@ -63,6 +63,9 @@ export const tauriApi = {
         return mockRepoState.branches
       }
       return await invokeTauri('repo_list_branches', { directory })
+    },
+    getFileDiff: async (directory: string, filePath: string, status: string): Promise<string> => {
+      return await invokeTauri('git_get_file_diff', { directory, filePath, status })
     }
   }
 }
