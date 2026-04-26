@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { ChevronLeft, Moon, Plus, Settings2, Sun, WandSparkles } from 'lucide-react'
+import {
+  ChevronLeft,
+  Moon,
+  Plus,
+  Settings2,
+  Sun,
+  WandSparkles,
+  Volume2,
+  VolumeX
+} from 'lucide-react'
 import { Pair } from '../store/usePairStore'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
 import { isPairBusy } from '../lib/pairStatus'
+import { setMuted, isMuted } from '../lib/sound'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -32,6 +42,13 @@ export function AppChrome({
   onOpenSettings
 }: AppChromeProps): React.ReactNode {
   const pairBusy = selectedPair ? isPairBusy(selectedPair.status) : false
+  const [soundMuted, setSoundMuted] = useState(isMuted())
+
+  const toggleMute = (): void => {
+    const next = !soundMuted
+    setMuted(next)
+    setSoundMuted(next)
+  }
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
 
@@ -152,6 +169,15 @@ export function AppChrome({
           >
             New Pair
           </GlassButton>
+
+          <button
+            onClick={toggleMute}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground cursor-pointer"
+            title={soundMuted ? 'Unmute sounds' : 'Mute sounds'}
+            data-testid="chrome-mute-toggle"
+          >
+            {soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
 
           <button
             onClick={onToggleTheme}
