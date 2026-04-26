@@ -90,7 +90,7 @@ impl GitTracker {
                 .map_err(|e| format!("git diff failed: {}", e))?
         } else {
             Command::new("git")
-                .args(["diff", "--", file_path])
+                .args(["diff", "HEAD", "--", file_path])
                 .current_dir(directory)
                 .output()
                 .map_err(|e| format!("git diff failed: {}", e))?
