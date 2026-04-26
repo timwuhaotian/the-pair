@@ -11,6 +11,7 @@ import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { isPairActive } from './lib/pairStatus'
 import { Dashboard } from './components/Dashboard'
+import { preloadSounds } from './lib/sound'
 
 const PairDetail = lazy(() => import('./components/PairDetail'))
 const OnboardingWizard = lazy(() =>
@@ -175,6 +176,7 @@ function App(): React.ReactNode {
   }, [setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
 
   useEffect(() => {
+    preloadSounds()
     const init = async (): Promise<void> => {
       initMessageListener()
       void loadAvailableModels()
