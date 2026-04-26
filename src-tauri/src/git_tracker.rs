@@ -1,4 +1,6 @@
 use crate::types::{FileStatus, ModifiedFile, PairState};
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 pub struct GitTracker;
@@ -52,6 +54,65 @@ impl GitTracker {
             }
         } else {
             state.git_tracking.available = false;
+        }
+    }
+
+    pub fn get_file_diff(directory: &str, file_path: &str, status: &str) -> Result<String, String> {
+        let max_lines = 500;
+        let full_path = Path::new(directory).join(file_path);
+
+        if full_path.exists() {
+            if let Ok(content) = fs::read(&full_path) {
+                if content.iter().take(8000).any(|&b| b == 0) {
+                    return Err("Binary file — cannot display diff".to_string());
+                }
+            }
+        }
+
+        let output = if status == "??" {
+            match fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let truncated = if lines.len() > max_lines {
+                        lines[..max_lines].join("\n") + "\n\n... (truncated)"
+                    } else {
+                        content
+                    };
+                    return Ok(format!("--- /dev/null\n+++ b/{}\n{}", file_path, truncated));
+                }
+                Err(e) => return Err(format!("Cannot read file: {}", e)),
+            }
+        } else if status.contains('D') {
+            Command::new("git")
+                .args(["diff", "HEAD", "--", file_path])
+                .current_dir(directory)
+                .output()
+                .map_err(|e| format!("git diff failed: {}", e))?
+        } else {
+            Command::new("git")
+                .args(["diff", "--", file_path])
+                .current_dir(directory)
+                .output()
+                .map_err(|e| format!("git diff failed: {}", e))?
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git diff failed: {}", stderr.trim()));
+        }
+
+        let diff = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = diff.lines().collect();
+        let truncated = if lines.len() > max_lines {
+            lines[..max_lines].join("\n") + "\n\n... (truncated)"
+        } else {
+            diff.to_string()
+        };
+
+        if truncated.trim().is_empty() {
+            Ok("No changes to display".to_string())
+        } else {
+            Ok(truncated)
         }
     }
 }
