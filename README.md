@@ -16,6 +16,8 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
 
+🌐 **English** • [简体中文](README.zh.md)
+
 **macOS** • **Windows** • **Linux**
 
 ![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
