@@ -20,6 +20,7 @@ import { MessageCard } from './MessageCard'
 import { TurnCardView } from './TurnCardView'
 import { collapseConsecutiveConsoleMessages } from '../lib/consoleMessages'
 import { modifierLabel, shiftLabel } from '../lib/shortcuts'
+import { FileDiffModal } from './FileDiffModal'
 
 interface PairDetailProps {
   pair: Pair
@@ -36,6 +37,10 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [messageFilter, setMessageFilter] = useState<'all' | 'mentor' | 'executor'>('all')
+  const [diffModalFile, setDiffModalFile] = useState<{ path: string; status: string } | null>(null)
+  const [diffContent, setDiffContent] = useState<string | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [diffError, setDiffError] = useState<string | null>(null)
 
   const viewingRun = viewingRunId
     ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
@@ -165,6 +170,21 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
 
   const handleRetryTurn = (): void => {
     retryTurn(pair.id)
+  }
+
+  const handleFileClick = async (file: { path: string; status: string }): Promise<void> => {
+    setDiffModalFile(file)
+    setDiffContent(null)
+    setDiffLoading(true)
+    setDiffError(null)
+    try {
+      const diff = await window.api.repo.getFileDiff(pair.directory, file.path, file.status)
+      setDiffContent(diff)
+    } catch (err) {
+      setDiffError(err instanceof Error ? err.message : 'Failed to load diff')
+    } finally {
+      setDiffLoading(false)
+    }
   }
 
   const formatRunStamp = (ts?: number): string => {
@@ -671,8 +691,9 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                   {pair.modifiedFiles.map((file, index) => (
                     <div
                       key={index}
-                      className="flex items-center gap-1 truncate font-mono text-xs text-muted-foreground"
+                      className="flex items-center gap-1 truncate font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5 transition-colors"
                       title={file.path}
+                      onClick={() => handleFileClick(file)}
                     >
                       <span className="text-purple-500/60">{file.status}</span>
                       <span className="truncate">{file.displayPath}</span>
@@ -684,6 +705,16 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
           </div>
         </div>
       </div>
+
+      <FileDiffModal
+        isOpen={diffModalFile !== null}
+        onClose={() => setDiffModalFile(null)}
+        filePath={diffModalFile?.path ?? ''}
+        status={diffModalFile?.status ?? ''}
+        diff={diffContent}
+        loading={diffLoading}
+        error={diffError}
+      />
     </div>
   )
 }
