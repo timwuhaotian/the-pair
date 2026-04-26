@@ -32,7 +32,7 @@ import {
 } from '../lib/modelResolution'
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
-import { playFinishChime } from '../lib/sound'
+import { playFinishChime, playErrorAlert, playPauseConfirm } from '../lib/sound'
 import { extractErrorMessage } from '../lib/utils'
 import { isPairActive } from '../lib/pairStatus'
 
@@ -1090,6 +1090,10 @@ export const usePairStore = create<PairStore>((set) => ({
         playFinishChime()
       }
 
+      if (prevStatus !== 'Error' && nextStatus === 'Error') {
+        playErrorAlert()
+      }
+
       if (shouldSave) {
         const currentPair = usePairStore
           .getState()
@@ -1535,6 +1539,7 @@ export const usePairStore = create<PairStore>((set) => ({
 
     try {
       await window.api.pair.pause(id)
+      playPauseConfirm()
       set({ isLoading: false })
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to pause pair')
