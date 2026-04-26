@@ -19,6 +19,7 @@ import { useMinimumVisibleText } from '../hooks/useMinimumVisibleText'
 import { MessageCard } from './MessageCard'
 import { TurnCardView } from './TurnCardView'
 import { collapseConsecutiveConsoleMessages } from '../lib/consoleMessages'
+import { modifierLabel, shiftLabel } from '../lib/shortcuts'
 
 interface PairDetailProps {
   pair: Pair
@@ -223,6 +224,10 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                 disabled={isStoreBusy}
               >
                 Resume Pair
+                <span className="ml-1 text-[10px] opacity-60">
+                  {modifierLabel}
+                  {shiftLabel}P
+                </span>
               </GlassButton>
             )}
             {canPause && (
@@ -236,6 +241,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                 disabled={!canPause || isStoreBusy}
               >
                 Pause Pair
+                <span className="ml-1 text-[10px] opacity-60">{modifierLabel}P</span>
               </GlassButton>
             )}
             {pair.status === 'Error' && (
