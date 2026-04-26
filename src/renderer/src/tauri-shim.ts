@@ -60,6 +60,10 @@ const api = {
       invoke('file_parse_mentions', { pairId, spec }) as Promise<string>,
     readContent: (options: { pairId?: string; directory?: string; filePath: string }) =>
       invoke('file_read_content', { options }) as Promise<string>
+  },
+  repo: {
+    getFileDiff: (directory: string, filePath: string, status: string) =>
+      invoke('git_get_file_diff', { directory, filePath, status }) as Promise<string>
   }
 }
 

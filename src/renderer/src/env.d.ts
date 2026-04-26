@@ -52,6 +52,9 @@ interface Window {
         filePath: string
       }) => Promise<string>
     }
+    repo: {
+      getFileDiff: (directory: string, filePath: string, status: string) => Promise<string>
+    }
   }
 }
 
