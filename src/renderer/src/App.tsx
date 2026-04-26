@@ -12,6 +12,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { isPairActive } from './lib/pairStatus'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
+import { useShortcuts } from './hooks/useShortcuts'
 
 const PairDetail = lazy(() => import('./components/PairDetail'))
 const OnboardingWizard = lazy(() =>
@@ -246,6 +247,36 @@ function App(): React.ReactNode {
       console.error('[App] Failed to resume pair:', error)
     }
   }
+
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+  const cmdKey = isMac ? 'meta' : 'ctrl'
+
+  useShortcuts([
+    {
+      key: 'p',
+      modifiers: [cmdKey],
+      handler: () => {
+        void handlePauseSelectedPair()
+      },
+      description: 'Pause Pair',
+      condition: () => selectedPair !== null && isPairActive(selectedPair.status)
+    },
+    {
+      key: 'p',
+      modifiers: [cmdKey, 'shift'],
+      handler: () => {
+        void handleResumeSelectedPair()
+      },
+      description: 'Resume Pair',
+      condition: () => selectedPair?.status === 'Paused'
+    },
+    {
+      key: 'n',
+      modifiers: [cmdKey],
+      handler: () => setIsCreatePairOpen(true),
+      description: 'New Pair'
+    }
+  ])
 
   const handleRestoreTask = (spec: string, mentorModel: string, executorModel: string): void => {
     setRestoringSpec({ spec, mentorModel, executorModel })
