@@ -16,7 +16,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
 
-🌐 [English](README.md) • **简体中文**
+🌐 [English](README.md) • **简体中文** • [한국어](README.ko.md) • [日本語](README.ja.md)
 
 **macOS** • **Windows** • **Linux**
 
