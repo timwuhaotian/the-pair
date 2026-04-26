@@ -32,6 +32,11 @@ fn app_restart(app: AppHandle) {
     app.restart();
 }
 
+#[tauri::command]
+fn git_get_file_diff(directory: String, file_path: String, status: String) -> Result<String, String> {
+    git_tracker::GitTracker::get_file_diff(&directory, &file_path, &status)
+}
+
 fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     let app_menu = SubmenuBuilder::new(app, "The Pair")
         .text("check_updates", "Check for Updates...")
@@ -121,7 +126,8 @@ pub fn run() {
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
             skill_discovery::discover_skills,
-            app_restart
+            app_restart,
+            git_get_file_diff
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
