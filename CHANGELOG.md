@@ -5,25 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.12] - 2026-04-26
+## [1.3.12] - 2026-04-27
 
-### Fixed
+### Added
 
-- **Startup responsiveness:** Rendered the app shell immediately during startup instead of holding a blank window while initial IPC calls complete.
-- **Provider model loading:** Load cached model data first, then refresh provider/model detection in the background so startup is no longer gated on CLI scans.
-- **Provider probe stalls:** Added bounded CLI probe timeouts and parallel provider detection to reduce startup stalls when provider commands are slow.
-
-## [1.3.11] - 2026-04-25
+- **File diff viewer:** Click any changed file in the pair detail view to open a `FileDiffModal` showing a side-by-side git diff (staged + unstaged). Backend `git_get_file_diff` Tauri command walks the git_tracker to compute unified diffs.
+- **Global keyboard shortcuts:** Registered platform-agnostic shortcuts for common actions (new pair, toggle pair settings, focus console, mute/unmute sounds). Visible shortcut labels added to toolbar buttons.
+- **Sound feedback system:** Rewrote sound module with HTML Audio + Web Audio fallback. Added finish chime, error alert, and pause-confirm sounds. Mute toggle in app chrome, preloaded on app mount.
+- **Confidence-based acceptance:** Mentor verdicts now include confidence scores, structured issue lists, and reasoning. Iterations stop early when verdict is Pass + Finish with confidence ≥ 0.8.
+- **Session report export:** New report generator that exports pair run summaries with timeline, token usage, and git changes.
+- **i18n READMEs:** Added Chinese (README.zh.md), Japanese (README.ja.md), and Korean (README.ko.md) translations with language switch links.
 
 ### Fixed
 
 - **Turn card message loss:** Restored turn card commit logic so in-progress agent output is properly archived to the message history instead of being discarded.
 - **Handoff race condition:** Added concurrency guard to prevent multiple rapid handoff events from processing simultaneously.
+- **Handoff error handling:** Wrapped `onHandoff` in try-catch and removed the `lastExecutorMessage` guard that could silently drop handoff events.
 - **Executor followup prompt:** Guarded the acceptance followup path to avoid sending placeholder text to agents when no prior executor output exists.
 - **Acceptance card misclassification:** Restored role guard in TurnCardView to prevent executor output from being rendered as acceptance cards.
+- **Acceptance verdict parsing:** Enhanced verdict parsing to handle embedded JSON, missing fields, and malformed responses — falls back gracefully instead of hanging.
+- **Startup responsiveness:** Rendered the app shell immediately during startup instead of holding a blank window while initial IPC calls complete.
+- **Provider model loading:** Load cached model data first, then refresh provider/model detection in the background so startup is no longer gated on CLI scans.
+- **Provider probe stalls:** Added bounded CLI probe timeouts and parallel provider detection to reduce startup stalls when provider commands are slow.
+- **Provider binary resolution:** Resolved full binary path for provider CLI tools and properly propagate PATH to child processes so providers are correctly discovered on first launch.
+- **Step cycle detection:** Added per-turn step cycle counter (max 50 cycles) that terminates the agent process if it enters an infinite step loop, preventing CPU exhaustion.
+- **Mentor iteration limit:** Extended the max-iterations check to mentor turns (previously executor-only) so both agents respect the iteration cap.
 - **Report filename sanitization:** Sanitized session IDs in report filenames to prevent path traversal.
 - **PATH race condition:** Fixed PATH refresh to merge login shell entries instead of overwriting fallback directories.
 - **Duplicate check keys:** Fixed React key warnings in acceptance check list rendering.
+- **Tool unavailability handling:** Added executor prompt instructions for gracefully handling unavailable tools.
+- **Onboarding wizard stall:** Reset `isCheckingProviders` loading state when models are already cached, preventing a perpetual spinner.
+- **Audio context resume:** Resume suspended Web Audio context before playing the finish chime so sound works after browser autoplay policy blocks.
 
 ## [1.3.10] - 2026-04-23
 
@@ -458,7 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
-[1.3.11]: https://github.com/timwuhaotian/the-pair/compare/v1.3.10...v1.3.11
+[1.3.12]: https://github.com/timwuhaotian/the-pair/compare/v1.3.10...v1.3.12
 [1.3.10]: https://github.com/timwuhaotian/the-pair/compare/v1.3.9...v1.3.10
 [1.3.9]: https://github.com/timwuhaotian/the-pair/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/timwuhaotian/the-pair/compare/v1.3.7...v1.3.8
