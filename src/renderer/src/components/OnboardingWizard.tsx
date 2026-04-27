@@ -131,7 +131,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   )
 
   useEffect(() => {
-    if (availableModels.length > 0) return
+    if (availableModels.length > 0) {
+      setIsCheckingProviders(false)
+      return
+    }
     let cancelled = false
     setIsCheckingProviders(true)
     void (async () => {

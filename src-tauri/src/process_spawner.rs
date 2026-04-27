@@ -1197,6 +1197,12 @@ impl ProcessSpawner {
             let mut json_candidates: Vec<String> = Vec::new();
             let mut last_token_usage: Option<TurnTokenUsage> = None;
 
+            // Step cycle detection to prevent infinite loops
+            let mut step_cycle_count: u32 = 0;
+            let mut last_step_timestamp: u64 = 0;
+            const MAX_STEP_CYCLES_PER_TURN: u32 = 50;
+            const MIN_STEP_INTERVAL_MS: u64 = 50;
+
             // Get current iteration from state
             let current_iteration =
                 if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
@@ -1269,11 +1275,46 @@ impl ProcessSpawner {
                                 || event_type_lower.contains("turn_start")
                             {
                                 (ActivityPhase::Thinking, "Analyzing task".to_string(), None)
-                            } else if event_type_lower.contains("thinking") {
-                                (ActivityPhase::Thinking, "Reasoning...".to_string(), None)
-                            } else if event_type_lower.contains("step_start") {
-                                (ActivityPhase::Thinking, "Starting step".to_string(), None)
-                            } else if event_type_lower.contains("result")
+                        } else if event_type_lower.contains("thinking") {
+                            (ActivityPhase::Thinking, "Reasoning...".to_string(), None)
+                        } else if event_type_lower.contains("step_start") {
+                            // Step cycle detection
+                            let now = crate::util::now_millis();
+                            step_cycle_count += 1;
+
+                            if step_cycle_count > MAX_STEP_CYCLES_PER_TURN {
+                                println!(
+                                    "[ProcessSpawner] [{}] [{}] Step cycle limit exceeded ({} cycles), terminating turn to prevent infinite loop",
+                                    pair_id_clone, role_clone, step_cycle_count
+                                );
+                                if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                                    let broker = broker.lock().unwrap();
+                                    broker.set_pair_status(
+                                        &pair_id_clone,
+                                        crate::types::PairStatus::Error,
+                                        Some(format!("Agent entered infinite step loop ({} cycles). Terminated to prevent CPU exhaustion.", step_cycle_count)),
+                                    );
+                                }
+                                // Kill the process via active_processes map
+                                let process_key = format!("{}-{}", pair_id_clone, role_clone);
+                                if let Some(mut child) = active_processes_for_cleanup.lock().unwrap().remove(&process_key) {
+                                    let _ = child.start_kill();
+                                }
+                                // Break out of the event loop
+                                break;
+                            } else if last_step_timestamp > 0 {
+                                let interval = now.saturating_sub(last_step_timestamp);
+                                if interval < MIN_STEP_INTERVAL_MS {
+                                    println!(
+                                        "[ProcessSpawner] [{}] [{}] WARNING: Rapid step cycling detected ({}ms interval, cycle #{})",
+                                        pair_id_clone, role_clone, interval, step_cycle_count
+                                    );
+                                }
+                            }
+                            last_step_timestamp = now;
+
+                            (ActivityPhase::Thinking, "Starting step".to_string(), None)
+                        } else if event_type_lower.contains("result")
                                 || event_type_lower.contains("complete")
                                 || event_type_lower.contains("done")
                             {
@@ -1813,7 +1854,7 @@ impl ProcessSpawner {
                         Some(format!("{} returned no textual output", role_clone)),
                     );
                     should_handoff = false;
-                } else if role_clone == "executor" {
+                } else if role_clone == "executor" || role_clone == "mentor" {
                     if let Some(state) = broker.get_state(&pair_id_clone) {
                         if state.iteration >= state.max_iterations {
                             println!(

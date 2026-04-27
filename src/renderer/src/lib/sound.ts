@@ -90,6 +90,9 @@ function playFinishChimeSynth(): void {
   try {
     const ctx = getAudioContext()
     if (!ctx) return
+    if (ctx.state === 'suspended') {
+      ctx.resume()
+    }
     const masterGain = ctx.createGain()
     masterGain.gain.value = 0
     masterGain.connect(ctx.destination)
