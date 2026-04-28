@@ -662,6 +662,10 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         acceptance_history: snapshot.acceptance_history.clone(),
         worktree_path: snapshot.worktree_path.clone(),
         turn_started_at: None,
+        adaptive_budget: None,
+        pause_message: None,
+        plan_checklist: Vec::new(),
+        key_decisions: Vec::new(),
     }
 }
 

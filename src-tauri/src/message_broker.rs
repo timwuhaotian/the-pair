@@ -1,3 +1,4 @@
+use crate::context_bridge::PlanItem;
 use crate::types::{
     AcceptanceRecord, ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput,
     GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
@@ -138,6 +139,10 @@ impl MessageBroker {
             acceptance_history: Vec::new(),
             worktree_path: effective_directory.map(|s| s.to_string()),
             turn_started_at: None,
+            adaptive_budget: None,
+            pause_message: None,
+            plan_checklist: Vec::new(),
+            key_decisions: Vec::new(),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -672,6 +677,33 @@ impl MessageBroker {
         }
     }
 
+    pub fn set_adaptive_budget(&self, pair_id: &str, budget: u32) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.adaptive_budget = Some(budget);
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
+    pub fn set_plan_checklist(&self, pair_id: &str, checklist: Vec<PlanItem>) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.plan_checklist = checklist
+                .into_iter()
+                .filter_map(|item| serde_json::to_value(&item).ok())
+                .collect();
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
+    pub fn set_pause_message(&self, pair_id: &str, message: String) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.pause_message = Some(message);
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
     pub fn restore_state(&self, state: PairState) -> Result<(), String> {
         let pair_id = state.pair_id.clone();
         let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
@@ -949,6 +981,10 @@ mod tests {
             acceptance_history: Vec::new(),
             worktree_path: None,
             turn_started_at: None,
+            adaptive_budget: None,
+            pause_message: None,
+            plan_checklist: Vec::new(),
+            key_decisions: Vec::new(),
         }
     }
 

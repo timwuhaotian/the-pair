@@ -8,6 +8,33 @@ use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
+
+/// Parses and validates a mentor review verdict through the quality gate.
+/// First checks for structured evidence (FILES_REVIEWED/CHECKS/CODE).
+/// If evidence is present but invalid, returns a specific quality error.
+/// Falls back to normal parsing for graceful degradation.
+pub fn parse_review_verdict_with_quality(raw: &str) -> Result<AcceptanceVerdict, String> {
+    // Check for structured evidence format
+    if raw.contains("FILES_REVIEWED:") || raw.contains("CHECKS:") || raw.contains("CODE:") {
+        if let Some(evidence) = crate::quality_gate::extract_evidence(raw) {
+            match crate::quality_gate::validate_review(&evidence) {
+                crate::quality_gate::QualityGateResult::Fail { reason } => {
+                    return Err(format!("Review quality gate: {}", reason));
+                }
+                crate::quality_gate::QualityGateResult::Pass => {
+                    // Evidence valid, proceed with normal parsing
+                }
+            }
+        } else {
+            // Had markers but couldn't extract — quality issue
+            return Err(
+                "Review verdict has evidence markers but sections are incomplete.".into(),
+            );
+        }
+    }
+    // Fall through to normal parsing (graceful degradation)
+    parse_acceptance_verdict(raw)
+}
 use std::time::Instant;
 use tokio::process::Command;
 
