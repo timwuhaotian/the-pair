@@ -114,7 +114,8 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
   const activeRole = pair.currentTurnCard?.role ?? pair.turn
   const reviewReason =
     pair.status === 'Paused' || pair.status === 'Awaiting Human Review'
-      ? (pair.mentorActivity.detail ??
+      ? (pair.pauseMessage ??
+        pair.mentorActivity.detail ??
         pair.executorActivity.detail ??
         pair.currentTurnCard?.content ??
         (pair.status === 'Awaiting Human Review' ? 'Awaiting human intervention' : 'Paused'))
@@ -415,7 +416,11 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
               <div className="text-[11px] text-muted-foreground">
                 Started {formatRunStamp(pair.currentRunStartedAt)} · {runStateText}
               </div>
-              <IterationProgress current={pair.iterations} max={pair.maxIterations} />
+              <IterationProgress
+                current={pair.iterations}
+                max={pair.maxIterations}
+                adaptiveBudget={pair.adaptiveBudget}
+              />
             </div>
           </div>
 

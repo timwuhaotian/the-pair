@@ -170,6 +170,10 @@ export interface Pair {
   repoPath?: string
   worktreePath?: string
   turnStartedAt?: number
+  adaptiveBudget?: number
+  pauseMessage?: string
+  planChecklist?: Array<{ description: string; completed: boolean }>
+  keyDecisions?: string[]
 }
 
 interface PairStateSnapshot {
@@ -192,6 +196,10 @@ interface PairStateSnapshot {
   executor?: { tokenUsage: TurnTokenUsage | null }
   messages?: Message[]
   turnStartedAt?: number
+  adaptiveBudget?: number
+  pauseMessage?: string
+  planChecklist?: Array<{ description: string; completed: boolean }>
+  keyDecisions?: string[]
 }
 
 interface PairMessageEvent {

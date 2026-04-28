@@ -4,22 +4,27 @@ import { cn } from '../lib/utils'
 interface IterationProgressProps {
   current: number
   max: number
+  adaptiveBudget?: number
   className?: string
 }
 
 export function IterationProgress({
   current,
   max,
+  adaptiveBudget,
   className
 }: IterationProgressProps): React.ReactNode {
-  const percentage = Math.min((current / max) * 100, 100)
+  const effectiveMax = adaptiveBudget ?? max
+  const percentage = Math.min((current / effectiveMax) * 100, 100)
   const isNearLimit = percentage >= 80
-  const isAtLimit = current >= max
+  const isAtLimit = current >= effectiveMax
 
   return (
     <div className={cn('space-y-1.5', className)}>
       <div className="flex items-center justify-between text-[10px]">
-        <span className="font-medium text-muted-foreground">Iterations</span>
+        <span className="font-medium text-muted-foreground">
+          Iterations{adaptiveBudget != null && adaptiveBudget !== max ? ' (adaptive)' : ''}
+        </span>
         <span
           className={cn(
             'font-mono font-semibold',
@@ -30,7 +35,7 @@ export function IterationProgress({
                 : 'text-foreground/70'
           )}
         >
-          {current}/{max}
+          {current}/{effectiveMax}
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
