@@ -662,8 +662,6 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         acceptance_history: snapshot.acceptance_history.clone(),
         worktree_path: snapshot.worktree_path.clone(),
         turn_started_at: None,
-        adaptive_budget: None,
-        pause_message: None,
         plan_checklist: Vec::new(),
         key_decisions: Vec::new(),
     }
@@ -1135,7 +1133,9 @@ pub async fn restore_session(
         let prompt = build_resume_prompt(&snapshot);
         {
             let broker_guard = broker.lock().map_err(|e| e.to_string())?;
-            broker_guard.prepare_run(&pair.pair_id, &role, spawner.active_processes.clone());
+            // Use resume_run to preserve iteration count; prepare_run incorrectly
+            // increments for non-planning mentor turns.
+            broker_guard.resume_run(&pair.pair_id, &role, spawner.active_processes.clone());
         }
         spawner
             .trigger_turn(app.clone(), pair.pair_id.clone(), role, prompt)

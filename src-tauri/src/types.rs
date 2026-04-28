@@ -341,10 +341,6 @@ pub struct PairState {
     pub worktree_path: Option<String>,
     #[serde(rename = "turnStartedAt", skip_serializing_if = "Option::is_none")]
     pub turn_started_at: Option<u64>,
-    #[serde(rename = "adaptiveBudget", default, skip_serializing_if = "Option::is_none")]
-    pub adaptive_budget: Option<u32>,
-    #[serde(rename = "pauseMessage", default, skip_serializing_if = "Option::is_none")]
-    pub pause_message: Option<String>,
     #[serde(rename = "planChecklist", default)]
     pub plan_checklist: Vec<serde_json::Value>,
     #[serde(rename = "keyDecisions", default)]

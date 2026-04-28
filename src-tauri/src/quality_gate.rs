@@ -66,20 +66,6 @@ pub fn extract_evidence(verdict_text: &str) -> Option<ReviewEvidence> {
     })
 }
 
-/// Parses and validates a mentor review verdict through the quality gate.
-/// Returns the extracted evidence if valid, or the failure reason.
-pub fn check_review_quality(verdict_text: &str) -> Result<ReviewEvidence, String> {
-    match extract_evidence(verdict_text) {
-        Some(evidence) => match validate_review(&evidence) {
-            QualityGateResult::Pass => Ok(evidence),
-            QualityGateResult::Fail { reason } => Err(reason),
-        },
-        None => Err(
-            "Review verdict missing required sections (FILES_REVIEWED, CHECKS, CODE).".into(),
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,19 +135,5 @@ mod tests {
     fn test_extract_evidence_missing_code() {
         let text = "I approve.\nFILES_REVIEWED: src/main.rs\nCHECKS: error handling";
         assert!(extract_evidence(text).is_none());
-    }
-
-    #[test]
-    fn test_check_review_quality_pass() {
-        let text = "FILES_REVIEWED: src/main.rs\nCHECKS: error handling\nCODE: Result<T, E>";
-        let result = check_review_quality(text);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_check_review_quality_fail() {
-        let text = "I think this looks good.";
-        let result = check_review_quality(text);
-        assert!(result.is_err());
     }
 }

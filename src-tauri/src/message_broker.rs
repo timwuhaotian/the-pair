@@ -105,7 +105,7 @@ impl MessageBroker {
             directory,
             status: PairStatus::Idle,
             iteration: 0,
-            max_iterations: input.max_iterations.unwrap_or(9999),
+            max_iterations: input.max_iterations.unwrap_or(20),
             turn: AgentRole::Mentor,
             mentor: AgentState {
                 status: PairStatus::Idle,
@@ -139,8 +139,6 @@ impl MessageBroker {
             acceptance_history: Vec::new(),
             worktree_path: effective_directory.map(|s| s.to_string()),
             turn_started_at: None,
-            adaptive_budget: None,
-            pause_message: None,
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
         };
@@ -677,14 +675,6 @@ impl MessageBroker {
         }
     }
 
-    pub fn set_adaptive_budget(&self, pair_id: &str, budget: u32) {
-        let mut pair_states = self.pair_states.lock().unwrap();
-        if let Some(state) = pair_states.get_mut(pair_id) {
-            state.adaptive_budget = Some(budget);
-            self.notify_state_update(pair_id, state);
-        }
-    }
-
     pub fn set_plan_checklist(&self, pair_id: &str, checklist: Vec<PlanItem>) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -692,14 +682,6 @@ impl MessageBroker {
                 .into_iter()
                 .filter_map(|item| serde_json::to_value(&item).ok())
                 .collect();
-            self.notify_state_update(pair_id, state);
-        }
-    }
-
-    pub fn set_pause_message(&self, pair_id: &str, message: String) {
-        let mut pair_states = self.pair_states.lock().unwrap();
-        if let Some(state) = pair_states.get_mut(pair_id) {
-            state.pause_message = Some(message);
             self.notify_state_update(pair_id, state);
         }
     }
@@ -981,8 +963,6 @@ mod tests {
             acceptance_history: Vec::new(),
             worktree_path: None,
             turn_started_at: None,
-            adaptive_budget: None,
-            pause_message: None,
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
         }

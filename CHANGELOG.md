@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.14] - 2026-04-28
+
+### Changed
+
+- **Flat iteration budget:** Replaced the adaptive file-count-based budgeting system with a flat default of 20 iterations per pair run. The complex tiered system (None=1, Simple=3, Medium=6, Complex=10) was over-engineered for a human-in-the-loop workflow where resume is the intended escalation path.
+- **Iteration limit enforcement simplified:** Removed the `adaptive_budget` state field and the `.max(20)` floor. The budget now respects the user's configured `maxIterations` directly, allowing intentional low-budget runs (e.g., smoke tests with 3 iterations) without override.
+- **Pause message wording:** Updated the budget exhaustion message from "Agent reached iteration budget" to "Reached iteration limit" with clearer next-step guidance (continue, assign new task, or finish).
+
+### Removed
+
+- **`adaptive_stop.rs` module:** Deleted the entire weighted file complexity scoring system (180 lines). It was never fully integrated — adaptive budgets were computed but the enforcement used a separate inline check.
+- **`ScopeDrift` pause reason:** Removed the scope drift detection that paused pairs when executors modified files outside the mentor's plan. It produced false positives on legitimate refactors and was never a stable feature.
+- **Dead code:** Removed unused `HandoffContext` and prompt formatting functions from `context_bridge.rs`, unused `check_review_quality` from `quality_gate.rs`, unused `set_pause_message` and `set_adaptive_budget` from `message_broker.rs`, and the `pause_message` field from `PairState`. Also deleted a stale `docs/ux-optimization-checklist.md`.
+
+### Fixed
+
+- **Resume iteration bug:** `restore_session` now calls `resume_run` instead of `prepare_run`, fixing incorrect iteration increments when restoring paused mentor review turns. Previously, restoring a review turn would bump the iteration counter, making the progress display inaccurate.
+- **Resume stale handoff race:** `pair_resume` now increments `run_generation` before spawning the resumed turn. This ensures the stale handoff guard correctly rejects any late events from pre-pause turns that could trigger unwanted additional turns.
+- **Frontend default budget:** Changed the frontend fallback from `9999` to `20` in `usePairStore` so new pairs display the correct default. (Existing pairs created before this change retain their original `maxIterations` value from their snapshot.)
+
 ## [1.3.13] - 2026-04-27
 
 ### Added
@@ -463,6 +483,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.3.14]: https://github.com/timwuhaotian/the-pair/compare/v1.3.13...v1.3.14
 [1.3.13]: https://github.com/timwuhaotian/the-pair/compare/v1.3.12...v1.3.13
 [1.3.12]: https://github.com/timwuhaotian/the-pair/compare/v1.3.10...v1.3.12
 [1.3.10]: https://github.com/timwuhaotian/the-pair/compare/v1.3.9...v1.3.10

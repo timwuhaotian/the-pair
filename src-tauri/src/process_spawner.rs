@@ -1058,11 +1058,11 @@ impl ProcessSpawner {
                         should_handoff = false;
                     } else if role_mock == "executor" {
                         if let Some(state) = broker.get_state(&pair_id_mock) {
-                            let effective_budget = state.adaptive_budget.unwrap_or(state.max_iterations);
-                            if state.iteration >= effective_budget {
+                            let budget = state.max_iterations;
+                            if state.iteration >= budget {
                                 println!(
-                                    "[ProcessSpawner] [MOCK] [{}] Max iterations reached (adaptive budget {})",
-                                    pair_id_mock, effective_budget
+                                    "[ProcessSpawner] [MOCK] [{}] Max iterations reached ({})",
+                                    pair_id_mock, budget
                                 );
                                 broker.set_pair_status(
                                     &pair_id_mock,
@@ -1532,28 +1532,16 @@ impl ProcessSpawner {
                 }
             }
 
-            // Compute adaptive budget after executor turn
-            if role_clone == "executor" {
-                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker_state.lock().unwrap();
-                    if let Some(state) = broker.get_state(&pair_id_clone) {
-                        let changed_files: Vec<String> =
-                            state.modified_files.iter().map(|f| f.path.clone()).collect();
-                        let budget = crate::adaptive_stop::compute_adaptive_budget(
-                            changed_files.len(),
-                            &changed_files,
-                            state.max_iterations,
-                        );
-                        broker.set_adaptive_budget(&pair_id_clone, budget);
-
-                        // Parse plan checklist from mentor output if available
-                        if let Some(last_mentor_msg) = state.messages.iter().rev().find(|m| {
-                            matches!(m.from, crate::types::MessageSender::Mentor)
-                        }) {
-                            let checklist = crate::context_bridge::parse_checklist(&last_mentor_msg.content);
-                            if !checklist.is_empty() {
-                                broker.set_plan_checklist(&pair_id_clone, checklist);
-                            }
+            // Parse plan checklist from mentor output if available
+            if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                let broker = broker_state.lock().unwrap();
+                if let Some(state) = broker.get_state(&pair_id_clone) {
+                    if let Some(last_mentor_msg) = state.messages.iter().rev().find(|m| {
+                        matches!(m.from, crate::types::MessageSender::Mentor)
+                    }) {
+                        let checklist = crate::context_bridge::parse_checklist(&last_mentor_msg.content);
+                        if !checklist.is_empty() {
+                            broker.set_plan_checklist(&pair_id_clone, checklist);
                         }
                     }
                 }
@@ -1884,18 +1872,18 @@ impl ProcessSpawner {
                     should_handoff = false;
                 } else if role_clone == "executor" || role_clone == "mentor" {
                     if let Some(state) = broker.get_state(&pair_id_clone) {
-                        let effective_budget = state.adaptive_budget.unwrap_or(state.max_iterations);
-                        if state.iteration >= effective_budget {
+                        let budget = state.max_iterations;
+                        if state.iteration >= budget {
                             let pause_reason =
                                 crate::smart_pause::PauseReason::BudgetExhausted {
                                     iterations: state.iteration,
-                                    budget: effective_budget,
+                                    budget,
                                 };
                             let pause_msg =
                                 crate::smart_pause::format_pause_message(&pause_reason);
                             println!(
-                                "[ProcessSpawner] [{}] Adaptive budget exhausted ({}), pausing for human review",
-                                pair_id_clone, effective_budget
+                                "[ProcessSpawner] [{}] Budget exhausted ({}/{}), pausing for human review",
+                                pair_id_clone, state.iteration, budget
                             );
                             broker.set_pair_status(
                                 &pair_id_clone,

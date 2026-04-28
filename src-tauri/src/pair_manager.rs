@@ -718,6 +718,14 @@ pub async fn pair_resume(
 ) -> Result<(), String> {
     let (role_str, prompt) = resume_pair_core(&state, &broker, &spawner, &pair_id).await?;
 
+    // Bump run_generation to invalidate any stale handoffs from pre-pause turns.
+    {
+        let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
+        if let Some(ctx) = ctx_guard.get_mut(&pair_id) {
+            ctx.run_generation = ctx.run_generation.wrapping_add(1);
+        }
+    }
+
     let _ = persist_current_pair_snapshot(&app, &pair_id);
 
     spawner.trigger_turn(app, pair_id, role_str, prompt).await?;

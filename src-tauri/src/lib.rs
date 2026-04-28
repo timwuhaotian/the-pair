@@ -1,5 +1,4 @@
 mod acceptance;
-mod adaptive_stop;
 mod config_paths;
 mod context_bridge;
 mod file_cache;
