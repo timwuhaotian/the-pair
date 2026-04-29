@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-04-29
+
+### Fixed
+
+- **Intent chips not showing:** Fixed the complete disconnect between backend cognitive event generation and frontend display. `PairStateSnapshot` was missing `cognitiveEvents`, and `syncPairFromState()` never mapped them to the live `TurnCard`. Now intent chips (`IntentChip`) appear in real-time during agent turns showing tool calls and reasoning events.
+- **Session snapshot persistence:** `SnapshotTurnCard` now stores `cognitive_events` so intent state survives session save/restore. Previously `build_pair_state` always serialized `cognitive_events: Vec::new()`, losing all intent data on snapshot.
+
 ## [1.4.1] - 2026-04-29
 
 ### Fixed

@@ -33,6 +33,8 @@ pub struct SnapshotTurnCard {
     pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<TurnTokenUsage>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cognitive_events: Option<Vec<crate::types::CognitiveEvent>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -664,7 +666,11 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         turn_started_at: None,
         plan_checklist: Vec::new(),
         key_decisions: Vec::new(),
-        cognitive_events: Vec::new(),
+        cognitive_events: snapshot
+            .current_turn_card
+            .as_ref()
+            .and_then(|tc| tc.cognitive_events.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -696,19 +702,32 @@ fn build_snapshot_from_state(
                 || (state.turn == AgentRole::Executor
                     && matches!(message.from, MessageSender::Executor))
         })
-        .map(|message| SnapshotTurnCard {
-            id: message.id.clone(),
-            role: state.turn.clone(),
-            state: "live".to_string(),
-            content: message.content.clone(),
-            activity: if state.turn == AgentRole::Mentor {
-                state.mentor_activity.clone()
-            } else {
-                state.executor_activity.clone()
-            },
-            started_at: message.timestamp,
-            updated_at: message.timestamp,
-            token_usage: message.token_usage.clone(),
+        .map(|message| {
+            let turn_cognitive_events: Vec<_> = state
+                .cognitive_events
+                .iter()
+                .filter(|e| e.role == state.turn)
+                .cloned()
+                .collect();
+            SnapshotTurnCard {
+                id: message.id.clone(),
+                role: state.turn.clone(),
+                state: "live".to_string(),
+                content: message.content.clone(),
+                activity: if state.turn == AgentRole::Mentor {
+                    state.mentor_activity.clone()
+                } else {
+                    state.executor_activity.clone()
+                },
+                started_at: message.timestamp,
+                updated_at: message.timestamp,
+                token_usage: message.token_usage.clone(),
+                cognitive_events: if turn_cognitive_events.is_empty() {
+                    None
+                } else {
+                    Some(turn_cognitive_events)
+                },
+            }
         });
 
     SessionSnapshotRecord {
@@ -1235,6 +1254,7 @@ mod tests {
                 started_at: 0,
                 updated_at: 0,
                 token_usage: None,
+                cognitive_events: None,
             }),
             run_count: 1,
             run_history: vec![],

@@ -214,6 +214,7 @@ interface PairStateSnapshot {
   pauseMessage?: string
   planChecklist?: Array<{ description: string; completed: boolean }>
   keyDecisions?: string[]
+  cognitiveEvents?: CognitiveEvent[]
 }
 
 interface PairMessageEvent {
@@ -691,6 +692,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
             pair.executorTokenUsage
           )
 
+    const incomingCognitiveEvents = (state.cognitiveEvents ?? []).filter((e) => e.role === nextTurn)
+
     if (hasFinalMessageFromTurnRole) {
       const activityPhase = nextActiveActivity.phase
       if (activityPhase === 'idle' || activityPhase === 'waiting') {
@@ -705,7 +708,7 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
             stableTurnCardId(nextTurn, pair.iterations)
           )
           currentTurnCard.tokenUsage = nextTokenUsage
-          currentTurnCard.cognitiveEvents = []
+          currentTurnCard.cognitiveEvents = incomingCognitiveEvents
         } else if (currentTurnCard.role === nextTurn) {
           currentTurnCard = {
             ...currentTurnCard,
@@ -713,7 +716,10 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
             content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
             updatedAt: nextActiveActivity.updatedAt,
             tokenUsage: nextTokenUsage,
-            cognitiveEvents: currentTurnCard.cognitiveEvents ?? []
+            cognitiveEvents:
+              incomingCognitiveEvents.length > 0
+                ? incomingCognitiveEvents
+                : (currentTurnCard.cognitiveEvents ?? [])
           }
         }
       }
@@ -727,13 +733,18 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
           stableTurnCardId(nextTurn, pair.iterations)
         )
         currentTurnCard.tokenUsage = nextTokenUsage
+        currentTurnCard.cognitiveEvents = incomingCognitiveEvents
       } else if (currentTurnCard.role === nextTurn) {
         currentTurnCard = {
           ...currentTurnCard,
           activity: nextActiveActivity,
           content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
           updatedAt: nextActiveActivity.updatedAt,
-          tokenUsage: nextTokenUsage
+          tokenUsage: nextTokenUsage,
+          cognitiveEvents:
+            incomingCognitiveEvents.length > 0
+              ? incomingCognitiveEvents
+              : (currentTurnCard.cognitiveEvents ?? [])
         }
       }
     }
