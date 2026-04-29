@@ -19,12 +19,21 @@ function formatTokenCount(count: number): string {
 }
 
 export function TokenChip({ usage, isLive, compact, className }: TokenChipProps) {
-  if (!usage || usage.outputTokens === 0) {
-    return null
-  }
+  const hasUsage = !!usage
+  const outputCount = usage?.outputTokens ?? 0
+  const inputCount = usage?.inputTokens ?? 0
+  const totalCount = outputCount + inputCount
+  const displayCount =
+    hasUsage && totalCount > 0
+      ? formatTokenCount(totalCount)
+      : hasUsage
+        ? formatTokenCount(outputCount)
+        : '—'
+  const showLiveIndicator = isLive && usage?.source === 'live'
 
-  const displayCount = formatTokenCount(usage.outputTokens)
-  const showLiveIndicator = isLive && usage.source === 'live'
+  const tooltipText = hasUsage
+    ? `Output: ${outputCount.toLocaleString()} tokens${inputCount > 0 ? `\nInput: ${inputCount.toLocaleString()} tokens` : ''}\nTotal: ${totalCount.toLocaleString()} tokens\nSource: ${usage.source}${usage.provider ? `\nProvider: ${usage.provider}` : ''}`
+    : 'Waiting for token data...'
 
   if (compact) {
     return (
@@ -35,7 +44,7 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
           'text-muted-foreground dark:text-white/60',
           className
         )}
-        title={`Output: ${usage.outputTokens.toLocaleString()} tokens${usage.inputTokens ? `\nInput: ${usage.inputTokens.toLocaleString()} tokens` : ''}\nSource: ${usage.source}`}
+        title={tooltipText}
       >
         {showLiveIndicator && (
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -55,7 +64,7 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
         showLiveIndicator && 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400',
         className
       )}
-      title={`Output: ${usage.outputTokens.toLocaleString()} tokens${usage.inputTokens ? `\nInput: ${usage.inputTokens.toLocaleString()} tokens` : ''}\nSource: ${usage.source}${usage.provider ? `\nProvider: ${usage.provider}` : ''}`}
+      title={tooltipText}
     >
       {showLiveIndicator && (
         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />

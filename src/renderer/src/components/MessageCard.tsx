@@ -85,7 +85,7 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <TokenChip usage={msg.tokenUsage} compact />
+          {msg.from !== 'human' && <TokenChip usage={msg.tokenUsage} compact />}
           <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
             {formatTimestamp(msg.timestamp)}
           </span>

@@ -306,6 +306,9 @@ fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnToken
         .and_then(|v| v.as_u64())
         .or_else(|| usage.get("input_tokens").and_then(|v| v.as_u64()));
 
+    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
+
     Some(TurnTokenUsage {
         output_tokens,
         input_tokens,
@@ -313,26 +316,69 @@ fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnToken
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64,
-        source: TokenUsageSource::Final,
+        source: if is_final {
+            TokenUsageSource::Final
+        } else {
+            TokenUsageSource::Live
+        },
         provider: Some("codex".to_string()),
     })
 }
 
 fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    // OpenCode emits message.updated events with part.type = "step-finish"
+    // The tokens are at event.part.tokens.{input, output, total}
+    if let Some(part) = event.get("part") {
+        let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if part_type == "step-finish" || part_type == "step_finish" {
+            if let Some(tokens) = part.get("tokens") {
+                let output_tokens = tokens
+                    .get("output")
+                    .or_else(|| tokens.get("completionTokens"))
+                    .or_else(|| tokens.get("completion_tokens"))
+                    .and_then(|v| v.as_u64());
+                
+                let input_tokens = tokens
+                    .get("input")
+                    .or_else(|| tokens.get("promptTokens"))
+                    .or_else(|| tokens.get("prompt_tokens"));
+                
+                if let Some(output) = output_tokens {
+                    let input_val = input_tokens.and_then(|v| v.as_u64());
+                    return Some(TurnTokenUsage {
+                        output_tokens: output,
+                        input_tokens: input_val,
+                        last_updated_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                        source: TokenUsageSource::Final,
+                        provider: Some("opencode".to_string()),
+                    });
+                }
+            }
+        }
+    }
+    
+    // Fallback: try direct usage field (older format or different event)
     let usage = event.get("usage")?;
 
     let output_tokens = usage
         .get("output_tokens")
         .or_else(|| usage.get("completion_tokens"))
+        .or_else(|| usage.get("completionTokens"))
+        .or_else(|| usage.get("output"))
         .and_then(|v| v.as_u64())?;
 
     let input_tokens = usage
         .get("input_tokens")
         .or_else(|| usage.get("prompt_tokens"))
+        .or_else(|| usage.get("promptTokens"))
+        .or_else(|| usage.get("input"))
         .and_then(|v| v.as_u64());
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
+    let is_final = event_type == "result" || event_type == "complete" || event_type == "done" || event_type == "finish-step" || event_type == "finish" || event_type == "step_finish";
 
     Some(TurnTokenUsage {
         output_tokens,
@@ -1247,6 +1293,28 @@ impl ProcessSpawner {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                             let broker = broker.lock().unwrap();
                             broker.update_token_usage(&pair_id_clone, &role_clone, usage);
+                        }
+                    } else {
+                        // Debug: log events that might contain token data
+                        let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        if event_type == "step_finish" {
+                            if let Some(part) = event.get("part") {
+                                println!(
+                                    "[ProcessSpawner] [{}] {}: [TOKEN DEBUG] step_finish part: {}",
+                                    pair_id_clone, role_clone, part
+                                );
+                            } else {
+                                println!(
+                                    "[ProcessSpawner] [{}] {}: [TOKEN DEBUG] step_finish event but no part field",
+                                    pair_id_clone, role_clone
+                                );
+                            }
+                        }
+                        if event.get("usage").is_some() {
+                            println!(
+                                "[ProcessSpawner] [{}] {}: [TOKEN DEBUG] event has usage field but extraction failed. usage={}",
+                                pair_id_clone, role_clone, event.get("usage").unwrap()
+                            );
                         }
                     }
 

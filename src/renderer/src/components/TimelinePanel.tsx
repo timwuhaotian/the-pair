@@ -90,7 +90,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
           </span>
           {timeline.totalOutputTokens > 0 && (
             <span className="text-[9px] font-mono text-muted-foreground/50">
-              {formatTokenCount(timeline.totalOutputTokens)} tok
+              {formatTokenCount(timeline.totalOutputTokens + (timeline.totalInputTokens ?? 0))} tok
             </span>
           )}
         </div>

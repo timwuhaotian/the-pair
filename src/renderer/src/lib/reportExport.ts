@@ -40,8 +40,13 @@ export function generateMarkdownReport(timeline: TimelineData): string {
   lines.push('|--------|-------|')
   lines.push(`| Iterations | ${timeline.iterations.length} |`)
   lines.push(`| Total Output Tokens | ${formatTokenCount(timeline.totalOutputTokens)} |`)
-  lines.push(`| Mentor Tokens | ${formatTokenCount(timeline.mentorOutputTokens)} |`)
-  lines.push(`| Executor Tokens | ${formatTokenCount(timeline.executorOutputTokens)} |`)
+  lines.push(`| Total Input Tokens | ${formatTokenCount(timeline.totalInputTokens)} |`)
+  lines.push(
+    `| Mentor Tokens (out/in) | ${formatTokenCount(timeline.mentorOutputTokens)} / ${formatTokenCount(timeline.mentorInputTokens ?? 0)} |`
+  )
+  lines.push(
+    `| Executor Tokens (out/in) | ${formatTokenCount(timeline.executorOutputTokens)} / ${formatTokenCount(timeline.executorInputTokens ?? 0)} |`
+  )
   lines.push(`| Files Modified | ${timeline.modifiedFiles.length} |`)
   lines.push('')
 
@@ -58,7 +63,7 @@ export function generateMarkdownReport(timeline: TimelineData): string {
 
       for (const event of group.events) {
         lines.push(
-          `**${eventTitle(event.type)}** — ${formatTimestamp(event.timestamp)}${event.tokenUsage ? ` — ${formatTokenCount(event.tokenUsage.outputTokens)} tok` : ''}`
+          `**${eventTitle(event.type)}** — ${formatTimestamp(event.timestamp)}${event.tokenUsage ? ` — ${formatTokenCount(event.tokenUsage.outputTokens + (event.tokenUsage.inputTokens ?? 0))} tok` : ''}`
         )
         lines.push('')
 
@@ -120,7 +125,7 @@ export function generateHtmlReport(timeline: TimelineData): string {
     <div class="iteration-group">
       <div class="iteration-header">
         Iteration ${group.iteration}
-        <span class="iteration-meta">${formatDuration(group.durationMs)} · ${formatTokenCount(group.totalTokens)} tok</span>
+        <span class="iteration-meta">${formatDuration(group.durationMs)} · ${formatTokenCount(group.totalTokens + group.totalInputTokens)} tok</span>
       </div>
       ${group.events.map((event) => renderHtmlEvent(event)).join('\n      ')}
     </div>`
@@ -319,16 +324,20 @@ export function generateHtmlReport(timeline: TimelineData): string {
           <div class="stat-value">${timeline.iterations.length}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Total Tokens</div>
+          <div class="stat-label">Total Output</div>
           <div class="stat-value">${formatTokenCount(timeline.totalOutputTokens)}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Mentor Tokens</div>
-          <div class="stat-value">${formatTokenCount(timeline.mentorOutputTokens)}</div>
+          <div class="stat-label">Total Input</div>
+          <div class="stat-value">${formatTokenCount(timeline.totalInputTokens ?? 0)}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Executor Tokens</div>
-          <div class="stat-value">${formatTokenCount(timeline.executorOutputTokens)}</div>
+          <div class="stat-label">Mentor (out/in)</div>
+          <div class="stat-value">${formatTokenCount(timeline.mentorOutputTokens)} / ${formatTokenCount(timeline.mentorInputTokens ?? 0)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Executor (out/in)</div>
+          <div class="stat-value">${formatTokenCount(timeline.executorOutputTokens)} / ${formatTokenCount(timeline.executorInputTokens ?? 0)}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Files Modified</div>
@@ -450,7 +459,7 @@ function renderHtmlEvent(event: TimelineEvent): string {
       <div class="event" style="--dot-color: ${dotColor(event)}">
         <div>
           <span class="event-title">${eventTitle(event.type)}</span>
-          <span class="event-time">${formatTimestamp(event.timestamp)}</span>${event.tokenUsage ? `<span class="event-tokens">${formatTokenCount(event.tokenUsage.outputTokens)} tok</span>` : ''}
+          <span class="event-time">${formatTimestamp(event.timestamp)}</span>${event.tokenUsage ? `<span class="event-tokens">${formatTokenCount(event.tokenUsage.outputTokens + (event.tokenUsage.inputTokens ?? 0))} tok</span>` : ''}
           ${badges}
         </div>
         <div class="event-summary${hasDetail ? ' expandable' : ''}">${escapeHtml(summaryText)}</div>${detailSection}

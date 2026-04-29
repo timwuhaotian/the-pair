@@ -34,6 +34,7 @@ export interface IterationGroup {
   endedAt: number
   durationMs: number
   totalTokens: number
+  totalInputTokens: number
 }
 
 export interface TimelineData {
@@ -46,8 +47,11 @@ export interface TimelineData {
   status: string
   iterations: IterationGroup[]
   totalOutputTokens: number
+  totalInputTokens: number
   mentorOutputTokens: number
+  mentorInputTokens: number
   executorOutputTokens: number
+  executorInputTokens: number
   acceptanceRecords: AcceptanceRecord[]
   modifiedFiles: Array<{ path: string; status: string; displayPath: string }>
   durationMs: number
@@ -138,10 +142,14 @@ function tryParseAcceptance(content: string): AcceptanceVerdict | null {
   return null
 }
 
-function sumTokensForRole(messages: TimelineMessage[], role: 'mentor' | 'executor'): number {
+function sumTokensForRole(
+  messages: TimelineMessage[],
+  role: 'mentor' | 'executor',
+  field: 'outputTokens' | 'inputTokens'
+): number {
   return messages.reduce((sum, msg) => {
-    if (msg.from === role && msg.tokenUsage?.outputTokens) {
-      return sum + msg.tokenUsage.outputTokens
+    if (msg.from === role && msg.tokenUsage?.[field]) {
+      return sum + msg.tokenUsage[field]!
     }
     return sum
   }, 0)
@@ -206,6 +214,7 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
     })
 
     const totalTokens = msgs.reduce((sum, m) => sum + (m.tokenUsage?.outputTokens ?? 0), 0)
+    const totalInputTokens = msgs.reduce((sum, m) => sum + (m.tokenUsage?.inputTokens ?? 0), 0)
 
     return {
       iteration: iter,
@@ -213,7 +222,8 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
       startedAt,
       endedAt,
       durationMs: endedAt - startedAt,
-      totalTokens
+      totalTokens,
+      totalInputTokens
     }
   })
 
@@ -227,6 +237,7 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
       prev.endedAt = Math.max(prev.endedAt, iter.endedAt)
       prev.durationMs = prev.endedAt - prev.startedAt
       prev.totalTokens += iter.totalTokens
+      prev.totalInputTokens += iter.totalInputTokens
       continue
     }
     processedIterations.push(iter)
@@ -246,8 +257,10 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
     iter.events = deduped
   }
 
-  const mentorTokens = sumTokensForRole(filtered, 'mentor')
-  const executorTokens = sumTokensForRole(filtered, 'executor')
+  const mentorOutputTokens = sumTokensForRole(filtered, 'mentor', 'outputTokens')
+  const mentorInputTokens = sumTokensForRole(filtered, 'mentor', 'inputTokens')
+  const executorOutputTokens = sumTokensForRole(filtered, 'executor', 'outputTokens')
+  const executorInputTokens = sumTokensForRole(filtered, 'executor', 'inputTokens')
 
   return {
     pairName: pair.name,
@@ -258,9 +271,12 @@ export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): 
     finishedAt: pair.currentRunFinishedAt,
     status: pair.status,
     iterations: processedIterations,
-    totalOutputTokens: mentorTokens + executorTokens,
-    mentorOutputTokens: mentorTokens,
-    executorOutputTokens: executorTokens,
+    totalOutputTokens: mentorOutputTokens + executorOutputTokens,
+    totalInputTokens: mentorInputTokens + executorInputTokens,
+    mentorOutputTokens,
+    mentorInputTokens,
+    executorOutputTokens,
+    executorInputTokens,
     acceptanceRecords: pair.latestAcceptance ? [pair.latestAcceptance] : [],
     modifiedFiles: pair.modifiedFiles,
     durationMs: (pair.currentRunFinishedAt ?? Date.now()) - pair.currentRunStartedAt

@@ -1000,7 +1000,8 @@ export const usePairStore = create<PairStore>((set) => ({
                 activity: nextActivity,
                 content: nextContent,
                 state: 'live',
-                updatedAt: Date.now()
+                updatedAt: Date.now(),
+                tokenUsage: currentTurnCard.tokenUsage
               }
             }
 

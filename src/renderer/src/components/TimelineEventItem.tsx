@@ -83,7 +83,7 @@ export function TimelineEventItem({
               {formatDuration(event.durationMs)}
             </span>
           )}
-          <TokenChip usage={event.tokenUsage} compact />
+          {event.from !== 'human' && <TokenChip usage={event.tokenUsage} compact />}
         </div>
 
         {/* Risk badge */}
