@@ -2320,7 +2320,7 @@ mod tests {
     #[test]
     fn extract_token_usage_from_codex_extracts_from_usage_field() {
         let event = json!({
-            "type": "message",
+            "type": "result",
             "usage": {
                 "prompt_tokens": 200,
                 "completion_tokens": 350
