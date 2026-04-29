@@ -67,7 +67,9 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         {card.state === 'live' && cognitiveEvents.length > 0 && (
           <IntentChip events={cognitiveEvents} role={card.role} />
         )}
-        <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
+        {card.tokenUsage && (
+          <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
+        )}
       </div>
       <div
         className={cn(

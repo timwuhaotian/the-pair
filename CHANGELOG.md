@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Intent chips not showing:** Fixed the complete disconnect between backend cognitive event generation and frontend display. `PairStateSnapshot` was missing `cognitiveEvents`, and `syncPairFromState()` never mapped them to the live `TurnCard`. Now intent chips (`IntentChip`) appear in real-time during agent turns showing tool calls and reasoning events.
-- **Session snapshot persistence:** `SnapshotTurnCard` now stores `cognitive_events` so intent state survives session save/restore. Previously `build_pair_state` always serialized `cognitive_events: Vec::new()`, losing all intent data on snapshot.
+- **Intent chips not showing:** Fixed two issues blocking cognitive event display. (1) Opencode's `"stream"` and Codex's `"message"` event types were not recognized by the pattern matcher in `process_spawner.rs` — added them to the content/reasoning branch. (2) The fallback `else` branch in the first-output handler did not create any cognitive event, so unrecognized event types left the turn with zero cognitive events — now always emits a generic "Processing" reasoning event as a safety net.
+- **"— tok" placeholder:** Token chip no longer renders with a dash when no token data is available yet. The chip is hidden until the first token count arrives, eliminating visual noise on fresh turns.
 
 ## [1.4.1] - 2026-04-29
 

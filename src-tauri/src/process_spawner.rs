@@ -1343,6 +1343,8 @@ impl ProcessSpawner {
                             } else if event_type_lower.contains("content_block_delta")
                                 || event_type_lower.contains("text")
                                 || event_type_lower.contains("content")
+                                || event_type_lower.contains("stream")
+                                || event_type_lower.contains("message")
                             {
                                 // Emit cognitive event for reasoning
                                 broker.add_cognitive_event(
@@ -1427,6 +1429,14 @@ impl ProcessSpawner {
                                     None,
                                 )
                             } else {
+                                broker.add_cognitive_event(
+                                    &pair_id_clone,
+                                    &role_clone,
+                                    crate::types::CognitiveEventType::Reasoning,
+                                    None,
+                                    "Processing".to_string(),
+                                    crate::types::CognitiveEventStatus::Running,
+                                );
                                 (
                                     ActivityPhase::Responding,
                                     "Processing response".to_string(),
