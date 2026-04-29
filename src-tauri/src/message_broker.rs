@@ -791,14 +791,6 @@ impl MessageBroker {
         }
     }
 
-    pub fn clear_cognitive_events(&self, pair_id: &str) {
-        let mut pair_states = self.pair_states.lock().unwrap();
-        if let Some(state) = pair_states.get_mut(pair_id) {
-            state.cognitive_events.clear();
-            self.notify_state_update(pair_id, state);
-        }
-    }
-
     pub fn set_turn_started_at(&self, pair_id: &str, timestamp: u64) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
