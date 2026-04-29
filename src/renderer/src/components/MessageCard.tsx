@@ -15,16 +15,21 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const isSystem = msg.type === 'handoff'
   const isHuman = msg.from === 'human'
 
-  const displayContent = isHuman ? stripSystemPrompt(msg.content.trim()) : msg.content.trim()
+  const displayContent =
+    isHuman || isTechnicalHandoff(msg.content)
+      ? stripSystemPrompt(msg.content.trim())
+      : msg.content.trim()
   const isAcceptance =
     msg.type === 'acceptance' ||
     isAcceptanceVerdictContent(displayContent) ||
     isAcceptanceRecordContent(displayContent)
 
-  // Filter out technical handoff messages
+  // Filter out technical handoff messages (but keep human mission specs)
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
 
-  if (isTechnicalHandoff(displayContent) && !isHuman) return null
+  // Only filter handoff prompts for non-executor, non-human messages
+  // Executor messages should always be displayed even if they contain handoff-like content
+  if (isTechnicalHandoff(displayContent) && !isHuman && msg.from !== 'executor') return null
 
   return (
     <motion.div

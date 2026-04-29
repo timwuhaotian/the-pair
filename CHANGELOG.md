@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-29
+
+### Added
+
+- **Cognitive transparency:** Real-time intent chips and tool call visualization so you can see exactly what the AI agent is doing.
+- **Intent chip:** Floating indicator in the live turn card showing the agent's current intent (分析中 / 编写中 / 验证中 / 审查中 / 等待中 / 处理错误) with animated icons.
+- **Tool call steps:** Expandable step-by-step visualization of all tool calls (bash/read/write/search) with status indicators (pending/running/completed/error).
+- **Reasoning events:** Agent reasoning steps captured from content blocks and thinking signals, rendered alongside tool calls.
+- **Cognitive event tracking:** New `CognitiveEvent` data model flowing from Rust backend through Tauri events to the frontend, stored on `TurnCard` for turn-scoped lifecycle.
+
+### Fixed
+
+- **Task History layout:** Duration text and restore button no longer overlap — added spacing via `mr-6` and `marginRight` offset.
+- **Console executor cards:** Executor messages containing handoff prompt markers are now correctly rendered — `isTechnicalHandoff` filter excludes executor messages, and `stripSystemPrompt` extracts actual response content from handoff-prompt-wrapped messages.
+- **Infinite re-render loop:** Fixed React infinite re-render caused by Zustand selector returning new array references — cognitive events moved from `Pair` (pair-scoped) to `TurnCard` (turn-scoped), eliminating the selector entirely.
+
 ## [1.3.14] - 2026-04-28
 
 ### Changed

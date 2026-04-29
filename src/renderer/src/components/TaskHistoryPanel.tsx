@@ -96,7 +96,7 @@ export function TaskHistoryPanel({
                         #{runHistory.length - idx}
                       </span>
                     </div>
-                    <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">
+                    <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0 mr-6">
                       {duration}
                     </span>
                   </div>
@@ -169,6 +169,7 @@ export function TaskHistoryPanel({
                     'absolute right-2 top-2 transition-opacity',
                     isViewing ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                   )}
+                  style={{ marginRight: '4rem' }}
                 >
                   <GlassButton
                     variant="ghost"

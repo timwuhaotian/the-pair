@@ -103,6 +103,19 @@ export interface Message {
   tokenUsage?: TurnTokenUsage
 }
 
+export type CognitiveEventType = 'tool_call' | 'reasoning' | 'error'
+export type CognitiveEventStatus = 'running' | 'completed' | 'error'
+
+export interface CognitiveEvent {
+  id: string
+  timestamp: number
+  role: 'mentor' | 'executor'
+  eventType: CognitiveEventType
+  toolName?: string
+  description: string
+  status: CognitiveEventStatus
+}
+
 export interface TurnCard {
   id: string
   role: 'mentor' | 'executor'
@@ -113,6 +126,7 @@ export interface TurnCard {
   updatedAt: number
   finalizedAt?: number
   tokenUsage?: TurnTokenUsage
+  cognitiveEvents: CognitiveEvent[]
 }
 
 export interface PairRunSummary {
@@ -381,7 +395,12 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     automationMode: snapshot.automationMode,
     latestAcceptance: snapshot.latestAcceptance,
     turn: snapshot.turn,
-    currentTurnCard: snapshot.currentTurnCard,
+    currentTurnCard: snapshot.currentTurnCard
+      ? {
+          ...snapshot.currentTurnCard,
+          cognitiveEvents: snapshot.currentTurnCard.cognitiveEvents ?? []
+        }
+      : undefined,
     runCount: snapshot.runCount,
     runHistory: snapshot.runHistory,
     currentRunStartedAt: snapshot.currentRunStartedAt,
@@ -437,7 +456,8 @@ function createTurnCard(
     content,
     activity,
     startedAt: now,
-    updatedAt: now
+    updatedAt: now,
+    cognitiveEvents: []
   }
 }
 
@@ -685,13 +705,15 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
             stableTurnCardId(nextTurn, pair.iterations)
           )
           currentTurnCard.tokenUsage = nextTokenUsage
+          currentTurnCard.cognitiveEvents = []
         } else if (currentTurnCard.role === nextTurn) {
           currentTurnCard = {
             ...currentTurnCard,
             activity: nextActiveActivity,
             content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
             updatedAt: nextActiveActivity.updatedAt,
-            tokenUsage: nextTokenUsage
+            tokenUsage: nextTokenUsage,
+            cognitiveEvents: currentTurnCard.cognitiveEvents ?? []
           }
         }
       }

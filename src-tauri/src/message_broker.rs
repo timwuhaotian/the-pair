@@ -141,6 +141,7 @@ impl MessageBroker {
             turn_started_at: None,
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
+            cognitive_events: Vec::new(),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -753,9 +754,56 @@ impl MessageBroker {
         }
     }
 
+    pub fn add_cognitive_event(
+        &self,
+        pair_id: &str,
+        role: &str,
+        event_type: crate::types::CognitiveEventType,
+        tool_name: Option<String>,
+        description: String,
+        status: crate::types::CognitiveEventStatus,
+    ) {
+        let now = crate::util::now_millis();
+        let event_id = format!("ce-{}-{}", role, now);
+        let agent_role = if role == "mentor" {
+            crate::types::AgentRole::Mentor
+        } else {
+            crate::types::AgentRole::Executor
+        };
+        let event = crate::types::CognitiveEvent {
+            id: event_id,
+            timestamp: now,
+            role: agent_role,
+            event_type,
+            tool_name,
+            description,
+            status,
+        };
+
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.cognitive_events.push(event);
+            // Keep only last 50 events to prevent memory bloat
+            if state.cognitive_events.len() > 50 {
+                state.cognitive_events.drain(0..state.cognitive_events.len() - 50);
+            }
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
+    pub fn clear_cognitive_events(&self, pair_id: &str) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.cognitive_events.clear();
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
     pub fn set_turn_started_at(&self, pair_id: &str, timestamp: u64) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
+            // Clear cognitive events for new turn
+            state.cognitive_events.clear();
             let activity = if state.turn == AgentRole::Mentor {
                 &mut state.mentor_activity
             } else {
@@ -965,6 +1013,7 @@ mod tests {
             turn_started_at: None,
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
+            cognitive_events: Vec::new(),
         }
     }
 

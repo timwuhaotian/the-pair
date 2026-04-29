@@ -10,9 +10,12 @@ import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
 import { TurnCard } from '../store/usePairStore'
 import { ActivityIndicator } from './ActivityIndicator'
+import { IntentChip } from './IntentChip'
+import { ToolCallSteps } from './ToolCallSteps'
 
 export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const prevCardId = usePrevious(card.id)
+  const cognitiveEvents = card.cognitiveEvents ?? []
 
   const animState = card.state === 'final' && card.finalizedAt ? 'final' : 'live'
 
@@ -52,7 +55,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         'metal-sheen-surface'
       )}
     >
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2 flex-wrap">
         <Zap size={14} className={cn(accent, 'drop-shadow-sm')} fill="currentColor" />
         <span className={cn('text-[10px] font-black uppercase tracking-[0.16em]', accent)}>
           {card.role.toUpperCase()}
@@ -61,6 +64,9 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           {card.state === 'live' ? 'working' : 'result'}
         </span>
         {card.state === 'live' && <ActivityIndicator activity={card.activity} />}
+        {card.state === 'live' && cognitiveEvents.length > 0 && (
+          <IntentChip events={cognitiveEvents} role={card.role} />
+        )}
         <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
       </div>
       <div
@@ -75,6 +81,9 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           <MarkdownContent content={currentAction} />
         )}
       </div>
+      {card.state === 'live' && cognitiveEvents.length > 0 && (
+        <ToolCallSteps events={cognitiveEvents} />
+      )}
     </motion.div>
   )
 }

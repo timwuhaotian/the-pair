@@ -128,6 +128,17 @@ export interface SnapshotTurnCard {
   startedAt: number
   updatedAt: number
   tokenUsage?: TurnTokenUsage
+  cognitiveEvents?: SnapshotCognitiveEvent[]
+}
+
+export interface SnapshotCognitiveEvent {
+  id: string
+  timestamp: number
+  role: 'mentor' | 'executor'
+  eventType: 'tool_call' | 'reasoning' | 'error'
+  toolName?: string
+  description: string
+  status: 'running' | 'completed' | 'error'
 }
 
 export interface PairRunSummary {
@@ -208,6 +219,7 @@ export interface SessionSnapshotDraft {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  cognitiveEvents?: SnapshotCognitiveEvent[]
 }
 
 export interface RecoverableSessionSummary {

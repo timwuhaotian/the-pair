@@ -1253,11 +1253,20 @@ impl ProcessSpawner {
                     if first_output {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                             let broker = broker.lock().unwrap();
-                            let (phase, label, detail) = if event_type_lower.contains("tool")
+                            let (phase, label, detail) =                             if event_type_lower.contains("tool")
                                 || event_type_lower.contains("function_call")
                             {
                                 let tool_name =
                                     event.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
+                                // Emit cognitive event for tool call
+                                broker.add_cognitive_event(
+                                    &pair_id_clone,
+                                    &role_clone,
+                                    crate::types::CognitiveEventType::ToolCall,
+                                    Some(tool_name.to_string()),
+                                    format!("Calling {}", tool_name),
+                                    crate::types::CognitiveEventStatus::Running,
+                                );
                                 (
                                     ActivityPhase::UsingTools,
                                     format!("Calling {}", tool_name),
@@ -1267,6 +1276,15 @@ impl ProcessSpawner {
                                 || event_type_lower.contains("text")
                                 || event_type_lower.contains("content")
                             {
+                                // Emit cognitive event for reasoning
+                                broker.add_cognitive_event(
+                                    &pair_id_clone,
+                                    &role_clone,
+                                    crate::types::CognitiveEventType::Reasoning,
+                                    None,
+                                    "Processing response".to_string(),
+                                    crate::types::CognitiveEventStatus::Running,
+                                );
                                 (
                                     ActivityPhase::Responding,
                                     "Processing response".to_string(),
@@ -1275,8 +1293,24 @@ impl ProcessSpawner {
                             } else if event_type_lower.contains("message_start")
                                 || event_type_lower.contains("turn_start")
                             {
+                                broker.add_cognitive_event(
+                                    &pair_id_clone,
+                                    &role_clone,
+                                    crate::types::CognitiveEventType::Reasoning,
+                                    None,
+                                    "Analyzing task".to_string(),
+                                    crate::types::CognitiveEventStatus::Running,
+                                );
                                 (ActivityPhase::Thinking, "Analyzing task".to_string(), None)
                         } else if event_type_lower.contains("thinking") {
+                            broker.add_cognitive_event(
+                                &pair_id_clone,
+                                &role_clone,
+                                crate::types::CognitiveEventType::Reasoning,
+                                None,
+                                "Reasoning...".to_string(),
+                                crate::types::CognitiveEventStatus::Running,
+                            );
                             (ActivityPhase::Thinking, "Reasoning...".to_string(), None)
                         } else if event_type_lower.contains("step_start") {
                             // Step cycle detection
@@ -1347,6 +1381,14 @@ impl ProcessSpawner {
                             let broker = broker.lock().unwrap();
                             let tool_name =
                                 event.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
+                            broker.add_cognitive_event(
+                                &pair_id_clone,
+                                &role_clone,
+                                crate::types::CognitiveEventType::ToolCall,
+                                Some(tool_name.to_string()),
+                                format!("Calling {}", tool_name),
+                                crate::types::CognitiveEventStatus::Running,
+                            );
                             broker.update_agent_activity(
                                 &pair_id_clone,
                                 &role_clone,

@@ -345,6 +345,8 @@ pub struct PairState {
     pub plan_checklist: Vec<serde_json::Value>,
     #[serde(rename = "keyDecisions", default)]
     pub key_decisions: Vec<String>,
+    #[serde(rename = "cognitiveEvents", default)]
+    pub cognitive_events: Vec<CognitiveEvent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -377,6 +379,35 @@ pub struct Pair {
     pub repo_path: Option<String>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitiveEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub role: AgentRole,
+    #[serde(rename = "eventType")]
+    pub event_type: CognitiveEventType,
+    #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    pub description: String,
+    pub status: CognitiveEventStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CognitiveEventType {
+    ToolCall,
+    Reasoning,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CognitiveEventStatus {
+    Running,
+    Completed,
+    Error,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

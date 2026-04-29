@@ -664,6 +664,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         turn_started_at: None,
         plan_checklist: Vec::new(),
         key_decisions: Vec::new(),
+        cognitive_events: Vec::new(),
     }
 }
 
