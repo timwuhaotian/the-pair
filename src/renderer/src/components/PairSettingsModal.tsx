@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import type { PairModelSelection } from '../types'
 import { GlassButton } from './ui/GlassButton'
@@ -18,6 +19,7 @@ export function PairSettingsModal({
   isOpen,
   onClose
 }: PairSettingsModalProps): React.ReactNode {
+  const { t } = useTranslation()
   const { availableModels, updatePairModels, isLoading, error } = usePairStore()
   const [selection, setSelection] = useState<PairModelSelection>(() => ({
     mentorModel: pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
@@ -48,7 +50,7 @@ export function PairSettingsModal({
     <GlassModal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Pair Defaults · ${pair.name}`}
+      title={t('modals.pairDefaults', { name: pair.name })}
       className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -59,11 +61,10 @@ export function PairSettingsModal({
             </div>
             <div className="space-y-1">
               <div className="text-sm font-semibold text-foreground">
-                Default models for future tasks
+                {t('modals.pairDefaultsDesc')}
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Change the mentor and executor defaults without recreating the pair. Running work is
-                left untouched; new settings apply to the next task run.
+                {t('modals.pairDefaultsNote')}
               </p>
             </div>
           </div>
@@ -96,9 +97,7 @@ export function PairSettingsModal({
 
         {(isPairActive(pair.status) || queuedForNextTask) && (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-            {queuedForNextTask
-              ? 'A model update is already queued for the next task.'
-              : 'This pair is running right now, so saved changes will queue for the next task.'}
+            {queuedForNextTask ? t('modals.modelUpdateQueued') : t('modals.pairRunningNote')}
           </div>
         )}
 
@@ -115,7 +114,7 @@ export function PairSettingsModal({
             onClick={onClose}
             data-testid="settings-cancel-btn"
           >
-            Cancel
+            {t('common.cancel')}
           </GlassButton>
           <GlassButton
             type="submit"
@@ -123,7 +122,7 @@ export function PairSettingsModal({
             disabled={isLoading || !selection.mentorModel || !selection.executorModel}
             data-testid="settings-save-btn"
           >
-            {isLoading ? 'Saving...' : 'Save Defaults'}
+            {isLoading ? t('common.saving') : t('modals.saveDefaults')}
           </GlassButton>
         </div>
       </form>

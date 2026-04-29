@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { Brain, CheckCircle2, ChevronDown, CircleAlert, Search, Zap } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import type { AvailableModel } from '../types'
 import {
@@ -125,6 +126,7 @@ export function ModelPicker({
   reasoningEffort,
   onReasoningEffortChange
 }: ModelPickerProps): React.ReactNode {
+  const { t } = useTranslation()
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [recentModelIds] = useState<string[]>(() => getRecentModelIds(role))
@@ -212,7 +214,7 @@ export function ModelPicker({
       {recentModels.length > 0 && (
         <div>
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Recent
+            {t('pickers.recent')}
           </div>
           <div className={cn('grid gap-2', 'grid-cols-2')}>
             {recentModels.map((model) => (
@@ -252,7 +254,7 @@ export function ModelPicker({
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Search size={14} className="shrink-0 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                {recentModels.length > 0 ? 'All models...' : 'Select a model'}
+                {recentModels.length > 0 ? t('pickers.allModels') : t('pickers.selectModel')}
               </span>
             </div>
           )}
@@ -289,7 +291,7 @@ export function ModelPicker({
                       setSearchQuery('')
                     }
                   }}
-                  placeholder="Search models..."
+                  placeholder={t('pickers.searchModels')}
                   className="w-full rounded-lg border border-border/60 bg-muted py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
                 />
               </div>
@@ -297,7 +299,7 @@ export function ModelPicker({
             <div className="max-h-60 overflow-y-auto px-2 pb-2 scrollbar-thin">
               {filteredDropdownModels.length === 0 ? (
                 <div className="py-5 text-center text-sm text-muted-foreground">
-                  No models found
+                  {t('pickers.noModels')}
                 </div>
               ) : (
                 filteredDropdownModels.map((model) => {
@@ -395,8 +397,12 @@ export function ModelPicker({
             {tone.icon}
           </div>
           <div>
-            <div className={cn('text-sm font-semibold', tone.text)}>{tone.label}</div>
-            <div className="text-xs text-muted-foreground">{tone.subtitle}</div>
+            <div className={cn('text-sm font-semibold', tone.text)}>
+              {role === 'mentor' ? t('pickers.mentorLabel') : t('pickers.executorLabel')}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {role === 'mentor' ? t('pickers.mentorDesc') : t('pickers.executorDesc')}
+            </div>
           </div>
         </div>
         {pickerContent}

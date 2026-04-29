@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-04-29
+
+### Fixed
+
+- **Complete CJK i18n coverage:** Replaced 60+ hardcoded English strings across 8 components (`PairDetail`, `OnboardingWizard`, `TaskHistoryPanel`, `TimelinePanel`, `ErrorDetailPanel`, `ActivityIndicator`, `TurnCardView`, `UpdateControls`) with `react-i18next` translations. All UI labels, buttons, status text, empty states, and error messages now fully support Chinese, Japanese, and Korean.
+
 ## [1.4.2] - 2026-04-29
 
 ### Fixed

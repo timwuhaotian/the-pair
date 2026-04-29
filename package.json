@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
@@ -79,8 +79,10 @@
     "framer-motion": "^12.38.0",
     "fuse.js": "^7.1.0",
     "geist": "^1.7.0",
+    "i18next": "^26.0.8",
     "lucide-react": "^0.577.0",
     "marked": "^17.0.5",
+    "react-i18next": "^17.0.6",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.0",
     "remark-gfm": "^4.0.1",

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { useTranslation } from 'react-i18next'
 import { usePrevious } from '../lib/usePrevious'
 import { turnCardFinalize } from '../lib/animations'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
@@ -14,6 +15,7 @@ import { IntentChip } from './IntentChip'
 import { ToolCallSteps } from './ToolCallSteps'
 
 export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
+  const { t } = useTranslation()
   const prevCardId = usePrevious(card.id)
   const cognitiveEvents = card.cognitiveEvents ?? []
 
@@ -31,7 +33,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
     card.content ||
     card.activity.detail ||
     card.activity.label ||
-    'Working...'
+    t('common.working')
   ).trim()
 
   const isAcceptance = useMemo(() => {

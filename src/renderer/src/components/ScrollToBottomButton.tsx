@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { ArrowDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '../lib/utils'
 
@@ -16,6 +17,7 @@ export function ScrollToBottomButton({
   threshold = 160,
   className
 }: ScrollToBottomButtonProps): React.ReactNode {
+  const { t } = useTranslation()
   const [showButton, setShowButton] = useState(false)
 
   const updateVisibility = useCallback(() => {
@@ -71,7 +73,7 @@ export function ScrollToBottomButton({
           )}
         >
           <ArrowDown size={12} />
-          <span>New messages</span>
+          <span>{t('console.newMessages')}</span>
         </motion.button>
       )}
     </AnimatePresence>

@@ -1,10 +1,12 @@
 import { emit } from '@tauri-apps/api/event'
+import { useTranslation } from 'react-i18next'
 import { ArrowDownToLine, CheckCircle2, Info, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { useUpdateStore } from '../store/useUpdateStore'
 import { GlassButton } from './ui/GlassButton'
 import { cn } from '../lib/utils'
 
 export function UpdateControls(): React.ReactNode {
+  const { t } = useTranslation()
   const phase = useUpdateStore((s) => s.phase)
   const version = useUpdateStore((s) => s.version)
   const progress = useUpdateStore((s) => s.progress)
@@ -31,18 +33,18 @@ export function UpdateControls(): React.ReactNode {
 
   const label =
     phase === 'available' && version
-      ? `Install v${version}`
+      ? t('updates.install', { version })
       : phase === 'checking'
-        ? 'Checking...'
+        ? t('updates.checking')
         : phase === 'installing'
           ? progress !== null
-            ? `${progress}%`
-            : 'Installing...'
+            ? t('updates.installingPercent', { percent: progress })
+            : t('updates.installing')
           : isUpToDate
-            ? 'Up to date'
+            ? t('updates.upToDate')
             : isError
-              ? 'Check again'
-              : 'Check updates'
+              ? t('updates.checkAgain')
+              : t('updates.checkUpdates')
 
   const icon =
     phase === 'available' ? (

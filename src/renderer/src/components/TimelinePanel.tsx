@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, Clipboard, Clock, Download } from 'lucide-react'
 import { GlassButton } from './ui/GlassButton'
 import { TimelineIterationGroup } from './TimelineIterationGroup'
@@ -10,6 +11,7 @@ interface TimelinePanelProps {
 }
 
 export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Element {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   if (!timeline) {
@@ -17,10 +19,10 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
       <div>
         <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Clock size={12} />
-          Timeline
+          {t('pair.timeline')}
         </h3>
         <div className="glass-card rounded-2xl p-4">
-          <p className="text-[11px] text-muted-foreground/60">No timeline events yet.</p>
+          <p className="text-[11px] text-muted-foreground/60">{t('pair.noTimelineEvents')}</p>
         </div>
       </div>
     )
@@ -51,7 +53,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
       <h3 className="mb-3 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         <span className="flex items-center gap-2">
           <Clock size={12} />
-          Timeline
+          {t('pair.timeline')}
         </span>
         {hasEvents && (
           <span className="flex items-center gap-1">
@@ -97,7 +99,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
 
         <div className="max-h-[400px] overflow-y-auto scrollbar-thin p-3">
           {!hasEvents ? (
-            <p className="text-[11px] text-muted-foreground/60">No timeline events yet.</p>
+            <p className="text-[11px] text-muted-foreground/60">{t('pair.noTimelineEvents')}</p>
           ) : (
             timeline.iterations.map((group, idx) => (
               <TimelineIterationGroup

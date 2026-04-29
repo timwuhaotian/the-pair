@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen, Sparkles } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
@@ -21,6 +22,7 @@ interface CreatePairModalProps {
 }
 
 export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): React.ReactNode {
+  const { t } = useTranslation()
   const { availableModels, loadAvailableModels, createPair, isLoading, error } = usePairStore()
 
   const [name, setName] = useState('')
@@ -177,12 +179,17 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }
 
   return (
-    <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-3xl">
+    <GlassModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('modals.createTitle')}
+      className="max-w-3xl"
+    >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2">
             <Sparkles size={14} className="text-primary" />
-            <span className="text-sm font-medium text-foreground">Choose a Preset</span>
+            <span className="text-sm font-medium text-foreground">{t('modals.choosePreset')}</span>
           </div>
           <PresetPicker
             presets={presets}
@@ -199,7 +206,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             <div className="flex items-center gap-2">
               <Sparkles size={12} className="text-primary" />
               <span className="text-xs font-medium text-primary">
-                Using &quot;{selectedPreset.name}&quot; preset
+                {t('modals.usingPreset', { name: selectedPreset.name })}
               </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -214,12 +221,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         )}
 
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Name</label>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            {t('common.name')}
+          </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Auth Module Refactor"
+            placeholder={t('onboarding.pairNamePlaceholder')}
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
             required
             data-testid="pair-name-input"
@@ -227,7 +236,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Directory</label>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            {t('common.directory')}
+          </label>
           <div className="flex gap-2">
             <input
               type="text"
@@ -275,13 +286,13 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
         <div className="relative">
           <label className="block text-sm font-medium text-foreground mb-2">
-            Task Specification
+            {t('onboarding.taskSpec')}
           </label>
           <textarea
             ref={textareaRef}
             value={spec}
             onChange={(e) => setSpec(e.target.value)}
-            placeholder="Describe what you want the pair to accomplish... Use @filename to reference files."
+            placeholder={t('onboarding.taskPlaceholder')}
             rows={4}
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
             required
@@ -326,7 +337,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             disabled={isLoading}
             data-testid="pair-submit-btn"
           >
-            {isLoading ? 'Creating...' : 'Create Pair'}
+            {isLoading ? t('modals.creating') : t('modals.create')}
           </GlassButton>
         </div>
       </form>

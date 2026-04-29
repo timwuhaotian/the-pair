@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { AlertTriangle, Clock3, FolderOpen, RotateCcw, Sparkles, Trash2, Zap } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import type { RecoverableSessionSummary } from '../types'
 import { StatusBadge } from './StatusBadge'
@@ -31,20 +32,22 @@ function DeleteConfirmationModal({
   onConfirm: () => void
   onCancel: () => void
 }): React.ReactNode {
+  const { t } = useTranslation()
   return (
-    <GlassModal isOpen={isOpen} onClose={onCancel} title="Confirm Deletion" className="max-w-md">
+    <GlassModal
+      isOpen={isOpen}
+      onClose={onCancel}
+      title={t('modals.confirmDelete')}
+      className="max-w-md"
+    >
       <div className="space-y-4">
         <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
             <AlertTriangle className="h-5 w-5 text-destructive" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Delete this session?</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              This will permanently delete the session for{' '}
-              <span className="font-medium text-foreground">&ldquo;{session.name}&rdquo;</span> and
-              cannot be undone.
-            </p>
+            <p className="font-medium text-foreground">{t('modals.deleteSession')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('modals.deleteSessionDesc')}</p>
           </div>
         </div>
 
@@ -61,11 +64,11 @@ function DeleteConfirmationModal({
 
         <div className="flex justify-end gap-2 pt-2">
           <GlassButton variant="ghost" onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </GlassButton>
           <GlassButton variant="destructive" onClick={onConfirm}>
             <Trash2 size={14} />
-            Delete
+            {t('common.delete')}
           </GlassButton>
         </div>
       </div>
@@ -88,6 +91,7 @@ function SessionCard({
   isDeletionLocked: boolean
   onRequestDelete: (session: RecoverableSessionSummary) => void
 }): React.ReactNode {
+  const { t } = useTranslation()
   const isMentor = session.turn === 'mentor'
 
   return (
@@ -106,7 +110,7 @@ function SessionCard({
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-700 dark:text-blue-300">
                   <Zap size={12} />
-                  Deleting snapshot
+                  {t('common.deleting')}
                 </div>
                 <div className="space-y-1">
                   <div className="h-4 w-44 rounded-full bg-muted/40 animate-pulse" />
@@ -132,7 +136,7 @@ function SessionCard({
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Removing files and index entry</span>
+              <span>{t('common.deleting')}</span>
               <span className="font-mono uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
                 WAIT
               </span>
@@ -172,12 +176,14 @@ function SessionCard({
       <div className="mt-4 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
           <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Current turn
+            {t('modals.currentTurn')}
           </div>
           <div className="mt-1 font-medium text-foreground">{session.turn}</div>
         </div>
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Models</div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            {t('common.models')}
+          </div>
           <div className="mt-1 truncate font-mono text-xs text-foreground">
             {session.mentorModel.split('/').pop()} / {session.executorModel.split('/').pop()}
           </div>
@@ -195,12 +201,12 @@ function SessionCard({
           </span>
           {session.hasMentorSession && (
             <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-blue-700 dark:text-blue-300">
-              Mentor session saved
+              {t('modals.mentorSaved')}
             </span>
           )}
           {session.hasExecutorSession && (
             <span className="rounded-full border border-purple-500/20 bg-purple-500/10 px-2 py-1 text-purple-700 dark:text-purple-300">
-              Executor session saved
+              {t('modals.executorSaved')}
             </span>
           )}
         </div>
@@ -212,7 +218,7 @@ function SessionCard({
             disabled={isRestoring || isDeletionLocked}
           >
             <Trash2 size={14} />
-            Delete
+            {t('common.delete')}
           </GlassButton>
           <GlassButton
             variant="ghost"
@@ -220,7 +226,7 @@ function SessionCard({
             onClick={() => void onRestore(session.pairId, false)}
             disabled={isRestoring || isDeletionLocked}
           >
-            Restore history
+            {t('modals.restoreHistory')}
           </GlassButton>
           <GlassButton
             variant="primary"
@@ -229,7 +235,7 @@ function SessionCard({
             disabled={isRestoring || isDeletionLocked}
             icon={<RotateCcw size={13} />}
           >
-            Resume with new task
+            {t('modals.resumeNewTask')}
           </GlassButton>
         </div>
       </div>
@@ -246,6 +252,7 @@ export function SessionRecoveryModal({
   onDelete,
   onDismiss
 }: SessionRecoveryModalProps): React.ReactNode {
+  const { t } = useTranslation()
   const [pendingDeleteSession, setPendingDeleteSession] =
     useState<RecoverableSessionSummary | null>(null)
 
@@ -256,7 +263,7 @@ export function SessionRecoveryModal({
       <GlassModal
         isOpen={isOpen}
         onClose={onDismiss}
-        title="Recover Unfinished Sessions"
+        title={t('modals.recoverTitle')}
         className="max-w-4xl"
       >
         <div className="space-y-4">
@@ -281,11 +288,10 @@ export function SessionRecoveryModal({
 
           <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-between">
             <GlassButton variant="ghost" onClick={onDismiss}>
-              Start fresh
+              {t('modals.startFresh')}
             </GlassButton>
             <div className="text-xs leading-relaxed text-muted-foreground sm:text-right">
-              Dismissing keeps the snapshots on disk for the next launch. Delete removes them
-              permanently.
+              {t('modals.dismissDesc')}
             </div>
           </div>
         </div>

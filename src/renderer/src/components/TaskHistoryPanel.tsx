@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { History, RotateCcw, Clipboard, Download } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
@@ -37,15 +38,17 @@ export function TaskHistoryPanel({
   onRestoreTask,
   timeline
 }: TaskHistoryPanelProps): React.ReactNode {
+  const { t } = useTranslation()
+
   if (runHistory.length === 0) {
     return (
       <div>
         <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <History size={12} />
-          Task History
+          {t('history.title')}
         </h3>
         <div className="glass-card rounded-2xl p-4">
-          <p className="text-[11px] text-muted-foreground/60">No previous tasks yet.</p>
+          <p className="text-[11px] text-muted-foreground/60">{t('history.empty')}</p>
         </div>
       </div>
     )
@@ -57,7 +60,7 @@ export function TaskHistoryPanel({
     <div>
       <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         <History size={12} />
-        Task History
+        {t('history.title')}
         {viewingRunId && (
           <span className="ml-auto">
             <GlassButton
@@ -66,7 +69,7 @@ export function TaskHistoryPanel({
               onClick={onBackToCurrent}
               className="h-6 px-2 text-[9px]"
             >
-              Back to Current
+              {t('history.backToCurrent')}
             </GlassButton>
           </span>
         )}
@@ -147,7 +150,7 @@ export function TaskHistoryPanel({
                       icon={<Clipboard size={9} />}
                       className="h-6 px-2 text-[9px]"
                     >
-                      Copy MD
+                      {t('history.copyMD')}
                     </GlassButton>
                     <GlassButton
                       variant="ghost"
@@ -159,7 +162,7 @@ export function TaskHistoryPanel({
                       icon={<Download size={9} />}
                       className="h-6 px-2 text-[9px]"
                     >
-                      Export HTML
+                      {t('history.exportHTML')}
                     </GlassButton>
                   </div>
                 )}

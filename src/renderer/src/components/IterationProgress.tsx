@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 
 interface IterationProgressProps {
@@ -14,6 +15,7 @@ export function IterationProgress({
   adaptiveBudget,
   className
 }: IterationProgressProps): React.ReactNode {
+  const { t } = useTranslation()
   const effectiveMax = adaptiveBudget ?? max
   const percentage = Math.min((current / effectiveMax) * 100, 100)
   const isNearLimit = percentage >= 80
@@ -23,7 +25,11 @@ export function IterationProgress({
     <div className={cn('space-y-1.5', className)}>
       <div className="flex items-center justify-between text-[10px]">
         <span className="font-medium text-muted-foreground">
-          Iterations{adaptiveBudget != null && adaptiveBudget !== max ? ' (adaptive)' : ''}
+          {t(
+            adaptiveBudget != null && adaptiveBudget !== max
+              ? 'errors.iterationsAdaptive'
+              : 'errors.iterations'
+          )}
         </span>
         <span
           className={cn(
@@ -49,7 +55,7 @@ export function IterationProgress({
       </div>
       {isAtLimit && (
         <p className="text-[9px] text-red-600/70 dark:text-red-400/70">
-          Iteration limit reached - manual intervention required
+          {t('errors.iterationLimit')}
         </p>
       )}
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Bug,
   RefreshCw,
@@ -267,6 +268,7 @@ export function PresetPicker({
   onRetry,
   error
 }: PresetPickerProps): React.ReactNode {
+  const { t } = useTranslation()
   if (loading) {
     return (
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -283,15 +285,15 @@ export function PresetPicker({
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/60 bg-muted py-10 text-center">
         <AlertCircle size={20} className="text-muted-foreground" />
         <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">No presets available</p>
+          <p className="text-sm font-medium text-foreground">{t('pickers.noPresets')}</p>
           <p className="text-xs text-muted-foreground">
-            {error ? error : 'Presets could not be loaded.'}
+            {error ? error : t('pickers.presetsError')}
           </p>
         </div>
         {onRetry && (
           <GlassButton variant="secondary" size="sm" onClick={onRetry}>
             <RefreshCw size={12} />
-            Retry
+            {t('common.retry')}
           </GlassButton>
         )}
       </div>

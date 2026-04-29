@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ChevronDown, ChevronUp, RotateCcw, Trash2, Loader2 } from 'lucide-react'
 import { GlassButton } from './ui/GlassButton'
 
@@ -15,6 +16,7 @@ export function ErrorDetailPanel({
   onDiscard,
   isRetrying = false
 }: ErrorDetailPanelProps): React.ReactNode {
+  const { t } = useTranslation()
   const [isExpanded, setIsExpanded] = useState(false)
 
   if (!error) return null
@@ -22,24 +24,24 @@ export function ErrorDetailPanel({
   const getErrorSummary = (err: string): string => {
     const lower = err.toLowerCase()
     if (lower.includes('permission') || lower.includes('denied')) {
-      return 'Permission denied - check file or directory access rights'
+      return t('errors.permissionDenied')
     }
     if (lower.includes('timeout')) {
-      return 'Operation timed out - the agent may be stuck'
+      return t('errors.timeout')
     }
     if (lower.includes('connection') || lower.includes('network')) {
-      return 'Network error - check your connection'
+      return t('errors.networkError')
     }
     if (lower.includes('not found') || lower.includes('enoent')) {
-      return 'File or resource not found'
+      return t('errors.notFound')
     }
     if (lower.includes('locked')) {
-      return 'Resource is locked - another process may be using it'
+      return t('errors.locked')
     }
     if (lower.includes('memory') || lower.includes('oom')) {
-      return 'Out of memory - reduce task scope'
+      return t('errors.outOfMemory')
     }
-    return 'Agent encountered an error during execution'
+    return t('errors.agentError')
   }
 
   const summary = getErrorSummary(error)
@@ -53,7 +55,7 @@ export function ErrorDetailPanel({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-600/80 dark:text-red-400/80">
-            Execution Error
+            {t('errors.executionError')}
           </div>
           <div className="mt-1 text-sm font-medium text-foreground">{summary}</div>
         </div>
@@ -65,7 +67,7 @@ export function ErrorDetailPanel({
             onClick={() => setIsExpanded(!isExpanded)}
             className="mb-3 flex w-full items-center justify-between rounded-xl border border-border/40 bg-background/40 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-background/60 cursor-pointer"
           >
-            <span>View error details</span>
+            <span>{t('errors.viewDetails')}</span>
             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
 
@@ -94,20 +96,18 @@ export function ErrorDetailPanel({
               isRetrying ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />
             }
           >
-            {isRetrying ? 'Retrying...' : 'Retry Turn'}
+            {isRetrying ? t('errors.retrying') : t('errors.retry')}
           </GlassButton>
         )}
         {onDiscard && (
           <GlassButton variant="ghost" size="sm" onClick={onDiscard} icon={<Trash2 size={12} />}>
-            Discard & New Task
+            {t('errors.discard')}
           </GlassButton>
         )}
       </div>
 
       <div className="mt-3 rounded-xl border border-border/30 bg-muted/20 p-2.5 text-[10px] leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground/70">Tip: </span>
-        If this error persists, try breaking the task into smaller steps or check the modified files
-        panel for any unintended changes.
+        {t('errors.errorTip')}
       </div>
     </div>
   )

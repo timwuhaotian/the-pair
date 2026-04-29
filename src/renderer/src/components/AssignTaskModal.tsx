@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react'
 import { ArrowUpRight, Sparkles, RotateCcw } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
@@ -19,6 +20,7 @@ interface AssignTaskModalProps {
 }
 
 export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps): React.ReactNode {
+  const { t } = useTranslation()
   const { assignTask, isLoading, error, availableModels, restoringSpec, setRestoringSpec } =
     usePairStore()
   const [spec, setSpec] = useState('')
@@ -177,14 +179,18 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     <GlassModal
       isOpen={isOpen}
       onClose={onClose}
-      title={isRestoring ? `Restore Task · ${pair.name}` : `Assign New Task · ${pair.name}`}
+      title={
+        isRestoring
+          ? t('modals.restoreTask', { name: pair.name })
+          : t('modals.assignTask', { name: pair.name })
+      }
       className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-[70vh] max-h-[600px]">
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4">
           <div className="glass-card rounded-xl p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Workspace
+              {t('modals.workspaceLabel')}
             </div>
             <div className="mt-1 truncate font-mono text-xs text-foreground" title={pair.directory}>
               {pair.directory}
@@ -209,7 +215,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
           {modelsChanged && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3.5 py-2.5 text-sm text-blue-700 dark:text-blue-300">
-              Updated models will become the new defaults for this pair.
+              {t('modals.modelUpdateNote')}
             </div>
           )}
 
@@ -217,7 +223,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             <div className="mb-2 flex items-center gap-1.5">
               <Sparkles size={11} className="text-primary" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                Workflow Preset
+                {t('onboarding.workflowPreset')}
               </span>
             </div>
             <PresetPicker
@@ -232,7 +238,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
           <div className="relative">
             <label className="mb-2 block text-sm font-medium text-foreground">
-              Task Specification
+              {t('onboarding.taskSpec')}
             </label>
             <textarea
               ref={textareaRef}
@@ -255,8 +261,8 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               />
             </div>
             <p className="mt-1 text-xs text-muted-foreground/70">
-              {spec.length > 0 ? `${spec.length} characters · ` : ''}Type @ to reference files. The
-              next run starts with a fresh planning loop.
+              {spec.length > 0 ? `${spec.length} ${t('common.chars')} · ` : ''}Type @ to reference
+              files. The next run starts with a fresh planning loop.
             </p>
           </div>
 
@@ -278,7 +284,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             }}
             data-testid="assign-cancel-btn"
           >
-            Cancel
+            {t('common.cancel')}
           </GlassButton>
           <GlassButton
             type="submit"
@@ -287,7 +293,11 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             icon={isRestoring ? <RotateCcw size={14} /> : <ArrowUpRight size={14} />}
             data-testid="assign-submit-btn"
           >
-            {isLoading ? 'Starting...' : isRestoring ? 'Restore Task' : 'Start New Task'}
+            {isLoading
+              ? t('modals.starting')
+              : isRestoring
+                ? t('modals.restore')
+                : t('modals.startNewTask')}
           </GlassButton>
         </div>
       </form>

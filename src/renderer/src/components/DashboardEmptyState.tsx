@@ -1,5 +1,6 @@
 import React from 'react'
 import { Plus, Brain, Zap, RefreshCw } from 'lucide-react'
+import { useTranslation, Trans } from 'react-i18next'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 
@@ -8,6 +9,8 @@ interface DashboardEmptyStateProps {
 }
 
 export function DashboardEmptyState({ onCreatePair }: DashboardEmptyStateProps): React.ReactNode {
+  const { t } = useTranslation()
+
   return (
     <div className="flex h-full flex-col items-center justify-center p-8">
       <div className="relative mb-8 flex flex-col items-center">
@@ -18,13 +21,15 @@ export function DashboardEmptyState({ onCreatePair }: DashboardEmptyStateProps):
         <div className="absolute -inset-8 -z-10 rounded-full bg-gradient-to-br from-blue-500/10 via-transparent to-purple-500/10 blur-2xl" />
       </div>
 
-      <h2 className="mb-3 text-xl font-semibold text-foreground">No Pair Containers Yet</h2>
+      <h2 className="mb-3 text-xl font-semibold text-foreground">{t('emptyState.title')}</h2>
       <p className="mb-8 max-w-md text-center text-sm leading-relaxed text-muted-foreground">
-        A Pair is a workspace that keeps its history, defaults, and task context. Each Pair has a{' '}
-        <span className="font-medium text-blue-600 dark:text-blue-400">Mentor</span> agent that
-        plans and reviews, and an{' '}
-        <span className="font-medium text-purple-600 dark:text-purple-400">Executor</span> agent
-        that writes and runs code. Create one to get started.
+        <Trans
+          i18nKey="emptyState.description"
+          components={{
+            mentor: <span className="font-medium text-blue-600 dark:text-blue-400" />,
+            executor: <span className="font-medium text-purple-600 dark:text-purple-400" />
+          }}
+        />
       </p>
 
       <div className="mb-10 grid w-full max-w-lg grid-cols-3 gap-4">
@@ -32,9 +37,9 @@ export function DashboardEmptyState({ onCreatePair }: DashboardEmptyStateProps):
           <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10">
             <Brain size={18} className="text-blue-600 dark:text-blue-400" />
           </div>
-          <span className="text-xs font-medium text-foreground">Mentor</span>
+          <span className="text-xs font-medium text-foreground">{t('common.mentor')}</span>
           <span className="text-[10px] leading-relaxed text-muted-foreground">
-            Analyzes tasks and reviews executor output
+            {t('emptyState.mentorDesc')}
           </span>
         </GlassCard>
 
@@ -47,9 +52,9 @@ export function DashboardEmptyState({ onCreatePair }: DashboardEmptyStateProps):
               fill="currentColor"
             />
           </div>
-          <span className="text-xs font-medium text-foreground">Handoff</span>
+          <span className="text-xs font-medium text-foreground">{t('common.handoff')}</span>
           <span className="text-[10px] leading-relaxed text-muted-foreground">
-            Agents pass control back and forth automatically
+            {t('emptyState.handoffDesc')}
           </span>
         </GlassCard>
 
@@ -57,15 +62,15 @@ export function DashboardEmptyState({ onCreatePair }: DashboardEmptyStateProps):
           <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-purple-500/20 bg-purple-500/10">
             <Zap size={18} className="text-purple-600 dark:text-purple-400" />
           </div>
-          <span className="text-xs font-medium text-foreground">Executor</span>
+          <span className="text-xs font-medium text-foreground">{t('common.executor')}</span>
           <span className="text-[10px] leading-relaxed text-muted-foreground">
-            Executes plans and reports results
+            {t('emptyState.executorDesc')}
           </span>
         </GlassCard>
       </div>
 
       <GlassButton variant="primary" size="lg" onClick={onCreatePair} icon={<Plus size={16} />}>
-        Create your first Pair
+        {t('emptyState.createFirst')}
       </GlassButton>
     </div>
   )

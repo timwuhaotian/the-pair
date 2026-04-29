@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { Search, Pencil, FlaskConical, Eye, Hourglass, AlertTriangle } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { CognitiveEvent } from '../store/usePairStore'
@@ -10,76 +11,70 @@ interface IntentChipProps {
   className?: string
 }
 
-const INTENT_MAP: Record<string, { label: string; Icon: React.ElementType; color: string }> = {
-  bash: {
-    label: '运行命令',
-    Icon: FlaskConical,
-    color: 'text-amber-500 bg-amber-500/10 border-amber-500/20'
-  },
-  read: {
-    label: '读取文件',
-    Icon: Search,
-    color: 'text-blue-500 bg-blue-500/10 border-blue-500/20'
-  },
-  write: {
-    label: '编写代码',
-    Icon: Pencil,
-    color: 'text-green-500 bg-green-500/10 border-green-500/20'
-  },
-  edit: {
-    label: '编辑文件',
-    Icon: Pencil,
-    color: 'text-green-500 bg-green-500/10 border-green-500/20'
-  },
-  search: {
-    label: '搜索代码',
-    Icon: Search,
-    color: 'text-cyan-500 bg-cyan-500/10 border-cyan-500/20'
-  },
-  grep: {
-    label: '搜索代码',
-    Icon: Search,
-    color: 'text-cyan-500 bg-cyan-500/10 border-cyan-500/20'
-  },
-  reasoning: {
-    label: '推理中',
-    Icon: Eye,
-    color: 'text-purple-500 bg-purple-500/10 border-purple-500/20'
-  },
-  error: {
-    label: '处理错误',
-    Icon: AlertTriangle,
-    color: 'text-red-500 bg-red-500/10 border-red-500/20'
-  }
-}
-
-const FALLBACK_INTENT = {
-  label: '处理中',
-  Icon: Hourglass,
-  color: 'text-slate-500 bg-slate-500/10 border-slate-500/20'
-}
-
-function getIntentFromEvents(events: CognitiveEvent[]): {
-  label: string
-  Icon: React.ElementType
-  color: string
-} {
+function getIntentConfig(t: (key: string) => string, events: CognitiveEvent[]) {
   const latest = events[events.length - 1]
-  if (!latest) return FALLBACK_INTENT
+  if (!latest)
+    return {
+      label: t('console.processing'),
+      Icon: Hourglass,
+      color: 'text-slate-500 bg-slate-500/10 border-slate-500/20'
+    }
 
-  if (latest.eventType === 'error') return INTENT_MAP.error
-  if (latest.eventType === 'reasoning') return INTENT_MAP.reasoning
+  if (latest.eventType === 'error')
+    return {
+      label: t('console.processingError'),
+      Icon: AlertTriangle,
+      color: 'text-red-500 bg-red-500/10 border-red-500/20'
+    }
+  if (latest.eventType === 'reasoning')
+    return {
+      label: t('console.reasoning'),
+      Icon: Eye,
+      color: 'text-purple-500 bg-purple-500/10 border-purple-500/20'
+    }
 
   const toolName = latest.toolName?.toLowerCase() ?? ''
-  for (const [key, intent] of Object.entries(INTENT_MAP)) {
-    if (toolName.includes(key)) return intent
-  }
+  if (toolName.includes('bash'))
+    return {
+      label: t('console.runningCommand'),
+      Icon: FlaskConical,
+      color: 'text-amber-500 bg-amber-500/10 border-amber-500/20'
+    }
+  if (toolName.includes('read'))
+    return {
+      label: t('console.readingFile'),
+      Icon: Search,
+      color: 'text-blue-500 bg-blue-500/10 border-blue-500/20'
+    }
+  if (toolName.includes('write'))
+    return {
+      label: t('console.writingCode'),
+      Icon: Pencil,
+      color: 'text-green-500 bg-green-500/10 border-green-500/20'
+    }
+  if (toolName.includes('edit'))
+    return {
+      label: t('console.editingFile'),
+      Icon: Pencil,
+      color: 'text-green-500 bg-green-500/10 border-green-500/20'
+    }
+  if (toolName.includes('search') || toolName.includes('grep'))
+    return {
+      label: t('console.searchingCode'),
+      Icon: Search,
+      color: 'text-cyan-500 bg-cyan-500/10 border-cyan-500/20'
+    }
 
-  return FALLBACK_INTENT
+  return {
+    label: t('console.processing'),
+    Icon: Hourglass,
+    color: 'text-slate-500 bg-slate-500/10 border-slate-500/20'
+  }
 }
 
 export function IntentChip({ events, role, className }: IntentChipProps): React.ReactNode {
-  const intent = useMemo(() => getIntentFromEvents(events), [events])
+  const { t } = useTranslation()
+  const intent = useMemo(() => getIntentConfig(t, events), [events, t])
   const { label, Icon, color } = intent
 
   return (

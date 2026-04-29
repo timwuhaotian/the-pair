@@ -1,5 +1,6 @@
 import React from 'react'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -44,7 +45,14 @@ export function ReasoningEffortPicker({
   onChange,
   role
 }: ReasoningEffortPickerProps): React.ReactNode {
+  const { t } = useTranslation()
   const tone = ROLE_TONE[role]
+
+  const effortLabel = (level: string): string => {
+    const key = `pickers.reasoning${level.charAt(0).toUpperCase() + level.slice(1)}` as const
+    const translated = t(key)
+    return translated !== key ? translated : (EFFORT_LABELS[level] ?? level)
+  }
 
   const handleSelect = (level: string): void => {
     if (level === value) {
@@ -73,7 +81,7 @@ export function ReasoningEffortPicker({
           <span
             className={cn('text-[10px] font-semibold uppercase tracking-wider', tone.labelText)}
           >
-            Reasoning
+            {t('pickers.reasoning')}
           </span>
           <span className="text-[10px] text-muted-foreground">—</span>
           <AnimatePresence>
@@ -84,7 +92,7 @@ export function ReasoningEffortPicker({
                 exit={{ opacity: 0, scale: 0.8 }}
                 className={cn('text-[10px] font-semibold', tone.activeText)}
               >
-                {EFFORT_LABELS[value] ?? value}
+                {value && effortLabel(value)}
               </motion.span>
             )}
           </AnimatePresence>
@@ -107,7 +115,7 @@ export function ReasoningEffortPicker({
                       : cn(tone.inactiveBg, tone.inactiveText, 'hover:bg-muted/40')
                   )}
                 >
-                  {EFFORT_LABELS[level] ?? level}
+                  {effortLabel(level)}
                 </button>
               )
             })}
@@ -124,7 +132,7 @@ export function ReasoningEffortPicker({
                 tone.inactiveBorder,
                 'text-muted-foreground hover:bg-muted/40 transition-all'
               )}
-              title="Reset to provider default"
+              title={t('pickers.resetReasoning')}
             >
               <X size={10} />
             </motion.button>

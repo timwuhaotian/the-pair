@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/purity */
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { AgentActivity } from '../store/usePairStore'
@@ -20,13 +21,14 @@ export function ActivityIndicator({
   activity,
   className
 }: ActivityIndicatorProps): React.ReactNode {
+  const { t } = useTranslation()
   const elapsed = useMemo(
     () => (activity.startedAt ? Math.floor((Date.now() - activity.startedAt) / 1000) : 0),
-    [activity.startedAt, activity.updatedAt]
+    [activity.startedAt]
   )
   const lastOutputAge = useMemo(
     () => (activity.lastOutputAt ? Math.floor((Date.now() - activity.lastOutputAt) / 1000) : 0),
-    [activity.lastOutputAt, activity.updatedAt]
+    [activity.lastOutputAt]
   )
 
   if (activity.phase === 'idle' || activity.phase === 'waiting') {
@@ -43,7 +45,8 @@ export function ActivityIndicator({
       >
         <AlertTriangle size={10} className="text-red-400" />
         <span className="text-[9px] font-medium text-red-400">
-          Stalled{lastOutputAge > 0 && ` · ${formatDuration(lastOutputAge)} no output`}
+          {t('activity.stalled')}
+          {lastOutputAge > 0 && ` · ${formatDuration(lastOutputAge)} ${t('activity.noOutput')}`}
         </span>
       </div>
     )
@@ -57,7 +60,7 @@ export function ActivityIndicator({
           className
         )}
       >
-        <span className="text-[9px] font-medium text-red-400">Error</span>
+        <span className="text-[9px] font-medium text-red-400">{t('activity.error')}</span>
       </div>
     )
   }
@@ -72,14 +75,15 @@ export function ActivityIndicator({
       >
         <Loader2 size={9} className="animate-spin text-blue-400" />
         <span className="text-[9px] font-medium text-blue-400">
-          Thinking{elapsed > 0 && ` · ${formatDuration(elapsed)}`}
+          {t('activity.thinking')}
+          {elapsed > 0 && ` · ${formatDuration(elapsed)}`}
         </span>
       </div>
     )
   }
 
   if (activity.phase === 'using_tools') {
-    const label = activity.detail?.trim() || activity.label.trim() || 'Tool call'
+    const label = activity.detail?.trim() || activity.label.trim() || t('activity.toolCall')
     return (
       <div
         className={cn(
@@ -90,7 +94,7 @@ export function ActivityIndicator({
         <span className="text-[9px] font-medium text-amber-400">
           {label}
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
-            ? ` · ${activity.outputLineCount} lines`
+            ? ` · ${activity.outputLineCount} ${t('activity.lines')}`
             : ''}
         </span>
       </div>
@@ -106,13 +110,13 @@ export function ActivityIndicator({
         )}
       >
         <span className="text-[9px] font-medium text-purple-400">
-          Output
+          {t('activity.output')}
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
-            ? ` · ${activity.outputLineCount} lines`
+            ? ` · ${activity.outputLineCount} ${t('activity.lines')}`
             : ''}
           {elapsed > 0 && ` · ${formatDuration(elapsed)}`}
           {lastOutputAge > 5 && elapsed > 0
-            ? ` · last activity ${formatDuration(lastOutputAge)} ago`
+            ? ` · ${t('activity.lastActivityAgo', { time: formatDuration(lastOutputAge) })}`
             : ''}
         </span>
       </div>

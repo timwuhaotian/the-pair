@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Pause, Play, RefreshCw, RotateCcw, Terminal, Zap, XCircle } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '../lib/utils'
@@ -30,6 +31,7 @@ interface PairDetailProps {
 }
 
 function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps): React.ReactNode {
+  const { t } = useTranslation()
   const retryTurn = usePairStore((s) => s.retryTurn)
   const killProcess = usePairStore((s) => s.killProcess)
   const isStoreBusy = usePairStore((s) => s.isLoading)
@@ -118,16 +120,16 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
         pair.mentorActivity.detail ??
         pair.executorActivity.detail ??
         pair.currentTurnCard?.content ??
-        (pair.status === 'Awaiting Human Review' ? 'Awaiting human intervention' : 'Paused'))
+        (pair.status === 'Awaiting Human Review' ? t('pair.humanReview') : t('common.paused')))
       : null
   const liveStatusText =
     pair.status === 'Paused' || pair.status === 'Awaiting Human Review'
       ? (reviewReason ??
-        (pair.status === 'Awaiting Human Review' ? 'Awaiting human intervention' : 'Paused'))
+        (pair.status === 'Awaiting Human Review' ? t('pair.humanReview') : t('common.paused')))
       : pair.currentTurnCard?.content ||
         (activeRole === 'mentor'
-          ? pair.mentorActivity.detail || 'Thinking...'
-          : pair.executorActivity.detail || 'Working...')
+          ? pair.mentorActivity.detail || t('common.thinking')
+          : pair.executorActivity.detail || t('common.working'))
   const visibleStatusText = useMinimumVisibleText(liveStatusText, pair.id)
 
   useEffect(() => {
@@ -160,8 +162,8 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <p className="text-lg font-semibold text-red-600">Invalid pair data</p>
-          <p className="mt-2 text-sm text-muted-foreground">Please try selecting another pair</p>
+          <p className="text-lg font-semibold text-red-600">{t('pair.invalidData')}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{t('pair.invalidDataDesc')}</p>
         </div>
       </div>
     )
@@ -182,24 +184,24 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
       const diff = await window.api.repo.getFileDiff(pair.directory, file.path, file.status)
       setDiffContent(diff)
     } catch (err) {
-      setDiffError(err instanceof Error ? err.message : 'Failed to load diff')
+      setDiffError(err instanceof Error ? err.message : t('pair.failedToLoadDiff'))
     } finally {
       setDiffLoading(false)
     }
   }
 
   const formatRunStamp = (ts?: number): string => {
-    if (!ts) return 'still active'
+    if (!ts) return t('pair.stillActive')
     const d = new Date(ts)
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   }
 
   const runStateText =
     pair.status === 'Paused'
-      ? `Paused ${formatRunStamp(pair.currentRunFinishedAt)}`
+      ? `${t('common.paused')} ${formatRunStamp(pair.currentRunFinishedAt)}`
       : pair.currentRunFinishedAt
-        ? `Finished ${formatRunStamp(pair.currentRunFinishedAt)}`
-        : 'Still running'
+        ? `${t('pair.finishedAt', { date: formatRunStamp(pair.currentRunFinishedAt) })}`
+        : t('pair.stillRunning')
 
   const getActivityIcon = (phase: string): string => {
     switch (phase) {
@@ -244,7 +246,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                 }}
                 disabled={isStoreBusy}
               >
-                Resume Pair
+                {t('pair.resumePair')}
                 <span className="ml-1 text-[10px] opacity-60">
                   {modifierLabel}
                   {shiftLabel}P
@@ -261,7 +263,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                 }}
                 disabled={!canPause || isStoreBusy}
               >
-                Pause Pair
+                {t('pair.pausePair')}
                 <span className="ml-1 text-[10px] opacity-60">{modifierLabel}P</span>
               </GlassButton>
             )}
@@ -272,13 +274,13 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                 icon={<RotateCcw size={12} />}
                 onClick={handleRetryTurn}
               >
-                Retry Turn
+                {t('pair.retryTurn')}
               </GlassButton>
             )}
             {pair.automationMode === 'full-auto' && (
               <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[10px] text-amber-600 dark:text-amber-400">
                 <Zap size={10} />
-                <span>Full Auto</span>
+                <span>{t('pair.fullAuto')}</span>
               </div>
             )}
           </div>
@@ -286,7 +288,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
             reviewReason && (
               <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-3 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 dark:text-amber-300/80">
-                  Pause reason
+                  {t('pair.pauseReason')}
                 </div>
                 <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {reviewReason}
@@ -298,7 +300,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
               error={
                 (pair.mentorActivity.phase === 'error' ? pair.mentorActivity.detail : null) ??
                 (pair.executorActivity.phase === 'error' ? pair.executorActivity.detail : null) ??
-                'Agent encountered an error'
+                t('errors.agentError')
               }
               onRetry={handleRetryTurn}
             />
@@ -307,7 +309,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
             <div className="rounded-2xl border border-border/40 bg-background/25 p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Latest Acceptance
+                  {t('pair.latestAcceptance')}
                 </h3>
                 <span className="rounded-full border border-border/40 bg-background/40 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
                   {pair.latestAcceptance.risk}
@@ -330,12 +332,14 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                   </span>
                 )}
                 <span className="rounded-full border border-border/40 bg-background/40 px-2 py-1 font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
-                  {pair.latestAcceptance.checks.filter((check) => check.status === 'failed').length}{' '}
-                  failed checks
+                  {t('pair.failedChecks', {
+                    count: pair.latestAcceptance.checks.filter((check) => check.status === 'failed')
+                      .length
+                  })}
                 </span>
                 {pair.latestAcceptance.error && (
                   <span className="rounded-full border border-red-500/20 bg-red-500/10 px-2 py-1 font-bold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">
-                    verdict error
+                    {t('pair.verdictError')}
                   </span>
                 )}
               </div>
@@ -344,7 +348,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Models
+              {t('common.models')}
             </h3>
             <div className="glass-card rounded-2xl p-4 space-y-3">
               <div className="space-y-1">
@@ -357,19 +361,19 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                       )}
                     />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
-                      Mentor
+                      {t('common.mentor')}
                     </span>
                   </div>
                   {mentorIsExecuting && (
                     <span className="text-[10px] font-mono text-blue-500 metal-sheen-text">
-                      ACTIVE
+                      {t('common.active')}
                     </span>
                   )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.mentorModel}</p>
                 {pair.pendingMentorModel && (
                   <p className="pl-4 text-[11px] text-amber-700 dark:text-amber-300">
-                    Next task: {pair.pendingMentorModel}
+                    {t('pair.nextTask', { model: pair.pendingMentorModel })}
                   </p>
                 )}
               </div>
@@ -383,19 +387,19 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                       )}
                     />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
-                      Executor
+                      {t('common.executor')}
                     </span>
                   </div>
                   {executorIsExecuting && (
                     <span className="text-[10px] font-mono text-purple-500 metal-sheen-text">
-                      ACTIVE
+                      {t('common.active')}
                     </span>
                   )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.executorModel}</p>
                 {pair.pendingExecutorModel && (
                   <p className="pl-4 text-[11px] text-amber-700 dark:text-amber-300">
-                    Next task: {pair.pendingExecutorModel}
+                    {t('pair.nextTask', { model: pair.pendingExecutorModel })}
                   </p>
                 )}
               </div>
@@ -404,17 +408,20 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Run State
+              {t('pair.runState')}
             </h3>
             <div className="glass-card rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">Run {pair.runCount}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t('pair.run', { count: pair.runCount })}
+                </span>
                 <span className="rounded-full border border-border/50 bg-background/40 px-2 py-1 text-[10px] font-medium text-foreground">
                   {pair.status}
                 </span>
               </div>
               <div className="text-[11px] text-muted-foreground">
-                Started {formatRunStamp(pair.currentRunStartedAt)} · {runStateText}
+                {t('pair.started', { date: formatRunStamp(pair.currentRunStartedAt) })} ·{' '}
+                {runStateText}
               </div>
               <IterationProgress
                 current={pair.iterations}
@@ -440,11 +447,11 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
           <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-4 font-mono text-[11px] text-muted-foreground bg-background/50">
             <Terminal size={13} />
             <span className="uppercase tracking-widest font-bold">
-              {viewingRunId ? 'Task History' : 'Session Console'}
+              {viewingRunId ? t('history.title') : t('pair.sessionConsole')}
             </span>
             {viewingRunId && (
               <span className="text-[9px] text-muted-foreground/50 ml-1">
-                · viewing archived run
+                · {t('console.viewingArchived')}
               </span>
             )}
             <div className="ml-auto flex items-center gap-3">
@@ -462,7 +469,9 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                     isRunning ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/30'
                   )}
                 />
-                <span className="text-[10px]">{isRunning ? 'SYSTEM ONLINE' : 'SYSTEM IDLE'}</span>
+                <span className="text-[10px]">
+                  {isRunning ? t('pair.systemOnline') : t('pair.systemIdle')}
+                </span>
               </div>
             </div>
           </div>
@@ -476,7 +485,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
             >
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-tighter">
-                  MENTOR
+                  {t('common.mentor').toUpperCase()}
                 </span>
                 <span className={cn('text-xs', mentorIsExecuting && 'metal-sheen-text')}>
                   {getActivityIcon(pair.mentorActivity.phase)}
@@ -509,7 +518,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
             >
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-tighter">
-                  EXECUTOR
+                  {t('common.executor').toUpperCase()}
                 </span>
                 <span className={cn('text-xs', executorIsExecuting && 'metal-sheen-text')}>
                   {getActivityIcon(pair.executorActivity.phase)}
@@ -533,7 +542,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
             <div className="ml-auto flex items-center gap-3">
               {pair.status === 'Awaiting Human Review' && (
                 <div className="max-w-[320px] rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
-                  <span className="block truncate">Human review required</span>
+                  <span className="block truncate">{t('pair.humanReview')}</span>
                   <span className="mt-1 block truncate text-[9px] font-medium normal-case tracking-normal text-amber-700/80 dark:text-amber-300/80">
                     {visibleStatusText}
                   </span>
@@ -557,8 +566,10 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                   <div className="flex h-[400px] flex-col items-center justify-center space-y-4 opacity-40">
                     <div className="h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/30 animate-[spin_10s_linear_infinite]" />
                     <div className="text-center space-y-1">
-                      <p className="text-xs font-bold uppercase tracking-[0.2em]">Fresh Session</p>
-                      <p className="text-[10px]">Awaiting first agent instruction</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.2em]">
+                        {t('pair.freshSession')}
+                      </p>
+                      <p className="text-[10px]">{t('pair.awaitingFirst')}</p>
                     </div>
                   </div>
                 ) : (
@@ -591,7 +602,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                                 }}
                               >
                                 <XCircle size={12} />
-                                Kill Process
+                                {t('pair.killProcess')}
                               </GlassButton>
                             </div>
                           )}
@@ -628,7 +639,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
         <div className="glass-panel flex w-[26%] flex-col gap-4 overflow-y-auto p-5 scrollbar-thin">
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              System Resources
+              {t('pair.systemResources')}
             </h3>
             <div className="glass-card rounded-2xl p-3">
               <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
@@ -636,7 +647,7 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
           </div>
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Recent Activity
+              {t('pair.recentActivity')}
             </h3>
             <div className="glass-card rounded-2xl p-3 space-y-2">
               <div className="flex items-center gap-2 text-xs">
@@ -650,7 +661,9 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                         : 'bg-blue-500/50'
                   )}
                 />
-                <span className="text-muted-foreground/70">MENTOR:</span>
+                <span className="text-muted-foreground/70">
+                  {t('common.mentor').toUpperCase()}:
+                </span>
                 <span className="truncate text-blue-600 dark:text-blue-400">
                   {pair.mentorActivity.label}
                 </span>
@@ -666,7 +679,9 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
                         : 'bg-purple-500/50'
                   )}
                 />
-                <span className="text-muted-foreground/70">EXEC:</span>
+                <span className="text-muted-foreground/70">
+                  {t('common.executor').toUpperCase().slice(0, 4)}:
+                </span>
                 <span className="truncate text-purple-600 dark:text-purple-400">
                   {pair.executorActivity.label}
                 </span>
@@ -680,16 +695,16 @@ function PairDetail({ pair, onPause, onResume, onRestoreTask }: PairDetailProps)
           </div>
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Modified Files
+              {t('pair.modifiedFiles')}
             </h3>
             <div className="glass-card rounded-2xl p-3">
               {!pair.gitTracking.available ? (
                 <div className="font-mono text-xs text-amber-600/70 dark:text-amber-400/70">
-                  Git tracking unavailable for this workspace
+                  {t('pair.gitUnavailable')}
                 </div>
               ) : pair.modifiedFiles.length === 0 ? (
                 <div className="font-mono text-xs text-muted-foreground/60">
-                  No files modified in this run yet
+                  {t('pair.noModifiedFiles')}
                 </div>
               ) : (
                 <div className="space-y-1">

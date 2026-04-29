@@ -1,6 +1,7 @@
 import React from 'react'
 import { Trash2, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { fadeInUp, staggerContainer } from '../lib/animations'
@@ -22,6 +23,7 @@ export function Dashboard({
   deletingPairId: string | null
   onCreatePair: () => void
 }): React.ReactNode {
+  const { t } = useTranslation()
   const pairs = usePairStore((state) => state.pairs)
 
   const getPairGlow = (status: string): 'blue' | 'purple' | 'green' | 'amber' | 'none' => {
@@ -47,7 +49,7 @@ export function Dashboard({
           <div className="mb-6 flex items-end justify-between gap-6">
             <div>
               <h1 className="flex items-center gap-3 text-2xl font-semibold tracking-tight text-foreground">
-                Pair Containers
+                {t('dashboard.title')}
                 <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 border border-primary/20 px-3 py-1.5 text-[10px] font-semibold text-primary shadow-sm">
                   <span className="relative flex h-2 w-2">
                     {pairs.length > 0 && (
@@ -59,9 +61,7 @@ export function Dashboard({
                 </span>
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                Each pair keeps its workspace, defaults, and task history. Open one to continue
-                work, queue a new task, or swap mentor and executor defaults without recreating the
-                setup.
+                {t('dashboard.description')}
               </p>
             </div>
           </div>
@@ -121,32 +121,32 @@ export function Dashboard({
                             disabled={deletingPairId === pair.id}
                             icon={<Trash2 size={12} />}
                           >
-                            {deletingPairId === pair.id ? 'Deleting...' : 'Delete'}
+                            {deletingPairId === pair.id ? t('common.deleting') : t('common.delete')}
                           </GlassButton>
                         </div>
                       </div>
 
                       <div className="flex flex-wrap gap-2">
                         <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                          Run {pair.runCount}
+                          {t('dashboard.run', { count: pair.runCount })}
                         </span>
                         <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                          {pair.runHistory.length} archived
+                          {t('dashboard.archived', { count: pair.runHistory.length })}
                         </span>
                         {pair.status === 'Paused' ? (
                           <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                            Paused
+                            {t('common.paused')}
                           </span>
                         ) : (
                           !isPairActive(pair.status) && (
                             <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-green-700 dark:text-green-400">
-                              Ready for new task
+                              {t('dashboard.readyForNewTask')}
                             </span>
                           )
                         )}
                         {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
                           <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-700 dark:text-amber-400">
-                            Models queued
+                            {t('chrome.modelsQueued')}
                           </span>
                         )}
                       </div>
@@ -169,7 +169,9 @@ export function Dashboard({
                               )}
                             />
                             <span>
-                              {pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'idle'}
+                              {pair.currentTurnCard
+                                ? `${t('common.turn')} ${pair.currentTurnCard.role}`
+                                : t('common.idle')}
                             </span>
                           </div>
 

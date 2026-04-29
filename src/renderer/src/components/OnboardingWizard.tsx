@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Sparkles
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { usePairStore } from '../store/usePairStore'
 import { useThemeStore } from '../store/useThemeStore'
@@ -281,7 +282,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
               onOpenConfig={handleOpenConfig}
               onRefresh={handleRefreshProviders}
               isOpening={isOpeningFile}
-              isCompactLayout={isCompactLayout}
             />
 
             <div>
@@ -328,7 +328,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
                 textareaRef={textareaRef}
                 onFileSelect={handleFileSelect}
                 onSkillSelect={handleSkillSelect}
-                isCompactLayout={isCompactLayout}
                 canLaunch={canLaunch}
                 isCreating={isCreating}
                 onLaunch={handleLaunch}
@@ -354,49 +353,46 @@ function WelcomeCard({
   onOpenConfig: () => void
   onRefresh: () => void
   isOpening: boolean
-  isCompactLayout: boolean
 }): React.ReactNode {
-  const healthState = useMemo(() => {
-    if (loading) return 'checking'
-    if (summary.isReady) return 'healthy'
-    if (summary.readyModelCount > 0) return 'warning'
-    return 'error'
-  }, [loading, summary])
+  const { t } = useTranslation()
+  const healthState = summary.isReady ? 'ready' : summary.readyModelCount > 0 ? 'partial' : 'none'
 
   const healthConfig = {
-    checking: {
-      icon: (
-        <div className="w-5 h-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-      ),
-      label: 'Checking provider health...',
-      description: 'Scanning for installed providers and available models.',
-      bgClass: 'bg-muted/30',
-      borderClass: 'border-border',
-      textClass: 'text-muted-foreground'
+    ready: {
+      icon: <CheckCircle2 size={16} className="text-green-600 dark:text-green-400" />,
+      label: t('onboarding.allReady'),
+      description:
+        summary.readyProviderLabels.length > 1
+          ? t('onboarding.allReadyDesc_plural', {
+              count: summary.readyModelCount,
+              providers: summary.readyProviderLabels.length
+            })
+          : t('onboarding.allReadyDesc', {
+              count: summary.readyModelCount,
+              providers: summary.readyProviderLabels.length
+            }),
+      bgClass: 'bg-green-500/15 dark:bg-green-500/20',
+      borderClass: 'border-green-500/25 dark:border-green-500/30',
+      textClass: 'text-green-700 dark:text-green-300'
     },
-    healthy: {
-      icon: <CheckCircle2 size={20} className="text-green-600 dark:text-green-400" />,
-      label: 'All systems ready',
-      description: `${summary.readyModelCount} model${summary.readyModelCount !== 1 ? 's' : ''} available across ${summary.readyProviderLabels.join(', ')}.`,
-      bgClass: 'bg-green-500/10 dark:bg-green-500/15',
-      borderClass: 'border-green-500/20',
-      textClass: 'text-green-700 dark:text-green-400'
+    partial: {
+      icon: <AlertCircle size={16} className="text-amber-600 dark:text-amber-400" />,
+      label: t('onboarding.partialConfig'),
+      description:
+        summary.readyModelCount > 1
+          ? t('onboarding.partialConfigDesc_plural', { count: summary.readyModelCount })
+          : t('onboarding.partialConfigDesc', { count: summary.readyModelCount }),
+      bgClass: 'bg-amber-500/15 dark:bg-amber-500/20',
+      borderClass: 'border-amber-500/25 dark:border-amber-500/30',
+      textClass: 'text-amber-700 dark:text-amber-300'
     },
-    warning: {
-      icon: <AlertCircle size={20} className="text-amber-600 dark:text-amber-400" />,
-      label: 'Partial configuration',
-      description: `${summary.readyModelCount} model${summary.readyModelCount !== 1 ? 's' : ''} ready. Some providers may need attention.`,
-      bgClass: 'bg-amber-500/10 dark:bg-amber-500/15',
-      borderClass: 'border-amber-500/20',
-      textClass: 'text-amber-700 dark:text-amber-400'
-    },
-    error: {
-      icon: <AlertCircle size={20} className="text-red-600 dark:text-red-400" />,
-      label: 'No providers configured',
-      description: 'Install or sign in to at least one supported provider.',
-      bgClass: 'bg-red-500/10 dark:bg-red-500/15',
-      borderClass: 'border-red-500/20',
-      textClass: 'text-red-700 dark:text-red-400'
+    none: {
+      icon: <AlertCircle size={16} className="text-red-600 dark:text-red-400" />,
+      label: t('onboarding.noProviders'),
+      description: t('onboarding.noProvidersDesc'),
+      bgClass: 'bg-red-500/15 dark:bg-red-500/20',
+      borderClass: 'border-red-500/25 dark:border-red-500/30',
+      textClass: 'text-red-700 dark:text-red-300'
     }
   }
 
@@ -415,7 +411,7 @@ function WelcomeCard({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          System Health
+          {t('onboarding.systemHealth')}
         </span>
         <span className="h-px w-4 bg-border/70" />
       </div>
@@ -431,7 +427,7 @@ function WelcomeCard({
           disabled={loading || isOpening}
           icon={<RefreshCw size={11} className={loading ? 'animate-spin' : ''} />}
         >
-          Refresh
+          {t('common.refresh')}
         </GlassButton>
         {!loading && (
           <GlassButton
@@ -441,7 +437,7 @@ function WelcomeCard({
             disabled={isOpening}
             icon={<ExternalLink size={11} />}
           >
-            {isOpening ? 'Opening...' : 'Open Config'}
+            {isOpening ? t('onboarding.opening') : t('onboarding.openConfig')}
           </GlassButton>
         )}
       </div>
@@ -461,12 +457,13 @@ function DirectoryCard({
   onSelectDirectory: () => void
   isCompactLayout?: boolean
 }): React.ReactNode {
+  const { t } = useTranslation()
   return (
     <GlassCard className="flex h-full flex-col p-5 space-y-3">
       <CardHeader
-        eyebrow="WORKSPACE"
-        title="Choose Workspace"
-        description="Select the project folder for The Pair to work in."
+        eyebrow={t('common.workspace')}
+        title={t('onboarding.chooseWorkspace')}
+        description={t('onboarding.workspaceDesc')}
       />
 
       <GlassButton
@@ -479,7 +476,7 @@ function DirectoryCard({
         </div>
         <div className="text-center space-y-1">
           <p className="font-medium text-sm text-foreground">
-            {directory ? 'Change project directory' : 'Click to select a folder'}
+            {directory ? t('onboarding.changeDirectory') : t('onboarding.selectFolder')}
           </p>
           {directory && (
             <p className="text-xs text-muted-foreground font-mono bg-muted px-3 py-1.5 rounded-lg inline-block">
@@ -487,9 +484,7 @@ function DirectoryCard({
             </p>
           )}
           {!directory && (
-            <p className="text-xs text-muted-foreground">
-              Choose any folder — The Pair will read, analyze, and modify files there.
-            </p>
+            <p className="text-xs text-muted-foreground">{t('onboarding.folderHint')}</p>
           )}
         </div>
       </GlassButton>
@@ -521,39 +516,43 @@ function TaskSpecCard({
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   onFileSelect: (path: string, content: string) => void
   onSkillSelect: (skillName: string) => void
-  isCompactLayout: boolean
   canLaunch: boolean
   isCreating: boolean
   onLaunch: () => void
   error: string | null
 }): React.ReactNode {
+  const { t } = useTranslation()
   return (
     <GlassCard className="flex h-full flex-col p-5 space-y-3">
       <CardHeader
-        eyebrow="TASK"
-        title="Task Specification"
-        description="Give this pair a name and describe the desired outcome."
+        eyebrow={t('common.task')}
+        title={t('onboarding.taskSpec')}
+        description={t('onboarding.taskSpecDesc')}
       />
 
       <div className="space-y-3 flex-1 flex flex-col">
         <div>
-          <label className="mb-1 block text-xs font-medium text-foreground">Pair Name</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">
+            {t('onboarding.pairName')}
+          </label>
           <input
             type="text"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
-            placeholder="e.g., Add user authentication"
+            placeholder={t('onboarding.pairNamePlaceholder')}
             className="w-full rounded-xl glass-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
 
         <div className="relative flex-1 flex flex-col">
-          <label className="mb-1 block text-xs font-medium text-foreground">Task Description</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">
+            {t('onboarding.taskDescription')}
+          </label>
           <textarea
             ref={textareaRef}
             value={spec}
             onChange={(e) => onSpecChange(e.target.value)}
-            placeholder="Describe the desired outcome as directly as possible... Use @filename to reference files."
+            placeholder={t('onboarding.taskPlaceholder')}
             rows={4}
             className="w-full resize-none rounded-xl glass-card px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-h-[120px]"
           />
@@ -569,7 +568,7 @@ function TaskSpecCard({
             </div>
           )}
           <p className="mt-1 text-[10px] text-muted-foreground">
-            {spec.length} chars · Type @ to reference files
+            {t('onboarding.charsHint', { count: spec.length })}
           </p>
 
           <div className="mt-3 pt-3 border-t border-border/40 flex flex-col gap-2">
@@ -596,7 +595,7 @@ function TaskSpecCard({
               )}
             >
               <Rocket size={13} className="shrink-0" />
-              {isCreating ? 'Launching...' : 'Launch Pair'}
+              {isCreating ? t('onboarding.launching') : t('onboarding.launch')}
             </button>
           </div>
         </div>
@@ -619,12 +618,13 @@ function ModelCard({
   onExecutorChange: (m: string) => void
   isCompactLayout?: boolean
 }): React.ReactNode {
+  const { t } = useTranslation()
   return (
     <GlassCard className="flex h-full flex-col space-y-3 p-5">
       <CardHeader
-        eyebrow="MODELS"
-        title="Model Selection"
-        description="Pick a recent model or search from the full list."
+        eyebrow={t('common.models')}
+        title={t('onboarding.modelSelection')}
+        description={t('onboarding.modelDesc')}
       />
 
       <div className="grid grid-cols-1 gap-3 flex-1">
