@@ -1,0 +1,116 @@
+<h2>v1.5.0 Dashboard 重构 - 三种方案</h2>
+<p class="subtitle">聚焦：Dashboard 信息架构 + 操作入口 + 空状态处理</p>
+
+<div class="options" data-choice="a" onclick="toggleSelect(this)">
+  <div class="letter">A</div>
+  <div class="content">
+    <h3>方案 A: 仪表盘模式（推荐）</h3>
+    <p><strong>核心理念：</strong> 主页即指挥中心，一屏掌控全局</p>
+    <div class="pros-cons" style="margin-top: 12px;">
+      <div class="pros"><h4>Pros</h4><ul><li>顶部统计卡片（运行中/已完成/错误数）</li><li>Pairs 列表按状态分组，一目了然</li><li>最近活动时间线在侧边/底部</li><li>快捷操作浮在右下角，全局可达</li><li>空状态 = 精美引导 + 一键创建</li></ul></div>
+      <div class="cons"><h4>Cons</h4><ul><li>信息密度较高，需要良好的折叠策略</li><li>需要平衡"概览"和"详情"的边界</li></ul></div>
+    </div>
+  </div>
+</div>
+
+<div class="options" data-choice="b" onclick="toggleSelect(this)">
+  <div class="letter">B</div>
+  <div class="content">
+    <h3>方案 B: 极简列表模式</h3>
+    <p><strong>核心理念：</strong> 少即是多，点击再展开</p>
+    <div class="pros-cons" style="margin-top: 12px;">
+      <div class="pros"><h4>Pros</h4><ul><li>干净的列表，每行一个 Pair</li><li>悬停展开快捷操作</li><li>视觉噪音极低</li></ul></div>
+      <div class="cons"><h4>Cons</h4><ul><li>缺少全局概览感</li><li>操作入口藏得深（需要 hover）</li><li>不符合你想要"一屏掌握"的目标</li></ul></div>
+    </div>
+  </div>
+</div>
+
+<div class="options" data-choice="c" onclick="toggleSelect(this)">
+  <div class="letter">C</div>
+  <div class="content">
+    <h3>方案 C: 卡片网格模式</h3>
+    <p><strong>核心理念：</strong> 每个 Pair 一张卡片，信息丰富</p>
+    <div class="pros-cons" style="margin-top: 12px;">
+      <div class="pros"><h4>Pros</h4><ul><li>每张卡片展示完整状态 + 进度</li><li>视觉冲击力强</li><li>适合 Pair 数量较少（< 6）的场景</li></ul></div>
+      <div class="cons"><h4>Cons</h4><ul><li>Pair 多时卡片太多，滚动体验差</li><li>卡片信息密度过高会显得杂乱</li><li>操作入口分散在各卡片上</li></ul></div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>🏆 推荐：方案 A 的理由</h3>
+  <p class="subtitle">为什么仪表盘模式最适合 The Pair</p>
+  
+  <div class="mockup">
+    <div class="mockup-header">方案 A 布局草图</div>
+    <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+      <div style="background: rgba(148,163,184,0.08); border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+        <div class="label" style="margin-bottom: 8px;">顶部工具栏</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="background: rgba(99,102,241,0.2); padding: 4px 12px; border-radius: 4px;">The Pair</span>
+          <span style="flex: 1;"></span>
+          <span style="background: rgba(148,163,184,0.15); padding: 4px 12px; border-radius: 4px;">🔍 搜索</span>
+          <span style="background: rgba(148,163,184,0.15); padding: 4px 12px; border-radius: 4px;">⚙️ 设置</span>
+          <span style="background: rgba(148,163,184,0.15); padding: 4px 12px; border-radius: 4px;">🌙</span>
+          <span style="background: rgba(148,163,184,0.15); padding: 4px 12px; border-radius: 4px;">🌐</span>
+        </div>
+      </div>
+      
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+        <div style="background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); border-radius: 6px; padding: 10px; text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: #818cf8;">3</div>
+          <div class="label">全部 Pairs</div>
+        </div>
+        <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); border-radius: 6px; padding: 10px; text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: #4ade80;">1</div>
+          <div class="label">运行中</div>
+        </div>
+        <div style="background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.2); border-radius: 6px; padding: 10px; text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: #facc15;">1</div>
+          <div class="label">已暂停</div>
+        </div>
+        <div style="background: rgba(107,114,128,0.1); border: 1px solid rgba(107,114,128,0.2); border-radius: 6px; padding: 10px; text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: #9ca3af;">1</div>
+          <div class="label">已完成</div>
+        </div>
+      </div>
+      
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+        <div style="background: rgba(148,163,184,0.08); border-radius: 6px; padding: 12px;">
+          <div class="label" style="margin-bottom: 8px;">Pairs 列表</div>
+          <div style="background: rgba(148,163,184,0.05); border-radius: 4px; padding: 10px; margin-bottom: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🟢 refactor-auth</span>
+              <span style="font-size: 12px; color: #94a3b8;">Executing · 迭代 5/10</span>
+            </div>
+          </div>
+          <div style="background: rgba(148,163,184,0.05); border-radius: 4px; padding: 10px; margin-bottom: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🟡 add-tests</span>
+              <span style="font-size: 12px; color: #94a3b8;">Paused</span>
+            </div>
+          </div>
+          <div style="background: rgba(148,163,184,0.05); border-radius: 4px; padding: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>⚪ migrate-db</span>
+              <span style="font-size: 12px; color: #94a3b8;">Finished · 2 小时前</span>
+            </div>
+          </div>
+        </div>
+        
+        <div style="background: rgba(148,163,184,0.08); border-radius: 6px; padding: 12px;">
+          <div class="label" style="margin-bottom: 8px;">最近活动</div>
+          <div style="font-size: 12px; color: #94a3b8; line-height: 1.8;">
+            <div>• Executor 修改了 auth.ts</div>
+            <div>• Mentor 批准了变更</div>
+            <div>• add-tests 已暂停</div>
+          </div>
+        </div>
+      </div>
+      
+      <div style="position: absolute; bottom: 16px; right: 16px;">
+        <span style="background: rgba(99,102,241,0.3); padding: 8px 16px; border-radius: 20px; font-size: 12px;">⚡ 快捷操作</span>
+      </div>
+    </div>
+  </div>
+</div>

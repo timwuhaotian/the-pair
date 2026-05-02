@@ -1,5 +1,4 @@
-import React from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
 
 interface StatCardProps {
   value: number | string
@@ -9,7 +8,7 @@ interface StatCardProps {
   'data-testid'?: string
 }
 
-const colorMap: Record<string, string> = {
+const colorMap: Record<StatCardProps['color'], string> = {
   primary: 'from-primary/10 to-primary/5 border-primary/20 text-primary',
   green: 'from-green-500/10 to-green-500/5 border-green-500/20 text-green-500',
   amber: 'from-amber-500/10 to-amber-500/5 border-amber-500/20 text-amber-500',

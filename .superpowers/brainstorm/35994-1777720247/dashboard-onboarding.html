@@ -1,0 +1,80 @@
+<h2>Dashboard + Onboarding 设计决策</h2>
+<p class="subtitle">空状态处理方案对比</p>
+
+<div class="options" data-choice="a" onclick="toggleSelect(this)">
+  <div class="letter">A</div>
+  <div class="content">
+    <h3>方案 A: 保留 Onboarding 独立页面</h3>
+    <p>首次启动 → 引导式向导 → 完成后进入 Dashboard<br/>
+    <span class="label" style="color: #94a3b8;">适合：复杂配置流程，需要详细讲解的产品</span></p>
+  </div>
+</div>
+
+<div class="options" data-choice="b" onclick="toggleSelect(this)">
+  <div class="letter">B</div>
+  <div class="content">
+    <h3>方案 B: Dashboard 空状态内嵌引导</h3>
+    <p>始终显示 Dashboard → 无 Pair 时展示精美空状态 + 快捷创建<br/>
+    <span class="label" style="color: #94a3b8;">适合：轻量产品，用户可以"边用边学"</span></p>
+  </div>
+</div>
+
+<div class="options" data-choice="c" onclick="toggleSelect(this)">
+  <div class="letter">C</div>
+  <div class="content">
+    <h3>方案 C: 混合方案（推荐）</h3>
+    <p>首次启动 → 3 步轻量引导（1 分钟）→ 进入 Dashboard<br/>
+    空状态保留"创建第一个 Pair"按钮和简短说明<br/>
+    <span class="label" style="color: #94a3b8;">平衡：有引导但不阻塞，空状态不空洞</span></p>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>💡 关于 Onboarding 的思考</h3>
+  <p class="subtitle">The Pair 的核心复杂度在哪里？</p>
+  
+  <div class="mockup">
+    <div class="mockup-header">复杂度分析</div>
+    <div class="mockup-body" style="padding: 20px;">
+      <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 1px solid rgba(148,163,184,0.2);">
+            <th style="text-align: left; padding: 8px; color: #94a3b8;">配置项</th>
+            <th style="text-align: left; padding: 8px; color: #94a3b8;">必须首次配置？</th>
+            <th style="text-align: left; padding: 8px; color: #94a3b8;">可否边用边配？</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid rgba(148,163,184,0.1);">
+            <td style="padding: 8px;">工作目录</td>
+            <td style="padding: 8px; color: #4ade80;">✅ 必须</td>
+            <td style="padding: 8px; color: #94a3b8;">—</td>
+          </tr>
+          <tr style="border-bottom: 1px solid rgba(148,163,184,0.1);">
+            <td style="padding: 8px;">Mentor 模型</td>
+            <td style="padding: 8px; color: #fbbf24;">⚠️ 建议</td>
+            <td style="padding: 8px; color: #4ade80;">可用默认值</td>
+          </tr>
+          <tr style="border-bottom: 1px solid rgba(148,163,184,0.1);">
+            <td style="padding: 8px;">Executor 模型</td>
+            <td style="padding: 8px; color: #fbbf24;">⚠️ 建议</td>
+            <td style="padding: 8px; color: #4ade80;">可用默认值</td>
+          </tr>
+          <tr style="border-bottom: 1px solid rgba(148,163,184,0.1);">
+            <td style="padding: 8px;">最大迭代次数</td>
+            <td style="padding: 8px; color: #94a3b8;">❌ 否</td>
+            <td style="padding: 8px; color: #4ade80;">有默认值 10</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px;">技能文件</td>
+            <td style="padding: 8px; color: #94a3b8;">❌ 否</td>
+            <td style="padding: 8px; color: #4ade80;">按需附加</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top: 16px; font-size: 13px; color: #94a3b8;">
+        <strong style="color: #e2e8f0;">结论：</strong> 真正必须在首次配置的只有"工作目录"。模型选择有推荐默认值，其他配置都可以后续调整。
+      </p>
+    </div>
+  </div>
+</div>

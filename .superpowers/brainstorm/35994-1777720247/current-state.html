@@ -1,0 +1,67 @@
+<h2>v1.5.0 UI/UX 重构 - 起点分析</h2>
+<p class="subtitle">当前 v1.4.3 的 UI 架构与已规划的 v1.5.0 功能</p>
+
+<div class="section">
+  <h3>📊 当前 UI 架构</h3>
+  <p class="subtitle">43 个组件，Glassmorphism 设计风格</p>
+  
+  <div class="mockup">
+    <div class="mockup-header">The Pair v1.4.3 - 组件地图</div>
+    <div class="mockup-body" style="padding: 20px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div style="background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: 8px; padding: 12px;">
+          <div class="label" style="color: #818cf8;">视图层</div>
+          <div style="margin-top: 8px; font-size: 13px;">AppChrome · Dashboard · PairDetail · OnboardingWizard</div>
+        </div>
+        <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 12px;">
+          <div class="label" style="color: #4ade80;">消息层</div>
+          <div style="margin-top: 8px; font-size: 13px;">MessageCard · IntentChip · TokenChip · ToolCallSteps · MarkdownContent</div>
+        </div>
+        <div style="background: rgba(251,146,60,0.1); border: 1px solid rgba(251,146,60,0.3); border-radius: 8px; padding: 12px;">
+          <div class="label" style="color: #fb923c;">时间线层</div>
+          <div style="margin-top: 8px; font-size: 13px;">TimelinePanel · TimelineIterationGroup · TimelineEventItem · TurnCardView</div>
+        </div>
+        <div style="background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.3); border-radius: 8px; padding: 12px;">
+          <div class="label" style="color: #c084fc;">UI 原语</div>
+          <div style="margin-top: 8px; font-size: 13px;">GlassCard · GlassButton · GlassModal · ConfirmModal · ResourceMeter</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🎯 v1.5.0 已规划功能</h3>
+  <p class="subtitle">人机协作四大模块（已有设计文档，待实现）</p>
+  
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="a" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>快捷干预面板</h3>
+        <p>CmdK 风格搜索面板，6 种干预类型，键盘导航</p>
+      </div>
+    </div>
+    <div class="option" data-choice="b" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>内联批注系统</h3>
+        <p>消息级批注，4 种类型（反馈/纠正/疑问/赞赏），hover 触发</p>
+      </div>
+    </div>
+    <div class="option" data-choice="c" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>预测性暂停</h3>
+        <p>困境检测，非阻塞 toast 通知，自动暂停建议</p>
+      </div>
+    </div>
+    <div class="option" data-choice="d" onclick="toggleSelect(this)">
+      <div class="letter">D</div>
+      <div class="content">
+        <h3>偏好学习</h3>
+        <p>从干预/批注中提取模式，生成偏好摘要</p>
+      </div>
+    </div>
+  </div>
+</div>
