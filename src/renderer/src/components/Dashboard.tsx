@@ -45,7 +45,7 @@ export function Dashboard({
           className="mb-6"
         />
 
-        {/* Empty state or placeholder for list */}
+        {/* Empty state or list + activity */}
         {pairs.length === 0 ? (
           <div className="flex flex-1 items-center justify-center">
             <EmptyStateGuide onCreatePair={onCreatePair} />
@@ -60,7 +60,6 @@ export function Dashboard({
                 onResumePair={onResumePair}
                 onDeletePair={onDeletePair}
                 deletingPairId={deletingPairId}
-                onCreatePair={onCreatePair}
               />
             </div>
             <div className="hidden w-1/3 overflow-hidden xl:block">

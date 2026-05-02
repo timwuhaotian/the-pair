@@ -49,8 +49,7 @@
       "finished": "已完成"
     },
     "pairs": {
-      "title": "Pairs",
-      "new": "新建 Pair"
+      "title": "Pairs"
     },
     "groups": {
       "active": "运行中",
@@ -60,8 +59,7 @@
     "activity": {
       "title": "最近活动",
       "empty": "Pair 开始运行后，这里会显示最近的活动"
-    },
-    "listComingSoon": "Pair 列表即将推出..."
+    }
   },
   "emptyState": {
     "title": "还没有 Pair 容器",

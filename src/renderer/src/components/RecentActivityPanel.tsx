@@ -50,16 +50,26 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
-        Loading...
+      <div className="flex flex-col overflow-hidden">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          {t('dashboard.activity.title')}
+        </h2>
+        <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
+          Loading...
+        </div>
       </div>
     )
   }
 
   if (activities.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center">
-        <p className="text-sm text-muted-foreground">{t('dashboard.activity.empty')}</p>
+      <div className="flex flex-col overflow-hidden">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
+          {t('dashboard.activity.title')}
+        </h2>
+        <div className="flex flex-1 items-center justify-center p-6 text-center">
+          <p className="text-sm text-muted-foreground">{t('dashboard.activity.empty')}</p>
+        </div>
       </div>
     )
   }

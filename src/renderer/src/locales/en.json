@@ -55,8 +55,7 @@
       "finished": "Finished"
     },
     "pairs": {
-      "title": "Pairs",
-      "new": "New Pair"
+      "title": "Pairs"
     },
     "groups": {
       "active": "Active",
@@ -66,8 +65,7 @@
     "activity": {
       "title": "Recent Activity",
       "empty": "Activity will appear here when Pairs start running"
-    },
-    "listComingSoon": "Pair list coming soon..."
+    }
   },
   "emptyState": {
     "title": "No Pair Containers Yet",

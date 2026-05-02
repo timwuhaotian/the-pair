@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
-import { Zap, Plus, Settings, Book, Keyboard } from 'lucide-react'
+import { Plus, Settings, Book, Keyboard } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 interface QuickActionItem {
@@ -89,7 +89,7 @@ export function QuickActionsFAB({ onAction, className }: QuickActionsFABProps): 
           isOpen && 'rotate-45'
         )}
       >
-        <Zap size={20} />
+        <Plus size={20} />
       </button>
     </div>
   )

@@ -8,6 +8,20 @@ import ko from './locales/ko.json'
 const browserLocale = navigator.language.split('-')[0]
 const defaultLocale = ['en', 'zh', 'ja', 'ko'].includes(browserLocale) ? browserLocale : 'en'
 
+// Check for previously stored locale (zustand persist uses localStorage)
+let storedLocale: string | null = null
+try {
+  const raw = localStorage.getItem('locale-storage')
+  if (raw) {
+    const parsed = JSON.parse(raw)
+    storedLocale = parsed.state?.locale ?? null
+  }
+} catch {
+  // ignore
+}
+
+const initialLocale = storedLocale ?? defaultLocale
+
 void i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
@@ -15,7 +29,7 @@ void i18n.use(initReactI18next).init({
     ja: { translation: ja },
     ko: { translation: ko }
   },
-  lng: defaultLocale,
+  lng: initialLocale,
   fallbackLng: 'en',
   interpolation: { escapeValue: false }
 })

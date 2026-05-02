@@ -10,7 +10,6 @@ interface PairListSectionProps {
   onResumePair: (pairId: string) => void
   onDeletePair: (pair: Pair) => void
   deletingPairId: string | null
-  onCreatePair: () => void
 }
 
 export function PairListSection({
@@ -19,8 +18,7 @@ export function PairListSection({
   onPausePair,
   onResumePair,
   onDeletePair,
-  deletingPairId,
-  onCreatePair
+  deletingPairId
 }: PairListSectionProps): React.ReactNode {
   const { t } = useTranslation()
 
@@ -32,12 +30,7 @@ export function PairListSection({
 
   return (
     <div className="flex flex-col overflow-hidden">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">{t('dashboard.pairs.title')}</h2>
-        <button onClick={onCreatePair} className="text-xs text-primary hover:text-primary/80">
-          + {t('dashboard.pairs.new')}
-        </button>
-      </div>
+      <h2 className="mb-4 text-sm font-semibold text-foreground">{t('dashboard.pairs.title')}</h2>
 
       <div className="flex-1 space-y-4 overflow-y-auto scrollbar-thin pr-2">
         {hasActivePairs && (
