@@ -41,14 +41,36 @@
     "archived": "{{count}} 个已归档",
     "readyForNewTask": "可执行新任务",
     "delete": "删除",
-    "deleting": "删除中..."
+    "deleting": "删除中...",
+    "stats": {
+      "total": "全部 Pairs",
+      "running": "运行中",
+      "paused": "已暂停",
+      "finished": "已完成"
+    },
+    "pairs": {
+      "title": "Pairs",
+      "new": "新建 Pair"
+    },
+    "groups": {
+      "active": "运行中",
+      "paused": "已暂停",
+      "completed": "已完成"
+    },
+    "listComingSoon": "Pair 列表即将推出..."
   },
   "emptyState": {
     "title": "还没有 Pair 容器",
     "mentorDesc": "分析任务并审查执行器输出",
     "handoffDesc": "智能体自动交替控制",
     "executorDesc": "执行计划并报告结果",
-    "createFirst": "创建你的第一个 Pair"
+    "createFirst": "创建你的第一个 Pair",
+    "welcome": "欢迎使用 The Pair",
+    "step1": "选择工作目录",
+    "step2": "选择 Mentor 和 Executor 模型",
+    "step3": "描述你的任务",
+    "step4": "创建第一个 Pair，开始协作",
+    "importConfig": "导入现有配置 →"
   },
   "onboarding": {
     "title": "设置向导",

@@ -47,14 +47,36 @@
     "archived": "{{count}} archived",
     "readyForNewTask": "Ready for new task",
     "delete": "Delete",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "stats": {
+      "total": "All Pairs",
+      "running": "Running",
+      "paused": "Paused",
+      "finished": "Finished"
+    },
+    "pairs": {
+      "title": "Pairs",
+      "new": "New Pair"
+    },
+    "groups": {
+      "active": "Active",
+      "paused": "Paused",
+      "completed": "Completed"
+    },
+    "listComingSoon": "Pair list coming soon..."
   },
   "emptyState": {
     "title": "No Pair Containers Yet",
     "mentorDesc": "Analyzes tasks and reviews executor output",
     "handoffDesc": "Agents pass control back and forth automatically",
     "executorDesc": "Executes plans and reports results",
-    "createFirst": "Create your first Pair"
+    "createFirst": "Create your first Pair",
+    "welcome": "Welcome to The Pair",
+    "step1": "Select a working directory",
+    "step2": "Choose Mentor and Executor models",
+    "step3": "Describe your task",
+    "step4": "Create your first Pair and start collaborating",
+    "importConfig": "Import existing configuration →"
   },
   "onboarding": {
     "title": "Setup Wizard",
