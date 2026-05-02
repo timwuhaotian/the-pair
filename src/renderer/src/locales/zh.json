@@ -57,6 +57,10 @@
       "paused": "已暂停",
       "completed": "已完成"
     },
+    "activity": {
+      "title": "最近活动",
+      "empty": "Pair 开始运行后，这里会显示最近的活动"
+    },
     "listComingSoon": "Pair 列表即将推出..."
   },
   "emptyState": {
@@ -289,5 +293,11 @@
     "pausePair": "暂停 Pair",
     "resumePair": "恢复 Pair",
     "newPair": "新建 Pair"
+  },
+  "quickActions": {
+    "create": "新建 Pair",
+    "settings": "设置",
+    "help": "帮助",
+    "shortcuts": "快捷键"
   }
 }

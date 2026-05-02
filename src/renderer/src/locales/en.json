@@ -63,6 +63,10 @@
       "paused": "Paused",
       "completed": "Completed"
     },
+    "activity": {
+      "title": "Recent Activity",
+      "empty": "Activity will appear here when Pairs start running"
+    },
     "listComingSoon": "Pair list coming soon..."
   },
   "emptyState": {
@@ -295,5 +299,11 @@
     "pausePair": "Pause Pair",
     "resumePair": "Resume Pair",
     "newPair": "New Pair"
+  },
+  "quickActions": {
+    "create": "New Pair",
+    "settings": "Settings",
+    "help": "Help",
+    "shortcuts": "Shortcuts"
   }
 }

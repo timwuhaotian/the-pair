@@ -16,11 +16,6 @@ import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
 
 const PairDetail = lazy(() => import('./components/PairDetail'))
-const OnboardingWizard = lazy(() =>
-  import('./components/OnboardingWizard').then(({ OnboardingWizard }) => ({
-    default: OnboardingWizard
-  }))
-)
 const CreatePairModal = lazy(() =>
   import('./components/CreatePairModal').then(({ CreatePairModal }) => ({
     default: CreatePairModal
@@ -34,6 +29,11 @@ const AssignTaskModal = lazy(() =>
 const PairSettingsModal = lazy(() =>
   import('./components/PairSettingsModal').then(({ PairSettingsModal }) => ({
     default: PairSettingsModal
+  }))
+)
+const QuickActionsFAB = lazy(() =>
+  import('./components/QuickActionsFAB').then(({ QuickActionsFAB }) => ({
+    default: QuickActionsFAB
   }))
 )
 
@@ -217,7 +217,6 @@ function App(): React.ReactNode {
   const readyModelCount = availableModels.filter((model) =>
     isSelectableForPairExecution(model)
   ).length
-  const showOnboarding = pairsLoaded && pairs.length === 0
   const shouldRenderCreatePairModal = hasCreatePairModalLoaded || isCreatePairOpen
   const shouldRenderAssignTaskModal = hasAssignTaskModalLoaded || isAssignTaskOpen
   const shouldRenderPairSettingsModal = hasPairSettingsModalLoaded || isPairSettingsOpen
@@ -309,41 +308,48 @@ function App(): React.ReactNode {
     setPendingDeletePair(null)
   }
 
+  const handleQuickAction = (actionId: string) => {
+    switch (actionId) {
+      case 'create':
+        setIsCreatePairOpen(true)
+        break
+      case 'settings':
+        setIsPairSettingsOpen(true)
+        break
+    }
+  }
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
-      {showOnboarding ? (
-        <Suspense fallback={<ViewFallback />}>
-          <OnboardingWizard onComplete={() => {}} />
-        </Suspense>
-      ) : (
-        <div className="flex h-full flex-col">
-          <AppChrome
-            selectedPair={selectedPair}
-            readyModelCount={readyModelCount}
-            totalModelCount={availableModels.length}
-            modelsLoading={modelsLoading}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            onNewPair={() => setIsCreatePairOpen(true)}
-            onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
-            onAssignTask={selectedPair ? () => setIsAssignTaskOpen(true) : undefined}
-            onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
-          />
+      <div className="flex h-full flex-col">
+        <AppChrome
+          selectedPair={selectedPair}
+          readyModelCount={readyModelCount}
+          totalModelCount={availableModels.length}
+          modelsLoading={modelsLoading}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onNewPair={() => setIsCreatePairOpen(true)}
+          onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
+          onAssignTask={selectedPair ? () => setIsAssignTaskOpen(true) : undefined}
+          onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
+        />
 
-          <div className="flex-1 overflow-hidden">
-            <ErrorBoundary>
-              {!pairsLoaded ? (
-                <StartupLoading />
-              ) : selectedPair ? (
-                <Suspense fallback={<ViewFallback />}>
-                  <PairDetail
-                    pair={selectedPair}
-                    onPause={handlePauseSelectedPair}
-                    onResume={handleResumeSelectedPair}
-                    onRestoreTask={handleRestoreTask}
-                  />
-                </Suspense>
-              ) : (
+        <div className="flex-1 overflow-hidden">
+          <ErrorBoundary>
+            {!pairsLoaded ? (
+              <StartupLoading />
+            ) : selectedPair ? (
+              <Suspense fallback={<ViewFallback />}>
+                <PairDetail
+                  pair={selectedPair}
+                  onPause={handlePauseSelectedPair}
+                  onResume={handleResumeSelectedPair}
+                  onRestoreTask={handleRestoreTask}
+                />
+              </Suspense>
+            ) : (
+              <>
                 <Dashboard
                   onSelectPair={(pair) => {
                     setSelectedPairId(pair.id)
@@ -356,12 +362,29 @@ function App(): React.ReactNode {
                   }}
                   deletingPairId={deletingPairId}
                   onCreatePair={() => setIsCreatePairOpen(true)}
+                  onPausePair={async (id: string) => {
+                    try {
+                      await pausePair(id)
+                    } catch (e) {
+                      console.error('[App] Failed to pause:', e)
+                    }
+                  }}
+                  onResumePair={async (id: string) => {
+                    try {
+                      await resumePair(id)
+                    } catch (e) {
+                      console.error('[App] Failed to resume:', e)
+                    }
+                  }}
                 />
-              )}
-            </ErrorBoundary>
-          </div>
+                <Suspense fallback={null}>
+                  <QuickActionsFAB onAction={handleQuickAction} />
+                </Suspense>
+              </>
+            )}
+          </ErrorBoundary>
         </div>
-      )}
+      </div>
 
       <ConfirmModal
         isOpen={pendingDeletePair !== null}
@@ -372,37 +395,33 @@ function App(): React.ReactNode {
         onCancel={cancelDeletePair}
       />
 
-      {!showOnboarding && (
-        <Suspense fallback={null}>
-          {shouldRenderCreatePairModal && (
-            <CreatePairModal isOpen={isCreatePairOpen} onClose={() => setIsCreatePairOpen(false)} />
-          )}
-          {shouldRenderAssignTaskModal && (
-            <AssignTaskModal
-              key={
-                selectedPair
-                  ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}`
-                  : 'assign-none'
-              }
-              pair={selectedPair}
-              isOpen={isAssignTaskOpen}
-              onClose={() => setIsAssignTaskOpen(false)}
-            />
-          )}
-          {shouldRenderPairSettingsModal && (
-            <PairSettingsModal
-              key={
-                selectedPair
-                  ? `settings-${selectedPair.id}-${String(isPairSettingsOpen)}`
-                  : 'settings-none'
-              }
-              pair={selectedPair}
-              isOpen={isPairSettingsOpen}
-              onClose={() => setIsPairSettingsOpen(false)}
-            />
-          )}
-        </Suspense>
-      )}
+      <Suspense fallback={null}>
+        {shouldRenderCreatePairModal && (
+          <CreatePairModal isOpen={isCreatePairOpen} onClose={() => setIsCreatePairOpen(false)} />
+        )}
+        {shouldRenderAssignTaskModal && (
+          <AssignTaskModal
+            key={
+              selectedPair ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}` : 'assign-none'
+            }
+            pair={selectedPair}
+            isOpen={isAssignTaskOpen}
+            onClose={() => setIsAssignTaskOpen(false)}
+          />
+        )}
+        {shouldRenderPairSettingsModal && (
+          <PairSettingsModal
+            key={
+              selectedPair
+                ? `settings-${selectedPair.id}-${String(isPairSettingsOpen)}`
+                : 'settings-none'
+            }
+            pair={selectedPair}
+            isOpen={isPairSettingsOpen}
+            onClose={() => setIsPairSettingsOpen(false)}
+          />
+        )}
+      </Suspense>
 
       <UpdateNotification />
     </div>
