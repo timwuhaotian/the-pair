@@ -189,7 +189,7 @@ function PresetCard({
       className={cn(
         'relative rounded-xl border px-3 py-2 transition-all cursor-pointer',
         selected
-          ? cn(colors.border, colors.background, 'ring-2 ring-primary/40')
+          ? cn(colors.border, colors.background)
           : 'border-border/60 bg-muted hover:border-foreground/12 hover:bg-muted/80',
         colors.glow
       )}

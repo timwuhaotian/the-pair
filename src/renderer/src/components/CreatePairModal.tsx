@@ -185,144 +185,148 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       title={t('modals.createTitle')}
       className="max-w-3xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Sparkles size={14} className="text-primary" />
-            <span className="text-sm font-medium text-foreground">{t('modals.choosePreset')}</span>
-          </div>
-          <PresetPicker
-            presets={presets}
-            selectedPresetId={selectedPreset?.id ?? null}
-            onSelect={handlePresetSelect}
-            loading={presetsLoading}
-            onRetry={loadPresets}
-            error={presetsError}
-          />
-        </div>
-
-        {selectedPreset && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5">
-            <div className="flex items-center gap-2">
-              <Sparkles size={12} className="text-primary" />
-              <span className="text-xs font-medium text-primary">
-                {t('modals.usingPreset', { name: selectedPreset.name })}
+      <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 -mr-1">
+          <div>
+            <div className="mb-1.5 flex items-center gap-2">
+              <Sparkles size={14} className="text-primary" />
+              <span className="text-sm font-medium text-foreground">
+                {t('modals.choosePreset')}
               </span>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {selectedPreset.recommendedSkills.length > 0 && (
-                <>Skills: {selectedPreset.recommendedSkills.join(', ')}</>
-              )}
-              {selectedPreset.pauseOnIteration && (
-                <> • Auto-pause at iteration {selectedPreset.pauseOnIteration}</>
-              )}
-            </p>
+            <PresetPicker
+              presets={presets}
+              selectedPresetId={selectedPreset?.id ?? null}
+              onSelect={handlePresetSelect}
+              loading={presetsLoading}
+              onRetry={loadPresets}
+              error={presetsError}
+            />
           </div>
-        )}
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            {t('common.name')}
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('onboarding.pairNamePlaceholder')}
-            className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
-            required
-            data-testid="pair-name-input"
-          />
-        </div>
+          {selectedPreset && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5">
+              <div className="flex items-center gap-2">
+                <Sparkles size={12} className="text-primary" />
+                <span className="text-xs font-medium text-primary">
+                  {t('modals.usingPreset', { name: selectedPreset.name })}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {selectedPreset.recommendedSkills.length > 0 && (
+                  <>Skills: {selectedPreset.recommendedSkills.join(', ')}</>
+                )}
+                {selectedPreset.pauseOnIteration && (
+                  <> • Auto-pause at iteration {selectedPreset.pauseOnIteration}</>
+                )}
+              </p>
+            </div>
+          )}
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            {t('common.directory')}
-          </label>
-          <div className="flex gap-2">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              {t('common.name')}
+            </label>
             <input
               type="text"
-              value={directory}
-              onChange={(e) => setDirectory(e.target.value)}
-              placeholder="/path/to/project"
-              className="flex-1 px-3.5 py-2.5 glass-card text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('onboarding.pairNamePlaceholder')}
+              className="w-full px-3.5 py-2 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
               required
-              data-testid="pair-directory-input"
+              data-testid="pair-name-input"
             />
-            <GlassButton
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={handleSelectDirectory}
-              icon={<FolderOpen size={15} />}
-            >
-              {''}
-            </GlassButton>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              {t('common.directory')}
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={directory}
+                onChange={(e) => setDirectory(e.target.value)}
+                placeholder="/path/to/project"
+                className="flex-1 px-3.5 py-2 glass-card text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
+                required
+                data-testid="pair-directory-input"
+              />
+              <GlassButton
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={handleSelectDirectory}
+                icon={<FolderOpen size={15} />}
+              >
+                {''}
+              </GlassButton>
+            </div>
+          </div>
+
+          {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <ModelPicker
+              value={mentorModel}
+              models={availableModels}
+              onChange={setMentorModel}
+              role="mentor"
+              variant="card"
+              reasoningEffort={mentorReasoningEffort}
+              onReasoningEffortChange={setMentorReasoningEffort}
+            />
+            <ModelPicker
+              value={executorModel}
+              models={availableModels}
+              onChange={setExecutorModel}
+              role="executor"
+              variant="card"
+              reasoningEffort={executorReasoningEffort}
+              onReasoningEffortChange={setExecutorReasoningEffort}
+            />
+          </div>
+
+          <div className="relative">
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              {t('onboarding.taskSpec')}
+            </label>
+            <textarea
+              ref={textareaRef}
+              value={spec}
+              onChange={(e) => setSpec(e.target.value)}
+              placeholder={t('onboarding.taskPlaceholder')}
+              rows={4}
+              className="w-full px-3.5 py-2 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
+              required
+              data-testid="pair-task-spec"
+            />
+            <div className="absolute top-8 right-2 flex items-center gap-1">
+              {directory && (
+                <>
+                  <SkillPicker projectDir={directory} onSelect={handleSkillSelect} />
+                  <FileMention
+                    textareaRef={textareaRef}
+                    onChange={setSpec}
+                    directory={directory}
+                    onFileSelect={handleFileSelect}
+                  />
+                </>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Type @ to reference workspace files
+            </p>
+          </div>
+
+          {error && (
+            <div className="text-sm text-destructive glass-card p-3 rounded-xl border border-destructive/20">
+              {error}
+            </div>
+          )}
         </div>
 
-        {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <ModelPicker
-            value={mentorModel}
-            models={availableModels}
-            onChange={setMentorModel}
-            role="mentor"
-            variant="card"
-            reasoningEffort={mentorReasoningEffort}
-            onReasoningEffortChange={setMentorReasoningEffort}
-          />
-          <ModelPicker
-            value={executorModel}
-            models={availableModels}
-            onChange={setExecutorModel}
-            role="executor"
-            variant="card"
-            reasoningEffort={executorReasoningEffort}
-            onReasoningEffortChange={setExecutorReasoningEffort}
-          />
-        </div>
-
-        <div className="relative">
-          <label className="block text-sm font-medium text-foreground mb-2">
-            {t('onboarding.taskSpec')}
-          </label>
-          <textarea
-            ref={textareaRef}
-            value={spec}
-            onChange={(e) => setSpec(e.target.value)}
-            placeholder={t('onboarding.taskPlaceholder')}
-            rows={4}
-            className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
-            required
-            data-testid="pair-task-spec"
-          />
-          <div className="absolute top-8 right-2 flex items-center gap-1">
-            {directory && (
-              <>
-                <SkillPicker projectDir={directory} onSelect={handleSkillSelect} />
-                <FileMention
-                  textareaRef={textareaRef}
-                  onChange={setSpec}
-                  directory={directory}
-                  onFileSelect={handleFileSelect}
-                />
-              </>
-            )}
-          </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Type @ to reference workspace files
-          </p>
-        </div>
-
-        {error && (
-          <div className="text-sm text-destructive glass-card p-3 rounded-xl border border-destructive/20">
-            {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3 pt-2 border-t border-border/40 mt-1">
+        <div className="flex justify-end gap-3 pt-3 border-t border-border/40 mt-3 flex-shrink-0">
           <GlassButton
             type="button"
             variant="ghost"

@@ -128,12 +128,7 @@ export function BranchPicker({
 
   if (isLoading) {
     return (
-      <div
-        className={cn(
-          'flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400',
-          className
-        )}
-      >
+      <div className={cn('flex items-center gap-2 text-sm text-muted-foreground', className)}>
         <RefreshCw className="h-4 w-4 animate-spin" />
         <span>Checking repository...</span>
       </div>
@@ -142,15 +137,13 @@ export function BranchPicker({
 
   if (loadError) {
     return (
-      <div className={cn('flex flex-col gap-1 text-xs text-slate-400', className)}>
+      <div className={cn('flex flex-col gap-1 text-xs text-muted-foreground', className)}>
         <div className="flex items-center gap-2">
           <GitBranch className="h-3.5 w-3.5" />
           <span>Could not check repository state</span>
         </div>
         {errorMessage && (
-          <div className="text-xs text-red-500 dark:text-red-400 ml-5 font-mono">
-            Error: {errorMessage}
-          </div>
+          <div className="text-xs text-destructive ml-5 font-mono">Error: {errorMessage}</div>
         )}
       </div>
     )
@@ -158,7 +151,7 @@ export function BranchPicker({
 
   if (!repoState?.isGitRepo) {
     return (
-      <div className={cn('flex items-center gap-2 text-xs text-slate-400', className)}>
+      <div className={cn('flex items-center gap-2 text-xs text-muted-foreground', className)}>
         <GitBranch className="h-3.5 w-3.5" />
         <span>Not a git repository — worktrees unavailable</span>
       </div>

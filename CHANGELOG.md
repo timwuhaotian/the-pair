@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-05-02
+
+### Fixed
+
+- **CreatePairModal layout:** Added max-height with scrollable content area so the "Create Pair" button is always visible regardless of content length. Form content now scrolls independently of fixed footer buttons.
+- **ModelPicker dropdown positioning:** Dropdown now consistently renders at the bottom of the card regardless of recent model count. Removed forced equal-height grid stretching that caused overlap when one card had more recent models than the other.
+- **ModelPicker spacing:** Fixed spacing between recent model grid and dropdown selector when 3+ recent models create a third row.
+- **PresetPicker border conflict:** Removed `ring-2 ring-primary/40` from selected preset card that created double-border visual conflict with the container.
+- **BranchPicker colors:** Replaced hardcoded `text-slate-400/500` with theme-aware `text-muted-foreground` for proper light/dark mode visibility.
+- **Pair card visibility:** Redesigned pair list cards from transparent (`border-transparent`) to glass-card style with visible border and background, making them clearly distinguishable on the dashboard.
+
 ## [1.4.3] - 2026-04-29
 
 ### Fixed

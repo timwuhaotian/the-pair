@@ -209,14 +209,14 @@ export function ModelPicker({
   const isRecentSelection = recentModels.some((model) => getQualifiedModel(model) === value)
 
   const pickerContent = (
-    <div className="space-y-3">
+    <>
       {/* Recent quick-picks */}
       {recentModels.length > 0 && (
         <div>
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             {t('pickers.recent')}
           </div>
-          <div className={cn('grid gap-2', 'grid-cols-2')}>
+          <div className={cn('grid gap-1.5', 'grid-cols-2')}>
             {recentModels.map((model) => (
               <QuickPickCell
                 key={getQualifiedModel(model)}
@@ -230,150 +230,155 @@ export function ModelPicker({
         </div>
       )}
 
-      {/* Dropdown search selector */}
-      <div className="relative" ref={dropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          aria-expanded={isDropdownOpen}
-          className={cn(
-            'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/50 cursor-pointer',
-            selectedModel && !isRecentSelection ? tone.border : 'border-border/60'
-          )}
-        >
-          {selectedModel && !isRecentSelection ? (
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold leading-tight text-foreground">
-                {selectedModel.displayName}
-              </div>
-              <div className="truncate pt-0.5 text-xs text-muted-foreground">
-                {selectedModel.providerLabel}
-              </div>
-            </div>
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Search size={14} className="shrink-0 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                {recentModels.length > 0 ? t('pickers.allModels') : t('pickers.selectModel')}
-              </span>
-            </div>
-          )}
-          <ChevronDown
-            size={13}
+      {/* Dropdown + reasoning effort */}
+      <div className="flex flex-col gap-2">
+        {/* Dropdown search selector */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            aria-expanded={isDropdownOpen}
             className={cn(
-              'shrink-0 text-muted-foreground transition-transform',
-              isDropdownOpen && 'rotate-180'
-            )}
-          />
-        </button>
-
-        {isDropdownOpen && (
-          <div
-            className={cn(
-              'absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-2xl backdrop-blur-lg',
-              dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
+              'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/50 cursor-pointer',
+              selectedModel && !isRecentSelection ? tone.border : 'border-border/60'
             )}
           >
-            <div className="p-2">
-              <div className="relative">
-                <Search
-                  size={13}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setIsDropdownOpen(false)
-                      setSearchQuery('')
-                    }
-                  }}
-                  placeholder={t('pickers.searchModels')}
-                  className="w-full rounded-lg border border-border/60 bg-muted py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
-                />
-              </div>
-            </div>
-            <div className="max-h-60 overflow-y-auto px-2 pb-2 scrollbar-thin">
-              {filteredDropdownModels.length === 0 ? (
-                <div className="py-5 text-center text-sm text-muted-foreground">
-                  {t('pickers.noModels')}
+            {selectedModel && !isRecentSelection ? (
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold leading-tight text-foreground">
+                  {selectedModel.displayName}
                 </div>
-              ) : (
-                filteredDropdownModels.map((model) => {
-                  const selected = getQualifiedModel(model) === value
-                  const showSourceProvider =
-                    model.sourceProviderLabel && model.sourceProviderLabel !== model.providerLabel
+                <div className="truncate pt-0.5 text-xs text-muted-foreground">
+                  {selectedModel.providerLabel}
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <Search size={14} className="shrink-0 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  {recentModels.length > 0 ? t('pickers.allModels') : t('pickers.selectModel')}
+                </span>
+              </div>
+            )}
+            <ChevronDown
+              size={13}
+              className={cn(
+                'shrink-0 text-muted-foreground transition-transform',
+                isDropdownOpen && 'rotate-180'
+              )}
+            />
+          </button>
 
-                  return (
-                    <button
-                      key={getQualifiedModel(model)}
-                      type="button"
-                      onClick={() => handleSelect(model)}
-                      className={cn(
-                        'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer',
-                        selected ? tone.bgSelected : 'hover:bg-muted/40'
-                      )}
-                    >
-                      <div
+          {isDropdownOpen && (
+            <div
+              className={cn(
+                'absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-2xl backdrop-blur-lg',
+                dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
+              )}
+            >
+              <div className="p-2">
+                <div className="relative">
+                  <Search
+                    size={13}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsDropdownOpen(false)
+                        setSearchQuery('')
+                      }
+                    }}
+                    placeholder={t('pickers.searchModels')}
+                    className="w-full rounded-lg border border-border/60 bg-muted py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="max-h-60 overflow-y-auto px-2 pb-2 scrollbar-thin">
+                {filteredDropdownModels.length === 0 ? (
+                  <div className="py-5 text-center text-sm text-muted-foreground">
+                    {t('pickers.noModels')}
+                  </div>
+                ) : (
+                  filteredDropdownModels.map((model) => {
+                    const selected = getQualifiedModel(model) === value
+                    const showSourceProvider =
+                      model.sourceProviderLabel && model.sourceProviderLabel !== model.providerLabel
+
+                    return (
+                      <button
+                        key={getQualifiedModel(model)}
+                        type="button"
+                        onClick={() => handleSelect(model)}
                         className={cn(
-                          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
-                          model.available ? tone.border : 'border-border',
-                          model.available ? tone.background : 'bg-muted'
+                          'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer',
+                          selected ? tone.bgSelected : 'hover:bg-muted/40'
                         )}
                       >
-                        {model.supportsPairExecution ? (
-                          tone.iconSm
-                        ) : (
-                          <CircleAlert size={10} className="text-amber-600 dark:text-amber-400" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold leading-tight text-foreground">
-                          {model.displayName}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
-                          {showSourceProvider && (
-                            <>
-                              <span className="font-medium text-blue-600 dark:text-blue-400">
-                                {model.sourceProviderLabel}
-                              </span>
-                              <span>via</span>
-                            </>
+                        <div
+                          className={cn(
+                            'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
+                            model.available ? tone.border : 'border-border',
+                            model.available ? tone.background : 'bg-muted'
                           )}
-                          <span className="font-medium text-foreground/80">
-                            {model.providerLabel}
-                          </span>
-                          {model.planLabel && model.planLabel !== 'BYOK' && (
-                            <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                              {model.planLabel}
+                        >
+                          {model.supportsPairExecution ? (
+                            tone.iconSm
+                          ) : (
+                            <CircleAlert size={10} className="text-amber-600 dark:text-amber-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold leading-tight text-foreground">
+                            {model.displayName}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+                            {showSourceProvider && (
+                              <>
+                                <span className="font-medium text-blue-600 dark:text-blue-400">
+                                  {model.sourceProviderLabel}
+                                </span>
+                                <span>via</span>
+                              </>
+                            )}
+                            <span className="font-medium text-foreground/80">
+                              {model.providerLabel}
                             </span>
-                          )}
+                            {model.planLabel && model.planLabel !== 'BYOK' && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                                {model.planLabel}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      {selected && <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />}
-                    </button>
-                  )
-                })
-              )}
+                        {selected && (
+                          <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />
+                        )}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {selectedModel?.reasoningEffortLevels &&
-        selectedModel.reasoningEffortLevels.length > 0 &&
-        onReasoningEffortChange && (
-          <ReasoningEffortPicker
-            levels={selectedModel.reasoningEffortLevels}
-            value={reasoningEffort}
-            onChange={onReasoningEffortChange}
-            role={role}
-          />
-        )}
-    </div>
+        {selectedModel?.reasoningEffortLevels &&
+          selectedModel.reasoningEffortLevels.length > 0 &&
+          onReasoningEffortChange && (
+            <ReasoningEffortPicker
+              levels={selectedModel.reasoningEffortLevels}
+              value={reasoningEffort}
+              onChange={onReasoningEffortChange}
+              role={role}
+            />
+          )}
+      </div>
+    </>
   )
 
   if (variant === 'card') {
@@ -386,7 +391,7 @@ export function ModelPicker({
         )}
       >
         {/* Card header */}
-        <div className="mb-2.5 flex items-center gap-2.5">
+        <div className="mb-2.5 flex items-center gap-2.5 flex-shrink-0">
           <div
             className={cn(
               'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
@@ -405,7 +410,8 @@ export function ModelPicker({
             </div>
           </div>
         </div>
-        {pickerContent}
+        {/* Content area */}
+        <div className="flex flex-col gap-3">{pickerContent}</div>
       </div>
     )
   }

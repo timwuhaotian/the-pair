@@ -48,34 +48,42 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
     return () => clearInterval(interval)
   }, [])
 
+  const panelContent = (children: React.ReactNode) => (
+    <div
+      className={`glass-card flex flex-col overflow-hidden rounded-xl border bg-gradient-to-br from-card/80 to-muted/30 p-4 shadow-sm ${className || ''}`}
+    >
+      {children}
+    </div>
+  )
+
   if (loading) {
-    return (
-      <div className="flex flex-col overflow-hidden">
+    return panelContent(
+      <>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {t('dashboard.activity.title')}
         </h2>
-        <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
-          Loading...
+        <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+          {t('common.loading')}
         </div>
-      </div>
+      </>
     )
   }
 
   if (activities.length === 0) {
-    return (
-      <div className="flex flex-col overflow-hidden">
+    return panelContent(
+      <>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           {t('dashboard.activity.title')}
         </h2>
-        <div className="flex flex-1 items-center justify-center p-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <p className="text-sm text-muted-foreground">{t('dashboard.activity.empty')}</p>
         </div>
-      </div>
+      </>
     )
   }
 
-  return (
-    <div className={`flex flex-col overflow-hidden ${className || ''}`}>
+  return panelContent(
+    <>
       <h2 className="mb-3 text-sm font-semibold text-foreground">
         {t('dashboard.activity.title')}
       </h2>
@@ -84,6 +92,6 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
           <ActivityItem key={`${activity.pairId}-${activity.timestamp}`} activity={activity} />
         ))}
       </div>
-    </div>
+    </>
   )
 }

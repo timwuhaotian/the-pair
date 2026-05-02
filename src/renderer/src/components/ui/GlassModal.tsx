@@ -49,14 +49,17 @@ export function GlassModal({
             onClick={onClose}
           />
           <motion.div
-            className={cn('glass-modal w-full max-w-lg shadow-2xl relative', className)}
+            className={cn(
+              'glass-modal w-full max-w-lg shadow-2xl relative max-h-[90vh] flex flex-col',
+              className
+            )}
             variants={modalVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
           >
             {title && (
-              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border flex-shrink-0">
                 <h2 className="text-base font-semibold text-foreground tracking-tight">{title}</h2>
                 <button
                   onClick={onClose}
@@ -66,7 +69,7 @@ export function GlassModal({
                 </button>
               </div>
             )}
-            <div className="p-5">{children}</div>
+            <div className="p-5 overflow-y-auto flex-1">{children}</div>
           </motion.div>
         </motion.div>
       )}
