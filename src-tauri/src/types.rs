@@ -423,3 +423,22 @@ pub struct Message {
     #[serde(rename = "tokenUsage", skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<TurnTokenUsage>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityType {
+    StatusChange,
+    Handoff,
+    Result,
+    Acceptance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentActivity {
+    pub pair_id: String,
+    pub pair_name: String,
+    pub activity_type: ActivityType,
+    pub description: String,
+    pub timestamp: u64,
+    pub role: Option<String>,
+}

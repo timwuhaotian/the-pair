@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, State};
 
 const SNAPSHOT_VERSION: u32 = 2;
 const SNAPSHOT_DIR_NAME: &str = "pair-snapshots";
-const INDEX_FILE_NAME: &str = "index.json";
+pub(crate) const INDEX_FILE_NAME: &str = "index.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -344,7 +344,7 @@ fn snapshot_file_path_in_dir(snapshot_dir: &Path, pair_id: &str) -> PathBuf {
     snapshot_dir.join(format!("{}.json", pair_id))
 }
 
-fn ensure_snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn ensure_snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = snapshot_dir(app)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create snapshot dir: {}", e))?;
     Ok(dir)
@@ -357,7 +357,7 @@ fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()
     fs::rename(&tmp_path, path).map_err(|e| format!("Failed to move snapshot into place: {}", e))
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
     let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }

@@ -11,6 +11,7 @@ mod process_spawner;
 mod provider_adapter;
 mod provider_registry;
 mod quality_gate;
+mod recent_activity;
 mod report_generator;
 mod resource_monitor;
 mod session_snapshot;
@@ -128,6 +129,7 @@ pub fn run() {
             session_snapshot::list_recoverable_sessions,
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
+            recent_activity::get_recent_activities,
             skill_discovery::discover_skills,
             app_restart,
             git_get_file_diff
