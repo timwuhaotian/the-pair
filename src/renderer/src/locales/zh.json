@@ -52,9 +52,29 @@
       "title": "Pairs"
     },
     "groups": {
+      "attention": "需要处理",
       "active": "运行中",
       "paused": "已暂停",
+      "ready": "可开始",
       "completed": "已完成"
+    },
+    "card": {
+      "turns": "轮次",
+      "cpu": "CPU",
+      "memory": "MB",
+      "files": "文件"
+    },
+    "insights": {
+      "title": "运行概览",
+      "description": "当前状态、资源占用，以及需要人工处理的 Pair。",
+      "attention": "待处理",
+      "running": "运行中",
+      "cpu": "CPU",
+      "memory": "内存",
+      "workspaces": "工作区",
+      "changedFiles": "改动文件",
+      "needsAttention": "需要处理",
+      "noAttention": "目前没有需要人工介入的 Pair。"
     },
     "activity": {
       "title": "最近活动",
@@ -63,6 +83,7 @@
   },
   "emptyState": {
     "title": "还没有 Pair 容器",
+    "description": "创建一个 Pair，让 <mentor>Mentor</mentor> 规划和审查，由 <executor>Executor</executor> 在你选择的工作区执行。",
     "mentorDesc": "分析任务并审查执行器输出",
     "handoffDesc": "智能体自动交替控制",
     "executorDesc": "执行计划并报告结果",
@@ -293,9 +314,6 @@
     "newPair": "新建 Pair"
   },
   "quickActions": {
-    "create": "新建 Pair",
-    "settings": "设置",
-    "help": "帮助",
-    "shortcuts": "快捷键"
+    "create": "新建 Pair"
   }
 }

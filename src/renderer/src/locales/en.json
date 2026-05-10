@@ -58,9 +58,29 @@
       "title": "Pairs"
     },
     "groups": {
+      "attention": "Needs Attention",
       "active": "Active",
       "paused": "Paused",
+      "ready": "Ready",
       "completed": "Completed"
+    },
+    "card": {
+      "turns": "turns",
+      "cpu": "CPU",
+      "memory": "MB",
+      "files": "files"
+    },
+    "insights": {
+      "title": "Operations",
+      "description": "Live status, resource load, and pairs that need a human decision.",
+      "attention": "Attention",
+      "running": "Running",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "workspaces": "Workspaces",
+      "changedFiles": "Changed files",
+      "needsAttention": "Needs Attention",
+      "noAttention": "No pair needs intervention right now."
     },
     "activity": {
       "title": "Recent Activity",
@@ -69,6 +89,7 @@
   },
   "emptyState": {
     "title": "No Pair Containers Yet",
+    "description": "Create a pair to let a <mentor>Mentor</mentor> plan and review while an <executor>Executor</executor> runs the work in your chosen workspace.",
     "mentorDesc": "Analyzes tasks and reviews executor output",
     "handoffDesc": "Agents pass control back and forth automatically",
     "executorDesc": "Executes plans and reports results",
@@ -299,9 +320,6 @@
     "newPair": "New Pair"
   },
   "quickActions": {
-    "create": "New Pair",
-    "settings": "Settings",
-    "help": "Help",
-    "shortcuts": "Shortcuts"
+    "create": "New Pair"
   }
 }

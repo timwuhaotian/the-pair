@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-05-11
+
+### Added
+
+- **Dashboard operations panel:** Replaced the recent activity sidebar with a live operations summary showing attention items, running pairs, resource load, workspaces, and changed files.
+- **Pair cards:** Added compact per-pair metrics for turns, CPU, memory, and modified files directly in the pair list.
+
+### Fixed
+
+- **Dashboard create action:** Moved the new-pair call to action into the pair list area and removed the dead floating action menu entries.
+- **Persisted status handling:** Normalized restored pair statuses before rendering so older snapshots do not create invisible dashboard groups.
+- **Claude output capture:** Captured assistant text blocks when Claude events do not include a final result payload, preserving visible mentor output in the console.
+
 ## [1.4.4] - 2026-05-02
 
 ### Fixed

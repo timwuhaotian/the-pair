@@ -337,12 +337,12 @@ fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTo
                     .or_else(|| tokens.get("completionTokens"))
                     .or_else(|| tokens.get("completion_tokens"))
                     .and_then(|v| v.as_u64());
-                
+
                 let input_tokens = tokens
                     .get("input")
                     .or_else(|| tokens.get("promptTokens"))
                     .or_else(|| tokens.get("prompt_tokens"));
-                
+
                 if let Some(output) = output_tokens {
                     let input_val = input_tokens.and_then(|v| v.as_u64());
                     return Some(TurnTokenUsage {
@@ -359,7 +359,7 @@ fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTo
             }
         }
     }
-    
+
     // Fallback: try direct usage field (older format or different event)
     let usage = event.get("usage")?;
 
@@ -453,6 +453,31 @@ fn extract_claude_final_output(event: &serde_json::Value) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn collect_claude_assistant_text_blocks(event: &serde_json::Value, out: &mut Vec<String>) {
+    let event_type = event.get("type").and_then(|value| value.as_str());
+    if event_type != Some("assistant") {
+        return;
+    }
+
+    let Some(content) = event
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(|content| content.as_array())
+    else {
+        return;
+    };
+
+    for block in content {
+        if block.get("type").and_then(|value| value.as_str()) != Some("text") {
+            continue;
+        }
+
+        if let Some(text) = block.get("text").and_then(|value| value.as_str()) {
+            push_trimmed(out, text);
+        }
+    }
+}
+
 fn collect_json_candidates_for_provider(
     provider_kind: ProviderKind,
     event: &serde_json::Value,
@@ -461,6 +486,8 @@ fn collect_json_candidates_for_provider(
     if provider_kind == ProviderKind::Claude {
         if let Some(text) = extract_claude_final_output(event) {
             push_trimmed(out, &text);
+        } else {
+            collect_claude_assistant_text_blocks(event, out);
         }
         return;
     }
@@ -2241,6 +2268,28 @@ mod tests {
         collect_json_candidates_for_provider(ProviderKind::Claude, &result_event, &mut candidates);
 
         assert_eq!(candidates, vec!["Final answer only".to_string()]);
+    }
+
+    #[test]
+    fn claude_assistant_text_blocks_are_used_when_result_is_missing() {
+        let assistant_event = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    { "type": "thinking", "thinking": "private reasoning" },
+                    { "type": "text", "text": "Visible mentor plan" }
+                ]
+            }
+        });
+
+        let mut candidates = Vec::new();
+        collect_json_candidates_for_provider(
+            ProviderKind::Claude,
+            &assistant_event,
+            &mut candidates,
+        );
+
+        assert_eq!(candidates, vec!["Visible mentor plan".to_string()]);
     }
 
     #[test]

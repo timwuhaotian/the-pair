@@ -1365,6 +1365,7 @@ exit 0
 
     #[test]
     fn binary_exists_at_known_locations_finds_windows_global_npm_bins() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let roaming_npm_dir = temp_root.join("AppData/Roaming/npm");
         fs::create_dir_all(&roaming_npm_dir).expect("failed to create roaming npm dir");

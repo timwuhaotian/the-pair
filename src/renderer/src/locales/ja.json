@@ -41,10 +41,36 @@
     "archived": "{{count}} 件アーカイブ済み",
     "readyForNewTask": "新しいタスクの準備完了",
     "delete": "削除",
-    "deleting": "削除中..."
+    "deleting": "削除中...",
+    "groups": {
+      "attention": "要対応",
+      "active": "アクティブ",
+      "paused": "一時停止中",
+      "ready": "準備完了",
+      "completed": "完了"
+    },
+    "card": {
+      "turns": "ターン",
+      "cpu": "CPU",
+      "memory": "MB",
+      "files": "ファイル"
+    },
+    "insights": {
+      "title": "運用状況",
+      "description": "現在の状態、リソース負荷、人の判断が必要なペアを表示します。",
+      "attention": "要対応",
+      "running": "実行中",
+      "cpu": "CPU",
+      "memory": "メモリ",
+      "workspaces": "ワークスペース",
+      "changedFiles": "変更ファイル",
+      "needsAttention": "要対応",
+      "noAttention": "現在、人の介入が必要なペアはありません。"
+    }
   },
   "emptyState": {
     "title": "ペアコンテナがありません",
+    "description": "ペアを作成すると、<mentor>Mentor</mentor> が計画とレビューを行い、<executor>Executor</executor> が選択したワークスペースで作業を実行します。",
     "mentorDesc": "タスクを分析し、実行者の出力をレビュー",
     "handoffDesc": "エージェントが自動的に制御を交代",
     "executorDesc": "計画を実行し、結果を報告",

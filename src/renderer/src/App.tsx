@@ -31,12 +31,6 @@ const PairSettingsModal = lazy(() =>
     default: PairSettingsModal
   }))
 )
-const QuickActionsFAB = lazy(() =>
-  import('./components/QuickActionsFAB').then(({ QuickActionsFAB }) => ({
-    default: QuickActionsFAB
-  }))
-)
-
 function ViewFallback(): React.ReactNode {
   return <div className="h-full w-full bg-background" />
 }
@@ -308,17 +302,6 @@ function App(): React.ReactNode {
     setPendingDeletePair(null)
   }
 
-  const handleQuickAction = (actionId: string) => {
-    switch (actionId) {
-      case 'create':
-        setIsCreatePairOpen(true)
-        break
-      case 'settings':
-        setIsPairSettingsOpen(true)
-        break
-    }
-  }
-
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
       <div className="flex h-full flex-col">
@@ -377,9 +360,6 @@ function App(): React.ReactNode {
                     }
                   }}
                 />
-                <Suspense fallback={null}>
-                  <QuickActionsFAB onAction={handleQuickAction} />
-                </Suspense>
               </>
             )}
           </ErrorBoundary>

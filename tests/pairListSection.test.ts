@@ -30,6 +30,12 @@ test('PairListSection exports PairListSection component', () => {
 })
 
 test('PairListSection groups pairs by status', () => {
-  assert.match(pairListSection, /filter/)
-  assert.match(pairListSection, /isPairActive/)
+  assert.match(pairListSection, /buildPairGroups/)
+  assert.match(pairListSection, /group\.pairs/)
+})
+
+test('PairListSection owns the create-pair call to action in the pairs area', () => {
+  assert.match(pairListSection, /onCreatePair/)
+  assert.match(pairListSection, /<Plus/)
+  assert.match(pairListSection, /quickActions\.create/)
 })

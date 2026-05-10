@@ -41,10 +41,36 @@
     "archived": "{{count}}개 보관됨",
     "readyForNewTask": "새 작업 준비 완료",
     "delete": "삭제",
-    "deleting": "삭제 중..."
+    "deleting": "삭제 중...",
+    "groups": {
+      "attention": "주의 필요",
+      "active": "활성",
+      "paused": "일시 중지됨",
+      "ready": "준비됨",
+      "completed": "완료됨"
+    },
+    "card": {
+      "turns": "턴",
+      "cpu": "CPU",
+      "memory": "MB",
+      "files": "파일"
+    },
+    "insights": {
+      "title": "운영 현황",
+      "description": "현재 상태, 리소스 사용량, 사람이 판단해야 하는 페어를 보여줍니다.",
+      "attention": "주의",
+      "running": "실행 중",
+      "cpu": "CPU",
+      "memory": "메모리",
+      "workspaces": "작업 공간",
+      "changedFiles": "변경 파일",
+      "needsAttention": "주의 필요",
+      "noAttention": "지금은 사람이 개입해야 하는 페어가 없습니다."
+    }
   },
   "emptyState": {
     "title": "페어 컨테이너가 없습니다",
+    "description": "페어를 만들면 <mentor>Mentor</mentor>가 계획하고 검토하며 <executor>Executor</executor>가 선택한 작업 공간에서 실행합니다.",
     "mentorDesc": "작업을 분석하고 실행기 출력을 검토",
     "handoffDesc": "에이전트가 자동으로 제어를 교환",
     "executorDesc": "계획을 실행하고 결과를 보고",

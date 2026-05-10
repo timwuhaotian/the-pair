@@ -367,7 +367,7 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     name: snapshot.name,
     directory: snapshot.directory,
     createdAt: snapshot.createdAt,
-    status: snapshot.status,
+    status: normalizePairStatus(snapshot.status) ?? 'Idle',
     iterations: snapshot.iterations,
     maxIterations: snapshot.maxIterations,
     cpuUsage: snapshot.cpuUsage,

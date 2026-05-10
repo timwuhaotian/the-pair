@@ -7,20 +7,20 @@ const source = await readFile(
   'utf8'
 )
 
-test('QuickActionsFAB exports QuickActionsFAB component', () => {
-  assert.match(source, /export function QuickActionsFAB\(/)
+const app = await readFile(new URL('../src/renderer/src/App.tsx', import.meta.url), 'utf8')
+
+test('QuickActionsFAB only exposes wired dashboard actions', () => {
+  assert.match(source, /onAction\('create'\)/)
+  assert.doesNotMatch(source, /id: 'settings'/)
+  assert.doesNotMatch(source, /id: 'help'/)
+  assert.doesNotMatch(source, /id: 'shortcuts'/)
 })
 
-test('QuickActionsFAB uses framer-motion for animations', () => {
-  assert.match(source, /framer-motion/)
+test('QuickActionsFAB invokes create directly instead of opening a dead menu', () => {
+  assert.match(source, /onAction\('create'\)/)
+  assert.doesNotMatch(source, /setIsOpen/)
 })
 
-test('QuickActionsFAB has fixed bottom-right positioning', () => {
-  assert.match(source, /fixed/)
-  assert.match(source, /bottom/)
-  assert.match(source, /right/)
-})
-
-test('QuickActionsFAB menu items include create pair action', () => {
-  assert.match(source, /[Cc]reate|onAction/)
+test('dashboard no longer mounts the floating quick action create button', () => {
+  assert.doesNotMatch(app, /<QuickActionsFAB/)
 })

@@ -2,8 +2,7 @@ import React from 'react'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { isPairActive } from '../lib/pairStatus'
 import { StatCards } from './StatCards'
-import { EmptyStateGuide } from './EmptyStateGuide'
-import { RecentActivityPanel } from './RecentActivityPanel'
+import { DashboardInsightPanel } from './DashboardInsightPanel'
 import { PairListSection } from './PairListSection'
 
 export function Dashboard({
@@ -45,28 +44,22 @@ export function Dashboard({
           className="mb-6"
         />
 
-        {/* Empty state or list + activity */}
-        {pairs.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center">
-            <EmptyStateGuide onCreatePair={onCreatePair} />
+        <div className="flex flex-1 gap-6 overflow-hidden">
+          <div className="w-full overflow-hidden xl:w-2/3">
+            <PairListSection
+              pairs={pairs}
+              onSelectPair={onSelectPair}
+              onPausePair={onPausePair}
+              onResumePair={onResumePair}
+              onDeletePair={onDeletePair}
+              onCreatePair={onCreatePair}
+              deletingPairId={deletingPairId}
+            />
           </div>
-        ) : (
-          <div className="flex flex-1 gap-6 overflow-hidden">
-            <div className="w-full overflow-hidden xl:w-2/3">
-              <PairListSection
-                pairs={pairs}
-                onSelectPair={onSelectPair}
-                onPausePair={onPausePair}
-                onResumePair={onResumePair}
-                onDeletePair={onDeletePair}
-                deletingPairId={deletingPairId}
-              />
-            </div>
-            <div className="hidden w-1/3 overflow-hidden xl:block">
-              <RecentActivityPanel />
-            </div>
+          <div className="hidden w-1/3 overflow-hidden xl:block">
+            <DashboardInsightPanel pairs={pairs} />
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
