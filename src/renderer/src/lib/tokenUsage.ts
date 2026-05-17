@@ -17,6 +17,7 @@ export interface TokenUsageTurnCard {
   updatedAt: number
   finalizedAt?: number
   tokenUsage?: TurnTokenUsage
+  cognitiveEvents?: unknown[]
 }
 
 export interface TokenUsageMessage {
@@ -28,6 +29,9 @@ export interface TokenUsageMessage {
   content: string
   iteration: number
   tokenUsage?: TurnTokenUsage
+  cognitiveEvents?: unknown[]
+  startedAt?: number
+  finalizedAt?: number
 }
 
 export function turnCardToMessage(
@@ -49,7 +53,10 @@ export function turnCardToMessage(
     type,
     content: card.content,
     iteration,
-    tokenUsage: card.tokenUsage
+    tokenUsage: card.tokenUsage,
+    cognitiveEvents: card.cognitiveEvents,
+    startedAt: card.startedAt,
+    finalizedAt: card.finalizedAt ?? card.updatedAt
   }
 }
 

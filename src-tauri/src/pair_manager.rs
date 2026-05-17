@@ -598,14 +598,14 @@ fn build_live_resume_prompt(
 
         let mentor_msg = last_mentor.unwrap_or_default();
         format!(
-            "### ROLE: EXECUTOR\n\
-Continue the previously paused session.\n\
-- DO NOT create a new plan.\n\
-- DO NOT review your own work.\n\
-- Keep going from the restored context.\n\
-- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n\
-- Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.\n\n\
---- COMMAND TO EXECUTE ---\n{}\n",
+            "You're resuming a paused pair-programming session as the executor. Carry out the plan below — \
+treat it as direct actions to perform right now, not a roadmap to comment on.\n\n\
+A few constraints:\n\
+- Do the next concrete action the plan calls for; do not restate, summarize, or narrate the plan back.\n\
+- If the plan asks for specific output text, reply with exactly that text — no preface, no commentary, no status reports like \"awaiting…\" or \"instruction is set to…\".\n\
+- Keep going from the restored context; do not create a new plan or review your own work.\n\
+- You cannot declare the task complete — only the reviewer can finish the workflow, so do not output TASK_COMPLETE.\n\n\
+PLAN\n{}\n",
             mentor_msg
         )
     } else {
@@ -629,11 +629,10 @@ Continue the previously paused session.\n\
             .cloned()
             .unwrap_or_else(|| task_spec.to_string());
         format!(
-            "### ROLE: MENTOR\n\
-Continue the restored review session.\n\
-- DO NOT execute files or commands.\n\
-- Review the executor's work and decide whether the task is complete.\n\n\
---- REVIEW REQUEST ---\n{}\n",
+            "You're resuming a paused pair-programming session as the reviewer. Read what the executor just did and decide whether the task is done or needs another pass.\n\n\
+For this review turn, focus on analysis — no need to run commands or edit files.\n\n\
+If you're satisfied the task is complete, include TASK_COMPLETE somewhere in your reply so the orchestrator stops the workflow. Otherwise, write a refined plan describing what the executor should do next.\n\n\
+EXECUTOR OUTPUT\n{}\n",
             executor_msg
         )
     }
@@ -1019,10 +1018,65 @@ mod tests {
     fn build_mentor_planning_prompt_requires_actionable_steps_and_keeps_task_in_view() {
         let prompt = build_mentor_planning_prompt("Add a dark mode toggle");
 
-        assert!(prompt.contains("ROLE: MENTOR"));
         assert!(prompt.contains("Add a dark mode toggle"));
-        assert!(prompt.contains("numbered executable steps"));
-        assert!(prompt.contains("DO NOT execute it yourself"));
+        assert!(prompt.to_lowercase().contains("numbered plan"));
+        assert!(prompt.to_lowercase().contains("planning"));
+        // Avoid role-play / anti-introspection markers that trip modern model safety filters.
+        assert!(!prompt.contains("### ROLE:"));
+        assert!(!prompt.contains("DO NOT"));
+    }
+
+    #[test]
+    fn build_live_resume_prompt_for_executor_treats_plan_as_direct_actions() {
+        let prompt = build_live_resume_prompt(
+            "executor",
+            "Smoke test spec",
+            Some("Instruction to executor: \"Send Greeting 1/3\"".to_string()),
+            None,
+            None,
+        );
+
+        // Action framing — the executor should DO the plan, not narrate it back.
+        let lower = prompt.to_lowercase();
+        assert!(
+            lower.contains("direct actions"),
+            "resume prompt should frame the plan as direct actions"
+        );
+        assert!(
+            lower.contains("do not restate, summarize, or narrate"),
+            "resume prompt should forbid restating the plan"
+        );
+        assert!(
+            lower.contains("reply with exactly that text"),
+            "resume prompt should require exact-text output for text-only tasks"
+        );
+        // Mentor's instruction body still flows through verbatim so the executor sees what to do.
+        assert!(
+            prompt.contains("Send Greeting 1/3"),
+            "mentor message body should be embedded in the resume prompt"
+        );
+        // TASK_COMPLETE remains reserved for the mentor.
+        assert!(prompt.contains("TASK_COMPLETE"));
+    }
+
+    #[test]
+    fn build_live_resume_prompt_for_mentor_uses_softer_review_framing() {
+        let prompt = build_live_resume_prompt(
+            "mentor",
+            "Implement feature X",
+            None,
+            Some("Greeting 2/3".to_string()),
+            None,
+        );
+
+        // Executor body still flows through verbatim.
+        assert!(prompt.contains("Greeting 2/3"));
+        // Mentor is told TASK_COMPLETE is how it ends the workflow.
+        assert!(prompt.contains("TASK_COMPLETE"));
+        assert!(prompt.contains("EXECUTOR OUTPUT"));
+        // Avoid role-play / anti-introspection markers that trip modern model safety filters.
+        assert!(!prompt.contains("### ROLE:"));
+        assert!(!prompt.contains("DO NOT"));
     }
 
     fn sample_input() -> CreatePairInput {

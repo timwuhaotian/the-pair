@@ -26,6 +26,13 @@
     "title": "The Pair",
     "newTask": "새 작업",
     "newPair": "새 페어",
+    "clearSession": "세션 지우기",
+    "clearSessionHint": "이 페어의 채팅 기록 지우기",
+    "clearSessionDisabledBusy": "지우기 전에 페어를 일시 중지하거나 중지하세요",
+    "clearSessionDisabledEmpty": "아직 지울 내용이 없습니다",
+    "clearSessionConfirmTitle": "\"{{name}}\" 세션을 지우시겠습니까?",
+    "clearSessionConfirmMessage": "이 페어의 채팅 기록을 지웁니다. 작업 공간, 모델, Git 변경 사항은 그대로 유지됩니다.",
+    "clearSessionConfirmAction": "지우기",
     "modelsQueued": "모델 대기 중",
     "detectingModels": "모델 감지 중...",
     "modelsReady": "{{ready}}/{{total}}개의 모델이 페어 실행 준비 완료",
@@ -42,6 +49,13 @@
     "readyForNewTask": "새 작업 준비 완료",
     "delete": "삭제",
     "deleting": "삭제 중...",
+    "pairs": {
+      "title": "Pairs"
+    },
+    "console": {
+      "empty": "페어를 선택해 콘솔을 확인하세요",
+      "emptyHint": "왼쪽 목록에서 페어를 선택하거나 새로 만들어보세요."
+    },
     "groups": {
       "attention": "주의 필요",
       "active": "활성",
@@ -241,7 +255,16 @@
     "searchingCode": "코드 검색",
     "reasoning": "추론 중",
     "processingError": "오류 처리 중",
-    "processing": "처리 중"
+    "processing": "처리 중",
+    "clearHistory": "채팅 기록 지우기",
+    "taskInputPlaceholder": "페어에 새 작업 입력...",
+    "viewingArchived": "보관된 실행 보기"
+  },
+  "panel": {
+    "modelsUpdateHint": "저장 후 적용",
+    "saved": "저장됨",
+    "saving": "저장 중...",
+    "saveFailed": "저장 실패"
   },
   "activity": {
     "stalled": "정체됨",

@@ -14,24 +14,20 @@ export function TimelineIterationGroup({
   isLast
 }: TimelineIterationGroupProps): React.JSX.Element {
   return (
-    <div className={cn(!isLast && 'pb-4 border-b border-border/30 mb-4')}>
-      {/* Iteration header */}
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
-          Iteration {group.iteration}
-        </span>
-        <span className="text-[9px] font-mono text-muted-foreground/50">
+    <div className={cn('font-mono', !isLast && 'pb-3 border-b border-border/30 mb-3')}>
+      <div className="mb-1 flex items-baseline gap-2 text-[10px] uppercase tracking-[0.16em]">
+        <span className="text-foreground/80">── iter {group.iteration}</span>
+        <span className="text-muted-foreground-faint tabular-nums">
           {formatDuration(group.durationMs)}
         </span>
         {group.totalTokens > 0 && (
-          <span className="text-[9px] font-mono text-muted-foreground/50">
-            {formatTokenCount(group.totalTokens)} tok
+          <span className="text-muted-foreground-faint tabular-nums">
+            · {formatTokenCount(group.totalTokens)} tok
           </span>
         )}
       </div>
 
-      {/* Events */}
-      <div className="pl-1">
+      <div className="pl-[2ch]">
         {group.events.map((event, idx) => (
           <TimelineEventItem
             key={event.id}

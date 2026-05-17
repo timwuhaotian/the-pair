@@ -452,71 +452,52 @@ pub fn build_mentor_acceptance_prompt(
     executor_result: &str,
     acceptance: &AcceptanceRecord,
 ) -> String {
-    let is_smoke = task_spec.contains("This is a smoke test of the pair execution loop")
-        && task_spec.contains("Each time the executor sends a greeting");
-
-    let mut parts: Vec<String> = vec![
-        "### ROLE: MENTOR".to_string(),
-        "Your mission is ONLY to REVIEW and emit a structured acceptance verdict.".to_string(),
-        "- DO NOT execute commands or edit files.".to_string(),
-        "- Return STRICT JSON ONLY. No markdown, no prose, no code fences.".to_string(),
-        "- Use exactly this schema:".to_string(),
+    let parts: Vec<String> = vec![
+        "You're reviewing the other agent's latest work in an automated pair-programming workflow. Read the executor output and the automated check results below, then return your assessment as a JSON block the workflow can parse.".to_string(),
+        "".to_string(),
+        "For this review turn, focus on analysis — no need to run commands or edit files.".to_string(),
+        "".to_string(),
+        "Reply with a JSON object using this schema (the orchestrator parses it):".to_string(),
+        "".to_string(),
         "{".to_string(),
-        "  \"verdict\": \"pass | fail\",".to_string(),
-        "  \"risk\": \"low | medium | high\",".to_string(),
-        "  \"confidence\": 0.95,".to_string(),
-        "  \"issues\": [\"Issue 1\", \"Issue 2\"],".to_string(),
-        "  \"evidence\": [\"Evidence 1\", \"Evidence 2\"],".to_string(),
-        "  \"reasoning\": \"Detailed explanation of assessment\",".to_string(),
-        "  \"summary\": \"Brief summary\",".to_string(),
+        "  \"verdict\": \"pass\" | \"fail\",".to_string(),
+        "  \"risk\": \"low\" | \"medium\" | \"high\",".to_string(),
+        "  \"confidence\": 0.0-1.0,".to_string(),
+        "  \"issues\": [\"...\"],".to_string(),
+        "  \"evidence\": [\"...\"],".to_string(),
+        "  \"reasoning\": \"...\",".to_string(),
+        "  \"summary\": \"...\",".to_string(),
         "  \"nextStep\": {".to_string(),
-        "    \"action\": \"continue | finish\",".to_string(),
+        "    \"action\": \"continue\" | \"finish\",".to_string(),
         "    \"instructions\": [\"...\"]".to_string(),
         "  }".to_string(),
         "}".to_string(),
         "".to_string(),
-        "- confidence: number 0.0-1.0 (0.8+ required to finish)".to_string(),
-        "- issues: array of strings (empty if no issues)".to_string(),
-        "- evidence: array of supporting evidence strings".to_string(),
-        "- reasoning: detailed assessment explanation".to_string(),
-        "- If action is \"continue\", include concrete executor instructions.".to_string(),
-        "- If action is \"finish\", instructions must be an empty array.".to_string(),
+        "Notes:".to_string(),
+        "- confidence ≥ 0.8 is required to finish.".to_string(),
+        "- If nextStep.action is \"continue\", include concrete instructions for what the executor should do next.".to_string(),
+        "- If nextStep.action is \"finish\", instructions should be an empty array.".to_string(),
+        "- If you're finishing the workflow, add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.".to_string(),
         "".to_string(),
+        "TASK".to_string(),
+        task_spec.trim().to_string(),
+        "".to_string(),
+        "EXECUTOR OUTPUT".to_string(),
+        executor_result.trim().to_string(),
+        "".to_string(),
+        "AUTOMATED CHECKS".to_string(),
+        serde_json::to_string_pretty(acceptance).unwrap_or_else(|_| "{}".to_string()),
     ];
-
-    if is_smoke {
-        parts.push("SMOKE TEST MODE:".to_string());
-        parts.push("- This is a 3-round greeting test. The task requires exactly 3 greetings.".to_string());
-        parts.push("- Check what greeting number the Executor sent. Look for \"Greeting 1\", \"Greeting 2\", \"Greeting 3\" etc.".to_string());
-        parts.push("- If greeting 1 or 2: FAIL verdict, risk=low, action=continue, instructions=[\"Send Greeting {N+1}/3\"]".to_string());
-        parts.push("- If greeting 3: PASS verdict, risk=low, action=finish, confidence=1.0, instructions=[]. After the JSON, output TASK_COMPLETE on its own line.".to_string());
-        parts.push("- Include \"Greeting N/3 received\" in your response text (outside the JSON).".to_string());
-        parts.push("".to_string());
-    }
-
-    parts.push("### TASK SPEC".to_string());
-    parts.push(task_spec.trim().to_string());
-    parts.push("".to_string());
-    parts.push("### EXECUTOR RESULT".to_string());
-    parts.push(executor_result.trim().to_string());
-    parts.push("".to_string());
-    parts.push("### ACCEPTANCE REPORT".to_string());
-    parts.push(serde_json::to_string_pretty(acceptance).unwrap_or_else(|_| "{}".to_string()));
 
     parts.join("\n")
 }
 
 pub fn build_mentor_acceptance_repair_prompt(error: &str) -> String {
-    [
-        "### ROLE: MENTOR".to_string(),
-        "Your last review output was not valid acceptance JSON.".to_string(),
-        "- Return STRICT JSON ONLY.".to_string(),
-        "- Do not include markdown, prose, or code fences.".to_string(),
-        format!("Validation error: {}", error.trim()),
-        "".to_string(),
-        "Return the corrected acceptance verdict now.".to_string(),
-    ]
-    .join("\n")
+    format!(
+        "The orchestrator couldn't parse your previous reply as the expected assessment JSON. Reply again with the JSON block in the schema described earlier — same fields, valid JSON, no surrounding prose.\n\n\
+Parser error: {}",
+        error.trim()
+    )
 }
 
 pub fn build_executor_acceptance_followup_prompt(
@@ -526,17 +507,14 @@ pub fn build_executor_acceptance_followup_prompt(
     _acceptance: &AcceptanceRecord,
 ) -> String {
     let mut lines = vec![
-        "### ROLE: EXECUTOR".to_string(),
-        "Your mission is ONLY to EXECUTE the acceptance follow-up.".to_string(),
-        "- DO NOT create a new plan.".to_string(),
-        "- DO NOT review your own work.".to_string(),
-        "- Output exactly the requested instruction result.".to_string(),
-        "- For text-only instructions, return only that exact text.".to_string(),
-        "- Do not append acknowledgements, TASK_COMPLETE, explanations, or completion reports."
-            .to_string(),
-        "- If a requested tool or method is unavailable to you, immediately continue with alternative text-based approaches instead of stopping. Briefly state the limitation only when it blocks exact execution.".to_string(),
+        "The reviewer asked for some adjustments to your previous turn. Carry them out and report what you did.".to_string(),
         "".to_string(),
-        "### FOLLOW-UP INSTRUCTIONS".to_string(),
+        "A few constraints for this turn:".to_string(),
+        "- Treat each instruction below as a direct task to carry out.".to_string(),
+        "- For text-only instructions, output exactly the text the reviewer asked for — no commentary, no completion markers. Do not append TASK_COMPLETE (only the reviewer ends the workflow).".to_string(),
+        "- If a tool is unavailable, fall back to a close text-based equivalent and briefly note the limitation only if it blocks you.".to_string(),
+        "".to_string(),
+        "ADJUSTMENTS".to_string(),
     ];
 
     for (index, instruction) in verdict.next_step.instructions.iter().enumerate() {
@@ -710,15 +688,15 @@ mod tests {
             &acceptance,
         );
 
-        assert!(prompt.contains("Output exactly the requested instruction result"));
-        assert!(prompt.contains("return only that exact text"));
-        assert!(prompt.contains("Do not append"));
+        assert!(prompt.contains("output exactly the text the reviewer asked for"));
+        assert!(prompt.contains("Do not append TASK_COMPLETE"));
         assert!(prompt.contains("TASK_COMPLETE"));
+        assert!(prompt.contains("Send Greeting 3/3"));
         assert!(!prompt.contains("Greeting 2/3 received"));
         assert!(!prompt.contains("One more greeting is required"));
         assert!(!prompt.contains("### ACCEPTANCE REPORT"));
         assert!(!prompt.contains("### PREVIOUS EXECUTOR RESULT"));
-        assert!(!prompt.contains("report what changed"));
+        assert!(!prompt.contains("### ROLE:"));
     }
 
     #[test]
@@ -748,6 +726,79 @@ mod tests {
             names,
             vec!["git diff --check", "npm run typecheck", "npm run test"]
         );
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_handles_greeting_pass_verdict() {
+        let verdict = super::parse_acceptance_verdict(
+            r#"{
+                "verdict": "pass",
+                "risk": "low",
+                "confidence": 0.95,
+                "evidence": ["Greeting 3/3 received", "All greetings completed successfully"],
+                "summary": "All three greetings have been sent",
+                "nextStep": {
+                    "action": "finish",
+                    "instructions": []
+                }
+            }"#,
+        )
+        .expect("greeting pass verdict should parse");
+
+        assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Pass);
+        assert_eq!(verdict.risk, AcceptanceRisk::Low);
+        assert!((verdict.confidence - 0.95).abs() < 0.001);
+        assert!(verdict.evidence.contains(&"Greeting 3/3 received".to_string()));
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+        assert!(verdict.next_step.instructions.is_empty());
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_handles_greeting_fail_verdict() {
+        let verdict = super::parse_acceptance_verdict(
+            r#"{
+                "verdict": "fail",
+                "risk": "low",
+                "confidence": 0.6,
+                "issues": ["Only 2 of 3 greetings completed"],
+                "evidence": ["Greeting 1/3 received", "Greeting 2/3 received"],
+                "summary": "Missing final greeting",
+                "nextStep": {
+                    "action": "continue",
+                    "instructions": ["Send Greeting 3/3"]
+                }
+            }"#,
+        )
+        .expect("greeting fail verdict should parse without error");
+
+        assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Fail);
+        assert_eq!(verdict.risk, AcceptanceRisk::Low);
+        assert!((verdict.confidence - 0.6).abs() < 0.001);
+        assert!(verdict.evidence.contains(&"Greeting 1/3 received".to_string()));
+        assert!(verdict.evidence.contains(&"Greeting 2/3 received".to_string()));
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Continue);
+        assert_eq!(
+            verdict.next_step.instructions,
+            vec!["Send Greeting 3/3".to_string()]
+        );
+    }
+
+    #[test]
+    fn should_stop_iteration_returns_true_for_finish_action() {
+        let verdict = AcceptanceVerdict {
+            verdict: AcceptanceVerdictDecision::Pass,
+            risk: AcceptanceRisk::Medium,
+            confidence: 0.85,
+            issues: vec![],
+            evidence: vec!["Greeting 3/3 received".to_string()],
+            reasoning: "All greetings completed".to_string(),
+            summary: "Task complete".to_string(),
+            next_step: AcceptanceNextStep {
+                action: AcceptanceNextAction::Finish,
+                instructions: vec![],
+            },
+        };
+        assert!(super::should_stop_iteration(&verdict));
     }
 
     #[test]

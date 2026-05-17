@@ -26,26 +26,24 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback
-      }
+      if (this.props.fallback) return this.props.fallback
 
       return (
-        <div className="flex h-full w-full items-center justify-center bg-background p-8">
-          <div className="max-w-2xl rounded-2xl border border-red-500/20 bg-red-500/10 p-6">
-            <h2 className="mb-4 text-xl font-bold text-red-600 dark:text-red-400">
-              Something went wrong
+        <div className="flex h-full w-full items-center justify-center bg-background p-8 font-mono">
+          <div className="max-w-2xl border border-state-error bg-state-error/10 p-5 rounded-sm">
+            <h2 className="mb-3 text-[13px] uppercase tracking-[0.14em] state-error font-bold">
+              ✗ unhandled exception
             </h2>
-            <pre className="overflow-auto rounded-lg bg-background/50 p-4 text-xs text-foreground">
+            <pre className="overflow-auto scrollbar-thin border border-border bg-background/40 p-3 text-[11px] leading-relaxed text-foreground/85 [overflow-wrap:anywhere]">
               {this.state.error?.toString()}
               {'\n\n'}
               {this.state.error?.stack}
             </pre>
             <button
               onClick={() => window.location.reload()}
-              className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 cursor-pointer"
+              className="mt-3 inline-flex items-center gap-1.5 border border-foreground bg-foreground text-background px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.12em] rounded-sm cursor-pointer hover:bg-foreground/90 transition-colors"
             >
-              Reload Application
+              ▸ reload application
             </button>
           </div>
         </div>

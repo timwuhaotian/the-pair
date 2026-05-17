@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
-  CheckCircle2,
   FolderOpen,
   ExternalLink,
   Rocket,
@@ -17,7 +16,6 @@ import { usePairStore } from '../store/usePairStore'
 import { useThemeStore } from '../store/useThemeStore'
 import type { AvailableModel, PairPreset } from '../types'
 import { GlassButton } from './ui/GlassButton'
-import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
@@ -246,36 +244,43 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   }, [providerSummary.isReady, directory, name, spec, mentorModel, executorModel])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background grain-overlay">
-      <div className="glass-toolbar app-drag shrink-0 border-b border-border/40 px-6 py-2.5 lg:px-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <img src={appIcon} alt="The Pair" className="h-7 w-7 rounded-md object-contain" />
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold tracking-tight text-foreground">The Pair</span>
-              <span className="shrink-0 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                v{appVersion}
-              </span>
-              <span className="hidden text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
-                · Setup Wizard
-              </span>
-            </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-background font-mono">
+      <div className="app-chrome app-drag shrink-0 px-5 py-2 lg:px-8">
+        <div className="mx-auto flex max-w-7xl items-baseline justify-between gap-4">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <img
+              src={appIcon}
+              alt="The Pair"
+              className="h-5 w-5 rounded-sm object-contain translate-y-1"
+            />
+            <span aria-hidden className="text-foreground/70 select-none">
+              {'>_'}
+            </span>
+            <span className="text-[12px] font-bold tracking-[0.06em] text-foreground">
+              the-pair
+            </span>
+            <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground-faint">
+              v{appVersion}
+            </span>
+            <span className="hidden text-[10px] uppercase tracking-[0.16em] text-muted-foreground-faint sm:inline">
+              · setup wizard
+            </span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-baseline gap-2">
             <button
               onClick={toggleTheme}
-              className="app-no-drag rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground cursor-pointer"
-              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              className="app-no-drag h-7 w-7 inline-flex items-center justify-center rounded-sm border border-border bg-transparent text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:border-foreground/40 hover:text-foreground cursor-pointer"
+              title={`switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             >
-              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
+              {theme === 'light' ? <Moon size={12} /> : <Sun size={12} />}
             </button>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
         <div className="mx-auto max-w-7xl px-6 py-5 lg:px-8 lg:py-6">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             <WelcomeCard
               summary={providerSummary}
               loading={isCheckingProviders}
@@ -285,11 +290,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             />
 
             <div>
-              <div className="mb-2 flex items-center gap-1.5">
-                <Sparkles size={11} className="text-primary" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                  Workflow Preset
-                </span>
+              <div className="mb-1 flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                <Sparkles size={10} className="state-running translate-y-px" />
+                <span>workflow preset</span>
               </div>
               <PresetPicker
                 presets={presets}
@@ -359,7 +362,8 @@ function WelcomeCard({
 
   const healthConfig = {
     ready: {
-      icon: <CheckCircle2 size={16} className="text-green-600 dark:text-green-400" />,
+      glyph: '✓',
+      tone: 'state-done',
       label: t('onboarding.allReady'),
       description:
         summary.readyProviderLabels.length > 1
@@ -370,62 +374,47 @@ function WelcomeCard({
           : t('onboarding.allReadyDesc', {
               count: summary.readyModelCount,
               providers: summary.readyProviderLabels.length
-            }),
-      bgClass: 'bg-green-500/15 dark:bg-green-500/20',
-      borderClass: 'border-green-500/25 dark:border-green-500/30',
-      textClass: 'text-green-700 dark:text-green-300'
+            })
     },
     partial: {
-      icon: <AlertCircle size={16} className="text-amber-600 dark:text-amber-400" />,
+      glyph: '!',
+      tone: 'state-running',
       label: t('onboarding.partialConfig'),
       description:
         summary.readyModelCount > 1
           ? t('onboarding.partialConfigDesc_plural', { count: summary.readyModelCount })
-          : t('onboarding.partialConfigDesc', { count: summary.readyModelCount }),
-      bgClass: 'bg-amber-500/15 dark:bg-amber-500/20',
-      borderClass: 'border-amber-500/25 dark:border-amber-500/30',
-      textClass: 'text-amber-700 dark:text-amber-300'
+          : t('onboarding.partialConfigDesc', { count: summary.readyModelCount })
     },
     none: {
-      icon: <AlertCircle size={16} className="text-red-600 dark:text-red-400" />,
+      glyph: '✗',
+      tone: 'state-error',
       label: t('onboarding.noProviders'),
-      description: t('onboarding.noProvidersDesc'),
-      bgClass: 'bg-red-500/15 dark:bg-red-500/20',
-      borderClass: 'border-red-500/25 dark:border-red-500/30',
-      textClass: 'text-red-700 dark:text-red-300'
+      description: t('onboarding.noProvidersDesc')
     }
   }
 
   const config = healthConfig[healthState]
 
   return (
-    <GlassCard className="flex items-center gap-3 px-4 py-3">
-      <div
-        className={cn(
-          'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border',
-          config.bgClass,
-          config.borderClass
-        )}
-      >
-        <div className="scale-90">{config.icon}</div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          {t('onboarding.systemHealth')}
-        </span>
-        <span className="h-px w-4 bg-border/70" />
-      </div>
+    <div className="flex items-baseline gap-3 border border-border bg-background/40 px-3 py-2 font-mono text-[12px]">
+      <span aria-hidden className={cn('w-[1ch] tabular-nums select-none', config.tone)}>
+        {config.glyph}
+      </span>
+      <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+        {t('onboarding.systemHealth')}
+      </span>
+      <span className="text-muted-foreground-faint shrink-0">·</span>
       <div className="flex-1 min-w-0">
-        <span className={cn('font-semibold text-xs', config.textClass)}>{config.label}</span>
-        <span className="text-[11px] text-muted-foreground"> — {config.description}</span>
+        <span className={cn('font-bold', config.tone)}>{config.label}</span>
+        <span className="text-muted-foreground text-[11px]"> — {config.description}</span>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         <GlassButton
           variant="ghost"
           size="sm"
           onClick={onRefresh}
           disabled={loading || isOpening}
-          icon={<RefreshCw size={11} className={loading ? 'animate-spin' : ''} />}
+          icon={<RefreshCw size={10} className={loading ? 'animate-spin' : ''} />}
         >
           {t('common.refresh')}
         </GlassButton>
@@ -435,13 +424,13 @@ function WelcomeCard({
             size="sm"
             onClick={onOpenConfig}
             disabled={isOpening}
-            icon={<ExternalLink size={11} />}
+            icon={<ExternalLink size={10} />}
           >
             {isOpening ? t('onboarding.opening') : t('onboarding.openConfig')}
           </GlassButton>
         )}
       </div>
-    </GlassCard>
+    </div>
   )
 }
 
@@ -459,38 +448,37 @@ function DirectoryCard({
 }): React.ReactNode {
   const { t } = useTranslation()
   return (
-    <GlassCard className="flex h-full flex-col p-5 space-y-3">
+    <div className="flex h-full flex-col border border-border rounded-sm p-4 font-mono space-y-3 bg-background/40">
       <CardHeader
         eyebrow={t('common.workspace')}
         title={t('onboarding.chooseWorkspace')}
         description={t('onboarding.workspaceDesc')}
       />
 
-      <GlassButton
-        variant="secondary"
+      <button
+        type="button"
         onClick={onSelectDirectory}
-        className="w-full h-auto flex flex-col items-center gap-2.5 py-5 flex-1"
+        className="flex flex-col items-start gap-2 border border-dashed border-border bg-background/40 px-3 py-3 text-left hover:border-foreground/40 hover:bg-foreground/[0.04] transition-colors cursor-pointer rounded-sm flex-1"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-muted">
-          <FolderOpen size={20} className="text-foreground/40" />
+        <div className="flex items-baseline gap-2">
+          <FolderOpen size={12} className="text-muted-foreground translate-y-px" />
+          <span className="text-[12px] text-foreground/90">
+            {directory
+              ? `▸ ${t('onboarding.changeDirectory').toLowerCase()}`
+              : `▸ ${t('onboarding.selectFolder').toLowerCase()}`}
+          </span>
         </div>
-        <div className="text-center space-y-1">
-          <p className="font-medium text-sm text-foreground">
-            {directory ? t('onboarding.changeDirectory') : t('onboarding.selectFolder')}
+        {directory ? (
+          <p className="text-[11px] text-foreground/75 [overflow-wrap:anywhere]" title={directory}>
+            {directory}
           </p>
-          {directory && (
-            <p className="text-xs text-muted-foreground font-mono bg-muted px-3 py-1.5 rounded-lg inline-block">
-              {directory}
-            </p>
-          )}
-          {!directory && (
-            <p className="text-xs text-muted-foreground">{t('onboarding.folderHint')}</p>
-          )}
-        </div>
-      </GlassButton>
+        ) : (
+          <p className="text-[10px] text-muted-foreground-faint">· {t('onboarding.folderHint')}</p>
+        )}
+      </button>
 
       {directory && <BranchPicker directory={directory} value={branch} onChange={onBranchChange} />}
-    </GlassCard>
+    </div>
   )
 }
 
@@ -523,16 +511,16 @@ function TaskSpecCard({
 }): React.ReactNode {
   const { t } = useTranslation()
   return (
-    <GlassCard className="flex h-full flex-col p-5 space-y-3">
+    <div className="flex h-full flex-col border border-border rounded-sm p-4 font-mono space-y-3 bg-background/40">
       <CardHeader
         eyebrow={t('common.task')}
         title={t('onboarding.taskSpec')}
         description={t('onboarding.taskSpecDesc')}
       />
 
-      <div className="space-y-3 flex-1 flex flex-col">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-foreground">
+      <div className="space-y-2 flex-1 flex flex-col">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {t('onboarding.pairName')}
           </label>
           <input
@@ -540,12 +528,12 @@ function TaskSpecCard({
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder={t('onboarding.pairNamePlaceholder')}
-            className="w-full rounded-xl glass-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm"
           />
         </div>
 
-        <div className="relative flex-1 flex flex-col">
-          <label className="mb-1 block text-xs font-medium text-foreground">
+        <div className="relative flex-1 flex flex-col gap-1">
+          <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {t('onboarding.taskDescription')}
           </label>
           <textarea
@@ -554,10 +542,10 @@ function TaskSpecCard({
             onChange={(e) => onSpecChange(e.target.value)}
             placeholder={t('onboarding.taskPlaceholder')}
             rows={4}
-            className="w-full resize-none rounded-xl glass-card px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-h-[120px]"
+            className="w-full resize-none px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint leading-relaxed focus:outline-none focus:border-foreground/60 rounded-sm flex-1 min-h-[120px]"
           />
           {directory && (
-            <div className="absolute right-2 top-6 flex items-center gap-1">
+            <div className="absolute right-1 top-[26px] flex items-center gap-0.5">
               <SkillPicker projectDir={directory} onSelect={onSkillSelect} />
               <FileMention
                 textareaRef={textareaRef}
@@ -567,15 +555,15 @@ function TaskSpecCard({
               />
             </div>
           )}
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {t('onboarding.charsHint', { count: spec.length })}
+          <p className="text-[10px] text-muted-foreground-faint">
+            · {t('onboarding.charsHint', { count: spec.length })}
           </p>
 
-          <div className="mt-3 pt-3 border-t border-border/40 flex flex-col gap-2">
+          <div className="mt-2 pt-2 border-t border-border flex flex-col gap-1.5">
             {error && (
-              <div className="flex items-center gap-1.5 text-xs text-destructive">
-                <AlertCircle size={13} />
-                {error}
+              <div className="flex items-baseline gap-1.5 text-[11px] state-error">
+                <AlertCircle size={11} className="translate-y-px" />
+                <span>✗ {error}</span>
               </div>
             )}
             <button
@@ -583,24 +571,20 @@ function TaskSpecCard({
               onClick={onLaunch}
               disabled={!canLaunch || isCreating}
               className={cn(
-                'relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl border px-6 py-2 text-sm font-semibold tracking-wide transition-all duration-200 cursor-pointer',
-                'bg-gradient-to-b from-zinc-200 via-zinc-300 to-zinc-400',
-                'dark:from-zinc-400 dark:via-zinc-600 dark:to-zinc-800',
-                'border-zinc-400/60 dark:border-zinc-500/50',
-                'text-zinc-800 dark:text-zinc-100',
-                'shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_3px_rgba(0,0,0,0.18)]',
-                'dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_3px_rgba(0,0,0,0.4)]',
-                'hover:brightness-105 active:brightness-95 active:scale-[0.98]',
+                'w-full inline-flex items-center justify-center gap-2 border border-foreground bg-foreground text-background px-4 py-2 text-[12px] font-bold uppercase tracking-[0.12em] rounded-sm transition-colors duration-150 cursor-pointer',
+                'hover:bg-foreground/90',
                 (!canLaunch || isCreating) && 'cursor-not-allowed opacity-40'
               )}
             >
-              <Rocket size={13} className="shrink-0" />
-              {isCreating ? t('onboarding.launching') : t('onboarding.launch')}
+              <Rocket size={12} className="shrink-0" />▸{' '}
+              {isCreating
+                ? t('onboarding.launching').toLowerCase()
+                : t('onboarding.launch').toLowerCase()}
             </button>
           </div>
         </div>
       </div>
-    </GlassCard>
+    </div>
   )
 }
 
@@ -620,7 +604,7 @@ function ModelCard({
 }): React.ReactNode {
   const { t } = useTranslation()
   return (
-    <GlassCard className="flex h-full flex-col space-y-3 p-5">
+    <div className="flex h-full flex-col border border-border rounded-sm p-4 font-mono space-y-3 bg-background/40">
       <CardHeader
         eyebrow={t('common.models')}
         title={t('onboarding.modelSelection')}
@@ -644,7 +628,7 @@ function ModelCard({
           dropUp
         />
       </div>
-    </GlassCard>
+    </div>
   )
 }
 
@@ -658,15 +642,13 @@ function CardHeader({
   description: string
 }): React.ReactNode {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[9px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          {eyebrow}
-        </span>
-        <span className="h-px flex-1 bg-border/70" />
+    <div className="space-y-1">
+      <div className="flex items-baseline gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        <span>── {eyebrow.toLowerCase()}</span>
+        <span className="flex-1 tty-divider" />
       </div>
       <div>
-        <h3 className="text-xs font-semibold tracking-tight text-foreground">{title}</h3>
+        <h3 className="text-[12px] font-bold text-foreground/90">{title}</h3>
         <p className="text-[10px] leading-relaxed text-muted-foreground">{description}</p>
       </div>
     </div>

@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Languages, Check } from 'lucide-react'
+import { Languages } from 'lucide-react'
 import { useLocaleStore, SupportedLocale, LOCALE_LABELS } from '../store/useLocaleStore'
 import { cn } from '../lib/utils'
 
@@ -13,13 +12,14 @@ export function LanguageSwitcher(): React.ReactNode {
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const ref = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const updatePosition = useCallback(() => {
     if (!btnRef.current) return
     const rect = btnRef.current.getBoundingClientRect()
-    const panelHeight = 260
+    const panelHeight = 220
     const top = rect.bottom + 4
-    const left = Math.max(8, rect.right - 192)
+    const left = Math.max(8, rect.right - 180)
     if (top + panelHeight > window.innerHeight) {
       setPosition({ top: rect.top - panelHeight - 4, left })
     } else {
@@ -36,8 +36,11 @@ export function LanguageSwitcher(): React.ReactNode {
   }, [open, updatePosition])
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    const handler = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (ref.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -48,63 +51,59 @@ export function LanguageSwitcher(): React.ReactNode {
       <button
         ref={btnRef}
         onClick={() => setOpen(!open)}
-        className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground cursor-pointer"
-        title="Switch language"
+        className="flex h-7 w-7 items-center justify-center rounded-sm border border-border bg-transparent text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:border-foreground/40 hover:text-foreground cursor-pointer"
+        title="switch language"
         data-testid="chrome-language-toggle"
       >
-        <Languages size={16} />
+        <Languages size={13} />
       </button>
 
       {createPortal(
-        <AnimatePresence>
-          {open && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="fixed inset-0 z-[9998]"
-                onClick={() => setOpen(false)}
-              />
-              <motion.div
-                initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                className="fixed z-[9999] w-48 rounded-2xl border border-border/60 bg-background/95 p-1.5 shadow-xl backdrop-blur-xl"
-                style={{ top: position.top, left: position.left }}
-              >
-                <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                  Language
-                </div>
-                {LOCALES.map((l) => {
-                  const isActive = locale === l
-                  const meta = LOCALE_LABELS[l]
-                  return (
-                    <button
-                      key={l}
-                      onClick={() => {
-                        setLocale(l)
-                        setOpen(false)
-                      }}
+        open ? (
+          <>
+            <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+            <div
+              ref={panelRef}
+              className="fixed z-[9999] w-44 rounded-sm border border-border bg-popover p-1 font-mono"
+              style={{ top: position.top, left: position.left }}
+            >
+              <div className="px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                ── language ──
+              </div>
+              {LOCALES.map((l) => {
+                const isActive = locale === l
+                const meta = LOCALE_LABELS[l]
+                return (
+                  <button
+                    key={l}
+                    onClick={() => {
+                      setLocale(l)
+                      setOpen(false)
+                    }}
+                    className={cn(
+                      'flex w-full items-baseline gap-2 px-2 py-1 text-[12px] transition-colors cursor-pointer rounded-sm',
+                      isActive
+                        ? 'bg-foreground/[0.08] text-foreground'
+                        : 'text-foreground/85 hover:bg-foreground/[0.05]'
+                    )}
+                  >
+                    <span
+                      aria-hidden
                       className={cn(
-                        'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition-colors',
-                        isActive
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-foreground hover:bg-muted/60'
+                        'w-[1ch] select-none',
+                        isActive ? 'role-mentor' : 'text-muted-foreground-faint'
                       )}
                     >
-                      <span className="text-base">{meta.flag}</span>
-                      <span className="flex-1 text-left font-medium">{meta.native}</span>
-                      {isActive && <Check size={14} className="text-primary" />}
-                    </button>
-                  )
-                })}
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>,
+                      {isActive ? '●' : '○'}
+                    </span>
+                    <span className="text-base leading-none">{meta.flag}</span>
+                    <span className="flex-1 text-left">{meta.native}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        ) : null,
         document.body
       )}
     </div>

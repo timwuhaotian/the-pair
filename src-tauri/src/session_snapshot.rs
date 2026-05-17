@@ -249,14 +249,14 @@ fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
         .unwrap_or_default();
 
     let mut prompt = String::from(
-        "### ROLE: EXECUTOR\n\
- Continue the previously restored session and keep executing the task.\n\
- - DO NOT create a new plan.\n\
- - DO NOT review your own work.\n\
- - Keep going from the restored context.\n\
- - You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n\
- - Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.\n\n\
- --- COMMAND TO EXECUTE ---\n",
+        "You're picking up a restored pair-programming session as the executor. Carry out the plan below — \
+treat it as direct actions to perform right now, not a roadmap to comment on.\n\n\
+A few constraints:\n\
+- Do the next concrete action the plan calls for; do not restate, summarize, or narrate the plan back.\n\
+- If the plan asks for specific output text, reply with exactly that text — no preface, no commentary, no status reports like \"awaiting…\" or \"instruction is set to…\".\n\
+- Just carry out the steps; the reviewer will check the work after.\n\
+- The workflow decides when to stop, not you — don't add TASK_COMPLETE to your reply.\n\n\
+PLAN\n",
     );
 
     if last_mentor_message.is_empty() {
@@ -303,11 +303,9 @@ fn build_mentor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
             }
 
             let mut prompt = String::from(
-                "### ROLE: MENTOR\n\
- Continue the restored review session.\n\
- - DO NOT execute files or commands.\n\
- - Review the executor's work and decide whether the task is complete.\n\n\
- --- REVIEW REQUEST ---\n",
+                "You're picking up a restored pair-programming session as the reviewer. Read what the executor just did and decide whether the task is done or needs another pass.\n\n\
+If you're satisfied the task is complete, include TASK_COMPLETE somewhere in your reply so the orchestrator stops the workflow. Otherwise, describe what should happen next.\n\n\
+EXECUTOR OUTPUT\n",
             );
             if last_executor_message.is_empty() {
                 prompt.push_str(&snapshot.spec);
@@ -991,6 +989,52 @@ pub fn read_snapshot(app: &AppHandle, pair_id: &str) -> Result<SessionSnapshotRe
     read_json(&path)
 }
 
+/// Apply the on-load transformations for a persisted snapshot: reset live
+/// activity / running statuses to Idle and drop any in-flight turn card.
+/// Messages and run history are intentionally preserved so reopening a pair
+/// shows the previous conversation; `assignTask` is what archives them into
+/// `run_history` for a new run.
+fn prepare_loaded_snapshot(
+    snapshot: SessionSnapshotRecord,
+) -> (PairState, SessionSnapshotRecord) {
+    let mut state = build_pair_state(&snapshot);
+    let idle = idle_activity();
+    state.mentor_activity = idle.clone();
+    state.executor_activity = idle.clone();
+    state.mentor.activity = idle.clone();
+    state.executor.activity = idle.clone();
+
+    if matches!(
+        state.status,
+        PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
+    ) {
+        state.status = PairStatus::Idle;
+        state.mentor.status = PairStatus::Idle;
+        state.executor.status = PairStatus::Idle;
+    }
+
+    let mut snapshot_with_idle = snapshot;
+    snapshot_with_idle.mentor_activity = idle.clone();
+    snapshot_with_idle.executor_activity = idle;
+    if matches!(
+        snapshot_with_idle.status,
+        PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
+    ) {
+        snapshot_with_idle.status = PairStatus::Idle;
+    }
+    if matches!(
+        snapshot_with_idle.status,
+        PairStatus::Idle | PairStatus::Finished
+    ) {
+        // The live turn card represents in-progress work; drop it when the pair
+        // is no longer actively running so we don't render a stale "running"
+        // placeholder on top of preserved history.
+        snapshot_with_idle.current_turn_card = None;
+    }
+
+    (state, snapshot_with_idle)
+}
+
 /// Load all persisted pairs into the backend state on startup.
 /// Returns the full snapshot records so the frontend can populate its store.
 #[tauri::command]
@@ -1021,48 +1065,8 @@ pub fn load_all_pairs(
         };
 
         let pair = build_pair(&snapshot);
-        let mut state = build_pair_state(&snapshot);
-        let context = build_process_context(&snapshot);
-
-        // Reset activity to Idle when loading existing pairs
-        let idle = idle_activity();
-        state.mentor_activity = idle.clone();
-        state.executor_activity = idle.clone();
-        state.mentor.activity = idle.clone();
-        state.executor.activity = idle.clone();
-
-        // Reset running status to Idle
-        if matches!(
-            state.status,
-            PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
-        ) {
-            state.status = PairStatus::Idle;
-            state.mentor.status = PairStatus::Idle;
-            state.executor.status = PairStatus::Idle;
-        }
-
-        // Clear messages and turn card for Idle/Finished pairs
-        if matches!(state.status, PairStatus::Idle | PairStatus::Finished) {
-            state.messages.clear();
-        }
-
-        // Also update the snapshot that will be returned to frontend
-        let mut snapshot_with_idle = snapshot.clone();
-        snapshot_with_idle.mentor_activity = idle.clone();
-        snapshot_with_idle.executor_activity = idle;
-        if matches!(
-            snapshot_with_idle.status,
-            PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
-        ) {
-            snapshot_with_idle.status = PairStatus::Idle;
-        }
-        if matches!(
-            snapshot_with_idle.status,
-            PairStatus::Idle | PairStatus::Finished
-        ) {
-            snapshot_with_idle.messages.clear();
-            snapshot_with_idle.current_turn_card = None;
-        }
+        let (state, snapshot_with_idle) = prepare_loaded_snapshot(snapshot);
+        let context = build_process_context(&snapshot_with_idle);
 
         {
             let mut manager = pair_manager.lock().map_err(|e| e.to_string())?;
@@ -1355,7 +1359,11 @@ mod tests {
         );
 
         let prompt = build_resume_prompt(&snapshot);
-        assert!(prompt.contains("Continue the previously restored session"));
+        let lower = prompt.to_lowercase();
+        assert!(lower.contains("direct actions"));
+        assert!(lower.contains("do not restate, summarize, or narrate"));
+        assert!(lower.contains("reply with exactly that text"));
+        assert!(prompt.contains("PLAN\n"));
         assert!(prompt.contains("Implement the parser"));
         assert!(!prompt.contains("Fallback task spec"));
     }
@@ -1384,7 +1392,8 @@ mod tests {
         );
 
         let prompt = build_resume_prompt(&snapshot);
-        assert!(prompt.contains("Continue the restored review session"));
+        assert!(prompt.contains("EXECUTOR OUTPUT"));
+        assert!(prompt.contains("TASK_COMPLETE"));
         assert!(prompt.contains("The feature is ready"));
     }
 
@@ -1426,6 +1435,54 @@ mod tests {
         );
         assert!(summary.has_mentor_session);
         assert!(!summary.has_executor_session);
+    }
+
+    #[test]
+    fn prepare_loaded_snapshot_preserves_messages_for_finished_pair() {
+        let history = vec![
+            message(
+                "msg-1",
+                MessageSender::Mentor,
+                MessageType::Plan,
+                "Step 1: design the parser",
+                1,
+            ),
+            message(
+                "msg-2",
+                MessageSender::Executor,
+                MessageType::Result,
+                "TASK_COMPLETE",
+                1,
+            ),
+        ];
+        let snap = snapshot(AgentRole::Mentor, PairStatus::Finished, history.clone());
+
+        let (state, returned) = prepare_loaded_snapshot(snap);
+
+        assert_eq!(state.messages.len(), history.len());
+        assert_eq!(returned.messages.len(), history.len());
+        assert_eq!(returned.messages[0].content, "Step 1: design the parser");
+        // Live turn card is transient — must not leak through to the console.
+        assert!(returned.current_turn_card.is_none());
+    }
+
+    #[test]
+    fn prepare_loaded_snapshot_demotes_running_status_but_keeps_history() {
+        let history = vec![message(
+            "msg-1",
+            MessageSender::Mentor,
+            MessageType::Plan,
+            "In-progress plan",
+            1,
+        )];
+        let snap = snapshot(AgentRole::Mentor, PairStatus::Mentoring, history.clone());
+
+        let (state, returned) = prepare_loaded_snapshot(snap);
+
+        assert!(matches!(state.status, PairStatus::Idle));
+        assert!(matches!(returned.status, PairStatus::Idle));
+        assert_eq!(state.messages.len(), history.len());
+        assert_eq!(returned.messages.len(), history.len());
     }
 
     #[test]

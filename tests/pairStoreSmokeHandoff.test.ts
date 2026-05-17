@@ -11,8 +11,25 @@ test('smoke preset is a self-contained spec template', () => {
     'smoke preset has no {task} placeholder'
   )
   assert.ok(
-    smoke.mentorPromptTemplate.includes('TASK_COMPLETE'),
+    smoke.mentorPromptTemplate.includes('Greeting N/3 received'),
     'smoke preset contains task instructions'
+  )
+  assert.ok(
+    smoke.mentorPromptTemplate.includes('First mentor planning turn'),
+    'smoke preset defines the initial mentor planning turn'
+  )
+  assert.ok(
+    smoke.mentorPromptTemplate.includes('Send Greeting 1/3'),
+    'smoke preset starts by asking the executor for the first greeting'
+  )
+  assert.ok(
+    smoke.mentorPromptTemplate.includes('continue') &&
+      smoke.mentorPromptTemplate.includes('Send Greeting 2/3'),
+    'smoke preset keeps greeting 1/3 as an incomplete review'
+  )
+  assert.ok(
+    smoke.mentorPromptTemplate.includes('TASK_COMPLETE'),
+    'smoke preset ends only after the third greeting'
   )
 
   const built = buildSpecFromPreset(smoke, 'check greeting handoff robustness')

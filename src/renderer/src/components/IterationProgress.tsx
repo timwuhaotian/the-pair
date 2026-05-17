@@ -7,57 +7,54 @@ interface IterationProgressProps {
   max: number
   adaptiveBudget?: number
   className?: string
+  /** Number of cells in the ASCII bar (default 20). */
+  cells?: number
 }
 
 export function IterationProgress({
   current,
   max,
   adaptiveBudget,
-  className
+  className,
+  cells = 20
 }: IterationProgressProps): React.ReactNode {
   const { t } = useTranslation()
   const effectiveMax = adaptiveBudget ?? max
-  const percentage = Math.min((current / effectiveMax) * 100, 100)
+  const filled = Math.min(Math.round((current / Math.max(effectiveMax, 1)) * cells), cells)
+  const empty = cells - filled
+  const percentage = Math.min((current / Math.max(effectiveMax, 1)) * 100, 100)
   const isNearLimit = percentage >= 80
   const isAtLimit = current >= effectiveMax
 
+  const stateClass = isAtLimit
+    ? 'state-error'
+    : isNearLimit
+      ? 'state-running'
+      : 'text-foreground/85'
+
   return (
-    <div className={cn('space-y-1.5', className)}>
-      <div className="flex items-center justify-between text-[10px]">
-        <span className="font-medium text-muted-foreground">
+    <div className={cn('space-y-1 font-mono text-[11px]', className)}>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
           {t(
             adaptiveBudget != null && adaptiveBudget !== max
               ? 'errors.iterationsAdaptive'
               : 'errors.iterations'
           )}
         </span>
-        <span
-          className={cn(
-            'font-mono font-semibold',
-            isAtLimit
-              ? 'text-red-600 dark:text-red-400'
-              : isNearLimit
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-foreground/70'
-          )}
-        >
+        <span className={cn('tabular-nums', stateClass)}>
           {current}/{effectiveMax}
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            'h-full rounded-full transition-all duration-500',
-            isAtLimit ? 'bg-red-500' : isNearLimit ? 'bg-amber-500' : 'bg-primary'
-          )}
-          style={{ width: `${percentage}%` }}
-        />
+      <div className={cn('flex items-baseline gap-0 tabular-nums', stateClass)}>
+        <span aria-hidden>[</span>
+        <span aria-hidden className="select-none">
+          {'█'.repeat(filled)}
+          <span className="text-muted-foreground/30">{'░'.repeat(empty)}</span>
+        </span>
+        <span aria-hidden>]</span>
       </div>
-      {isAtLimit && (
-        <p className="text-[9px] text-red-600/70 dark:text-red-400/70">
-          {t('errors.iterationLimit')}
-        </p>
-      )}
+      {isAtLimit && <p className="text-[10px] state-error">{t('errors.iterationLimit')}</p>}
     </div>
   )
 }

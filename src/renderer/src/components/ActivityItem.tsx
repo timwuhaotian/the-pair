@@ -1,4 +1,4 @@
-import { CheckCircle, ArrowRightLeft, FileText } from 'lucide-react'
+import { cn } from '../lib/utils'
 
 export type ActivityType = 'status_change' | 'handoff' | 'result' | 'acceptance'
 
@@ -11,16 +11,11 @@ export interface Activity {
   role?: string
 }
 
-interface ActivityItemProps {
-  activity: Activity
-  className?: string
-}
-
-const iconMap: Record<ActivityType, React.ReactNode> = {
-  status_change: <CheckCircle size={14} className="text-green-500" />,
-  handoff: <ArrowRightLeft size={14} className="text-blue-500" />,
-  result: <FileText size={14} className="text-purple-500" />,
-  acceptance: <CheckCircle size={14} className="text-amber-500" />
+const GLYPH: Record<ActivityType, { char: string; tone: string }> = {
+  status_change: { char: '✓', tone: 'state-done' },
+  handoff: { char: '⇄', tone: 'role-mentor' },
+  result: { char: '▸', tone: 'role-executor' },
+  acceptance: { char: '◇', tone: 'state-running' }
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -35,17 +30,25 @@ function formatRelativeTime(timestamp: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+interface ActivityItemProps {
+  activity: Activity
+  className?: string
+}
+
 export function ActivityItem({ activity, className }: ActivityItemProps): React.ReactNode {
+  const g = GLYPH[activity.type]
   return (
-    <div className={`flex items-start gap-2 py-2 ${className || ''}`}>
-      <span className="mt-0.5 shrink-0">{iconMap[activity.type]}</span>
+    <div className={cn('flex items-baseline gap-2 py-1 font-mono text-[11px]', className)}>
+      <span aria-hidden className={cn('shrink-0 select-none w-[1ch] tabular-nums', g.tone)}>
+        {g.char}
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-xs text-foreground">
-          <span className="font-medium">{activity.pairName}</span>
+        <div className="text-foreground/85">
+          <span className="font-bold">{activity.pairName}</span>
           <span className="line-clamp-2 text-muted-foreground"> — {activity.description}</span>
         </div>
-        <div className="text-[10px] text-muted-foreground">
-          {formatRelativeTime(activity.timestamp)}
+        <div className="text-[10px] text-muted-foreground-faint">
+          · {formatRelativeTime(activity.timestamp)}
         </div>
       </div>
     </div>

@@ -1,20 +1,43 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+/**
+ * Terminal-flavored markdown renderer. No serif body fonts, no decorative
+ * radii — everything reads as a typed log entry. Inline + block code keep
+ * their own subtle surface treatment for legibility.
+ */
 export function MarkdownContent({ content }: { content: string }): React.ReactNode {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h1 className="text-lg font-bold">{children}</h1>,
-        h2: ({ children }) => <h2 className="text-base font-semibold">{children}</h2>,
-        h3: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,
-        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-        ul: ({ children }) => <ul className="mb-2 list-disc pl-5">{children}</ul>,
-        ol: ({ children }) => <ol className="mb-2 list-decimal pl-5">{children}</ol>,
-        li: ({ children }) => <li className="mb-1">{children}</li>,
+        h1: ({ children }) => (
+          <h1 className="mb-1 text-[14px] font-bold uppercase tracking-[0.08em] text-foreground">
+            ── {children}
+          </h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="mb-1 mt-2 text-[13px] font-bold uppercase tracking-[0.06em] text-foreground">
+            ─ {children}
+          </h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-[0.04em] text-foreground/90">
+            {children}
+          </h3>
+        ),
+        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 ml-1 space-y-0.5">{children}</ul>,
+        ol: ({ children }) => (
+          <ol className="mb-2 ml-1 space-y-0.5 list-decimal pl-5">{children}</ol>
+        ),
+        li: ({ children }) => (
+          <li className="leading-relaxed pl-4 relative before:absolute before:left-0 before:top-0 before:text-muted-foreground-faint before:content-['·']">
+            {children}
+          </li>
+        ),
         blockquote: ({ children }) => (
-          <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic text-foreground/80">
+          <blockquote className="my-2 border-l-2 border-border pl-3 text-foreground/75">
             {children}
           </blockquote>
         ),
@@ -22,13 +45,13 @@ export function MarkdownContent({ content }: { content: string }): React.ReactNo
           const isBlock = className?.includes('language-')
           if (isBlock) {
             return (
-              <code className="block overflow-x-auto rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-[12px] leading-relaxed">
+              <code className="block overflow-x-auto border border-border bg-background/40 px-3 py-2 text-[12px] leading-relaxed rounded-sm">
                 {children}
               </code>
             )
           }
           return (
-            <code className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[12px]">
+            <code className="border border-border bg-foreground/[0.06] px-1 py-px text-[12px] rounded-sm">
               {children}
             </code>
           )
@@ -39,22 +62,25 @@ export function MarkdownContent({ content }: { content: string }): React.ReactNo
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="text-primary underline decoration-primary/50 underline-offset-2"
+            className="role-mentor underline underline-offset-2 hover:text-foreground"
           >
             {children}
           </a>
         ),
         table: ({ children }) => (
-          <table className="my-2 w-full border-collapse overflow-hidden rounded-lg text-[12px]">
-            {children}
-          </table>
+          <table className="my-2 w-full border-collapse text-[12px]">{children}</table>
         ),
         th: ({ children }) => (
-          <th className="border border-border/60 bg-muted/50 px-2 py-1 text-left font-semibold">
+          <th className="border border-border bg-foreground/[0.05] px-2 py-1 text-left font-bold uppercase tracking-[0.08em] text-[10px]">
             {children}
           </th>
         ),
-        td: ({ children }) => <td className="border border-border/50 px-2 py-1">{children}</td>
+        td: ({ children }) => (
+          <td className="border border-border px-2 py-1 align-baseline">{children}</td>
+        ),
+        hr: () => <hr className="my-2 tty-divider" />,
+        strong: ({ children }) => <strong className="font-bold text-foreground">{children}</strong>,
+        em: ({ children }) => <em className="not-italic text-foreground/85">{children}</em>
       }}
     >
       {content}

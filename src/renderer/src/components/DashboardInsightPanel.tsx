@@ -1,5 +1,6 @@
-import { AlertTriangle, Cpu, FolderKanban, GitBranch, MemoryStick, Radio } from 'lucide-react'
+import { AlertTriangle, Cpu, GitBranch, MemoryStick, Radio } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '../lib/utils'
 import { type Pair } from '../store/usePairStore'
 import { buildPairGroups, buildPairInsights } from '../lib/dashboardPairs'
 import { StatusBadge } from './StatusBadge'
@@ -18,100 +19,120 @@ export function DashboardInsightPanel({
   const attentionPairs =
     buildPairGroups(pairs).find((group) => group.key === 'attention')?.pairs ?? []
 
-  const metrics = [
+  const metrics: Array<{
+    label: string
+    value: string | number
+    tone: string
+    icon: React.ReactNode
+  }> = [
     {
       label: t('dashboard.insights.attention'),
       value: insights.needsAttention,
-      icon: <AlertTriangle size={14} />
+      tone: insights.needsAttention > 0 ? 'state-error' : 'text-muted-foreground',
+      icon: <AlertTriangle size={11} />
     },
     {
       label: t('dashboard.insights.running'),
       value: insights.running,
-      icon: <Radio size={14} />
+      tone: insights.running > 0 ? 'state-done' : 'text-muted-foreground',
+      icon: <Radio size={11} />
     },
     {
       label: t('dashboard.insights.cpu'),
       value: `${insights.cpuUsage}%`,
-      icon: <Cpu size={14} />
+      tone: 'text-foreground/90',
+      icon: <Cpu size={11} />
     },
     {
       label: t('dashboard.insights.memory'),
       value: `${insights.memUsage} MB`,
-      icon: <MemoryStick size={14} />
+      tone: 'text-foreground/90',
+      icon: <MemoryStick size={11} />
     }
   ]
 
   return (
     <aside
-      className={`glass-card flex h-full flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-card/80 p-4 shadow-sm ${className || ''}`}
+      className={cn(
+        'flex h-full flex-col gap-3 overflow-hidden border-l border-border bg-background/40 px-4 py-3 font-mono',
+        className
+      )}
     >
       <div>
-        <h2 className="text-sm font-semibold text-foreground">{t('dashboard.insights.title')}</h2>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {t('dashboard.insights.description')}
+        <h2 className="text-[11px] uppercase tracking-[0.18em] text-foreground">
+          <span className="text-primary">──</span> {t('dashboard.insights.title')}{' '}
+          <span className="text-primary">──</span>
+        </h2>
+        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+          · {t('dashboard.insights.description')}
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="rounded-lg border border-border/60 bg-background/60 p-3"
-          >
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              {metric.icon}
-              <span className="text-[11px] font-medium uppercase tracking-wide">
-                {metric.label}
-              </span>
+          <div key={metric.label} className="border border-border bg-background/40 px-2 py-1.5">
+            <div className="flex items-baseline gap-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              <span className="translate-y-px">{metric.icon}</span>
+              <span>{metric.label}</span>
             </div>
-            <div className="mt-2 text-lg font-semibold tabular-nums text-foreground">
+            <div
+              className={cn('mt-0.5 text-[15px] tabular-nums font-bold leading-none', metric.tone)}
+            >
               {metric.value}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="rounded-lg border border-border/60 bg-background/60 p-3">
-        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <FolderKanban size={14} />
+      <div className="border border-border bg-background/40 px-3 py-2">
+        <div className="mb-2 flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <span aria-hidden className="text-muted-foreground-faint">
+            ▸
+          </span>
           {t('dashboard.insights.workspaces')}
         </div>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
           <div>
-            <div className="font-semibold text-foreground">{insights.workspaceCount}</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-foreground/90 tabular-nums font-bold">
+              {insights.workspaceCount}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
               {t('dashboard.insights.workspaces')}
             </div>
           </div>
           <div>
-            <div className="flex items-center gap-1 font-semibold text-foreground">
-              <GitBranch size={14} />
+            <div className="flex items-baseline gap-1 text-foreground/90 tabular-nums font-bold">
+              <GitBranch size={11} className="translate-y-px" />
               {insights.modifiedFiles}
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[10px] text-muted-foreground">
               {t('dashboard.insights.changedFiles')}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 rounded-lg border border-border/60 bg-background/60 p-3">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t('dashboard.insights.needsAttention')}
+      <div className="min-h-0 flex-1 border border-border bg-background/40 px-3 py-2 overflow-y-auto scrollbar-thin">
+        <h3 className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <span className="text-primary">──</span> {t('dashboard.insights.needsAttention')}{' '}
+          <span className="text-primary">──</span>
         </h3>
         {attentionPairs.length === 0 ? (
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {t('dashboard.insights.noAttention')}
+          <p className="text-[11px] leading-relaxed text-muted-foreground-faint">
+            — {t('dashboard.insights.noAttention')} —
           </p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {attentionPairs.slice(0, 4).map((pair) => (
-              <div key={pair.id} className="min-w-0 rounded-md border border-border/50 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-foreground">{pair.name}</span>
+              <div
+                key={pair.id}
+                className="min-w-0 border-l-2 border-state-error/40 bg-state-error/[0.04] px-2 py-1"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[12px] text-foreground/90">{pair.name}</span>
                   <StatusBadge status={pair.status} />
                 </div>
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
                   {pair.directory}
                 </div>
               </div>

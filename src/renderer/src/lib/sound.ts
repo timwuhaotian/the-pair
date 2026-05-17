@@ -1,58 +1,89 @@
 type SoundName = 'finish-chime' | 'error-alert' | 'pause-confirm'
 
-let audioElements: Map<SoundName, HTMLAudioElement> | null = null
-let muted = false
+const SOUND_SOURCES: Record<SoundName, string> = {
+  'finish-chime': '/sounds/finish-chime.mp3',
+  'error-alert': '/sounds/error-alert.mp3',
+  'pause-confirm': '/sounds/pause-confirm.mp3'
+}
+
+const MUTED_STORAGE_KEY = 'thePair.soundMuted'
+
+let audioTemplates: Map<SoundName, HTMLAudioElement> | null = null
+let muted = readPersistedMuted()
+
+function hasLocalStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+}
+
+function readPersistedMuted(): boolean {
+  if (!hasLocalStorage()) return false
+  try {
+    return window.localStorage.getItem(MUTED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writePersistedMuted(value: boolean): void {
+  if (!hasLocalStorage()) return
+  try {
+    window.localStorage.setItem(MUTED_STORAGE_KEY, String(value))
+  } catch {
+    // ignore quota / privacy errors
+  }
+}
 
 export function setMuted(value: boolean): void {
   muted = value
+  writePersistedMuted(value)
 }
 
 export function isMuted(): boolean {
   return muted
 }
 
-function getAudioElements(): Map<SoundName, HTMLAudioElement> {
-  if (!audioElements) {
-    audioElements = new Map()
+function getAudioTemplates(): Map<SoundName, HTMLAudioElement> {
+  if (!audioTemplates) {
+    audioTemplates = new Map()
   }
-  return audioElements
+  return audioTemplates
 }
 
 export function preloadSounds(): void {
   if (typeof window === 'undefined') return
 
-  const soundFiles: SoundName[] = ['finish-chime', 'error-alert', 'pause-confirm']
-
-  for (const name of soundFiles) {
+  for (const name of Object.keys(SOUND_SOURCES) as SoundName[]) {
     const audio = new Audio()
     audio.preload = 'auto'
-    audio.src = `/sounds/${name}.mp3`
-    getAudioElements().set(name, audio)
+    audio.src = SOUND_SOURCES[name]
+    getAudioTemplates().set(name, audio)
   }
+}
+
+function runFallbackSynth(name: SoundName): void {
+  const fallbackMap: Record<SoundName, () => void> = {
+    'finish-chime': playFinishChimeSynth,
+    'error-alert': playErrorAlertSynth,
+    'pause-confirm': playPauseConfirmSynth
+  }
+  fallbackMap[name]?.()
 }
 
 function playSound(name: SoundName): void {
   if (muted) return
   if (typeof window === 'undefined') return
 
-  const audio = getAudioElements().get(name)
-  if (audio) {
-    audio.currentTime = 0
-    audio.play().catch(() => {
-      const fallbackMap: Record<SoundName, () => void> = {
-        'finish-chime': playFinishChimeSynth,
-        'error-alert': playErrorAlertSynth,
-        'pause-confirm': playPauseConfirmSynth
-      }
-      fallbackMap[name]?.()
-    })
-  } else {
-    const fallbackMap: Record<SoundName, () => void> = {
-      'finish-chime': playFinishChimeSynth,
-      'error-alert': playErrorAlertSynth,
-      'pause-confirm': playPauseConfirmSynth
+  const template = getAudioTemplates().get(name)
+  if (template) {
+    // Clone so simultaneous fires (multiple pairs finishing at once) do not
+    // interrupt each other by rewinding the shared element.
+    const clone = template.cloneNode(true) as HTMLAudioElement
+    const playPromise = clone.play()
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => runFallbackSynth(name))
     }
-    fallbackMap[name]?.()
+  } else {
+    runFallbackSynth(name)
   }
 }
 
@@ -156,7 +187,7 @@ function playPauseConfirmSynth(): void {
 
 // Resume audio context on first user interaction
 if (typeof document !== 'undefined') {
-  const resumeAudio = () => {
+  const resumeAudio = (): void => {
     if (audioContext?.state === 'suspended') {
       void audioContext.resume()
     }

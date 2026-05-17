@@ -1,7 +1,6 @@
 /* eslint-disable react-hooks/purity */
 import React, { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { AgentActivity } from '../store/usePairStore'
 
@@ -31,85 +30,69 @@ export function ActivityIndicator({
     [activity.lastOutputAt]
   )
 
-  if (activity.phase === 'idle' || activity.phase === 'waiting') {
-    return null
-  }
+  if (activity.phase === 'idle' || activity.phase === 'waiting') return null
+
+  const base = 'inline-flex items-baseline gap-1 font-mono text-[10px] uppercase tracking-[0.14em]'
 
   if (activity.phase === 'stalled') {
     return (
-      <div
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5',
-          className
-        )}
-      >
-        <AlertTriangle size={10} className="text-red-400" />
-        <span className="text-[9px] font-medium text-red-400">
+      <span className={cn(base, 'state-error tty-blink', className)}>
+        <span aria-hidden>!</span>
+        <span>
           {t('activity.stalled')}
           {lastOutputAge > 0 && ` · ${formatDuration(lastOutputAge)} ${t('activity.noOutput')}`}
         </span>
-      </div>
+      </span>
     )
   }
 
   if (activity.phase === 'error') {
     return (
-      <div
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/8 px-2 py-0.5',
-          className
-        )}
-      >
-        <span className="text-[9px] font-medium text-red-400">{t('activity.error')}</span>
-      </div>
+      <span className={cn(base, 'state-error', className)}>
+        <span aria-hidden>✗</span>
+        <span>{t('activity.error')}</span>
+      </span>
     )
   }
 
   if (activity.phase === 'thinking') {
     return (
-      <div
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/8 px-2 py-0.5',
-          className
-        )}
-      >
-        <Loader2 size={9} className="animate-spin text-blue-400" />
-        <span className="text-[9px] font-medium text-blue-400">
+      <span className={cn(base, 'role-mentor', className)}>
+        <span aria-hidden className="tty-blink">
+          *
+        </span>
+        <span>
           {t('activity.thinking')}
           {elapsed > 0 && ` · ${formatDuration(elapsed)}`}
         </span>
-      </div>
+      </span>
     )
   }
 
   if (activity.phase === 'using_tools') {
     const label = activity.detail?.trim() || activity.label.trim() || t('activity.toolCall')
     return (
-      <div
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/8 px-2 py-0.5',
-          className
-        )}
-      >
-        <span className="text-[9px] font-medium text-amber-400">
+      <span className={cn(base, 'state-running', className)}>
+        <span aria-hidden className="tty-blink">
+          *
+        </span>
+        <span>
           {label}
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
             ? ` · ${activity.outputLineCount} ${t('activity.lines')}`
             : ''}
         </span>
-      </div>
+      </span>
     )
   }
 
   if (activity.phase === 'responding') {
     return (
-      <div
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-purple-500/25 bg-purple-500/8 px-2 py-0.5',
-          className
-        )}
-      >
-        <span className="text-[9px] font-medium text-purple-400">
+      <span className={cn(base, 'role-executor', className)}>
+        <span aria-hidden className="tty-blink">
+          *
+        </span>
+        <span>
           {t('activity.output')}
           {activity.outputLineCount !== undefined && activity.outputLineCount > 0
             ? ` · ${activity.outputLineCount} ${t('activity.lines')}`
@@ -119,7 +102,7 @@ export function ActivityIndicator({
             ? ` · ${t('activity.lastActivityAgo', { time: formatDuration(lastOutputAge) })}`
             : ''}
         </span>
-      </div>
+      </span>
     )
   }
 

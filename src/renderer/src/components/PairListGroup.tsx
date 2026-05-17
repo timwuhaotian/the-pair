@@ -1,14 +1,15 @@
 import { motion } from 'framer-motion'
-import { Cpu, MemoryStick, Pause, Play, Trash2, GitBranch } from 'lucide-react'
+import { Pause, Play, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { type Pair } from '../store/usePairStore'
-import { StatusBadge } from './StatusBadge'
 import { isPairActive } from '../lib/pairStatus'
 import { fadeInUp } from '../lib/animations'
+import { cn } from '../lib/utils'
 
 interface PairListGroupProps {
   title: string
   pairs: Pair[]
+  selectedPairId?: string | null
   onSelectPair: (pair: Pair) => void
   onPausePair: (pairId: string) => void
   onResumePair: (pairId: string) => void
@@ -17,9 +18,19 @@ interface PairListGroupProps {
   className?: string
 }
 
+function statusGlyph(pair: Pair): { glyph: string; tone: string } {
+  if (pair.status === 'Error') return { glyph: '✗', tone: 'state-error' }
+  if (pair.status === 'Finished') return { glyph: '✓', tone: 'state-done' }
+  if (pair.status === 'Paused' || pair.status === 'Awaiting Human Review')
+    return { glyph: '◌', tone: 'state-running' }
+  if (isPairActive(pair.status)) return { glyph: '●', tone: 'state-done' }
+  return { glyph: '○', tone: 'text-muted-foreground' }
+}
+
 export function PairListGroup({
   title,
   pairs,
+  selectedPairId,
   onSelectPair,
   onPausePair,
   onResumePair,
@@ -32,109 +43,109 @@ export function PairListGroup({
   if (pairs.length === 0) return null
 
   return (
-    <div className={className}>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
+    <div className={cn('space-y-1.5 pl-2', className)}>
+      <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground-faint pl-1">
+        {title} <span className="tabular-nums text-muted-foreground-faint">({pairs.length})</span>
       </h3>
-      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-        {pairs.map((pair) => (
-          <motion.div
-            key={pair.id}
-            variants={fadeInUp}
-            initial="hidden"
-            animate="visible"
-            className="group glass-card glass-card-hover cursor-pointer rounded-lg border border-border/60 px-4 py-3"
-            onClick={() => onSelectPair(pair)}
-          >
-            <div className="flex h-full flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <StatusBadge
-                  status={pair.status}
-                  stalled={
-                    (pair.turn === 'mentor' && pair.mentorActivity.phase === 'stalled') ||
-                    (pair.turn === 'executor' && pair.executorActivity.phase === 'stalled')
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-foreground">{pair.name}</div>
-                  <div
-                    className="truncate text-[11px] font-mono text-muted-foreground"
-                    title={pair.directory}
-                  >
-                    {pair.directory}
-                  </div>
-                </div>
+      <div className="space-y-1">
+        {pairs.map((pair) => {
+          const { glyph, tone } = statusGlyph(pair)
+          const stalled =
+            (pair.turn === 'mentor' && pair.mentorActivity.phase === 'stalled') ||
+            (pair.turn === 'executor' && pair.executorActivity.phase === 'stalled')
+          const isSelected = selectedPairId === pair.id
 
-                <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                  {pair.status === 'Paused' ? (
-                    <button
-                      aria-label="Resume pair"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onResumePair(pair.id)
-                      }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                    >
-                      <Play size={14} />
-                    </button>
-                  ) : isPairActive(pair.status) ? (
-                    <button
-                      aria-label="Pause pair"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onPausePair(pair.id)
-                      }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                    >
-                      <Pause size={14} />
-                    </button>
-                  ) : null}
-                  <button
-                    aria-label="Delete pair"
+          return (
+            <motion.button
+              key={pair.id}
+              type="button"
+              variants={fadeInUp}
+              initial="hidden"
+              animate="visible"
+              onClick={() => onSelectPair(pair)}
+              className={cn(
+                'group relative flex w-full items-center gap-2 px-2.5 py-2 text-left font-mono text-[12px] rounded-sm border transition-colors cursor-pointer',
+                isSelected
+                  ? 'bg-foreground/[0.07] text-foreground border-foreground/25'
+                  : 'border-border/45 bg-foreground/[0.015] hover:bg-foreground/[0.05] hover:border-border'
+              )}
+              aria-current={isSelected ? 'true' : undefined}
+            >
+              {isSelected && (
+                <span
+                  aria-hidden
+                  className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-foreground/70"
+                />
+              )}
+              <span
+                aria-hidden
+                className={cn(
+                  'shrink-0 w-[1ch] tabular-nums select-none text-[13px] leading-none',
+                  tone,
+                  stalled && 'state-error tty-blink'
+                )}
+                title={pair.status}
+              >
+                {stalled ? '!' : glyph}
+              </span>
+
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate',
+                  isSelected ? 'text-foreground' : 'text-foreground/90'
+                )}
+              >
+                {pair.name}
+              </span>
+
+              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground-faint">
+                {pair.iterations}/{pair.maxIterations}
+              </span>
+
+              <span className="flex shrink-0 items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                {pair.status === 'Paused' ? (
+                  <span
+                    role="button"
+                    aria-label={t('common.resume', { defaultValue: 'Resume' })}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onDeletePair(pair)
+                      onResumePair(pair.id)
                     }}
-                    disabled={deletingPairId === pair.id}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                    className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
                   >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground">
-                <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                  <div className="font-medium text-foreground tabular-nums">
-                    {pair.iterations}/{pair.maxIterations}
-                  </div>
-                  <div>{t('dashboard.card.turns')}</div>
-                </div>
-                <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                  <div className="flex items-center gap-1 font-medium text-foreground tabular-nums">
-                    <Cpu size={12} />
-                    {pair.cpuUsage.toFixed(1)}%
-                  </div>
-                  <div>{t('dashboard.card.cpu')}</div>
-                </div>
-                <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                  <div className="flex items-center gap-1 font-medium text-foreground tabular-nums">
-                    <MemoryStick size={12} />
-                    {Math.round(pair.memUsage)}
-                  </div>
-                  <div>{t('dashboard.card.memory')}</div>
-                </div>
-                <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                  <div className="flex items-center gap-1 font-medium text-foreground tabular-nums">
-                    <GitBranch size={12} />
-                    {pair.modifiedFiles.length}
-                  </div>
-                  <div>{t('dashboard.card.files')}</div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ))}
+                    <Play size={11} />
+                  </span>
+                ) : isPairActive(pair.status) ? (
+                  <span
+                    role="button"
+                    aria-label={t('common.pause', { defaultValue: 'Pause' })}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPausePair(pair.id)
+                    }}
+                    className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <Pause size={11} />
+                  </span>
+                ) : null}
+                <span
+                  role="button"
+                  aria-label={t('common.delete', { defaultValue: 'Delete' })}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeletePair(pair)
+                  }}
+                  className={cn(
+                    'p-1 text-muted-foreground hover:text-[var(--state-error)] cursor-pointer',
+                    deletingPairId === pair.id && 'opacity-40 pointer-events-none'
+                  )}
+                >
+                  <Trash2 size={11} />
+                </span>
+              </span>
+            </motion.button>
+          )
+        })}
       </div>
     </div>
   )

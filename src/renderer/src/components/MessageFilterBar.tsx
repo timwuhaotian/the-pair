@@ -16,40 +16,46 @@ export function MessageFilterBar({
   counts
 }: MessageFilterBarProps): React.ReactNode {
   const { t } = useTranslation()
-  const filters: { key: MessageFilter; labelKey: string; color: string }[] = [
-    { key: 'all', labelKey: 'console.all', color: 'text-muted-foreground' },
-    { key: 'mentor', labelKey: 'common.mentor', color: 'text-blue-600 dark:text-blue-400' },
-    { key: 'executor', labelKey: 'common.executor', color: 'text-purple-600 dark:text-purple-400' }
+  const filters: { key: MessageFilter; labelKey: string; activeClass: string }[] = [
+    {
+      key: 'all',
+      labelKey: 'console.all',
+      activeClass: 'text-foreground bg-foreground/10 border-foreground/30'
+    },
+    {
+      key: 'mentor',
+      labelKey: 'common.mentor',
+      activeClass: 'role-mentor bg-role-mentor border-role-mentor'
+    },
+    {
+      key: 'executor',
+      labelKey: 'common.executor',
+      activeClass: 'role-executor bg-role-executor border-role-executor'
+    }
   ]
 
   return (
-    <div className="flex items-center gap-1">
-      {filters.map(({ key, labelKey, color }) => (
-        <button
-          key={key}
-          onClick={() => onFilterChange(key)}
-          className={cn(
-            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-all cursor-pointer',
-            activeFilter === key
-              ? key === 'all'
-                ? 'bg-primary/15 text-primary border border-primary/25'
-                : key === 'mentor'
-                  ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/25'
-                  : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25'
-              : 'text-muted-foreground hover:bg-muted/40 border border-transparent'
-          )}
-        >
-          <span className={activeFilter === key ? color : ''}>{t(labelKey)}</span>
-          <span
+    <div className="flex items-center gap-1 font-mono">
+      {filters.map(({ key, labelKey, activeClass }) => {
+        const isActive = activeFilter === key
+        return (
+          <button
+            key={key}
+            onClick={() => onFilterChange(key)}
             className={cn(
-              'rounded-full px-1.5 py-0.5 text-[9px]',
-              activeFilter === key ? 'bg-background/60' : 'bg-muted/40'
+              'inline-flex items-baseline gap-1 rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-[0.12em] transition-colors cursor-pointer',
+              isActive
+                ? activeClass
+                : 'border-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground/80'
             )}
           >
-            {key === 'all' ? counts.all : counts[key]}
-          </span>
-        </button>
-      ))}
+            <span>{t(labelKey)}</span>
+            <span className={cn('tabular-nums', !isActive && 'text-muted-foreground-faint')}>
+              {key === 'all' ? counts.all : counts[key]}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -1,7 +1,5 @@
 import React from 'react'
 import { cn } from '../../lib/utils'
-import { motion } from 'framer-motion'
-import { Cpu, HardDrive } from 'lucide-react'
 
 interface ResourceMeterProps {
   cpu: number
@@ -9,34 +7,36 @@ interface ResourceMeterProps {
   className?: string
   compact?: boolean
   hideLabels?: boolean
+  cells?: number
 }
+
+const DEFAULT_CELLS = 14
 
 export function ResourceMeter({
   cpu,
   mem,
   className,
   compact,
-  hideLabels
+  hideLabels,
+  cells = DEFAULT_CELLS
 }: ResourceMeterProps): React.ReactNode {
   return (
-    <div className={cn('grid grid-cols-2', compact ? 'gap-1' : 'gap-3', className)}>
-      <MeterBar
-        icon={<Cpu size={compact ? 10 : 14} />}
-        label="CPU"
+    <div className={cn('font-mono space-y-1', className)}>
+      <MeterRow
+        label="cpu"
         value={cpu}
         max={100}
         unit="%"
-        color="blue"
+        cells={cells}
         compact={compact}
         hideLabel={hideLabels}
       />
-      <MeterBar
-        icon={<HardDrive size={compact ? 10 : 14} />}
-        label="MEM"
+      <MeterRow
+        label="mem"
         value={mem}
         max={8192}
         unit="MB"
-        color="purple"
+        cells={cells}
         compact={compact}
         hideLabel={hideLabels}
       />
@@ -44,107 +44,45 @@ export function ResourceMeter({
   )
 }
 
-interface MeterBarProps {
-  icon: React.ReactNode
+interface MeterRowProps {
   label: string
   value: number
   max: number
   unit: string
-  color: 'blue' | 'purple' | 'green' | 'amber'
+  cells: number
   compact?: boolean
   hideLabel?: boolean
 }
 
-function MeterBar({
-  icon,
+function MeterRow({
   label,
   value,
   max,
   unit,
-  color,
+  cells,
   compact,
   hideLabel
-}: MeterBarProps): React.ReactNode {
-  const percent = Math.min((value / max) * 100, 100)
-  const isVisible = percent >= 0.5
-
-  const colorMap = {
-    blue: {
-      bar: 'bg-blue-500 dark:bg-blue-400',
-      glow: 'shadow-blue-500/40 dark:shadow-blue-400/50',
-      text: 'text-blue-600 dark:text-blue-300'
-    },
-    purple: {
-      bar: 'bg-purple-500 dark:bg-purple-400',
-      glow: 'shadow-purple-500/40 dark:shadow-purple-400/50',
-      text: 'text-purple-600 dark:text-purple-300'
-    },
-    green: {
-      bar: 'bg-green-500 dark:bg-green-400',
-      glow: 'shadow-green-500/40 dark:shadow-green-400/50',
-      text: 'text-green-600 dark:text-green-300'
-    },
-    amber: {
-      bar: 'bg-amber-500 dark:bg-amber-400',
-      glow: 'shadow-amber-500/40 dark:shadow-amber-400/50',
-      text: 'text-amber-600 dark:text-amber-300'
-    }
-  }
-
-  const c = colorMap[color]
+}: MeterRowProps): React.ReactNode {
+  const ratio = Math.max(0, Math.min(value / max, 1))
+  const filled = Math.round(ratio * cells)
+  const empty = cells - filled
+  const isHigh = ratio >= 0.85
 
   return (
-    <div
-      className={cn(
-        'flex flex-col rounded-xl border border-border/60 bg-card/60 dark:bg-slate-800/60 backdrop-blur-sm',
-        compact ? 'p-1.5 gap-1' : 'p-3 gap-2'
+    <div className={cn('flex items-baseline gap-2', compact ? 'text-[10px]' : 'text-[11px]')}>
+      {!hideLabel && (
+        <span className="w-[3ch] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
       )}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1">
-          <span className={c.text}>{icon}</span>
-          {!hideLabel && (
-            <span
-              className={cn(
-                'font-medium text-muted-foreground uppercase tracking-wide',
-                compact ? 'text-[8px]' : 'text-[10px]'
-              )}
-            >
-              {label}
-            </span>
-          )}
-        </div>
-        <span
-          className={cn(
-            'font-mono font-semibold text-foreground',
-            compact ? 'text-[10px]' : 'text-sm'
-          )}
-        >
-          {value.toFixed(1)}
-          <span
-            className={cn('text-muted-foreground ml-0.5', compact ? 'text-[8px]' : 'text-[10px]')}
-          >
-            {unit}
-          </span>
-        </span>
-      </div>
-      <div
-        className={cn(
-          'rounded-full bg-muted overflow-hidden dark:bg-white/8',
-          compact ? 'h-0.5' : 'h-1'
-        )}
+      <span
+        className={cn('tabular-nums leading-none', isHigh ? 'state-running' : 'text-foreground/80')}
       >
-        {isVisible ? (
-          <motion.div
-            className={cn('h-full rounded-full shadow-lg', c.bar, c.glow)}
-            initial={{ width: 0 }}
-            animate={{ width: `${percent}%` }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-          />
-        ) : (
-          <div className="h-full w-0" />
-        )}
-      </div>
+        [{'█'.repeat(filled)}
+        <span className="text-muted-foreground/30">{'░'.repeat(empty)}</span>]
+      </span>
+      <span className={cn('ml-auto tabular-nums', isHigh ? 'state-running' : 'text-foreground/85')}>
+        {value.toFixed(1)}
+        <span className="ml-0.5 text-muted-foreground-faint">{unit}</span>
+      </span>
     </div>
   )
 }

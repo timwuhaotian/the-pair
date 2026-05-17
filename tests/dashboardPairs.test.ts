@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildPairGroups, buildPairInsights } from '../src/renderer/src/lib/dashboardPairs'
+import {
+  buildPairGroups,
+  buildPairInsights,
+  buildWorkspaceGroups
+} from '../src/renderer/src/lib/dashboardPairs'
 import type { Pair } from '../src/renderer/src/store/usePairStore'
 
 function pair(status: Pair['status'], overrides: Partial<Pair> = {}): Pair {
@@ -59,6 +63,31 @@ test('buildPairGroups keeps every status visible', () => {
   const groupedPairs = buildPairGroups(pairs).flatMap((group) => group.pairs)
 
   assert.deepEqual(groupedPairs.map((p) => p.status).sort(), pairs.map((p) => p.status).sort())
+})
+
+test('buildWorkspaceGroups buckets pairs by directory and subgroups by status', () => {
+  const pairs = [
+    pair('Mentoring', { name: 'a-running', directory: '/repo/alpha' }),
+    pair('Idle', { name: 'a-ready', directory: '/repo/alpha' }),
+    pair('Error', { name: 'b-err', directory: '/repo/beta' }),
+    pair('Finished', { name: 'b-done', directory: '/repo/beta/' })
+  ]
+
+  const groups = buildWorkspaceGroups(pairs)
+
+  assert.equal(groups.length, 3, 'each unique directory string forms its own workspace bucket')
+  const alpha = groups.find((g) => g.directory === '/repo/alpha')
+  assert.ok(alpha)
+  assert.equal(alpha.shortName, 'alpha')
+  assert.equal(alpha.pairs.length, 2)
+  assert.deepEqual(
+    alpha.statusGroups.map((g) => g.key),
+    ['active', 'ready']
+  )
+
+  const betaWithSlash = groups.find((g) => g.directory === '/repo/beta/')
+  assert.ok(betaWithSlash)
+  assert.equal(betaWithSlash.shortName, 'beta')
 })
 
 test('buildPairInsights summarizes useful dashboard context', () => {

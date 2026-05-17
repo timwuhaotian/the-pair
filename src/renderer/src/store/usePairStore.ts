@@ -32,7 +32,12 @@ import {
 } from '../lib/modelResolution'
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
+import {
+  buildInitialExecutorHandoffPrompt,
+  buildInitialMentorReviewPrompt
+} from '../lib/handoffPrompts'
 import { playFinishChime, playErrorAlert, playPauseConfirm } from '../lib/sound'
+import { resolvePairSoundCue, type PairSoundCue } from '../lib/pairSoundCue'
 import { extractErrorMessage } from '../lib/utils'
 import { isPairActive } from '../lib/pairStatus'
 
@@ -101,6 +106,12 @@ export interface Message {
   attachments?: { path: string; description: string }[]
   iteration: number
   tokenUsage?: TurnTokenUsage
+  /** Tool calls / reasoning events from the turn that produced this message — used for post-hoc step replay. */
+  cognitiveEvents?: CognitiveEvent[]
+  /** Wall-clock start of the turn (used to compute duration in chat-history display). */
+  startedAt?: number
+  /** Wall-clock end of the turn. */
+  finalizedAt?: number
 }
 
 export type CognitiveEventType = 'tool_call' | 'reasoning' | 'error'
@@ -300,6 +311,27 @@ interface PairStore {
 let _listenersInitialized = false
 let _modelsLoading = false
 const _handoffLocks = new Map<string, Promise<void>>()
+const _manualPauseTimestamps = new Map<string, number>()
+
+function dispatchPairSoundCue(cue: PairSoundCue): void {
+  switch (cue) {
+    case 'finish':
+      playFinishChime()
+      break
+    case 'attention':
+      // Reuse the finish chime: mentor delivered a verdict that needs review.
+      playFinishChime()
+      break
+    case 'pause':
+      playPauseConfirm()
+      break
+    case 'error':
+      playErrorAlert()
+      break
+    default:
+      break
+  }
+}
 
 function createIdleActivity(label: string): AgentActivity {
   const now = Date.now()
@@ -479,7 +511,11 @@ export function turnCardToMessage(card: TurnCard, iteration = 0): Message {
     type: castMessageType(result.type),
     content: result.content,
     iteration: result.iteration,
-    tokenUsage: result.tokenUsage
+    tokenUsage: result.tokenUsage,
+    cognitiveEvents:
+      (result.cognitiveEvents as CognitiveEvent[] | undefined) ?? card.cognitiveEvents,
+    startedAt: result.startedAt ?? card.startedAt,
+    finalizedAt: result.finalizedAt ?? card.finalizedAt ?? card.updatedAt
   }
 }
 
@@ -1128,12 +1164,14 @@ export const usePairStore = create<PairStore>((set) => ({
         })
       }))
 
-      if (prevStatus !== 'Finished' && nextStatus === 'Finished') {
-        playFinishChime()
-      }
-
-      if (prevStatus !== 'Error' && nextStatus === 'Error') {
-        playErrorAlert()
+      const cue = resolvePairSoundCue({
+        prevStatus: prevStatus as PairStatus | undefined,
+        nextStatus: nextStatus as PairStatus | undefined,
+        manualPauseAt: _manualPauseTimestamps.get(pairState.pairId) ?? null
+      })
+      dispatchPairSoundCue(cue)
+      if (nextStatus && nextStatus !== 'Paused') {
+        _manualPauseTimestamps.delete(pairState.pairId)
       }
 
       if (shouldSave) {
@@ -1225,40 +1263,9 @@ export const usePairStore = create<PairStore>((set) => ({
               return
             }
 
-            const isSmokeTest =
-              pair.spec.includes('This is a smoke test of the pair execution loop') &&
-              pair.spec.includes('Each time the executor sends a greeting')
-
-            if (isSmokeTest) {
-              message =
-                '### ROLE: EXECUTOR (Smoke Test)\n' +
-                'Your ONLY task is to send a numbered greeting to the Mentor.\n' +
-                '- DO NOT create new plans.\n' +
-                '- DO NOT run any tools or commands.\n' +
-                '- DO NOT modify any files.\n' +
-                '- JUST output the greeting text (e.g., "Greeting 1/3") and nothing else.\n' +
-                '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
-                '--- COMMAND TO EXECUTE ---\n' +
-                (lastMentorMessage?.content ?? 'Send Greeting 1/3')
-            } else {
-              message =
-                '### ROLE: EXECUTOR\n' +
-                'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-                '- DO NOT create new plans.\n' +
-                '- DO NOT review your own work.\n' +
-                '- JUST EXECUTE THE STEPS and report results.\n' +
-                '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
-                '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n' +
-                '- If you cannot perform a requested action, propose and execute alternative text-based methods instead of stopping.\n\n' +
-                '--- COMMAND TO EXECUTE ---\n'
-
-              if (lastMentorMessage) {
-                message += lastMentorMessage.content
-              } else {
-                message +=
-                  'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
-              }
-            }
+            message = buildInitialExecutorHandoffPrompt({
+              mentorPlan: lastMentorMessage?.content
+            })
           } else {
             if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
               message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
@@ -1280,20 +1287,9 @@ export const usePairStore = create<PairStore>((set) => ({
               return
             }
 
-            message =
-              '### ROLE: MENTOR\n' +
-              'Your mission is ONLY to PLAN and REVIEW. \n' +
-              '- DO NOT execute any code or tools that modify files.\n' +
-              '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-              '--- REVIEW REQUEST ---\n' +
-              'The executor has finished a turn. Review their results below:\n\n'
-
-            if (lastExecutorMessage) {
-              message += lastExecutorMessage.content + '\n\n'
-            }
-
-            message +=
-              'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
+            message = buildInitialMentorReviewPrompt({
+              executorOutput: lastExecutorMessage?.content
+            })
           }
 
           const { assignTask } = state
@@ -1578,12 +1574,14 @@ export const usePairStore = create<PairStore>((set) => ({
 
   pausePair: async (id) => {
     set({ isLoading: true, error: null })
+    _manualPauseTimestamps.set(id, Date.now())
 
     try {
       await window.api.pair.pause(id)
       playPauseConfirm()
       set({ isLoading: false })
     } catch (error) {
+      _manualPauseTimestamps.delete(id)
       const message = extractErrorMessage(error, 'Failed to pause pair')
       set({
         isLoading: false,

@@ -32,6 +32,13 @@
     "title": "The Pair",
     "newTask": "New Task",
     "newPair": "New Pair",
+    "clearSession": "Clear Session",
+    "clearSessionHint": "Clear chat history for this pair",
+    "clearSessionDisabledBusy": "Pause or stop the pair before clearing",
+    "clearSessionDisabledEmpty": "Nothing to clear yet",
+    "clearSessionConfirmTitle": "Clear session for \"{{name}}\"?",
+    "clearSessionConfirmMessage": "This wipes the chat history for this pair. The workspace, models, and git changes stay untouched.",
+    "clearSessionConfirmAction": "Clear",
     "modelsQueued": "Models queued",
     "detectingModels": "Detecting models...",
     "modelsReady": "{{ready}}/{{total}} detected models are ready for pair execution",
@@ -56,6 +63,10 @@
     },
     "pairs": {
       "title": "Pairs"
+    },
+    "console": {
+      "empty": "Select a pair to view its console",
+      "emptyHint": "Pick a pair on the left or create a new one to get started."
     },
     "groups": {
       "attention": "Needs Attention",
@@ -266,7 +277,16 @@
     "searchingCode": "Searching Code",
     "reasoning": "Reasoning",
     "processingError": "Processing Error",
-    "processing": "Processing"
+    "processing": "Processing",
+    "clearHistory": "Clear chat history",
+    "taskInputPlaceholder": "Type a new task for the pair...",
+    "viewingArchived": "viewing archived run"
+  },
+  "panel": {
+    "modelsUpdateHint": "Changes apply after you save",
+    "saved": "Saved",
+    "saving": "Saving...",
+    "saveFailed": "Save failed"
   },
   "activity": {
     "stalled": "Stalled",

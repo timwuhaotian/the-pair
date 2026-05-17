@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { motion, AnimatePresence } from 'framer-motion'
-import { overlayVariants, modalVariants } from '../../lib/animations'
 import { GlassButton } from './GlassButton'
 
 interface ConfirmModalProps {
@@ -21,8 +19,8 @@ export function ConfirmModal({
   isOpen,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = 'confirm',
+  cancelLabel = 'cancel',
   variant = 'destructive',
   onConfirm,
   onCancel
@@ -31,67 +29,53 @@ export function ConfirmModal({
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && isOpen) {
-        onCancel()
-      }
+      if (e.key === 'Escape' && isOpen) onCancel()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [isOpen, onCancel])
 
-  if (!portalRoot) return null
+  if (!portalRoot || !isOpen) return null
+
+  const toneClass = variant === 'destructive' ? 'state-error' : 'state-running'
 
   return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          variants={overlayVariants}
-          initial="hidden"
-          animate="visible"
-          exit="hidden"
-        >
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
+      <div className="absolute inset-0 bg-background/80 cursor-pointer" onClick={onCancel} />
+      <div className="glass-modal relative w-full max-w-md">
+        <div className="flex items-baseline justify-between border-b border-border px-4 py-2.5">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span aria-hidden className="text-foreground/70 select-none">
+              {'>_'}
+            </span>
+            <h2 className="text-[12px] uppercase tracking-[0.14em] font-bold text-foreground truncate">
+              {title}
+            </h2>
+          </div>
+          <button
             onClick={onCancel}
-          />
-          <motion.div
-            className={cn('glass-modal w-full max-w-md shadow-2xl relative')}
-            variants={modalVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
+            aria-label="close"
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer rounded-sm"
           >
-            <div className="p-6">
-              <div className="flex items-start gap-4">
-                <div
-                  className={cn(
-                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
-                    variant === 'destructive'
-                      ? 'bg-red-500/10 text-red-500'
-                      : 'bg-amber-500/10 text-amber-500'
-                  )}
-                >
-                  <AlertTriangle size={20} />
-                </div>
-                <div className="flex-1 space-y-2">
-                  <h2 className="text-lg font-semibold text-foreground tracking-tight">{title}</h2>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{message}</p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 px-6 pb-6 border-t border-border/50 pt-4">
-              <GlassButton variant="ghost" onClick={onCancel}>
-                {cancelLabel}
-              </GlassButton>
-              <GlassButton variant="destructive" onClick={onConfirm}>
-                {confirmLabel}
-              </GlassButton>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+            <X size={13} />
+          </button>
+        </div>
+        <div className="p-4">
+          <div className="flex items-baseline gap-2">
+            <AlertTriangle size={11} className={cn('translate-y-px', toneClass)} />
+            <p className="text-[12px] leading-relaxed text-foreground/90">{message}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-2 border-t border-border">
+          <GlassButton variant="ghost" size="sm" onClick={onCancel}>
+            {cancelLabel}
+          </GlassButton>
+          <GlassButton variant="destructive" size="sm" onClick={onConfirm}>
+            {confirmLabel}
+          </GlassButton>
+        </div>
+      </div>
+    </div>,
     portalRoot
   )
 }

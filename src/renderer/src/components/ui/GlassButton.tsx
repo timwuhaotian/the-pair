@@ -1,6 +1,5 @@
 import React from 'react'
 import { cn } from '../../lib/utils'
-import { motion } from 'framer-motion'
 
 interface GlassButtonProps {
   children: React.ReactNode
@@ -16,18 +15,26 @@ interface GlassButtonProps {
   'data-testid'?: string
 }
 
-const variantMap = {
-  primary: 'bg-primary text-primary-foreground hover:bg-primary/90 border-primary',
-  secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-border',
-  ghost: 'text-foreground hover:bg-muted/50 border-transparent',
+/**
+ * Terminal-flat button. Square corners, hairline border, no shadow.
+ * Visual lineage of "GlassButton" is gone but the name + API survives
+ * so callers don't need updating.
+ */
+const variantMap: Record<NonNullable<GlassButtonProps['variant']>, string> = {
+  primary:
+    'bg-primary text-primary-foreground border-primary font-semibold hover:bg-primary/85 hover:border-primary/85',
+  secondary:
+    'bg-transparent text-foreground border-border hover:bg-foreground/[0.06] hover:border-foreground/40',
+  ghost:
+    'bg-transparent text-foreground/80 border-transparent hover:bg-foreground/[0.05] hover:text-foreground',
   destructive:
-    'bg-red-500/10 text-red-700 border-red-500/20 hover:bg-red-500/20 dark:bg-red-500/18 dark:text-red-200 dark:border-red-400/30 dark:hover:bg-red-500/28 dark:shadow-[0_0_0_1px_rgba(248,113,113,0.16)]'
+    'bg-transparent text-[var(--state-error)] border-[color:color-mix(in_srgb,var(--state-error)_45%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--state-error)_12%,transparent)]'
 }
 
-const sizeMap = {
-  sm: 'px-3 py-1.5 text-xs gap-1.5 rounded-lg min-h-[32px]',
-  md: 'px-4 py-2 text-sm gap-2 rounded-xl min-h-[44px]',
-  lg: 'px-6 py-3 text-base gap-2.5 rounded-xl min-h-[52px]'
+const sizeMap: Record<NonNullable<GlassButtonProps['size']>, string> = {
+  sm: 'px-2 py-[3px] text-[11px] gap-1.5 rounded-sm min-h-[26px]',
+  md: 'px-3 py-1.5 text-[12px] gap-2 rounded-sm min-h-[32px]',
+  lg: 'px-4 py-2 text-[13px] gap-2 rounded-sm min-h-[38px]'
 }
 
 export function GlassButton({
@@ -44,17 +51,15 @@ export function GlassButton({
   'data-testid': dataTestId
 }: GlassButtonProps): React.ReactNode {
   return (
-    <motion.button
+    <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      whileTap={{ scale: 0.97 }}
-      whileHover={{ scale: 1.02, filter: 'brightness(1.08)' }}
       aria-label={ariaLabel}
       title={title}
       data-testid={dataTestId}
       className={cn(
-        'flex items-center justify-center font-medium transition-all duration-200 border relative overflow-hidden cursor-pointer',
+        'inline-flex items-center justify-center font-mono uppercase tracking-[0.08em] border transition-colors duration-150 cursor-pointer select-none',
         variantMap[variant],
         sizeMap[size],
         disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
@@ -63,6 +68,6 @@ export function GlassButton({
     >
       {icon && <span className="shrink-0">{icon}</span>}
       {children}
-    </motion.button>
+    </button>
   )
 }

@@ -2,7 +2,6 @@ import React from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
-import { motion, AnimatePresence } from 'framer-motion'
 
 interface ReasoningEffortPickerProps {
   levels: string[]
@@ -12,32 +11,11 @@ interface ReasoningEffortPickerProps {
 }
 
 const EFFORT_LABELS: Record<string, string> = {
-  none: 'Off',
-  low: 'Fast',
-  medium: 'Balanced',
-  high: 'Deep'
+  none: 'off',
+  low: 'fast',
+  medium: 'balanced',
+  high: 'deep'
 }
-
-const ROLE_TONE = {
-  mentor: {
-    activeBg: 'bg-blue-500/15 dark:bg-blue-500/20',
-    activeText: 'text-blue-600 dark:text-blue-400',
-    activeBorder: 'border-blue-500/40',
-    inactiveBg: 'bg-transparent',
-    inactiveText: 'text-muted-foreground',
-    inactiveBorder: 'border-transparent',
-    labelText: 'text-blue-600 dark:text-blue-400'
-  },
-  executor: {
-    activeBg: 'bg-purple-500/15 dark:bg-purple-500/20',
-    activeText: 'text-purple-600 dark:text-purple-400',
-    activeBorder: 'border-purple-500/40',
-    inactiveBg: 'bg-transparent',
-    inactiveText: 'text-muted-foreground',
-    inactiveBorder: 'border-transparent',
-    labelText: 'text-purple-600 dark:text-purple-400'
-  }
-} as const
 
 export function ReasoningEffortPicker({
   levels,
@@ -46,99 +24,72 @@ export function ReasoningEffortPicker({
   role
 }: ReasoningEffortPickerProps): React.ReactNode {
   const { t } = useTranslation()
-  const tone = ROLE_TONE[role]
+
+  const roleFg = role === 'mentor' ? 'role-mentor' : 'role-executor'
+  const roleBg = role === 'mentor' ? 'bg-role-mentor' : 'bg-role-executor'
+  const roleBorder = role === 'mentor' ? 'border-role-mentor' : 'border-role-executor'
 
   const effortLabel = (level: string): string => {
     const key = `pickers.reasoning${level.charAt(0).toUpperCase() + level.slice(1)}` as const
     const translated = t(key)
-    return translated !== key ? translated : (EFFORT_LABELS[level] ?? level)
+    return translated !== key
+      ? translated.toLowerCase()
+      : (EFFORT_LABELS[level] ?? level.toLowerCase())
   }
 
   const handleSelect = (level: string): void => {
-    if (level === value) {
-      onChange(undefined)
-    } else {
-      onChange(level)
-    }
+    if (level === value) onChange(undefined)
+    else onChange(level)
   }
 
-  const handleClear = (): void => {
-    onChange(undefined)
-  }
+  const handleClear = (): void => onChange(undefined)
 
   if (levels.length === 0) return null
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, y: -4 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.15 }}
-        className="space-y-1.5"
-      >
-        <div className="flex items-center gap-1.5">
-          <span
-            className={cn('text-[10px] font-semibold uppercase tracking-wider', tone.labelText)}
-          >
-            {t('pickers.reasoning')}
+    <div className="space-y-1 font-mono">
+      <div className="flex items-baseline gap-2">
+        <span className={cn('text-[10px] uppercase tracking-[0.16em]', roleFg)}>
+          {t('pickers.reasoning')}
+        </span>
+        {value && (
+          <span className={cn('text-[10px] uppercase tracking-[0.14em]', roleFg)}>
+            · {effortLabel(value)}
           </span>
-          <span className="text-[10px] text-muted-foreground">—</span>
-          <AnimatePresence>
-            {value && (
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className={cn('text-[10px] font-semibold', tone.activeText)}
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="flex flex-1 border border-border rounded-sm overflow-hidden">
+          {levels.map((level) => {
+            const isActive = level === value
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() => handleSelect(level)}
+                className={cn(
+                  'flex-1 px-2 py-0.5 text-[11px] transition-colors cursor-pointer border-r border-border last:border-r-0',
+                  isActive
+                    ? cn(roleBg, roleFg, roleBorder)
+                    : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground'
+                )}
               >
-                {value && effortLabel(value)}
-              </motion.span>
-            )}
-          </AnimatePresence>
+                {effortLabel(level)}
+              </button>
+            )
+          })}
         </div>
-        <div className="flex items-center gap-1">
-          <div
-            className={cn('flex flex-1 rounded-lg border', tone.inactiveBorder, 'overflow-hidden')}
+        {value && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="flex h-5 w-5 items-center justify-center border border-border rounded-sm text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground transition-colors cursor-pointer"
+            title={t('pickers.resetReasoning')}
           >
-            {levels.map((level) => {
-              const isActive = level === value
-              return (
-                <button
-                  key={level}
-                  type="button"
-                  onClick={() => handleSelect(level)}
-                  className={cn(
-                    'flex-1 px-2 py-1 text-[10px] font-medium transition-all cursor-pointer',
-                    isActive
-                      ? cn(tone.activeBg, tone.activeText)
-                      : cn(tone.inactiveBg, tone.inactiveText, 'hover:bg-muted/40')
-                  )}
-                >
-                  {effortLabel(level)}
-                </button>
-              )
-            })}
-          </div>
-          {value && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              type="button"
-              onClick={handleClear}
-              className={cn(
-                'flex h-6 w-6 items-center justify-center rounded-md border cursor-pointer',
-                tone.inactiveBorder,
-                'text-muted-foreground hover:bg-muted/40 transition-all'
-              )}
-              title={t('pickers.resetReasoning')}
-            >
-              <X size={10} />
-            </motion.button>
-          )}
-        </div>
-      </motion.div>
-    </AnimatePresence>
+            <X size={9} />
+          </button>
+        )}
+      </div>
+    </div>
   )
 }

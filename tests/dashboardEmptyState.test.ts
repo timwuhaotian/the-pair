@@ -17,6 +17,12 @@ test('Dashboard keeps the empty create action inside the pairs section', () => {
   assert.match(dashboard, /onCreatePair=\{onCreatePair\}/)
 })
 
+test('Dashboard renders a three-column workspace layout', () => {
+  assert.match(dashboard, /<PairListSection/)
+  assert.match(dashboard, /<PairConsole/)
+  assert.match(dashboard, /<(?:PairOperationsPanel|DashboardInsightPanel)/)
+})
+
 test('empty state has a real localized description', () => {
   const locale = JSON.parse(enLocale)
 

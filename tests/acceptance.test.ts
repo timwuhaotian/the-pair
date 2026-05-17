@@ -154,11 +154,15 @@ test('buildMentorAcceptancePrompt embeds executor result and acceptance report',
     acceptance: sampleAcceptanceRecord()
   })
 
-  assert.match(prompt, /STRICT JSON ONLY/i)
+  assert.match(prompt, /assessment as a JSON block/i)
   assert.match(prompt, /Implement structured acceptance gates/)
   assert.match(prompt, /Implemented the backend types and parser/)
   assert.match(prompt, /"command": "npm run typecheck"/)
-  assert.match(prompt, /"action": "continue \| finish"/i)
+  assert.match(prompt, /"action": "continue" \| "finish"/)
+  assert.match(prompt, /TASK_COMPLETE/)
+  // Should not contain role-play or anti-introspection markers that trip model safety filters.
+  assert.doesNotMatch(prompt, /### ROLE:/)
+  assert.doesNotMatch(prompt, /DO NOT/)
 })
 
 test('buildExecutorAcceptanceFollowupPrompt uses structured next-step instructions', () => {
@@ -178,13 +182,13 @@ test('buildExecutorAcceptanceFollowupPrompt uses structured next-step instructio
     acceptance: sampleAcceptanceRecord()
   })
 
-  assert.match(prompt, /ONLY to EXECUTE the acceptance follow-up/i)
+  assert.match(prompt, /adjustments to your previous turn/i)
   assert.match(prompt, /Fix the type error in App.tsx/)
   assert.match(prompt, /Run npm run typecheck/)
   assert.doesNotMatch(prompt, /typecheck failed/)
   assert.doesNotMatch(prompt, /Needs one more pass/)
   assert.doesNotMatch(prompt, /Added the first draft/)
-  assert.match(prompt, /Do not append.*TASK_COMPLETE/i)
+  assert.match(prompt, /Do not append TASK_COMPLETE/i)
 })
 
 test('buildExecutorAcceptanceFollowupPrompt requires exact text-only follow-up output', () => {
@@ -204,11 +208,11 @@ test('buildExecutorAcceptanceFollowupPrompt requires exact text-only follow-up o
     acceptance: sampleAcceptanceRecord()
   })
 
-  assert.match(prompt, /output exactly the requested instruction result/i)
-  assert.match(prompt, /do not append/i)
+  assert.match(prompt, /output exactly the text the reviewer asked for/i)
+  assert.match(prompt, /Do not append TASK_COMPLETE/i)
   assert.doesNotMatch(prompt, /received/i)
-  assert.match(prompt, /TASK_COMPLETE/i)
-  assert.doesNotMatch(prompt, /report what changed/i)
+  assert.match(prompt, /TASK_COMPLETE/)
+  assert.doesNotMatch(prompt, /### ROLE:/)
 })
 
 test('buildMentorAcceptanceRepairPrompt explains the JSON validation error', () => {
@@ -216,7 +220,8 @@ test('buildMentorAcceptanceRepairPrompt explains the JSON validation error', () 
     'Acceptance verdict requires follow-up instructions for continue'
   )
 
-  assert.match(prompt, /not valid acceptance JSON/i)
-  assert.match(prompt, /STRICT JSON ONLY/i)
+  assert.match(prompt, /couldn't parse your previous reply/i)
+  assert.match(prompt, /JSON/i)
   assert.match(prompt, /requires follow-up instructions for continue/)
+  assert.doesNotMatch(prompt, /### ROLE:/)
 })

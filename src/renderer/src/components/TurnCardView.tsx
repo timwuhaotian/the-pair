@@ -1,93 +1,157 @@
-import React, { useEffect, useMemo } from 'react'
-import { motion } from 'framer-motion'
-import { Zap } from 'lucide-react'
-import { cn } from '../lib/utils'
+import React, { useMemo } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
-import { usePrevious } from '../lib/usePrevious'
-import { turnCardFinalize } from '../lib/animations'
+import { cn } from '../lib/utils'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
-import { TokenChip } from './TokenChip'
 import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
+import { TerminalBlock } from './terminal/TerminalBlock'
+import { TerminalEventRow } from './terminal/TerminalEventRow'
 import { TurnCard } from '../store/usePairStore'
-import { ActivityIndicator } from './ActivityIndicator'
-import { IntentChip } from './IntentChip'
-import { ToolCallSteps } from './ToolCallSteps'
+import { TokenChip } from './TokenChip'
+
+const MAX_INLINE_EVENTS = 8
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const mins = Math.floor(seconds / 60)
+  const rem = seconds % 60
+  return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
+}
 
 export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const { t } = useTranslation()
-  const prevCardId = usePrevious(card.id)
-  const cognitiveEvents = card.cognitiveEvents ?? []
 
-  const animState = card.state === 'final' && card.finalizedAt ? 'final' : 'live'
+  const cognitiveEvents = useMemo(
+    () =>
+      (card.cognitiveEvents ?? [])
+        .filter((e) => e.eventType !== 'error' || e.description.trim().length > 0)
+        .sort((a, b) => a.timestamp - b.timestamp),
+    [card.cognitiveEvents]
+  )
 
-  useEffect(() => {
-    // reset handled by key change in parent wrapper
-  }, [prevCardId, card.id])
+  const visibleEvents = useMemo(() => {
+    if (cognitiveEvents.length <= MAX_INLINE_EVENTS) return cognitiveEvents
+    return cognitiveEvents.slice(-MAX_INLINE_EVENTS)
+  }, [cognitiveEvents])
 
-  const isMentor = card.role === 'mentor'
-  const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
-  const borderAccent = isMentor ? 'border-blue-400/30' : 'border-purple-400/30'
-  const bg = isMentor ? 'bg-blue-500/6' : 'bg-purple-500/6'
-  const currentAction = (
-    card.content ||
-    card.activity.detail ||
-    card.activity.label ||
-    t('common.working')
-  ).trim()
+  const hiddenCount = cognitiveEvents.length - visibleEvents.length
+  const currentAction = (card.content || card.activity.detail || card.activity.label || '').trim()
 
   const isAcceptance = useMemo(() => {
-    if (card.role !== 'mentor' || card.state !== 'final') return false
+    if (card.role !== 'mentor') return false
     return isAcceptanceVerdictContent(currentAction) || isAcceptanceRecordContent(currentAction)
-  }, [card.role, card.state, currentAction])
+  }, [card.role, currentAction])
+
+  const phase = card.activity.phase
+  const isStalled = phase === 'stalled'
+  const isErrored = phase === 'error'
+  const isRunning = phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
+
+  // Keep the role glyph static — the running animator lives on the latest event / body line
+  const state = isErrored ? 'error' : isStalled ? 'paused' : 'done'
+
+  // header meta line — e.g., "thinking · 12s · 3 steps"
+  const elapsedSec =
+    card.activity.startedAt && card.activity.updatedAt
+      ? Math.floor((card.activity.updatedAt - card.activity.startedAt) / 1000)
+      : 0
+  const phaseLabel =
+    phase === 'thinking'
+      ? t('activity.thinking').toLowerCase()
+      : phase === 'using_tools'
+        ? (card.activity.detail?.trim() || t('activity.toolCall')).toLowerCase()
+        : phase === 'responding'
+          ? t('activity.output').toLowerCase()
+          : phase
+
+  const metaParts: string[] = []
+  if (isRunning && phaseLabel) metaParts.push(phaseLabel)
+  if (isRunning && elapsedSec > 0) metaParts.push(formatDuration(elapsedSec))
+  if (cognitiveEvents.length > 0)
+    metaParts.push(`${cognitiveEvents.length} ${cognitiveEvents.length === 1 ? 'step' : 'steps'}`)
+
+  const badges = isStalled ? (
+    <span className="rounded-sm border border-state-error bg-state-error/15 px-1.5 py-0 text-[9px] font-bold uppercase tracking-[0.16em] state-error tty-blink">
+      stalled
+    </span>
+  ) : null
 
   return (
-    <motion.div
-      initial="live"
-      animate={animState}
-      variants={turnCardFinalize}
-      layout
-      className={cn(
-        'relative overflow-hidden rounded-2xl border p-5 shadow-lg transition-colors duration-300',
-        borderAccent,
-        animState === 'final' && isMentor && 'border-blue-400/40',
-        animState === 'final' && !isMentor && 'border-purple-400/40',
-        card.activity.phase === 'stalled' && 'border-red-500/50 shadow-red-500/10',
-        bg,
-        'metal-sheen-surface'
-      )}
+    <TerminalBlock
+      role={card.role}
+      state={state}
+      timestamp={card.startedAt}
+      badges={badges}
+      meta={
+        <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          {metaParts.length > 0 && <span>{metaParts.join(' · ')}</span>}
+          {card.tokenUsage && <TokenChip usage={card.tokenUsage} isLive compact />}
+        </span>
+      }
     >
-      <div className="mb-3 flex items-center gap-2 flex-wrap">
-        <Zap size={14} className={cn(accent, 'drop-shadow-sm')} fill="currentColor" />
-        <span className={cn('text-[10px] font-black uppercase tracking-[0.16em]', accent)}>
-          {card.role.toUpperCase()}
-        </span>
-        <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70 transition-all duration-300">
-          {card.state === 'live' ? 'working' : 'result'}
-        </span>
-        {card.state === 'live' && <ActivityIndicator activity={card.activity} />}
-        {card.state === 'live' && cognitiveEvents.length > 0 && (
-          <IntentChip events={cognitiveEvents} role={card.role} />
-        )}
-        {card.tokenUsage && (
-          <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
-        )}
-      </div>
-      <div
-        className={cn(
-          'text-sm leading-relaxed [overflow-wrap:anywhere] transition-colors duration-300',
-          card.state === 'live' ? 'text-foreground/90' : 'text-foreground'
-        )}
-      >
-        {isAcceptance ? (
-          <AcceptanceMessageBody content={currentAction} />
-        ) : (
-          <MarkdownContent content={currentAction} />
-        )}
-      </div>
-      {card.state === 'live' && cognitiveEvents.length > 0 && (
-        <ToolCallSteps events={cognitiveEvents} />
+      {/* Tree of cognitive events */}
+      {visibleEvents.length > 0 && (
+        <div className="mb-1.5 space-y-px">
+          {hiddenCount > 0 && (
+            <div className="font-mono text-[10px] text-muted-foreground-faint uppercase tracking-[0.14em]">
+              · {hiddenCount} earlier {hiddenCount === 1 ? 'step' : 'steps'} ·
+            </div>
+          )}
+          <AnimatePresence initial={false}>
+            {visibleEvents.map((event, idx) => (
+              <TerminalEventRow
+                key={event.id}
+                event={event}
+                isLast={idx === visibleEvents.length - 1}
+                isLatest={idx === visibleEvents.length - 1}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
       )}
-    </motion.div>
+
+      {/* Prose body */}
+      {currentAction.length > 0 && (
+        <div
+          className={cn(
+            'flex items-baseline gap-1.5 text-[12px] leading-relaxed',
+            isStalled && 'state-error'
+          )}
+        >
+          {/* When there are no cognitive event rows yet, the animator lives next to the body line. */}
+          {isRunning && visibleEvents.length === 0 && (
+            <span
+              aria-hidden
+              className={cn(
+                'inline-flex h-[1em] w-[1.4ch] shrink-0 items-center justify-center',
+                card.role === 'mentor' ? 'role-mentor' : 'role-executor'
+              )}
+            >
+              <span className="tty-spin">✻</span>
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            {isAcceptance ? (
+              <AcceptanceMessageBody content={currentAction} />
+            ) : (
+              <MarkdownContent content={currentAction} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {currentAction.length === 0 && visibleEvents.length === 0 && (
+        <div className="flex items-baseline gap-1.5 text-[12px] text-muted-foreground-faint">
+          <span
+            aria-hidden
+            className="inline-flex h-[1em] w-[1.4ch] items-center justify-center state-running"
+          >
+            <span className="tty-spin">✻</span>
+          </span>
+          {t('common.thinking')}
+        </div>
+      )}
+    </TerminalBlock>
   )
 }

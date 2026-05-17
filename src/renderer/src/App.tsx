@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
+import { useTranslation } from 'react-i18next'
 import { usePairStore, type Pair } from './store/usePairStore'
 import { useThemeStore } from './store/useThemeStore'
 import { useUpdateStore } from './store/useUpdateStore'
@@ -15,7 +16,6 @@ import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
 
-const PairDetail = lazy(() => import('./components/PairDetail'))
 const CreatePairModal = lazy(() =>
   import('./components/CreatePairModal').then(({ CreatePairModal }) => ({
     default: CreatePairModal
@@ -31,10 +31,6 @@ const PairSettingsModal = lazy(() =>
     default: PairSettingsModal
   }))
 )
-function ViewFallback(): React.ReactNode {
-  return <div className="h-full w-full bg-background" />
-}
-
 function StartupLoading(): React.ReactNode {
   return (
     <div className="relative flex h-full items-center justify-center bg-background">
@@ -64,6 +60,7 @@ function queueStartupUpdateCheck(callback: () => void): () => void {
 }
 
 function App(): React.ReactNode {
+  const { t } = useTranslation()
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null)
   const [isCreatePairOpen, setIsCreatePairOpen] = useState(false)
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
@@ -74,6 +71,7 @@ function App(): React.ReactNode {
   const [pairsLoaded, setPairsLoaded] = useState(false)
   const [deletingPairId, setDeletingPairId] = useState<string | null>(null)
   const [pendingDeletePair, setPendingDeletePair] = useState<Pair | null>(null)
+  const [pendingClearPair, setPendingClearPair] = useState<Pair | null>(null)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
@@ -86,6 +84,7 @@ function App(): React.ReactNode {
   const resumePair = usePairStore((state) => state.resumePair)
   const deletePair = usePairStore((state) => state.deletePair)
   const setRestoringSpec = usePairStore((state) => state.setRestoringSpec)
+  const setMessages = usePairStore((state) => state.setMessages)
 
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
@@ -302,6 +301,21 @@ function App(): React.ReactNode {
     setPendingDeletePair(null)
   }
 
+  const handleRequestClearSession = (): void => {
+    if (!selectedPair) return
+    setPendingClearPair(selectedPair)
+  }
+
+  const confirmClearSession = (): void => {
+    if (!pendingClearPair) return
+    setMessages(pendingClearPair.id, [])
+    setPendingClearPair(null)
+  }
+
+  const cancelClearSession = (): void => {
+    setPendingClearPair(null)
+  }
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
       <div className="flex h-full flex-col">
@@ -314,7 +328,7 @@ function App(): React.ReactNode {
           onToggleTheme={toggleTheme}
           onNewPair={() => setIsCreatePairOpen(true)}
           onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
-          onAssignTask={selectedPair ? () => setIsAssignTaskOpen(true) : undefined}
+          onClearSession={selectedPair ? handleRequestClearSession : undefined}
           onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
         />
 
@@ -322,45 +336,36 @@ function App(): React.ReactNode {
           <ErrorBoundary>
             {!pairsLoaded ? (
               <StartupLoading />
-            ) : selectedPair ? (
-              <Suspense fallback={<ViewFallback />}>
-                <PairDetail
-                  pair={selectedPair}
-                  onPause={handlePauseSelectedPair}
-                  onResume={handleResumeSelectedPair}
-                  onRestoreTask={handleRestoreTask}
-                />
-              </Suspense>
             ) : (
-              <>
-                <Dashboard
-                  onSelectPair={(pair) => {
-                    setSelectedPairId(pair.id)
-                    if (pair.status === 'Idle' || pair.status === 'Finished') {
-                      setIsAssignTaskOpen(true)
-                    }
-                  }}
-                  onDeletePair={(pair) => {
-                    void handleDeletePair(pair)
-                  }}
-                  deletingPairId={deletingPairId}
-                  onCreatePair={() => setIsCreatePairOpen(true)}
-                  onPausePair={async (id: string) => {
-                    try {
-                      await pausePair(id)
-                    } catch (e) {
-                      console.error('[App] Failed to pause:', e)
-                    }
-                  }}
-                  onResumePair={async (id: string) => {
-                    try {
-                      await resumePair(id)
-                    } catch (e) {
-                      console.error('[App] Failed to resume:', e)
-                    }
-                  }}
-                />
-              </>
+              <Dashboard
+                selectedPair={selectedPair}
+                selectedPairId={selectedPairId}
+                onSelectPair={(pair) => {
+                  setSelectedPairId(pair.id)
+                }}
+                onDeletePair={(pair) => {
+                  void handleDeletePair(pair)
+                }}
+                deletingPairId={deletingPairId}
+                onCreatePair={() => setIsCreatePairOpen(true)}
+                onPausePair={async (id: string) => {
+                  try {
+                    await pausePair(id)
+                  } catch (e) {
+                    console.error('[App] Failed to pause:', e)
+                  }
+                }}
+                onResumePair={async (id: string) => {
+                  try {
+                    await resumePair(id)
+                  } catch (e) {
+                    console.error('[App] Failed to resume:', e)
+                  }
+                }}
+                onPauseSelectedPair={handlePauseSelectedPair}
+                onResumeSelectedPair={handleResumeSelectedPair}
+                onRestoreTask={handleRestoreTask}
+              />
             )}
           </ErrorBoundary>
         </div>
@@ -373,6 +378,16 @@ function App(): React.ReactNode {
         confirmLabel="Delete"
         onConfirm={confirmDeletePair}
         onCancel={cancelDeletePair}
+      />
+
+      <ConfirmModal
+        isOpen={pendingClearPair !== null}
+        title={t('chrome.clearSessionConfirmTitle', { name: pendingClearPair?.name ?? '' })}
+        message={t('chrome.clearSessionConfirmMessage')}
+        confirmLabel={t('chrome.clearSessionConfirmAction')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={confirmClearSession}
+        onCancel={cancelClearSession}
       />
 
       <Suspense fallback={null}>

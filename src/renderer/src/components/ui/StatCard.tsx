@@ -8,11 +8,16 @@ interface StatCardProps {
   'data-testid'?: string
 }
 
-const colorMap: Record<StatCardProps['color'], string> = {
-  primary: 'from-primary/10 to-primary/5 border-primary/20 text-primary',
-  green: 'from-green-500/10 to-green-500/5 border-green-500/20 text-green-500',
-  amber: 'from-amber-500/10 to-amber-500/5 border-amber-500/20 text-amber-500',
-  gray: 'from-gray-500/10 to-gray-500/5 border-gray-500/20 text-gray-500'
+/**
+ * Flat terminal stat tile. Visual lineage from "stat card" is gone but the
+ * `glass-card` class (now a CSS shim → flat surface) and grid placement are
+ * preserved so existing tests + parent layouts still work.
+ */
+const colorMap: Record<StatCardProps['color'], { text: string; glyph: string }> = {
+  primary: { text: 'text-foreground', glyph: '●' },
+  green: { text: 'state-done', glyph: '●' },
+  amber: { text: 'state-running', glyph: '*' },
+  gray: { text: 'text-muted-foreground', glyph: '○' }
 }
 
 export function StatCard({
@@ -22,17 +27,24 @@ export function StatCard({
   className,
   'data-testid': testId
 }: StatCardProps): React.ReactNode {
+  const c = colorMap[color]
   return (
     <div
       className={cn(
-        'glass-card flex flex-col items-center gap-1 rounded-xl border bg-gradient-to-br p-4',
-        colorMap[color],
+        'glass-card flex items-baseline justify-between px-3 py-2.5 font-mono',
         className
       )}
       data-testid={testId}
     >
-      <div className="text-2xl font-semibold tracking-tight">{value}</div>
-      <div className="text-xs font-medium uppercase tracking-wider opacity-70">{label}</div>
+      <div className="flex items-baseline gap-2 min-w-0">
+        <span aria-hidden className={cn('select-none', c.text)}>
+          {c.glyph}
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground truncate">
+          {label}
+        </span>
+      </div>
+      <div className={cn('text-lg tabular-nums leading-none font-bold', c.text)}>{value}</div>
     </div>
   )
 }

@@ -48,23 +48,21 @@ export function UpdateControls(): React.ReactNode {
 
   const icon =
     phase === 'available' ? (
-      <ArrowDownToLine size={13} className="transition-transform group-hover:translate-y-0.5" />
-    ) : phase === 'checking' ? (
-      <Loader2 size={13} className="animate-spin" />
-    ) : phase === 'installing' ? (
-      <Loader2 size={13} className="animate-spin" />
+      <ArrowDownToLine size={11} />
+    ) : phase === 'checking' || phase === 'installing' ? (
+      <Loader2 size={11} className="animate-spin" />
     ) : isUpToDate ? (
-      <CheckCircle2 size={13} />
+      <CheckCircle2 size={11} />
     ) : isError ? (
-      <XCircle size={13} />
+      <XCircle size={11} />
     ) : (
-      <RefreshCw size={13} className="transition-transform group-hover:rotate-45" />
+      <RefreshCw size={11} />
     )
 
   const variant = phase === 'available' ? 'primary' : 'secondary'
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <GlassButton
         variant={variant}
         size="sm"
@@ -72,11 +70,9 @@ export function UpdateControls(): React.ReactNode {
         disabled={isBusy}
         icon={icon}
         className={cn(
-          'group whitespace-nowrap transition-all duration-300',
-          isError &&
-            'border-red-500/40 bg-red-500/5 text-red-600 dark:text-red-400 hover:bg-red-500/10 hover:border-red-500/60',
-          isUpToDate &&
-            'border-green-500/40 bg-green-500/5 text-green-600 dark:text-green-400 hover:bg-green-500/10 hover:border-green-500/60'
+          'whitespace-nowrap',
+          isError && 'border-state-error state-error hover:bg-state-error',
+          isUpToDate && 'border-state-done state-done hover:bg-state-done'
         )}
         title={message || undefined}
       >
@@ -85,10 +81,10 @@ export function UpdateControls(): React.ReactNode {
       {phase === 'available' && version && releaseBody && (
         <button
           onClick={handleShowReleaseNotes}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
-          title="View release notes"
+          className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
+          title="release notes"
         >
-          <Info size={14} />
+          <Info size={12} />
         </button>
       )}
     </div>

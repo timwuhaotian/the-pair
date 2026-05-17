@@ -14,6 +14,7 @@ import { BranchPicker } from './BranchPicker'
 import { PresetPicker } from './PresetPicker'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { usePresets } from '../lib/usePresets'
+import { cn } from '../lib/utils'
 import type { PairPreset } from '../types'
 
 interface CreatePairModalProps {
@@ -185,14 +186,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       title={t('modals.createTitle')}
       className="max-w-3xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col h-full">
+      <form onSubmit={handleSubmit} className="flex flex-col h-full font-mono text-[12px]">
         <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 -mr-1">
           <div>
-            <div className="mb-1.5 flex items-center gap-2">
-              <Sparkles size={14} className="text-primary" />
-              <span className="text-sm font-medium text-foreground">
-                {t('modals.choosePreset')}
-              </span>
+            <div className="mb-1 flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <Sparkles size={11} className="state-running translate-y-px" />
+              <span>{t('modals.choosePreset')}</span>
             </div>
             <PresetPicker
               presets={presets}
@@ -205,26 +204,24 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {selectedPreset && (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5">
-              <div className="flex items-center gap-2">
-                <Sparkles size={12} className="text-primary" />
-                <span className="text-xs font-medium text-primary">
-                  {t('modals.usingPreset', { name: selectedPreset.name })}
-                </span>
+            <div className="border-l-2 border-state-running/40 bg-state-running/8 px-3 py-2 text-[11px]">
+              <div className="flex items-baseline gap-1.5 state-running uppercase tracking-[0.14em]">
+                <span>→</span>
+                <span>{t('modals.usingPreset', { name: selectedPreset.name })}</span>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-muted-foreground normal-case tracking-normal">
                 {selectedPreset.recommendedSkills.length > 0 && (
-                  <>Skills: {selectedPreset.recommendedSkills.join(', ')}</>
+                  <>skills: {selectedPreset.recommendedSkills.join(', ')}</>
                 )}
                 {selectedPreset.pauseOnIteration && (
-                  <> • Auto-pause at iteration {selectedPreset.pauseOnIteration}</>
+                  <> · auto-pause @ iter {selectedPreset.pauseOnIteration}</>
                 )}
               </p>
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {t('common.name')}
             </label>
             <input
@@ -232,32 +229,40 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('onboarding.pairNamePlaceholder')}
-              className="w-full px-3.5 py-2 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
+              className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm"
               required
               data-testid="pair-name-input"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {t('common.directory')}
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 value={directory}
                 onChange={(e) => setDirectory(e.target.value)}
+                onClick={() => {
+                  if (!directory) {
+                    void handleSelectDirectory()
+                  }
+                }}
                 placeholder="/path/to/project"
-                className="flex-1 px-3.5 py-2 glass-card text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
+                className={cn(
+                  'flex-1 px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm',
+                  !directory && 'cursor-pointer'
+                )}
                 required
                 data-testid="pair-directory-input"
               />
               <GlassButton
                 type="button"
                 variant="secondary"
-                size="md"
+                size="sm"
                 onClick={handleSelectDirectory}
-                icon={<FolderOpen size={15} />}
+                icon={<FolderOpen size={13} />}
               >
                 {''}
               </GlassButton>
@@ -287,8 +292,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             />
           </div>
 
-          <div className="relative">
-            <label className="block text-sm font-medium text-foreground mb-1.5">
+          <div className="relative flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {t('onboarding.taskSpec')}
             </label>
             <textarea
@@ -297,11 +302,11 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               onChange={(e) => setSpec(e.target.value)}
               placeholder={t('onboarding.taskPlaceholder')}
               rows={4}
-              className="w-full px-3.5 py-2 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
+              className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint resize-none focus:outline-none focus:border-foreground/60 rounded-sm leading-relaxed"
               required
               data-testid="pair-task-spec"
             />
-            <div className="absolute top-8 right-2 flex items-center gap-1">
+            <div className="absolute top-[26px] right-2 flex items-center gap-1">
               {directory && (
                 <>
                   <SkillPicker projectDir={directory} onSelect={handleSkillSelect} />
@@ -314,26 +319,26 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                 </>
               )}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Type @ to reference workspace files
+            <p className="text-[10px] text-muted-foreground-faint">
+              · type @ to reference workspace files
             </p>
           </div>
 
           {error && (
-            <div className="text-sm text-destructive glass-card p-3 rounded-xl border border-destructive/20">
-              {error}
+            <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
+              ✗ {error}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 pt-3 border-t border-border/40 mt-3 flex-shrink-0">
+        <div className="flex justify-end gap-2 pt-3 border-t border-border mt-3 flex-shrink-0">
           <GlassButton
             type="button"
             variant="ghost"
             onClick={onClose}
             data-testid="pair-cancel-btn"
           >
-            Cancel
+            cancel
           </GlassButton>
           <GlassButton
             type="submit"
@@ -341,7 +346,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             disabled={isLoading}
             data-testid="pair-submit-btn"
           >
-            {isLoading ? t('modals.creating') : t('modals.create')}
+            {isLoading ? t('modals.creating') : `▸ ${t('modals.create').toLowerCase()}`}
           </GlassButton>
         </div>
       </form>

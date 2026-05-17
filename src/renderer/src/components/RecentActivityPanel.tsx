@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { invoke } from '@tauri-apps/api/core'
 import { Activity, ActivityItem, type ActivityType } from './ActivityItem'
+import { cn } from '../lib/utils'
 
 interface RecentActivityPanelProps {
   className?: string
@@ -12,11 +13,9 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
   const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
 
-  const loadActivities = async () => {
+  const loadActivities = async (): Promise<void> => {
     try {
-      const result = (await invoke('get_recent_activities', {
-        limit: 10
-      })) as Array<{
+      const result = (await invoke('get_recent_activities', { limit: 10 })) as Array<{
         pair_id: string
         pair_name: string
         activity_type: ActivityType
@@ -48,50 +47,57 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
     return () => clearInterval(interval)
   }, [])
 
-  const panelContent = (children: React.ReactNode) => (
+  const Wrap = ({ children }: { children: React.ReactNode }): React.ReactNode => (
     <div
-      className={`glass-card flex flex-col overflow-hidden rounded-xl border bg-gradient-to-br from-card/80 to-muted/30 p-4 shadow-sm ${className || ''}`}
+      className={cn(
+        'flex flex-col border border-border bg-background/40 overflow-hidden p-3 font-mono',
+        className
+      )}
     >
       {children}
     </div>
   )
 
   if (loading) {
-    return panelContent(
-      <>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">
-          {t('dashboard.activity.title')}
+    return (
+      <Wrap>
+        <h2 className="mb-2 text-[10px] uppercase tracking-[0.18em] text-foreground/85">
+          <span className="text-primary">──</span> {t('dashboard.activity.title')}{' '}
+          <span className="text-primary">──</span>
         </h2>
-        <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-          {t('common.loading')}
+        <div className="flex items-baseline gap-2 py-4 text-[11px] text-muted-foreground">
+          <span className="state-running tty-blink">●</span>
+          <span>· {t('common.loading')}</span>
         </div>
-      </>
+      </Wrap>
     )
   }
 
   if (activities.length === 0) {
-    return panelContent(
-      <>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">
-          {t('dashboard.activity.title')}
+    return (
+      <Wrap>
+        <h2 className="mb-2 text-[10px] uppercase tracking-[0.18em] text-foreground/85">
+          <span className="text-primary">──</span> {t('dashboard.activity.title')}{' '}
+          <span className="text-primary">──</span>
         </h2>
-        <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <p className="text-sm text-muted-foreground">{t('dashboard.activity.empty')}</p>
-        </div>
-      </>
+        <p className="py-4 text-[11px] text-muted-foreground-faint">
+          — {t('dashboard.activity.empty')} —
+        </p>
+      </Wrap>
     )
   }
 
-  return panelContent(
-    <>
-      <h2 className="mb-3 text-sm font-semibold text-foreground">
-        {t('dashboard.activity.title')}
+  return (
+    <Wrap>
+      <h2 className="mb-2 text-[10px] uppercase tracking-[0.18em] text-foreground/85">
+        <span className="text-primary">──</span> {t('dashboard.activity.title')}{' '}
+        <span className="text-primary">──</span>
       </h2>
       <div className="flex-1 space-y-0 overflow-y-auto scrollbar-thin pr-1">
         {activities.map((activity) => (
           <ActivityItem key={`${activity.pairId}-${activity.timestamp}`} activity={activity} />
         ))}
       </div>
-    </>
+    </Wrap>
   )
 }

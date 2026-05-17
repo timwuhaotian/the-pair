@@ -25,13 +25,18 @@ test('PairListGroup renders pair items with onSelect callback', () => {
   assert.match(pairListGroup, /onSelectPair/)
 })
 
+test('PairListGroup highlights the currently selected pair', () => {
+  assert.match(pairListGroup, /selectedPairId/)
+  assert.match(pairListGroup, /aria-current/)
+})
+
 test('PairListSection exports PairListSection component', () => {
   assert.match(pairListSection, /export function PairListSection\(/)
 })
 
-test('PairListSection groups pairs by status', () => {
-  assert.match(pairListSection, /buildPairGroups/)
-  assert.match(pairListSection, /group\.pairs/)
+test('PairListSection groups pairs by workspace then status', () => {
+  assert.match(pairListSection, /buildWorkspaceGroups/)
+  assert.match(pairListSection, /workspace\.statusGroups/)
 })
 
 test('PairListSection owns the create-pair call to action in the pairs area', () => {

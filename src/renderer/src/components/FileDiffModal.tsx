@@ -13,42 +13,35 @@ interface FileDiffModalProps {
   error: string | null
 }
 
-function colorizeLine(line: string): { bg: string; fg: string } {
-  if (line.startsWith('+') && !line.startsWith('+++'))
-    return { bg: 'bg-green-500/10 dark:bg-green-500/5', fg: 'text-green-600 dark:text-green-400' }
-  if (line.startsWith('-') && !line.startsWith('---'))
-    return { bg: 'bg-red-500/10 dark:bg-red-500/5', fg: 'text-red-600 dark:text-red-400' }
-  if (line.startsWith('@@'))
-    return { bg: 'bg-blue-500/10 dark:bg-blue-500/5', fg: 'text-blue-600 dark:text-blue-400' }
+function lineTone(line: string): string {
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'state-done bg-state-done'
+  if (line.startsWith('-') && !line.startsWith('---')) return 'state-error bg-state-error'
+  if (line.startsWith('@@')) return 'role-mentor bg-role-mentor'
   if (
     line.startsWith('diff') ||
     line.startsWith('index') ||
     line.startsWith('---') ||
     line.startsWith('+++')
   )
-    return { bg: '', fg: 'text-muted-foreground/60' }
-  return { bg: '', fg: 'text-muted-foreground/80' }
+    return 'text-muted-foreground-faint'
+  return 'text-foreground/80'
 }
 
 function DiffContent({ diff }: { diff: string }): React.ReactNode {
   const lines = diff.split('\n')
   return (
     <div className="overflow-x-auto">
-      {lines.map((line, i) => {
-        const { bg, fg } = colorizeLine(line)
-        return (
-          <div
-            key={i}
-            className={cn(
-              'whitespace-pre font-mono text-[12px] leading-relaxed px-2 py-px',
-              bg,
-              fg
-            )}
-          >
-            {line || ' '}
-          </div>
-        )
-      })}
+      {lines.map((line, i) => (
+        <div
+          key={i}
+          className={cn(
+            'whitespace-pre font-mono text-[12px] leading-snug px-2 py-px',
+            lineTone(line)
+          )}
+        >
+          {line || ' '}
+        </div>
+      ))}
     </div>
   )
 }
@@ -64,42 +57,45 @@ export function FileDiffModal({
 }: FileDiffModalProps): React.ReactNode {
   const statusLabel =
     status === '??'
-      ? 'Untracked'
+      ? 'untracked'
       : status === 'A'
-        ? 'Added'
+        ? 'added'
         : status === 'D'
-          ? 'Deleted'
+          ? 'deleted'
           : status === 'R'
-            ? 'Renamed'
-            : 'Modified'
+            ? 'renamed'
+            : 'modified'
 
-  const statusColor =
+  const statusTone =
     status === 'A' || status === '??'
-      ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+      ? 'state-done border-state-done bg-state-done'
       : status === 'D'
-        ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-        : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+        ? 'state-error border-state-error bg-state-error'
+        : 'state-running border-state-running bg-state-running'
 
   return (
-    <GlassModal isOpen={isOpen} onClose={onClose} title="File Diff" className="max-w-3xl">
-      <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
-        <FileText size={13} />
-        <span className="font-mono truncate">{filePath}</span>
+    <GlassModal isOpen={isOpen} onClose={onClose} title="file diff" className="max-w-3xl">
+      <div className="flex items-baseline gap-2 mb-2 font-mono text-[11px] text-muted-foreground">
+        <FileText size={11} className="translate-y-px" />
+        <span className="truncate text-foreground/90">{filePath}</span>
         <span
-          className={cn('ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium', statusColor)}
+          className={cn(
+            'ml-auto border px-1.5 py-px text-[10px] uppercase tracking-[0.14em]',
+            statusTone
+          )}
         >
-          {statusLabel}
+          [{statusLabel}]
         </span>
       </div>
 
-      <div className="rounded-lg border border-border/30 bg-muted/20 max-h-[60vh] overflow-auto">
+      <div className="border border-border bg-background/40 max-h-[60vh] overflow-auto scrollbar-thin rounded-sm">
         {loading && (
-          <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <div className="h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin mr-2" />
-            Loading diff...
+          <div className="flex items-baseline justify-start gap-2 px-3 py-4 font-mono text-[11px] text-muted-foreground">
+            <span className="state-running tty-blink">●</span>
+            <span>· loading diff…</span>
           </div>
         )}
-        {error && <div className="p-4 text-sm text-red-500">{error}</div>}
+        {error && <div className="px-3 py-2 font-mono text-[11px] state-error">✗ {error}</div>}
         {diff && !loading && <DiffContent diff={diff} />}
       </div>
     </GlassModal>

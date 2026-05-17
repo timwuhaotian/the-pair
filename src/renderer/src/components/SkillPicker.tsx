@@ -14,7 +14,7 @@ interface SkillPickerProps {
   onSelect: (skillName: string) => void
 }
 
-export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
+export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.ReactNode {
   const [isOpen, setIsOpen] = useState(false)
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -23,7 +23,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const loadSkills = async () => {
+  const loadSkills = async (): Promise<void> => {
     setLoading(true)
     try {
       const result = await invoke<SkillInfo[]>('discover_skills', {
@@ -47,8 +47,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
 
   useEffect(() => {
     if (!isOpen) return
-
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent): void => {
       if (
         dropdownRef.current &&
         !dropdownRef.current.contains(e.target as Node) &&
@@ -58,7 +57,6 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
         setIsOpen(false)
       }
     }
-
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
@@ -69,14 +67,14 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
       s.description.toLowerCase().includes(filter.toLowerCase())
   )
 
-  const handleSelect = (skill: SkillInfo) => {
+  const handleSelect = (skill: SkillInfo): void => {
     onSelect(skill.name)
     setIsOpen(false)
     setFilter('')
     setSelectedIndex(0)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setSelectedIndex((i) => Math.min(i + 1, filteredSkills.length - 1))
@@ -97,18 +95,21 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
-        title="Add skill"
+        className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
+        title="add skill"
       >
-        <Sparkles size={16} />
+        <Sparkles size={13} />
       </button>
 
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute top-full right-0 mt-2 w-80 max-h-96 overflow-hidden rounded-xl border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl z-50"
+          className="absolute top-full right-0 mt-1 w-80 max-h-96 overflow-hidden rounded-sm border border-border bg-popover z-50 font-mono text-[12px]"
         >
-          <div className="p-3 border-b border-border/50 flex items-center gap-2">
+          <div className="px-2 py-1.5 border-b border-border flex items-center gap-2">
+            <span aria-hidden className="text-muted-foreground-faint select-none">
+              ·
+            </span>
             <input
               type="text"
               value={filter}
@@ -117,30 +118,29 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
                 setSelectedIndex(0)
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Search skills..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              placeholder="search skills…"
+              className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground-faint"
               autoFocus
             />
             <button
               type="button"
               onClick={() => void loadSkills()}
               disabled={loading}
-              className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50 cursor-pointer"
-              title="Refresh skills"
+              className="p-0.5 rounded-sm hover:bg-foreground/[0.06] transition-colors disabled:opacity-50 cursor-pointer"
+              title="refresh"
             >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
             </button>
           </div>
 
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-80 overflow-y-auto scrollbar-thin">
             {loading && skills.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                <Loader2 size={16} className="animate-spin mx-auto mb-2" />
-                Discovering skills...
+              <div className="p-3 text-center text-[11px] text-muted-foreground">
+                <Loader2 size={12} className="animate-spin mx-auto mb-1" />· discovering skills…
               </div>
             ) : filteredSkills.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                {filter ? 'No skills match your search' : 'No skills found'}
+              <div className="p-3 text-center text-[11px] text-muted-foreground-faint">
+                — {filter ? 'no skills match' : 'no skills found'} —
               </div>
             ) : (
               filteredSkills.map((skill, index) => (
@@ -149,12 +149,17 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
                   type="button"
                   onClick={() => handleSelect(skill)}
                   className={cn(
-                    'w-full text-left p-3 border-b border-border/30 last:border-0 transition-colors cursor-pointer',
-                    index === selectedIndex ? 'bg-primary/10' : 'hover:bg-muted/30'
+                    'w-full text-left px-3 py-2 border-b border-border/40 last:border-0 transition-colors cursor-pointer',
+                    index === selectedIndex ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
                   )}
                 >
-                  <div className="font-medium text-sm">{skill.name}</div>
-                  <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                  <div className="flex items-baseline gap-1.5">
+                    <span aria-hidden className="role-mentor select-none">
+                      ▸
+                    </span>
+                    <span className="font-bold text-foreground/90">{skill.name}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 pl-[2ch]">
                     {skill.description}
                   </div>
                 </button>

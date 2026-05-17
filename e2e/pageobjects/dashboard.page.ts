@@ -6,8 +6,8 @@ export class DashboardPage extends BasePage {
     await this.click(S.NEW_PAIR_BTN)
   }
 
-  async clickNewTask(): Promise<void> {
-    await this.click(S.NEW_TASK_BTN)
+  async clickClearSession(): Promise<void> {
+    await this.click(S.CLEAR_SESSION_BTN)
   }
 
   async clickModels(): Promise<void> {
@@ -38,7 +38,7 @@ export class DashboardPage extends BasePage {
     return await this.isDisplayed(S.TOOLBAR)
   }
 
-  async isNewTaskButtonDisabled(): Promise<boolean> {
-    return await this.isButtonDisabled(S.NEW_TASK_BTN)
+  async isClearSessionButtonDisabled(): Promise<boolean> {
+    return await this.isButtonDisabled(S.CLEAR_SESSION_BTN)
   }
 }

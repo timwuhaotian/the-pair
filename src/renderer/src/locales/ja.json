@@ -26,6 +26,13 @@
     "title": "The Pair",
     "newTask": "新しいタスク",
     "newPair": "新しいペア",
+    "clearSession": "セッションをクリア",
+    "clearSessionHint": "このペアのチャット履歴をクリア",
+    "clearSessionDisabledBusy": "クリア前にペアを一時停止または停止してください",
+    "clearSessionDisabledEmpty": "クリアする内容はまだありません",
+    "clearSessionConfirmTitle": "\"{{name}}\" のセッションをクリアしますか？",
+    "clearSessionConfirmMessage": "このペアのチャット履歴を消去します。ワークスペース、モデル、Git の変更は維持されます。",
+    "clearSessionConfirmAction": "クリア",
     "modelsQueued": "モデル待機中",
     "detectingModels": "モデルを検出中...",
     "modelsReady": "{{ready}}/{{total}} 個のモデルがペア実行の準備完了",
@@ -42,6 +49,13 @@
     "readyForNewTask": "新しいタスクの準備完了",
     "delete": "削除",
     "deleting": "削除中...",
+    "pairs": {
+      "title": "Pairs"
+    },
+    "console": {
+      "empty": "ペアを選択してコンソールを表示",
+      "emptyHint": "左側からペアを選択するか、新しいペアを作成してください。"
+    },
     "groups": {
       "attention": "要対応",
       "active": "アクティブ",
@@ -241,7 +255,16 @@
     "searchingCode": "コード検索",
     "reasoning": "推論中",
     "processingError": "エラー処理中",
-    "processing": "処理中"
+    "processing": "処理中",
+    "clearHistory": "チャット履歴をクリア",
+    "taskInputPlaceholder": "ペアに新しいタスクを入力...",
+    "viewingArchived": "アーカイブされた実行を閲覧中"
+  },
+  "panel": {
+    "modelsUpdateHint": "保存後に適用されます",
+    "saved": "保存済み",
+    "saving": "保存中...",
+    "saveFailed": "保存に失敗しました"
   },
   "activity": {
     "stalled": "停滞",

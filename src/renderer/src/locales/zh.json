@@ -26,6 +26,13 @@
     "title": "The Pair",
     "newTask": "新任务",
     "newPair": "新建 Pair",
+    "clearSession": "清空会话",
+    "clearSessionHint": "清空当前 Pair 的对话记录",
+    "clearSessionDisabledBusy": "请先暂停或停止 Pair 后再清空",
+    "clearSessionDisabledEmpty": "暂无可清空的内容",
+    "clearSessionConfirmTitle": "清空 \"{{name}}\" 的会话？",
+    "clearSessionConfirmMessage": "这会清除当前 Pair 的对话记录。工作区、模型与 Git 变更不会受到影响。",
+    "clearSessionConfirmAction": "清空",
     "modelsQueued": "模型排队中",
     "detectingModels": "正在检测模型...",
     "modelsReady": "{{ready}}/{{total}} 个模型已就绪，可执行 Pair 任务",
@@ -50,6 +57,10 @@
     },
     "pairs": {
       "title": "Pairs"
+    },
+    "console": {
+      "empty": "选择一个 Pair 查看会话",
+      "emptyHint": "从左侧列表中选择，或新建一个 Pair 开始。"
     },
     "groups": {
       "attention": "需要处理",
@@ -260,7 +271,16 @@
     "searchingCode": "搜索代码",
     "reasoning": "推理中",
     "processingError": "处理错误",
-    "processing": "处理中"
+    "processing": "处理中",
+    "clearHistory": "清空聊天记录",
+    "taskInputPlaceholder": "输入新的配对任务...",
+    "viewingArchived": "查看历史运行"
+  },
+  "panel": {
+    "modelsUpdateHint": "保存后生效",
+    "saved": "已保存",
+    "saving": "保存中...",
+    "saveFailed": "保存失败"
   },
   "activity": {
     "stalled": "已停滞",

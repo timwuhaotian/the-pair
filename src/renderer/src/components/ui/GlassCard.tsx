@@ -1,21 +1,20 @@
 import React from 'react'
 import { cn } from '../../lib/utils'
-import { motion } from 'framer-motion'
-import { cardHover } from '../../lib/animations'
 
 interface GlassCardProps {
   children: React.ReactNode
   className?: string
   hoverable?: boolean
   onClick?: () => void
+  /** Retained for API parity; glow now resolves to a tone-tinted hairline border. */
   glow?: 'blue' | 'purple' | 'green' | 'amber' | 'none'
 }
 
-const glowMap = {
-  blue: 'shadow-blue-500/20 dark:shadow-blue-500/30',
-  purple: 'shadow-purple-500/20 dark:shadow-purple-500/30',
-  green: 'shadow-green-500/20 dark:shadow-green-500/30',
-  amber: 'shadow-amber-500/20 dark:shadow-amber-500/30',
+const glowBorder: Record<NonNullable<GlassCardProps['glow']>, string> = {
+  blue: 'border-role-mentor',
+  purple: 'border-role-executor',
+  green: 'border-state-done',
+  amber: 'border-state-running',
   none: ''
 }
 
@@ -26,28 +25,18 @@ export function GlassCard({
   onClick,
   glow = 'none'
 }: GlassCardProps): React.ReactNode {
-  const Component = hoverable ? motion.div : 'div'
-  const motionProps = hoverable
-    ? {
-        initial: 'idle' as const,
-        whileHover: 'hover' as const,
-        variants: cardHover as typeof cardHover
-      }
-    : {}
-
   return (
-    <Component
+    <div
       onClick={onClick}
       className={cn(
-        'glass-card p-4',
+        'glass-card p-3 font-mono text-[12px]',
         hoverable && 'glass-card-hover cursor-pointer',
-        glow !== 'none' && `shadow-lg ${glowMap[glow]}`,
+        glow !== 'none' && glowBorder[glow],
         onClick && 'cursor-pointer',
         className
       )}
-      {...motionProps}
     >
       {children}
-    </Component>
+    </div>
   )
 }

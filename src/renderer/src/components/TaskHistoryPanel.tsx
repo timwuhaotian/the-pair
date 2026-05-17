@@ -1,8 +1,9 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { History, RotateCcw, Clipboard, Download } from 'lucide-react'
+import { RotateCcw, Clipboard, Download } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
+import { TerminalDivider } from './terminal/TerminalDivider'
 import type { PairRunSummary } from '../store/usePairStore'
 import type { TimelineData } from '../lib/timeline'
 
@@ -42,14 +43,9 @@ export function TaskHistoryPanel({
 
   if (runHistory.length === 0) {
     return (
-      <div>
-        <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <History size={12} />
-          {t('history.title')}
-        </h3>
-        <div className="glass-card rounded-2xl p-4">
-          <p className="text-[11px] text-muted-foreground/60">{t('history.empty')}</p>
-        </div>
+      <div className="space-y-1 font-mono">
+        <TerminalDivider label={t('history.title')} />
+        <p className="text-[10px] text-muted-foreground-faint pl-2">— {t('history.empty')} —</p>
       </div>
     )
   }
@@ -57,79 +53,70 @@ export function TaskHistoryPanel({
   const sorted = [...runHistory].reverse()
 
   return (
-    <div>
-      <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <History size={12} />
-        {t('history.title')}
+    <div className="font-mono space-y-1">
+      <div className="flex items-baseline justify-between">
+        <TerminalDivider label={t('history.title')} className="flex-1" />
         {viewingRunId && (
-          <span className="ml-auto">
-            <GlassButton
-              variant="ghost"
-              size="sm"
-              onClick={onBackToCurrent}
-              className="h-6 px-2 text-[9px]"
-            >
-              {t('history.backToCurrent')}
-            </GlassButton>
-          </span>
+          <GlassButton
+            variant="ghost"
+            size="sm"
+            onClick={onBackToCurrent}
+            className="ml-2 h-5 px-1.5 text-[9px]"
+          >
+            ← {t('history.backToCurrent')}
+          </GlassButton>
         )}
-      </h3>
-      <div className="glass-card rounded-2xl overflow-hidden">
+      </div>
+      <div className="border border-border bg-background/40 overflow-hidden rounded-sm">
         <div className="max-h-[320px] overflow-y-auto scrollbar-thin">
           {sorted.map((run, idx) => {
             const isViewing = viewingRunId === run.id
             const duration = getDuration(run.startedAt, run.finishedAt)
-            const modelShort = (model: string) => model.split('/').pop() ?? model
+            const modelShort = (model: string): string => model.split('/').pop() ?? model
 
             return (
               <div
                 key={run.id}
                 className={cn(
-                  'group relative border-b border-border/30 last:border-b-0 transition-all duration-200',
-                  isViewing ? 'bg-primary/5' : 'hover:bg-background/40'
+                  'group relative border-b border-border/40 last:border-b-0 transition-colors duration-150',
+                  isViewing ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
                 )}
               >
                 <button
-                  className="w-full text-left p-3 cursor-pointer"
+                  className="w-full text-left px-2 py-2 cursor-pointer"
                   onClick={() => onSelectTask(run.id)}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">
-                        #{runHistory.length - idx}
-                      </span>
-                    </div>
-                    <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0 mr-6">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[10px] text-muted-foreground-faint tabular-nums shrink-0">
+                      #{runHistory.length - idx}
+                    </span>
+                    <span className="text-[9px] tabular-nums text-muted-foreground-faint shrink-0 mr-6">
                       {duration}
                     </span>
                   </div>
                   <p
-                    className="text-[11px] leading-relaxed text-foreground/80 line-clamp-2 group-hover:line-clamp-3 transition-all"
+                    className="text-[11px] leading-relaxed text-foreground/85 line-clamp-2 group-hover:line-clamp-3 transition-all mt-0.5"
                     title={run.spec}
                   >
                     {run.spec}
                   </p>
-                  <div className="mt-1.5 flex items-center gap-2 text-[9px] text-muted-foreground/50">
-                    <span className="text-blue-500/70 font-medium">
-                      {modelShort(run.mentorModel)}
-                    </span>
-                    <span>/</span>
-                    <span className="text-purple-500/70 font-medium">
-                      {modelShort(run.executorModel)}
-                    </span>
+                  <div className="mt-1 flex items-baseline gap-2 text-[9px] text-muted-foreground-faint">
+                    <span className="role-mentor">{modelShort(run.mentorModel)}</span>
+                    <span className="text-muted-foreground-faint">/</span>
+                    <span className="role-executor">{modelShort(run.executorModel)}</span>
                     {run.latestAcceptance?.verdict && (
                       <>
                         <span
                           className={cn(
-                            'rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em]',
+                            'border px-1 py-px text-[8px] uppercase tracking-[0.14em]',
                             run.latestAcceptance.verdict.verdict === 'pass'
-                              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
-                              : 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                              ? 'border-state-done bg-state-done state-done'
+                              : 'border-state-running bg-state-running state-running'
                           )}
                         >
-                          {run.latestAcceptance.verdict.verdict}
+                          [{run.latestAcceptance.verdict.verdict}]
                         </span>
-                        <span className="rounded-full border border-border/40 bg-background/40 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-muted-foreground/70">
+                        <span className="border border-border px-1 py-px text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
                           {run.latestAcceptance.risk}
                         </span>
                       </>
@@ -139,7 +126,7 @@ export function TaskHistoryPanel({
                 </button>
 
                 {isViewing && timeline && (
-                  <div className="mt-2 flex gap-1 px-3 pb-2">
+                  <div className="flex gap-1 px-2 pb-2">
                     <GlassButton
                       variant="ghost"
                       size="sm"
@@ -148,7 +135,7 @@ export function TaskHistoryPanel({
                         await copyMarkdownReport(timeline)
                       }}
                       icon={<Clipboard size={9} />}
-                      className="h-6 px-2 text-[9px]"
+                      className="h-5 px-1.5 text-[9px]"
                     >
                       {t('history.copyMD')}
                     </GlassButton>
@@ -160,35 +147,28 @@ export function TaskHistoryPanel({
                         await exportAsHtml(timeline)
                       }}
                       icon={<Download size={9} />}
-                      className="h-6 px-2 text-[9px]"
+                      className="h-5 px-1.5 text-[9px]"
                     >
                       {t('history.exportHTML')}
                     </GlassButton>
                   </div>
                 )}
 
-                <div
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRestoreTask(run)
+                  }}
+                  aria-label="restore this task"
+                  title="restore this task"
                   className={cn(
-                    'absolute right-2 top-2 transition-opacity',
-                    isViewing ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
+                    'absolute right-1.5 top-1.5 p-1 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] rounded-sm transition-colors cursor-pointer',
+                    isViewing ? 'opacity-100' : 'opacity-50 group-hover:opacity-100'
                   )}
-                  style={{ marginRight: '4rem' }}
                 >
-                  <GlassButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onRestoreTask(run)
-                    }}
-                    icon={<RotateCcw size={9} />}
-                    className="h-6 w-6 min-w-0 p-0 px-1.5 [&]:text-[9px]"
-                    aria-label="Restore this task"
-                    title="Restore this task"
-                  >
-                    {' '}
-                  </GlassButton>
-                </div>
+                  <RotateCcw size={10} />
+                </button>
               </div>
             )
           })}

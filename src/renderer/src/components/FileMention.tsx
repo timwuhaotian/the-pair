@@ -247,28 +247,28 @@ export function FileMention({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[9999] max-h-64 w-80 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg"
+      className="fixed z-[9999] max-h-64 w-80 overflow-y-auto rounded-sm border border-border bg-popover font-mono scrollbar-thin"
       style={{ top: position.top, left: position.left }}
     >
       {results.map((file, index) => (
         <div
           key={file.path}
-          className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-sm ${
-            index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
+          className={`flex cursor-pointer items-baseline gap-2 px-2 py-1 text-[11px] ${
+            index === selectedIndex ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.04]'
           }`}
           onClick={() => insertMention(file.path)}
         >
           {file.type === 'directory' ? (
-            <Folder size={14} className="text-amber-500" />
+            <Folder size={11} className="state-running translate-y-px shrink-0" />
           ) : (
-            <File size={14} className="text-blue-500" />
+            <File size={11} className="role-mentor translate-y-px shrink-0" />
           )}
-          <span className="truncate font-mono text-foreground">{file.path}</span>
+          <span className="truncate text-foreground/90">{file.path}</span>
         </div>
       ))}
       {files.length > 50 && (
-        <div className="border-t px-3 py-2 text-xs text-muted-foreground">
-          {files.length - 50} more files...
+        <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground-faint">
+          · {files.length - 50} more files…
         </div>
       )}
     </div>,

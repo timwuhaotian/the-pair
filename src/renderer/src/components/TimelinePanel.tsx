@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Clipboard, Clock, Download } from 'lucide-react'
-import { GlassButton } from './ui/GlassButton'
+import { Check, Clipboard, Download } from 'lucide-react'
 import { TimelineIterationGroup } from './TimelineIterationGroup'
+import { TerminalDivider } from './terminal/TerminalDivider'
 import type { TimelineData } from '../lib/timeline'
 import { formatDuration, formatTokenCount } from '../lib/timeline'
 
@@ -16,21 +16,18 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
 
   if (!timeline) {
     return (
-      <div>
-        <h3 className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <Clock size={12} />
-          {t('pair.timeline')}
-        </h3>
-        <div className="glass-card rounded-2xl p-4">
-          <p className="text-[11px] text-muted-foreground/60">{t('pair.noTimelineEvents')}</p>
-        </div>
+      <div className="space-y-1 font-mono">
+        <TerminalDivider label={t('pair.timeline')} />
+        <p className="text-[10px] text-muted-foreground-faint pl-2">
+          — {t('pair.noTimelineEvents')} —
+        </p>
       </div>
     )
   }
 
   const hasEvents = timeline.iterations.length > 0
 
-  const handleCopy = async () => {
+  const handleCopy = async (): Promise<void> => {
     const { copyMarkdownReport } = await import('../lib/reportExport')
     const ok = await copyMarkdownReport(timeline)
     if (ok) {
@@ -39,7 +36,7 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
     }
   }
 
-  const handleExport = async () => {
+  const handleExport = async (): Promise<void> => {
     try {
       const { exportAsHtml } = await import('../lib/reportExport')
       await exportAsHtml(timeline)
@@ -49,57 +46,52 @@ export function TimelinePanel({ timeline }: TimelinePanelProps): React.JSX.Eleme
   }
 
   return (
-    <div>
-      <h3 className="mb-3 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <span className="flex items-center gap-2">
-          <Clock size={12} />
-          {t('pair.timeline')}
-        </span>
+    <div className="font-mono space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <TerminalDivider label={t('pair.timeline')} className="flex-1" />
         {hasEvents && (
-          <span className="flex items-center gap-1">
-            <GlassButton
-              variant="ghost"
-              size="sm"
+          <span className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
               onClick={handleCopy}
-              icon={copied ? <Check size={9} /> : <Clipboard size={9} />}
-              className="h-6 w-6 min-w-0 p-0 px-1.5 [&]:text-[9px]"
-              title="Copy as Markdown"
+              title="copy as markdown"
+              className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
             >
-              {' '}
-            </GlassButton>
-            <GlassButton
-              variant="ghost"
-              size="sm"
+              {copied ? <Check size={10} className="state-done" /> : <Clipboard size={10} />}
+            </button>
+            <button
+              type="button"
               onClick={handleExport}
-              icon={<Download size={9} />}
-              className="h-6 w-6 min-w-0 p-0 px-1.5 [&]:text-[9px]"
-              title="Export as HTML"
+              title="export as html"
+              className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
             >
-              {' '}
-            </GlassButton>
+              <Download size={10} />
+            </button>
           </span>
         )}
-      </h3>
+      </div>
 
-      <div className="glass-card rounded-2xl overflow-hidden">
-        {/* Summary stats bar */}
-        <div className="flex items-center gap-3 border-b border-border/30 px-3 py-2">
-          <span className="text-[9px] font-mono text-muted-foreground/50">
-            {formatDuration(timeline.durationMs)}
-          </span>
-          <span className="text-[9px] font-mono text-muted-foreground/50">
-            {timeline.iterations.length} iter
-          </span>
+      <div className="border border-border bg-background/40 rounded-sm overflow-hidden">
+        <div className="flex items-baseline gap-3 border-b border-border/40 px-2 py-1 text-[10px] text-muted-foreground tabular-nums">
+          <span>{formatDuration(timeline.durationMs)}</span>
+          <span>·</span>
+          <span>{timeline.iterations.length} iter</span>
           {timeline.totalOutputTokens > 0 && (
-            <span className="text-[9px] font-mono text-muted-foreground/50">
-              {formatTokenCount(timeline.totalOutputTokens + (timeline.totalInputTokens ?? 0))} tok
-            </span>
+            <>
+              <span>·</span>
+              <span>
+                {formatTokenCount(timeline.totalOutputTokens + (timeline.totalInputTokens ?? 0))}{' '}
+                tok
+              </span>
+            </>
           )}
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto scrollbar-thin p-3">
+        <div className="max-h-[400px] overflow-y-auto scrollbar-thin p-2">
           {!hasEvents ? (
-            <p className="text-[11px] text-muted-foreground/60">{t('pair.noTimelineEvents')}</p>
+            <p className="text-[10px] text-muted-foreground-faint">
+              — {t('pair.noTimelineEvents')} —
+            </p>
           ) : (
             timeline.iterations.map((group, idx) => (
               <TimelineIterationGroup

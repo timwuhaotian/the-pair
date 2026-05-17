@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react'
 import { getVersion } from '@tauri-apps/api/app'
 
 function Versions(): React.JSX.Element {
-  const [version, setVersion] = useState<string>('...')
+  const [version, setVersion] = useState<string>('…')
 
   useEffect(() => {
-    getVersion().then(setVersion)
+    void getVersion().then(setVersion)
   }, [])
 
   return (
-    <ul className="versions">
-      <li className="app-version">The Pair v{version}</li>
-      <li className="framework-version">Tauri v2.0</li>
+    <ul className="font-mono text-[11px] text-muted-foreground space-y-0.5">
+      <li>· the-pair v{version}</li>
+      <li>· tauri v2.0</li>
     </ul>
   )
 }

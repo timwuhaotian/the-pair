@@ -302,58 +302,45 @@ export function isAcceptanceVerdictContent(raw: string): boolean {
   }
 }
 
-function isDevSmokePairSpec(spec: string): boolean {
-  return (
-    spec.includes('This is a smoke test of the pair execution loop') &&
-    spec.includes('Each time the executor sends a greeting') &&
-    spec.includes('Greeting N/3 received.')
-  )
-}
-
 export function buildMentorAcceptancePrompt(input: {
   taskSpec: string
   executorResult: string
   acceptance: AcceptanceRecord
 }): string {
-  const isSmoke = isDevSmokePairSpec(input.taskSpec)
-
   const sections = [
-    '### ROLE: MENTOR',
-    'Your mission is ONLY to REVIEW and emit a structured acceptance verdict.',
-    '- DO NOT execute commands or edit files.',
-    '- Return STRICT JSON ONLY. No markdown, no prose, no code fences.',
-    '- Use exactly this schema:',
+    "You're reviewing the other agent's latest work in an automated pair-programming workflow. Read the executor output and the automated check results below, then return your assessment as a JSON block the workflow can parse.",
+    '',
+    'For this review turn, focus on analysis — no need to run commands or edit files.',
+    '',
+    'Reply with a JSON object using this schema (the orchestrator parses it):',
+    '',
     '{',
-    '  "verdict": "pass | fail",',
-    '  "risk": "low | medium | high",',
+    '  "verdict": "pass" | "fail",',
+    '  "risk": "low" | "medium" | "high",',
+    '  "confidence": 0.0-1.0,',
+    '  "issues": ["..."],',
     '  "evidence": ["..."],',
+    '  "reasoning": "...",',
     '  "summary": "...",',
     '  "nextStep": {',
-    '    "action": "continue | finish",',
+    '    "action": "continue" | "finish",',
     '    "instructions": ["..."]',
     '  }',
     '}',
-    '- If action is "continue", include concrete executor instructions.',
-    '- If action is "finish", instructions must be an empty array.',
     '',
-    ...(isSmoke
-      ? [
-          'SMOKE TEST MODE:',
-          '- This is a 3-round greeting test. The task requires exactly 3 greetings.',
-          '- Check what greeting number the Executor sent. Look for "Greeting 1", "Greeting 2", "Greeting 3" etc.',
-          '- If greeting 1 or 2: FAIL verdict, risk=low, action=continue, instructions=["Send Greeting {N+1}/3"]',
-          '- If greeting 3: PASS verdict, risk=low, action=finish, confidence=1.0, instructions=[]. After the JSON, output TASK_COMPLETE on its own line.',
-          '- Include "Greeting N/3 received" in your response text (outside the JSON).',
-          ''
-        ]
-      : []),
-    '### TASK SPEC',
+    'Notes:',
+    '- confidence ≥ 0.8 is required to finish.',
+    '- If nextStep.action is "continue", include concrete instructions for what the executor should do next.',
+    '- If nextStep.action is "finish", instructions should be an empty array.',
+    "- If you're finishing the workflow, add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.",
+    '',
+    'TASK',
     input.taskSpec.trim(),
     '',
-    '### EXECUTOR RESULT',
+    'EXECUTOR OUTPUT',
     input.executorResult.trim(),
     '',
-    '### ACCEPTANCE REPORT',
+    'AUTOMATED CHECKS',
     JSON.stringify(input.acceptance, null, 2)
   ]
 
@@ -362,13 +349,9 @@ export function buildMentorAcceptancePrompt(input: {
 
 export function buildMentorAcceptanceRepairPrompt(error: string): string {
   return [
-    '### ROLE: MENTOR',
-    'Your last review output was not valid acceptance JSON.',
-    '- Return STRICT JSON ONLY.',
-    '- Do not include markdown, prose, or code fences.',
-    `Validation error: ${error.trim()}`,
+    "The orchestrator couldn't parse your previous reply as the expected assessment JSON. Reply again with the JSON block in the schema described earlier — same fields, valid JSON, no surrounding prose.",
     '',
-    'Return the corrected acceptance verdict now.'
+    `Parser error: ${error.trim()}`
   ].join('\n')
 }
 
@@ -383,16 +366,14 @@ export function buildExecutorAcceptanceFollowupPrompt(input: {
     .join('\n')
 
   return [
-    '### ROLE: EXECUTOR',
-    'Your mission is ONLY to EXECUTE the acceptance follow-up.',
-    '- DO NOT create a new plan.',
-    '- DO NOT review your own work.',
-    '- Output exactly the requested instruction result.',
-    '- For text-only instructions, return only that exact text.',
-    '- Do not append acknowledgements, TASK_COMPLETE, explanations, or completion reports.',
-    '- If a requested tool or method is unavailable to you, immediately continue with alternative text-based approaches instead of stopping. Briefly state the limitation only when it blocks exact execution.',
+    'The reviewer asked for some adjustments to your previous turn. Carry them out and report what you did.',
     '',
-    '### FOLLOW-UP INSTRUCTIONS',
+    'A few constraints for this turn:',
+    '- Treat each instruction below as a direct task to carry out.',
+    '- For text-only instructions, output exactly the text the reviewer asked for — no commentary, no completion markers. Do not append TASK_COMPLETE (only the reviewer ends the workflow).',
+    '- If a tool is unavailable, fall back to a close text-based equivalent and briefly note the limitation only if it blocks you.',
+    '',
+    'ADJUSTMENTS',
     instructions
   ].join('\n')
 }

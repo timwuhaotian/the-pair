@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { Plus } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -12,20 +11,16 @@ export function QuickActionsFAB({ onAction, className }: QuickActionsFABProps): 
   const { t } = useTranslation()
 
   return (
-    <div className={cn('fixed bottom-6 right-6 z-50', className)}>
-      <motion.button
+    <div className={cn('fixed bottom-5 right-5 z-50', className)}>
+      <button
         type="button"
         onClick={() => onAction('create')}
-        whileTap={{ scale: 0.94 }}
-        whileHover={{ scale: 1.04 }}
         aria-label={t('quickActions.create')}
         title={t('quickActions.create')}
-        className={cn(
-          'flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xl transition-colors hover:bg-primary/90'
-        )}
+        className="inline-flex h-10 w-10 items-center justify-center border border-foreground bg-foreground text-background rounded-sm transition-colors hover:bg-foreground/90 cursor-pointer"
       >
-        <Plus size={22} />
-      </motion.button>
+        <Plus size={16} />
+      </button>
     </div>
   )
 }

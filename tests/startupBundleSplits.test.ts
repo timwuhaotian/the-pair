@@ -10,9 +10,11 @@ const staticImportPattern = (specifier: string): RegExp =>
 
 test('App keeps pair detail and heavy modal components out of the static startup path', async () => {
   const source = await readSource('src/renderer/src/App.tsx')
+  const dashboard = await readSource('src/renderer/src/components/Dashboard.tsx')
 
   for (const specifier of [
-    './components/PairDetail',
+    './components/PairConsole',
+    './components/PairOperationsPanel',
     './components/OnboardingWizard',
     './components/CreatePairModal',
     './components/AssignTaskModal',
@@ -21,8 +23,9 @@ test('App keeps pair detail and heavy modal components out of the static startup
     assert.doesNotMatch(source, staticImportPattern(specifier))
   }
 
-  assert.doesNotMatch(source, /function\s+PairDetail\b/)
-  assert.match(source, /lazy\(\(\)\s*=>\s*import\(['"]\.\/components\/PairDetail['"]\)/)
+  assert.doesNotMatch(source, /function\s+PairConsole\b/)
+  assert.match(dashboard, /lazy\(\(\)\s*=>\s*import\(['"]\.\/PairConsole['"]\)/)
+  assert.match(dashboard, /lazy\(\(\)\s*=>\s*import\(['"]\.\/PairOperationsPanel['"]\)/)
 })
 
 test('App paints the shell while startup data is still loading', async () => {

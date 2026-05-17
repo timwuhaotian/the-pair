@@ -17,11 +17,10 @@ function formatDate(timestamp: number): string {
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'yesterday'
+  if (diffDays < 7) return `${diffDays}d ago`
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
   return date.toLocaleDateString()
 }
 
@@ -66,22 +65,16 @@ export function BranchPicker({
   }, [remoteBranches, search, fuseOptions])
 
   useEffect(() => {
-    if (!directory) {
-      return
-    }
-
+    if (!directory) return
     const controller = new AbortController()
     loadingRef.current = true
     setRepoState(null)
-
-    const fetchState = async () => {
+    const fetchState = async (): Promise<void> => {
       try {
         setIsLoading(true)
         setLoadError(false)
         const state = await tauriApi.repo.checkState(directory)
-        if (!controller.signal.aborted) {
-          setRepoState(state)
-        }
+        if (!controller.signal.aborted) setRepoState(state)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         if (!controller.signal.aborted) {
@@ -96,23 +89,15 @@ export function BranchPicker({
         }
       }
     }
-
-    fetchState()
-
-    return () => {
-      controller.abort()
-    }
+    void fetchState()
+    return () => controller.abort()
   }, [directory])
 
   useEffect(() => {
     if (!isOpen) return
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
+    const handleClickOutside = (e: MouseEvent): void => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false)
     }
-
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
@@ -128,22 +113,34 @@ export function BranchPicker({
 
   if (isLoading) {
     return (
-      <div className={cn('flex items-center gap-2 text-sm text-muted-foreground', className)}>
-        <RefreshCw className="h-4 w-4 animate-spin" />
-        <span>Checking repository...</span>
+      <div
+        className={cn(
+          'flex items-baseline gap-2 font-mono text-[11px] text-muted-foreground',
+          className
+        )}
+      >
+        <RefreshCw className="h-3 w-3 animate-spin translate-y-px" />
+        <span>· checking repo…</span>
       </div>
     )
   }
 
   if (loadError) {
     return (
-      <div className={cn('flex flex-col gap-1 text-xs text-muted-foreground', className)}>
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-3.5 w-3.5" />
-          <span>Could not check repository state</span>
+      <div
+        className={cn(
+          'flex flex-col gap-0.5 font-mono text-[11px] text-muted-foreground',
+          className
+        )}
+      >
+        <div className="flex items-baseline gap-2">
+          <GitBranch className="h-3 w-3 translate-y-px" />
+          <span>! repo state unreadable</span>
         </div>
         {errorMessage && (
-          <div className="text-xs text-destructive ml-5 font-mono">Error: {errorMessage}</div>
+          <div className="text-[10px] state-error ml-5 [overflow-wrap:anywhere]">
+            {errorMessage}
+          </div>
         )}
       </div>
     )
@@ -151,61 +148,65 @@ export function BranchPicker({
 
   if (!repoState?.isGitRepo) {
     return (
-      <div className={cn('flex items-center gap-2 text-xs text-muted-foreground', className)}>
-        <GitBranch className="h-3.5 w-3.5" />
-        <span>Not a git repository — worktrees unavailable</span>
+      <div
+        className={cn(
+          'flex items-baseline gap-2 font-mono text-[11px] text-muted-foreground',
+          className
+        )}
+      >
+        <GitBranch className="h-3 w-3 translate-y-px" />
+        <span>· not a git repo — worktrees unavailable</span>
       </div>
     )
   }
 
   const selectedBranch = repoState.branches.find((b) => b.name === value)
 
-  const handleSelect = (branchName: string) => {
-    if (value === branchName) {
-      onChange(undefined)
-    } else {
-      onChange(branchName)
-    }
+  const handleSelect = (branchName: string): void => {
+    if (value === branchName) onChange(undefined)
+    else onChange(branchName)
     setIsOpen(false)
   }
 
-  const handleClear = () => {
+  const handleClear = (): void => {
     onChange(undefined)
     setIsOpen(false)
   }
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative font-mono', className)}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
-          'bg-white/5 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50',
-          'hover:bg-white/10 dark:hover:bg-slate-700/50',
-          value && 'border-blue-500/50 dark:border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10'
+          'w-full flex items-center justify-between gap-2 px-2 py-1.5 text-[12px] rounded-sm border transition-colors cursor-pointer',
+          'bg-background',
+          value ? 'border-role-mentor' : 'border-border hover:border-foreground/40'
         )}
       >
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-slate-400" />
+        <div className="flex items-baseline gap-2 min-w-0">
+          <GitBranch className="h-3 w-3 translate-y-px text-muted-foreground shrink-0" />
           {selectedBranch ? (
-            <span className="text-slate-900 dark:text-slate-100">{selectedBranch.name}</span>
+            <span className="role-mentor truncate">{selectedBranch.name}</span>
           ) : (
-            <span className="text-slate-500 dark:text-slate-400">Select branch (optional)</span>
+            <span className="text-muted-foreground">select branch (optional)</span>
           )}
         </div>
         <ChevronDown
-          className={cn('h-4 w-4 text-slate-400 transition-transform', isOpen && 'rotate-180')}
+          className={cn(
+            'h-3 w-3 text-muted-foreground-faint transition-transform shrink-0',
+            isOpen && 'rotate-180'
+          )}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-lg border border-slate-200/50 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-lg">
-          <div className="sticky top-0 z-10 border-b border-slate-200/50 dark:border-slate-700/50 bg-white dark:bg-slate-800 px-2 py-1.5">
+        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-sm border border-border bg-popover">
+          <div className="sticky top-0 z-10 border-b border-border bg-popover px-2 py-1.5">
             <div className="relative">
               <Search
-                size={12}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                size={11}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground-faint pointer-events-none"
               />
               <input
                 ref={searchInputRef}
@@ -222,16 +223,16 @@ export function BranchPicker({
                     if (first) handleSelect(first.name)
                   }
                 }}
-                placeholder="Filter branches..."
-                className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-blue-500/40 focus:outline-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                placeholder="filter branches…"
+                className="w-full pl-7 pr-6 py-1 text-[11px] rounded-sm bg-background border border-border focus:border-foreground/40 focus:outline-none text-foreground placeholder:text-muted-foreground-faint"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground-faint hover:text-foreground cursor-pointer"
                 >
-                  <X size={11} />
+                  <X size={10} />
                 </button>
               )}
             </div>
@@ -241,23 +242,23 @@ export function BranchPicker({
             type="button"
             onClick={handleClear}
             className={cn(
-              'w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
-              !value && 'bg-slate-100 dark:bg-slate-700'
+              'w-full text-left px-3 py-1.5 text-[11px] hover:bg-foreground/[0.05] cursor-pointer text-muted-foreground',
+              !value && 'bg-foreground/[0.05] text-foreground/90'
             )}
           >
-            <span>No branch (work in directory)</span>
+            — no branch (work in directory)
           </button>
 
           {repoState.isDirty && (
-            <div className="px-3 py-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10">
-              Repository has uncommitted changes. Please commit or stash before selecting a branch.
+            <div className="px-3 py-1.5 text-[10px] state-running bg-state-running/8 border-t border-border">
+              ! uncommitted changes — commit or stash before selecting a branch
             </div>
           )}
 
           {filteredLocal.length > 0 && (
-            <div className="border-t border-slate-200/50 dark:border-slate-700/50">
-              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900">
-                Local branches
+            <div className="border-t border-border">
+              <div className="px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground bg-background/40">
+                ── local ──
               </div>
               {filteredLocal.map((branch) => {
                 const isCurrent = repoState.currentBranch === branch.name
@@ -268,28 +269,23 @@ export function BranchPicker({
                     disabled={repoState.isDirty && !isCurrent}
                     onClick={() => handleSelect(branch.name)}
                     className={cn(
-                      'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
-                      value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
-                      repoState.isDirty && !isCurrent && 'opacity-50 cursor-not-allowed'
+                      'w-full flex items-baseline justify-between gap-2 px-3 py-1 text-[11px] hover:bg-foreground/[0.05] cursor-pointer',
+                      value === branch.name && 'bg-role-mentor',
+                      repoState.isDirty && !isCurrent && 'opacity-40 cursor-not-allowed'
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-baseline gap-2 min-w-0">
                       {isCurrent && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-medium">
+                        <span className="text-[9px] uppercase tracking-[0.14em] state-done border border-state-done px-1">
                           current
                         </span>
                       )}
-                      <span
-                        className={cn(
-                          'text-slate-900 dark:text-slate-100',
-                          isCurrent && 'font-medium'
-                        )}
-                      >
+                      <span className={cn('text-foreground/90 truncate', isCurrent && 'font-bold')}>
                         {branch.name}
                       </span>
                     </div>
                     {branch.lastCommitMessage && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-32 ml-2">
+                      <span className="text-[10px] text-muted-foreground-faint truncate max-w-[18ch]">
                         {branch.lastCommitMessage}
                       </span>
                     )}
@@ -300,9 +296,9 @@ export function BranchPicker({
           )}
 
           {filteredRemote.length > 0 && (
-            <div className="border-t border-slate-200/50 dark:border-slate-700/50">
-              <div className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900">
-                Remote branches
+            <div className="border-t border-border">
+              <div className="px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground bg-background/40">
+                ── remote ──
               </div>
               {filteredRemote.map((branch) => (
                 <button
@@ -311,21 +307,21 @@ export function BranchPicker({
                   disabled={repoState.isDirty}
                   onClick={() => handleSelect(branch.name)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer',
-                    value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
-                    repoState.isDirty && 'opacity-50 cursor-not-allowed'
+                    'w-full flex items-baseline justify-between gap-2 px-3 py-1 text-[11px] hover:bg-foreground/[0.05] cursor-pointer',
+                    value === branch.name && 'bg-role-mentor',
+                    repoState.isDirty && 'opacity-40 cursor-not-allowed'
                   )}
                 >
-                  <div className="flex flex-col items-start">
-                    <span className="text-slate-900 dark:text-slate-100">{branch.name}</span>
+                  <div className="flex flex-col items-start min-w-0">
+                    <span className="text-foreground/90 truncate">{branch.name}</span>
                     {!branch.isCheckedOutLocally && (
-                      <span className="text-xs text-blue-500">
-                        Will create local tracking branch
+                      <span className="text-[10px] role-mentor">
+                        → creates local tracking branch
                       </span>
                     )}
                   </div>
                   {branch.lastCommitDate && (
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="text-[10px] text-muted-foreground-faint">
                       {formatDate(branch.lastCommitDate)}
                     </span>
                   )}
@@ -335,8 +331,8 @@ export function BranchPicker({
           )}
 
           {search && filteredLocal.length === 0 && filteredRemote.length === 0 && (
-            <div className="px-3 py-4 text-xs text-slate-400 text-center">
-              No branches match &ldquo;{search}&rdquo;
+            <div className="px-3 py-3 text-[11px] text-muted-foreground-faint text-center">
+              — no branches match &ldquo;{search}&rdquo; —
             </div>
           )}
         </div>

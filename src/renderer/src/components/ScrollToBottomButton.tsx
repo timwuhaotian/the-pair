@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '../lib/utils'
 
 interface ScrollToBottomButtonProps {
@@ -34,11 +33,7 @@ export function ScrollToBottomButton({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-
-    const handleScroll = (): void => {
-      updateVisibility()
-    }
-
+    const handleScroll = (): void => updateVisibility()
     el.addEventListener('scroll', handleScroll, { passive: true })
     return () => el.removeEventListener('scroll', handleScroll)
   }, [scrollRef, updateVisibility])
@@ -46,36 +41,21 @@ export function ScrollToBottomButton({
   const scrollToBottom = (): void => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: 'smooth'
-    })
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
+  if (!showButton) return null
+
   return (
-    <AnimatePresence>
-      {showButton && (
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.8, y: 8 }}
-          transition={{ duration: 0.2 }}
-          onClick={scrollToBottom}
-          className={cn(
-            'absolute bottom-6 right-6 z-10',
-            'flex items-center gap-1.5 rounded-full',
-            'border border-border/60 bg-background/90 backdrop-blur-md',
-            'px-3 py-1.5 shadow-lg',
-            'text-[10px] font-medium text-muted-foreground',
-            'hover:bg-background hover:text-foreground transition-colors',
-            'cursor-pointer',
-            className
-          )}
-        >
-          <ArrowDown size={12} />
-          <span>{t('console.newMessages')}</span>
-        </motion.button>
+    <button
+      onClick={scrollToBottom}
+      className={cn(
+        'absolute bottom-4 right-4 z-10 inline-flex items-baseline gap-1 px-2 py-1 border border-border bg-background rounded-sm font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground hover:border-foreground/40 transition-colors cursor-pointer',
+        className
       )}
-    </AnimatePresence>
+    >
+      <ArrowDown size={10} className="translate-y-px" />
+      <span>· {t('console.newMessages')}</span>
+    </button>
   )
 }

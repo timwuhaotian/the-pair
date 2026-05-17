@@ -9,6 +9,15 @@ export interface DashboardPairGroup {
   pairs: Pair[]
 }
 
+export interface DashboardWorkspaceGroup {
+  /** Absolute workspace directory used for grouping. */
+  directory: string
+  /** Short folder name (last path segment) for display. */
+  shortName: string
+  pairs: Pair[]
+  statusGroups: DashboardPairGroup[]
+}
+
 export interface DashboardPairInsights {
   needsAttention: number
   running: number
@@ -48,6 +57,36 @@ export function buildPairGroups(pairs: Pair[]): DashboardPairGroup[] {
   ]
 
   return groups.filter((group) => group.pairs.length > 0)
+}
+
+function shortenWorkspace(directory: string): string {
+  const cleaned = directory.replace(/\/+$/, '')
+  const segments = cleaned.split('/')
+  return segments[segments.length - 1] || cleaned || directory
+}
+
+export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {
+  const buckets = new Map<string, Pair[]>()
+  const orderedKeys: string[] = []
+
+  for (const pair of pairs) {
+    const key = pair.directory || '—'
+    if (!buckets.has(key)) {
+      buckets.set(key, [])
+      orderedKeys.push(key)
+    }
+    buckets.get(key)!.push(pair)
+  }
+
+  return orderedKeys.map((directory) => {
+    const groupPairs = buckets.get(directory) ?? []
+    return {
+      directory,
+      shortName: shortenWorkspace(directory),
+      pairs: groupPairs,
+      statusGroups: buildPairGroups(groupPairs)
+    }
+  })
 }
 
 export function buildPairInsights(pairs: Pair[]): DashboardPairInsights {

@@ -6,7 +6,6 @@ import {
   RefreshCw,
   Sparkles,
   Shield,
-  Check,
   AlertCircle,
   HelpCircle,
   FlaskConical
@@ -25,47 +24,23 @@ interface PresetPickerProps {
 }
 
 const iconMap: Record<string, React.ReactNode> = {
-  Bug: <Bug size={16} />,
-  RefreshCw: <RefreshCw size={16} />,
-  Sparkles: <Sparkles size={16} />,
-  Shield: <Shield size={16} />,
-  FlaskConical: <FlaskConical size={16} />
+  Bug: <Bug size={11} />,
+  RefreshCw: <RefreshCw size={11} />,
+  Sparkles: <Sparkles size={11} />,
+  Shield: <Shield size={11} />,
+  FlaskConical: <FlaskConical size={11} />
 }
 
-const presetColors: Record<
-  string,
-  { border: string; background: string; icon: string; glow: string }
-> = {
-  'bug-fix': {
-    border: 'border-red-500/30',
-    background: 'bg-red-500/12 dark:bg-red-500/14',
-    icon: 'text-red-600 dark:text-red-400',
-    glow: 'hover:shadow-red-500/20'
-  },
-  refactor: {
-    border: 'border-blue-500/30',
-    background: 'bg-blue-500/12 dark:bg-blue-500/14',
-    icon: 'text-blue-600 dark:text-blue-400',
-    glow: 'hover:shadow-blue-500/20'
-  },
-  feature: {
-    border: 'border-purple-500/30',
-    background: 'bg-purple-500/12 dark:bg-purple-500/14',
-    icon: 'text-purple-600 dark:text-purple-400',
-    glow: 'hover:shadow-purple-500/20'
-  },
-  hardening: {
-    border: 'border-amber-500/30',
-    background: 'bg-amber-500/12 dark:bg-amber-500/14',
-    icon: 'text-amber-600 dark:text-amber-400',
-    glow: 'hover:shadow-amber-500/20'
-  },
-  'dev-smoke-test': {
-    border: 'border-emerald-500/30',
-    background: 'bg-emerald-500/12 dark:bg-emerald-500/14',
-    icon: 'text-emerald-600 dark:text-emerald-400',
-    glow: 'hover:shadow-emerald-500/20'
-  }
+const presetTones: Record<string, { fg: string; bg: string; border: string }> = {
+  'bug-fix': { fg: 'state-error', bg: 'bg-state-error', border: 'border-state-error' },
+  refactor: { fg: 'role-mentor', bg: 'bg-role-mentor', border: 'border-role-mentor' },
+  feature: { fg: 'role-executor', bg: 'bg-role-executor', border: 'border-role-executor' },
+  hardening: { fg: 'state-running', bg: 'bg-state-running', border: 'border-state-running' },
+  'dev-smoke-test': { fg: 'state-done', bg: 'bg-state-done', border: 'border-state-done' }
+}
+
+function getTone(id: string): { fg: string; bg: string; border: string } {
+  return presetTones[id] ?? presetTones['feature']
 }
 
 function PresetPopover({
@@ -99,7 +74,7 @@ function PresetPopover({
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
     const triggerRect = triggerRef.current.getBoundingClientRect()
-    const popoverWidth = 256 // w-64
+    const popoverWidth = 256
     const gap = 8
 
     let top: number
@@ -111,11 +86,7 @@ function PresetPopover({
     } else {
       top = triggerRect.top - 180 - gap
     }
-
-    if (top < 8) {
-      top = triggerRect.bottom + gap
-    }
-
+    if (top < 8) top = triggerRect.bottom + gap
     setPosition({ top, left })
   }, [open])
 
@@ -131,7 +102,7 @@ function PresetPopover({
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed z-[9999] w-64 rounded-xl border border-border/80 bg-popover shadow-xl p-3 text-xs"
+            className="fixed z-[9999] w-64 rounded-sm border border-border bg-popover p-3 font-mono text-[11px]"
             style={{ top: position.top, left: position.left }}
             onMouseEnter={show}
             onFocus={show}
@@ -139,33 +110,31 @@ function PresetPopover({
             onBlur={hide}
           >
             <div className="mb-2 text-muted-foreground leading-relaxed">{preset.description}</div>
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap gap-1">
-                {preset.recommendedSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-foreground"
-                  >
-                    {skill}
-                  </span>
-                ))}
-              </div>
-
-              {preset.pauseOnIteration && (
-                <div className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Auto-pause checkpoint</span> at
-                  iteration {preset.pauseOnIteration}
+            <div className="space-y-1">
+              {preset.recommendedSkills.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {preset.recommendedSkills.map((skill) => (
+                    <span
+                      key={skill}
+                      className="inline-flex items-center border border-border bg-background px-1 py-px text-[10px] text-foreground/85"
+                    >
+                      {skill}
+                    </span>
+                  ))}
                 </div>
               )}
-
+              {preset.pauseOnIteration && (
+                <div className="text-muted-foreground">
+                  <span className="text-foreground/85">· auto-pause</span> @ iter{' '}
+                  {preset.pauseOnIteration}
+                </div>
+              )}
               {preset.autoAttachGitBaseline && (
                 <div className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Git baseline</span> created on pair
-                  start
+                  <span className="text-foreground/85">· git baseline</span> created on pair start
                 </div>
               )}
             </div>
-            <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 rotate-45 border-b border-r border-border/80 bg-popover" />
           </div>,
           document.body
         )}
@@ -182,65 +151,47 @@ function PresetCard({
   selected: boolean
   onSelect: () => void
 }): React.ReactNode {
-  const colors = presetColors[preset.id] || presetColors['feature']
+  const c = getTone(preset.id)
 
   return (
     <div
       className={cn(
-        'relative rounded-xl border px-3 py-2 transition-all cursor-pointer',
+        'relative border px-2 py-1.5 rounded-sm transition-colors cursor-pointer font-mono text-[11px]',
         selected
-          ? cn(colors.border, colors.background)
-          : 'border-border/60 bg-muted hover:border-foreground/12 hover:bg-muted/80',
-        colors.glow
+          ? cn(c.border, c.bg)
+          : 'border-border bg-background hover:border-foreground/40 hover:bg-foreground/[0.04]'
       )}
       onClick={onSelect}
       data-testid={`preset-card-${preset.id}`}
     >
-      {selected && (
-        <div className="absolute right-1 top-1">
-          <div
-            className={cn(
-              'flex h-4 w-4 items-center justify-center rounded-full',
-              colors.background,
-              colors.border
-            )}
-          >
-            <Check size={10} className={colors.icon} />
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <div
-          className={cn(
-            'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
-            colors.border,
-            colors.background
-          )}
-        >
-          <span className={colors.icon}>{iconMap[preset.icon] || <Sparkles size={16} />}</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <h3 className="text-xs font-semibold text-foreground truncate">{preset.name}</h3>
-            <PresetPopover preset={preset}>
-              {
-                ((show: () => void, hide: () => void) => (
-                  <button
-                    type="button"
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseEnter={show}
-                    onMouseLeave={hide}
-                    className="shrink-0 rounded text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                    aria-label={`Info about ${preset.name}`}
-                  >
-                    <HelpCircle size={12} />
-                  </button>
-                )) as unknown as React.ReactNode
-              }
-            </PresetPopover>
-          </div>
-        </div>
+      <div className="flex items-baseline gap-2">
+        <span aria-hidden className={cn('shrink-0 translate-y-px', c.fg)}>
+          {iconMap[preset.icon] || <Sparkles size={11} />}
+        </span>
+        <span className={cn('min-w-0 flex-1 truncate', selected ? c.fg : 'text-foreground/90')}>
+          {preset.name}
+        </span>
+        {selected && (
+          <span aria-hidden className={c.fg}>
+            ✓
+          </span>
+        )}
+        <PresetPopover preset={preset}>
+          {
+            ((show: () => void, hide: () => void) => (
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={show}
+                onMouseLeave={hide}
+                className="shrink-0 text-muted-foreground-faint hover:text-foreground/85 transition-colors"
+                aria-label={`info about ${preset.name}`}
+              >
+                <HelpCircle size={11} />
+              </button>
+            )) as unknown as React.ReactNode
+          }
+        </PresetPopover>
       </div>
     </div>
   )
@@ -249,14 +200,9 @@ function PresetCard({
 function SkeletonCard(): React.ReactNode {
   return (
     <div
-      className="rounded-xl border border-border/60 bg-muted px-3 py-2 animate-pulse"
+      className="rounded-sm border border-border bg-background/40 px-2 py-1.5 animate-pulse h-7"
       data-testid="preset-picker-skeleton"
-    >
-      <div className="flex items-center gap-2">
-        <div className="h-8 w-8 shrink-0 rounded-lg border border-border/50 bg-muted/60" />
-        <div className="h-3.5 w-20 rounded bg-muted/60" />
-      </div>
-    </div>
+    />
   )
 }
 
@@ -271,7 +217,7 @@ export function PresetPicker({
   const { t } = useTranslation()
   if (loading) {
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
@@ -282,17 +228,17 @@ export function PresetPicker({
 
   if (!loading && presets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/60 bg-muted py-10 text-center">
-        <AlertCircle size={20} className="text-muted-foreground" />
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">{t('pickers.noPresets')}</p>
-          <p className="text-xs text-muted-foreground">
-            {error ? error : t('pickers.presetsError')}
-          </p>
+      <div className="flex flex-col items-start gap-2 border border-dashed border-border bg-background/40 px-3 py-4 font-mono text-[11px]">
+        <div className="flex items-baseline gap-2">
+          <AlertCircle size={11} className="state-running translate-y-px" />
+          <span className="text-foreground/85">{t('pickers.noPresets')}</span>
         </div>
+        <p className="text-[10px] text-muted-foreground [overflow-wrap:anywhere]">
+          {error ? error : t('pickers.presetsError')}
+        </p>
         {onRetry && (
           <GlassButton variant="secondary" size="sm" onClick={onRetry}>
-            <RefreshCw size={12} />
+            <RefreshCw size={10} />
             {t('common.retry')}
           </GlassButton>
         )}
@@ -301,7 +247,7 @@ export function PresetPicker({
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
       {presets.map((preset) => (
         <PresetCard
           key={preset.id}

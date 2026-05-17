@@ -186,17 +186,20 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       }
       className="max-w-3xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col h-[70vh] max-h-[600px]">
-        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4">
-          <div className="glass-card rounded-xl p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col h-[70vh] max-h-[600px] font-mono text-[12px]"
+      >
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 scrollbar-thin">
+          <div className="border border-border rounded-sm px-3 py-1.5">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {t('modals.workspaceLabel')}
             </div>
-            <div className="mt-1 truncate font-mono text-xs text-foreground" title={pair.directory}>
+            <div className="mt-0.5 truncate text-foreground/90" title={pair.directory}>
               {pair.directory}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <ModelPicker
               value={tempMentorModel}
               models={availableModels}
@@ -214,17 +217,15 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           {modelsChanged && (
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3.5 py-2.5 text-sm text-blue-700 dark:text-blue-300">
-              {t('modals.modelUpdateNote')}
+            <div className="border-l-2 border-role-mentor bg-role-mentor px-3 py-2 text-[11px] role-mentor">
+              → {t('modals.modelUpdateNote')}
             </div>
           )}
 
-          <div>
-            <div className="mb-2 flex items-center gap-1.5">
-              <Sparkles size={11} className="text-primary" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                {t('onboarding.workflowPreset')}
-              </span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <Sparkles size={10} className="state-running translate-y-px" />
+              <span>{t('onboarding.workflowPreset')}</span>
             </div>
             <PresetPicker
               presets={presets}
@@ -236,21 +237,21 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             />
           </div>
 
-          <div className="relative">
-            <label className="mb-2 block text-sm font-medium text-foreground">
+          <div className="relative flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {t('onboarding.taskSpec')}
             </label>
             <textarea
               ref={textareaRef}
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
-              placeholder="Describe the next task for this pair. Mention expected outcome, constraints, and how you want them to verify the work. Use @filename to reference files."
+              placeholder="describe the next task for this pair. mention expected outcome, constraints, and how you want them to verify the work. use @filename to reference files."
               rows={6}
-              className="glass-card w-full resize-none rounded-xl px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60"
               required
               data-testid="assign-task-spec"
             />
-            <div className="absolute top-8 right-2 flex items-center gap-1">
+            <div className="absolute top-[26px] right-2 flex items-center gap-1">
               <SkillPicker projectDir={pair.directory} onSelect={handleSkillSelect} />
               <FileMention
                 textareaRef={textareaRef}
@@ -260,20 +261,20 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
                 onFileSelect={handleFileSelect}
               />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground/70">
-              {spec.length > 0 ? `${spec.length} ${t('common.chars')} · ` : ''}Type @ to reference
-              files. The next run starts with a fresh planning loop.
+            <p className="text-[10px] text-muted-foreground-faint">
+              {spec.length > 0 ? `${spec.length} ${t('common.chars')} · ` : ''}· type @ to reference
+              files · fresh planning loop on next run
             </p>
           </div>
 
           {error && (
-            <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
-              {error}
+            <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
+              ✗ {error}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 shrink-0 pt-3 border-t border-border/40 mt-4">
+        <div className="flex justify-end gap-2 shrink-0 pt-3 border-t border-border mt-3">
           <GlassButton
             type="button"
             variant="ghost"
@@ -290,14 +291,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             type="submit"
             variant="primary"
             disabled={isLoading || spec.trim().length === 0}
-            icon={isRestoring ? <RotateCcw size={14} /> : <ArrowUpRight size={14} />}
+            icon={isRestoring ? <RotateCcw size={11} /> : <ArrowUpRight size={11} />}
             data-testid="assign-submit-btn"
           >
             {isLoading
               ? t('modals.starting')
               : isRestoring
                 ? t('modals.restore')
-                : t('modals.startNewTask')}
+                : `▸ ${t('modals.startNewTask').toLowerCase()}`}
           </GlassButton>
         </div>
       </form>
