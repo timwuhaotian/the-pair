@@ -64,6 +64,18 @@ const api = {
   repo: {
     getFileDiff: (directory: string, filePath: string, status: string) =>
       invoke('git_get_file_diff', { directory, filePath, status }) as Promise<string>
+  },
+  skill: {
+    discover: (projectDir?: string) =>
+      invoke('discover_skills', { projectDir: projectDir ?? null }) as Promise<
+        Array<{ name: string; description: string; source: string }>
+      >,
+    readContent: (name: string, projectDir?: string) =>
+      invoke('skill_read_content', { name, projectDir: projectDir ?? null }) as Promise<string>,
+    refresh: (projectDir?: string) =>
+      invoke('skill_refresh', { projectDir: projectDir ?? null }) as Promise<
+        Array<{ name: string; description: string; source: string }>
+      >
   }
 }
 

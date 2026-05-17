@@ -7,6 +7,7 @@ import { useThemeStore } from './store/useThemeStore'
 import { useUpdateStore } from './store/useUpdateStore'
 import './i18n'
 import { AppChrome } from './components/AppChrome'
+import { BootSplash } from './components/BootSplash'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
@@ -31,13 +32,28 @@ const PairSettingsModal = lazy(() =>
     default: PairSettingsModal
   }))
 )
-function StartupLoading(): React.ReactNode {
-  return (
-    <div className="relative flex h-full items-center justify-center bg-background">
-      <div className="h-8 w-8 rounded-full border border-border border-t-primary motion-safe:animate-spin" />
-    </div>
-  )
+/**
+ * Dev/QA escape hatch — `?splash=hold` keeps the splash mounted, while
+ * `?splash=<ms>` overrides the minimum visible duration. Production users
+ * never hit this branch (no query string), so the splash auto-fades after
+ * stores hydrate.
+ */
+function readSplashOverride(): { hold: boolean; minMs: number } {
+  if (typeof window === 'undefined') return { hold: false, minMs: 700 }
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const raw = params.get('splash')
+    if (!raw) return { hold: false, minMs: 700 }
+    if (raw === 'hold') return { hold: true, minMs: 700 }
+    const parsed = Number.parseInt(raw, 10)
+    if (Number.isFinite(parsed) && parsed > 0) return { hold: false, minMs: parsed }
+  } catch {
+    /* noop */
+  }
+  return { hold: false, minMs: 700 }
 }
+
+const SPLASH_OVERRIDE = readSplashOverride()
 
 function queueStartupUpdateCheck(callback: () => void): () => void {
   let frameId: number | null = null
@@ -72,6 +88,8 @@ function App(): React.ReactNode {
   const [deletingPairId, setDeletingPairId] = useState<string | null>(null)
   const [pendingDeletePair, setPendingDeletePair] = useState<Pair | null>(null)
   const [pendingClearPair, setPendingClearPair] = useState<Pair | null>(null)
+  const splashHoldVisible = SPLASH_OVERRIDE.hold
+  const splashHoldDuration = SPLASH_OVERRIDE.minMs
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
@@ -334,42 +352,40 @@ function App(): React.ReactNode {
 
         <div className="flex-1 overflow-hidden">
           <ErrorBoundary>
-            {!pairsLoaded ? (
-              <StartupLoading />
-            ) : (
-              <Dashboard
-                selectedPair={selectedPair}
-                selectedPairId={selectedPairId}
-                onSelectPair={(pair) => {
-                  setSelectedPairId(pair.id)
-                }}
-                onDeletePair={(pair) => {
-                  void handleDeletePair(pair)
-                }}
-                deletingPairId={deletingPairId}
-                onCreatePair={() => setIsCreatePairOpen(true)}
-                onPausePair={async (id: string) => {
-                  try {
-                    await pausePair(id)
-                  } catch (e) {
-                    console.error('[App] Failed to pause:', e)
-                  }
-                }}
-                onResumePair={async (id: string) => {
-                  try {
-                    await resumePair(id)
-                  } catch (e) {
-                    console.error('[App] Failed to resume:', e)
-                  }
-                }}
-                onPauseSelectedPair={handlePauseSelectedPair}
-                onResumeSelectedPair={handleResumeSelectedPair}
-                onRestoreTask={handleRestoreTask}
-              />
-            )}
+            <Dashboard
+              selectedPair={selectedPair}
+              selectedPairId={selectedPairId}
+              onSelectPair={(pair) => {
+                setSelectedPairId(pair.id)
+              }}
+              onDeletePair={(pair) => {
+                void handleDeletePair(pair)
+              }}
+              deletingPairId={deletingPairId}
+              onCreatePair={() => setIsCreatePairOpen(true)}
+              onPausePair={async (id: string) => {
+                try {
+                  await pausePair(id)
+                } catch (e) {
+                  console.error('[App] Failed to pause:', e)
+                }
+              }}
+              onResumePair={async (id: string) => {
+                try {
+                  await resumePair(id)
+                } catch (e) {
+                  console.error('[App] Failed to resume:', e)
+                }
+              }}
+              onPauseSelectedPair={handlePauseSelectedPair}
+              onResumeSelectedPair={handleResumeSelectedPair}
+              onRestoreTask={handleRestoreTask}
+            />
           </ErrorBoundary>
         </div>
       </div>
+
+      <BootSplash visible={!pairsLoaded || splashHoldVisible} minDurationMs={splashHoldDuration} />
 
       <ConfirmModal
         isOpen={pendingDeletePair !== null}

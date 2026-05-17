@@ -55,6 +55,15 @@ interface Window {
     repo: {
       getFileDiff: (directory: string, filePath: string, status: string) => Promise<string>
     }
+    skill: {
+      discover: (
+        projectDir?: string
+      ) => Promise<Array<{ name: string; description: string; source: string }>>
+      readContent: (name: string, projectDir?: string) => Promise<string>
+      refresh: (
+        projectDir?: string
+      ) => Promise<Array<{ name: string; description: string; source: string }>>
+    }
   }
 }
 

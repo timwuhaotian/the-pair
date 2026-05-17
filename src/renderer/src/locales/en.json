@@ -1,4 +1,13 @@
 {
+  "startup": {
+    "wordmark": "The Pair",
+    "tagline": "Mentor plans. Executor ships.",
+    "bootCaption": "Two AI agents. One coding partner.",
+    "booting": "booting the pair",
+    "consoleEmptyTitle": "Idle pair console",
+    "firstRunCaption": "Welcome — let's pair up.",
+    "firstRunHint": "Spin up your first pair: pick a workspace, choose models, describe the task. The mentor plans and reviews while the executor writes the code."
+  },
   "common": {
     "cancel": "Cancel",
     "delete": "Delete",
@@ -280,7 +289,16 @@
     "processing": "Processing",
     "clearHistory": "Clear chat history",
     "taskInputPlaceholder": "Type a new task for the pair...",
-    "viewingArchived": "viewing archived run"
+    "viewingArchived": "viewing archived run",
+    "attachedFile": "Attached: {{path}}",
+    "attachedSkill": "Attached skill: /{{name}}"
+  },
+  "skills": {
+    "popoverTitle": "skills",
+    "refresh": "refresh",
+    "empty": "no skills found",
+    "noMatch": "no skills match",
+    "moreSkills": "more skills…"
   },
   "panel": {
     "modelsUpdateHint": "Changes apply after you save",

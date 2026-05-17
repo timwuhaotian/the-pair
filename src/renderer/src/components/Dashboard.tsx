@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { DashboardInsightPanel } from './DashboardInsightPanel'
 import { PairListSection } from './PairListSection'
+import { StartupHero } from './StartupHero'
 
 const PairConsole = lazy(() => import('./PairConsole'))
 const PairOperationsPanel = lazy(() => import('./PairOperationsPanel'))
@@ -38,7 +39,6 @@ export function Dashboard({
   onResumeSelectedPair,
   onRestoreTask
 }: DashboardProps): React.ReactNode {
-  const { t } = useTranslation()
   const pairs = usePairStore((state) => state.pairs)
 
   return (
@@ -63,15 +63,7 @@ export function Dashboard({
               <PairConsole pair={selectedPair} />
             </Suspense>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 font-mono text-[12px] text-muted-foreground-faint">
-              <span aria-hidden className="select-none text-foreground/40">
-                {'>_'}
-              </span>
-              <span className="uppercase tracking-[0.16em]">{t('dashboard.console.empty')}</span>
-              <span className="text-[11px] text-muted-foreground-faint">
-                {t('dashboard.console.emptyHint')}
-              </span>
-            </div>
+            <EmptyPairConsole pairCount={pairs.length} onCreatePair={onCreatePair} />
           )}
         </div>
 
@@ -87,6 +79,87 @@ export function Dashboard({
             </Suspense>
           ) : (
             <DashboardInsightPanel pairs={pairs} />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmptyPairConsole({
+  pairCount,
+  onCreatePair
+}: {
+  pairCount: number
+  onCreatePair: () => void
+}): React.ReactNode {
+  const { t } = useTranslation()
+  const isFirstRun = pairCount === 0
+
+  return (
+    <div className="flex h-full items-center justify-center overflow-y-auto px-6 py-8 font-mono">
+      <div className="flex w-full max-w-[760px] flex-col items-center gap-8 md:flex-row md:items-center md:justify-center md:gap-10">
+        {/* left — brand hero artwork */}
+        <div className="shrink-0">
+          <StartupHero
+            size="md"
+            animated
+            tagline={t('startup.tagline')}
+            wordmark={t('startup.wordmark')}
+            caption={isFirstRun ? t('startup.firstRunCaption') : undefined}
+          />
+        </div>
+
+        {/* right — terminal-style explainer */}
+        <div className="flex w-full max-w-[320px] flex-col gap-3 text-[12px] md:border-l md:border-border md:pl-10">
+          <div className="flex items-baseline gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground-faint">
+            <span aria-hidden>{'>_'}</span>
+            <span>{t('startup.consoleEmptyTitle').toLowerCase()}</span>
+          </div>
+
+          <div className="flex flex-col gap-1.5 border border-border bg-background/40 p-3 text-[11px] leading-relaxed">
+            <div className="flex items-baseline gap-2">
+              <span aria-hidden className="role-mentor select-none">
+                ●
+              </span>
+              <span className="role-mentor font-bold uppercase tracking-[0.14em]">
+                {t('common.mentor').toLowerCase()}
+              </span>
+              <span className="text-muted-foreground">· {t('emptyState.mentorDesc')}</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span aria-hidden className="text-muted-foreground select-none">
+                ⇄
+              </span>
+              <span className="text-foreground/85 font-bold uppercase tracking-[0.14em]">
+                {t('common.handoff').toLowerCase()}
+              </span>
+              <span className="text-muted-foreground">· {t('emptyState.handoffDesc')}</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span aria-hidden className="role-executor select-none">
+                ●
+              </span>
+              <span className="role-executor font-bold uppercase tracking-[0.14em]">
+                {t('common.executor').toLowerCase()}
+              </span>
+              <span className="text-muted-foreground">· {t('emptyState.executorDesc')}</span>
+            </div>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {isFirstRun ? t('startup.firstRunHint') : t('dashboard.console.emptyHint')}
+          </p>
+
+          {isFirstRun && (
+            <button
+              type="button"
+              onClick={onCreatePair}
+              className="mt-1 inline-flex items-center justify-center gap-2 self-start rounded-sm border border-foreground bg-foreground px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-background transition-colors duration-150 hover:bg-foreground/90 cursor-pointer"
+            >
+              <span aria-hidden>▸</span>
+              {t('emptyState.createFirst').toLowerCase()}
+            </button>
           )}
         </div>
       </div>

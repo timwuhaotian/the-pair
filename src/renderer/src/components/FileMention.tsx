@@ -179,6 +179,8 @@ export function FileMention({
       const hasModifier = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey
 
       if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
         setIsOpen(false)
         isOpenRef.current = false
         return
@@ -190,12 +192,14 @@ export function FileMention({
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
+        e.stopPropagation()
         if (resultsRef.current.length === 0) return
         const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
+        e.stopPropagation()
         if (resultsRef.current.length === 0) return
         const newIndex =
           (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
@@ -203,6 +207,11 @@ export function FileMention({
         selectedIndexRef.current = newIndex
       } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
         e.preventDefault()
+        e.stopPropagation()
+        insertMention(resultsRef.current[selectedIndexRef.current].path)
+      } else if (e.key === 'Tab' && resultsRef.current.length > 0) {
+        e.preventDefault()
+        e.stopPropagation()
         insertMention(resultsRef.current[selectedIndexRef.current].path)
       }
     }

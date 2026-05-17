@@ -1,4 +1,13 @@
 {
+  "startup": {
+    "wordmark": "The Pair",
+    "tagline": "멘토는 계획하고, 실행기는 출시합니다.",
+    "bootCaption": "두 명의 AI 에이전트, 하나의 코딩 파트너.",
+    "booting": "The Pair 부팅 중",
+    "consoleEmptyTitle": "유휴 페어 콘솔",
+    "firstRunCaption": "환영합니다 — 짝을 이뤄봅시다.",
+    "firstRunHint": "첫 페어를 만들어보세요: 작업 공간을 선택하고, 모델을 고르고, 작업을 설명하세요. 멘토는 계획하고 검토하며, 실행기는 코드를 작성합니다."
+  },
   "common": {
     "cancel": "취소",
     "delete": "삭제",
@@ -258,7 +267,16 @@
     "processing": "처리 중",
     "clearHistory": "채팅 기록 지우기",
     "taskInputPlaceholder": "페어에 새 작업 입력...",
-    "viewingArchived": "보관된 실행 보기"
+    "viewingArchived": "보관된 실행 보기",
+    "attachedFile": "첨부됨: {{path}}",
+    "attachedSkill": "첨부된 스킬: /{{name}}"
+  },
+  "skills": {
+    "popoverTitle": "스킬",
+    "refresh": "새로고침",
+    "empty": "스킬 없음",
+    "noMatch": "일치하는 스킬 없음",
+    "moreSkills": "추가 스킬…"
   },
   "panel": {
     "modelsUpdateHint": "저장 후 적용",

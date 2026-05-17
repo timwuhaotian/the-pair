@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-05-18
+
+### Added
+
+- **Skill discovery:** Backend module scans project directories for `.md` skill files with YAML frontmatter, exposing them to task assignment flows.
+- **Boot splash:** New `BootSplash` component with animated loading screen shown during app initialization.
+- **Startup hero:** `StartupHero` component displayed after boot splash while the main UI hydrates.
+- **Skill mentions:** `SkillMention` component and `skillMentions.ts` library for rendering skill references in messages.
+- **File mentions:** Enhanced `FileMention` component and `fileMentions.ts` library with improved popover positioning and modal stacking.
+
+### Changed
+
+- **Dashboard:** Updated layout and styling with improved pair list rendering and dashboard state management.
+- **PairConsole:** Refined console output rendering and message classification for better readability.
+- **App shell:** Restructured `App.tsx` to integrate boot splash and startup hero into the initialization flow.
+- **AssignTaskModal & CreatePairModal:** Updated to support skill file selection and improved form layouts.
+- **CSS tokens:** Added 212 lines of new theme tokens and utility styles in `main.css` for boot splash and startup animations.
+- **Locales:** Updated Chinese, Japanese, Korean, and English translations for new UI strings.
+- **Documentation:** Updated project documentation in README.md.
+
 ## [2.0.0] - 2026-05-17
 
 ### Added
@@ -583,6 +603,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[2.0.1]: https://github.com/timwuhaotian/the-pair/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/timwuhaotian/the-pair/compare/v1.4.5...v2.0.0
 [1.4.5]: https://github.com/timwuhaotian/the-pair/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/timwuhaotian/the-pair/compare/v1.4.3...v1.4.4

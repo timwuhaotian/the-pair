@@ -14,6 +14,7 @@ import { BranchPicker } from './BranchPicker'
 import { PresetPicker } from './PresetPicker'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { usePresets } from '../lib/usePresets'
+import { prependFileContext } from '../lib/fileMentions'
 import { cn } from '../lib/utils'
 import type { PairPreset } from '../types'
 
@@ -107,9 +108,6 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     try {
-      const referencedFiles = Array.from(fileContexts.entries()).filter(([path]) =>
-        spec.includes(`@${path}`)
-      )
       let finalSpec = spec
       if (selectedPreset && !finalSpec.includes('ROLE: MENTOR')) {
         try {
@@ -121,13 +119,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           )
         }
       }
-      if (referencedFiles.length > 0) {
-        const contextHeader =
-          '--- REFERENCED FILES ---\n' +
-          referencedFiles.map(([path, content]) => `@${path}:\n${content}`).join('\n\n') +
-          '\n\n--- TASK ---\n'
-        finalSpec = contextHeader + finalSpec
-      }
+      finalSpec = prependFileContext(finalSpec, fileContexts)
       await createPair({
         name,
         directory,

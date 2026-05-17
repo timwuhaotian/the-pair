@@ -37,6 +37,14 @@ fn app_restart(app: AppHandle) {
 }
 
 #[tauri::command]
+fn show_main_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
 fn git_get_file_diff(directory: String, file_path: String, status: String) -> Result<String, String> {
     git_tracker::GitTracker::get_file_diff(&directory, &file_path, &status)
 }
@@ -131,7 +139,10 @@ pub fn run() {
             session_snapshot::restore_session,
             recent_activity::get_recent_activities,
             skill_discovery::discover_skills,
+            skill_discovery::skill_read_content,
+            skill_discovery::skill_refresh,
             app_restart,
+            show_main_window,
             git_get_file_diff
         ])
         .run(tauri::generate_context!())

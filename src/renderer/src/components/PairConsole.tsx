@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
@@ -14,6 +14,10 @@ import { TurnCardView } from './TurnCardView'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseConsecutiveConsoleMessages } from '../lib/consoleMessages'
+import { FileMention } from './FileMention'
+import { SkillMention } from './SkillMention'
+import { type FileContexts } from '../lib/fileMentions'
+import { composeFinalSpec, type SkillContexts } from '../lib/skillMentions'
 
 interface PairConsoleProps {
   pair: Pair
@@ -33,6 +37,24 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [taskInput, setTaskInput] = useState('')
   const [composingText, setComposingText] = useState('')
   const [isSubmittingTask, setIsSubmittingTask] = useState(false)
+  const [fileContexts, setFileContexts] = useState<FileContexts>(new Map())
+  const [skillContexts, setSkillContexts] = useState<SkillContexts>(new Map())
+
+  const handleFileSelect = useCallback((path: string, content: string): void => {
+    setFileContexts((prev) => {
+      const next = new Map(prev)
+      next.set(path, content)
+      return next
+    })
+  }, [])
+
+  const handleSkillSelect = useCallback((name: string, description: string, body: string): void => {
+    setSkillContexts((prev) => {
+      const next = new Map(prev)
+      next.set(name, { description, body })
+      return next
+    })
+  }, [])
 
   const viewingRun = viewingRunId
     ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
@@ -131,8 +153,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
     setIsSubmittingTask(true)
     try {
-      await assignTask(pair.id, spec)
+      const finalSpec = composeFinalSpec(spec, fileContexts, skillContexts, pair.executorProvider)
+      await assignTask(pair.id, finalSpec)
       setTaskInput('')
+      setFileContexts(new Map())
+      setSkillContexts(new Map())
       requestAnimationFrame(() => {
         const el = scrollRef.current
         if (el) el.scrollTop = el.scrollHeight
@@ -224,8 +249,51 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             className="absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent"
             style={{ caretColor: 'transparent' }}
           />
+          {pair.directory && (
+            <FileMention
+              textareaRef={inputRef}
+              onChange={setTaskInput}
+              directory={pair.directory}
+              pairId={pair.id}
+              onFileSelect={handleFileSelect}
+            />
+          )}
+          <SkillMention
+            textareaRef={inputRef}
+            onChange={setTaskInput}
+            projectDir={pair.directory}
+            onSkillSelect={handleSkillSelect}
+          />
         </div>
       </div>
+      {(fileContexts.size > 0 || skillContexts.size > 0) && (
+        <div className="mt-1.5 flex flex-wrap gap-1 pl-[2ch]">
+          {Array.from(skillContexts.keys())
+            .filter((name) => taskInput.includes(`/${name}`))
+            .map((name) => (
+              <span
+                key={`skill-${name}`}
+                className="inline-flex items-baseline gap-1 rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                title={t('console.attachedSkill', { name })}
+              >
+                <span className="role-mentor">/</span>
+                <span className="truncate max-w-[28ch]">{name}</span>
+              </span>
+            ))}
+          {Array.from(fileContexts.keys())
+            .filter((path) => taskInput.includes(`@${path}`))
+            .map((path) => (
+              <span
+                key={`file-${path}`}
+                className="inline-flex items-baseline gap-1 rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                title={t('console.attachedFile', { path })}
+              >
+                <span className="role-mentor">@</span>
+                <span className="truncate max-w-[28ch]">{path}</span>
+              </span>
+            ))}
+        </div>
+      )}
     </form>
   ) : null
 

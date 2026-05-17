@@ -580,3 +580,215 @@
   background-size: 200% 200%;
   animation: gradient-shift 8s ease infinite;
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * Startup Hero — brand artwork animations.
+ * Robots float, steam rises, code pulses, eyes blink occasionally.
+ * All effects respect prefers-reduced-motion.
+ * ────────────────────────────────────────────────────────────── */
+
+.startup-hero__art {
+  filter: drop-shadow(0 1px 0 transparent);
+  transition: filter 200ms ease;
+}
+
+.dark .startup-hero__art {
+  /* warm glow against deep navy bg to echo a "running" / active feel */
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--state-running) 28%, transparent))
+    drop-shadow(0 0 1px color-mix(in srgb, var(--state-running) 40%, transparent));
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-bot-float-left {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes hero-bot-float-right {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes hero-steam-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scaleY(0.85);
+  }
+  20% {
+    opacity: 0.95;
+  }
+  80% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scaleY(1.05);
+  }
+}
+
+@keyframes hero-code-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes hero-eye-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  94%,
+  98% {
+    transform: scaleY(0.08);
+  }
+}
+
+.startup-hero--animated .startup-hero__art {
+  animation: hero-rise 600ms ease-out both;
+}
+
+.startup-hero--animated .startup-hero__text {
+  animation: hero-rise 700ms 120ms ease-out both;
+}
+
+.startup-hero--animated .startup-hero__bot--left {
+  transform-origin: 80px 70px;
+  transform-box: fill-box;
+  animation: hero-bot-float-left 4.4s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__bot--right {
+  transform-origin: 240px 70px;
+  transform-box: fill-box;
+  animation: hero-bot-float-right 5.2s 0.4s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__code {
+  transform-origin: 160px 72px;
+  transform-box: fill-box;
+  animation: hero-code-pulse 2.8s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__steam-1 {
+  transform-origin: 150px 180px;
+  transform-box: fill-box;
+  animation: hero-steam-rise 2.6s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__steam-2 {
+  transform-origin: 160px 180px;
+  transform-box: fill-box;
+  animation: hero-steam-rise 2.6s 0.7s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__steam-3 {
+  transform-origin: 172px 180px;
+  transform-box: fill-box;
+  animation: hero-steam-rise 2.6s 1.3s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__eyes--left {
+  transform-origin: 80px 70px;
+  transform-box: fill-box;
+  animation: hero-eye-blink 6.5s 1.2s ease-in-out infinite;
+}
+
+.startup-hero--animated .startup-hero__eyes--right {
+  transform-origin: 240px 70px;
+  transform-box: fill-box;
+  animation: hero-eye-blink 7.3s 3.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-hero--animated .startup-hero__art,
+  .startup-hero--animated .startup-hero__text,
+  .startup-hero--animated .startup-hero__bot--left,
+  .startup-hero--animated .startup-hero__bot--right,
+  .startup-hero--animated .startup-hero__code,
+  .startup-hero--animated .startup-hero__steam-1,
+  .startup-hero--animated .startup-hero__steam-2,
+  .startup-hero--animated .startup-hero__steam-3,
+  .startup-hero--animated .startup-hero__eyes--left,
+  .startup-hero--animated .startup-hero__eyes--right {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Boot Splash — full-bleed overlay with smooth fade-out.
+ * ────────────────────────────────────────────────────────────── */
+
+@keyframes boot-splash-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.boot-splash {
+  animation: hero-rise 400ms ease-out both;
+}
+
+.boot-splash--leaving {
+  animation: boot-splash-fade 380ms 80ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes boot-dots {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.boot-splash__dots::after {
+  content: '...';
+  display: inline-block;
+  margin-left: 0.2em;
+  animation: boot-dots 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-splash {
+    animation: none;
+  }
+  .boot-splash--leaving {
+    animation: none;
+    opacity: 0;
+  }
+  .boot-splash__dots::after {
+    animation: none;
+  }
+}

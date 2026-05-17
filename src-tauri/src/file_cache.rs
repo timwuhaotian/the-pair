@@ -11,6 +11,7 @@ pub struct FileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileListOptions {
     pub pair_id: Option<String>,
     pub directory: Option<String>,
@@ -148,6 +149,7 @@ pub async fn file_parse_mentions(
 const MAX_FILE_SIZE: u64 = 100 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileReadOptions {
     pub pair_id: Option<String>,
     pub directory: Option<String>,
@@ -219,9 +221,26 @@ pub async fn file_read_content(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_workspace_file_path;
+    use super::{resolve_workspace_file_path, FileListOptions, FileReadOptions};
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn file_list_options_deserializes_camelcase_keys() {
+        let json = r#"{"pairId":"abc","directory":"/tmp/proj"}"#;
+        let parsed: FileListOptions = serde_json::from_str(json).expect("camelCase parse");
+        assert_eq!(parsed.pair_id.as_deref(), Some("abc"));
+        assert_eq!(parsed.directory.as_deref(), Some("/tmp/proj"));
+    }
+
+    #[test]
+    fn file_read_options_deserializes_camelcase_keys() {
+        let json = r#"{"pairId":"abc","filePath":"src/main.rs"}"#;
+        let parsed: FileReadOptions = serde_json::from_str(json).expect("camelCase parse");
+        assert_eq!(parsed.pair_id.as_deref(), Some("abc"));
+        assert_eq!(parsed.directory, None);
+        assert_eq!(parsed.file_path, "src/main.rs");
+    }
 
     #[test]
     fn resolve_workspace_file_path_keeps_files_inside_the_workspace() {

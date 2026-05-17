@@ -127,3 +127,15 @@ GitHub Actions (`build-signed-mac.yml`) auto-tags and publishes when a version b
 4. `git commit -m "chore: bump version to X.Y.Z"` and `git push` — that's it
 
 Never run `git tag` or `git push --tags`. Fallback if the workflow misses the bump: `gh workflow run build-signed-mac.yml`. See `docs/RELEASE_CHECKLIST.md`.
+
+### Version bump keywords (semantic versioning)
+
+When deciding which version part to bump:
+
+| Conventional commit type                                           | Release type      | Version bump           |
+| ------------------------------------------------------------------ | ----------------- | ---------------------- |
+| `fix:`, `docs:`, `chore:`, `style:`                                | **patch release** | `Z` +1 (2.0.0 → 2.0.1) |
+| `feat:` (backward-compatible)                                      | **minor release** | `Y` +1 (2.0.0 → 2.1.0) |
+| `feat:` with breaking changes, API removals, state machine changes | **major release** | `X` +1 (2.0.0 → 3.0.0) |
+
+**Rule of thumb:** If you're only fixing bugs, updating docs, or doing internal refactors → patch. If you're adding new features/components/commands without breaking existing behavior → minor. If you're removing public APIs, redesigning the UI, or changing the state machine → major.

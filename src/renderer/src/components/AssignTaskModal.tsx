@@ -11,6 +11,7 @@ import { PresetPicker } from './PresetPicker'
 import { usePresets } from '../lib/usePresets'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { getAssignableTaskModels } from '../lib/modelResolution'
+import { prependFileContext } from '../lib/fileMentions'
 import type { PairPreset } from '../types'
 
 interface AssignTaskModalProps {
@@ -144,17 +145,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     e.preventDefault()
     if (!spec.trim()) return
 
-    const referencedFiles = Array.from(fileContexts.entries()).filter(([path]) =>
-      spec.includes(`@${path}`)
-    )
-    let finalSpec = spec.trim()
-    if (referencedFiles.length > 0) {
-      const contextHeader =
-        '--- REFERENCED FILES ---\n' +
-        referencedFiles.map(([path, content]) => `@${path}:\n${content}`).join('\n\n') +
-        '\n\n--- TASK ---\n'
-      finalSpec = contextHeader + finalSpec
-    }
+    const finalSpec = prependFileContext(spec.trim(), fileContexts)
 
     try {
       const modelOverrides = modelsChanged

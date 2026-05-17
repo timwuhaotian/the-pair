@@ -138,6 +138,22 @@ The release workflow (`build-signed-mac.yml`) is fully automated:
    - Monitor at: https://github.com/timwuhaotian/the-pair/actions
    - Check release page for correct artifacts and notes
 
+### Version Bump Guidance
+
+Follow Semantic Versioning (`MAJOR.MINOR.PATCH`):
+
+| Keyword           | Bump   | When to use                                                                   |
+| ----------------- | ------ | ----------------------------------------------------------------------------- |
+| **patch release** | `Z` +1 | Bug fixes, docs updates, typo corrections, internal refactors (no API change) |
+| **minor release** | `Y` +1 | New features, new components, new Tauri commands (backward-compatible)        |
+| **major release** | `X` +1 | Breaking changes, UI redesigns, removed APIs, state machine changes           |
+
+**Quick decision tree:**
+
+- `fix:`, `docs:`, `chore:`, `style:` → **patch** (e.g. 2.0.0 → 2.0.1)
+- `feat:` without breaking changes → **minor** (e.g. 2.0.0 → 2.1.0)
+- `feat:` with breaking changes, or removing public APIs → **major** (e.g. 2.0.0 → 3.0.0)
+
 **Fallback:** If workflow fails to trigger, run:
 
 ```bash

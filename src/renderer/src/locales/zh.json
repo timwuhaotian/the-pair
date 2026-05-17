@@ -1,4 +1,13 @@
 {
+  "startup": {
+    "wordmark": "The Pair",
+    "tagline": "导师筹谋，执行者交付。",
+    "bootCaption": "两位 AI 智能体，一个结对伙伴。",
+    "booting": "正在启动 The Pair",
+    "consoleEmptyTitle": "Pair 控制台空闲",
+    "firstRunCaption": "欢迎 — 一起结对吧。",
+    "firstRunHint": "创建你的第一个 Pair：选择工作区、挑选模型、描述任务。导师负责规划与审查，执行者负责写代码。"
+  },
   "common": {
     "cancel": "取消",
     "delete": "删除",
@@ -274,7 +283,16 @@
     "processing": "处理中",
     "clearHistory": "清空聊天记录",
     "taskInputPlaceholder": "输入新的配对任务...",
-    "viewingArchived": "查看历史运行"
+    "viewingArchived": "查看历史运行",
+    "attachedFile": "已附加：{{path}}",
+    "attachedSkill": "已附加技能：/{{name}}"
+  },
+  "skills": {
+    "popoverTitle": "技能",
+    "refresh": "刷新",
+    "empty": "未找到技能",
+    "noMatch": "没有匹配的技能",
+    "moreSkills": "更多技能…"
   },
   "panel": {
     "modelsUpdateHint": "保存后生效",

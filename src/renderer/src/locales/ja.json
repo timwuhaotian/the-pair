@@ -1,4 +1,13 @@
 {
+  "startup": {
+    "wordmark": "The Pair",
+    "tagline": "メンターが設計し、実行者が届ける。",
+    "bootCaption": "二つの AI エージェント、ひとつのコーディング相棒。",
+    "booting": "The Pair を起動中",
+    "consoleEmptyTitle": "ペアコンソール待機中",
+    "firstRunCaption": "ようこそ — ペアを組みましょう。",
+    "firstRunHint": "最初のペアを作成しましょう：ワークスペースを選び、モデルを選択し、タスクを記述します。メンターが計画とレビューを担当し、実行者がコードを書きます。"
+  },
   "common": {
     "cancel": "キャンセル",
     "delete": "削除",
@@ -258,7 +267,16 @@
     "processing": "処理中",
     "clearHistory": "チャット履歴をクリア",
     "taskInputPlaceholder": "ペアに新しいタスクを入力...",
-    "viewingArchived": "アーカイブされた実行を閲覧中"
+    "viewingArchived": "アーカイブされた実行を閲覧中",
+    "attachedFile": "添付ファイル：{{path}}",
+    "attachedSkill": "添付スキル：/{{name}}"
+  },
+  "skills": {
+    "popoverTitle": "スキル",
+    "refresh": "更新",
+    "empty": "スキルが見つかりません",
+    "noMatch": "一致するスキルなし",
+    "moreSkills": "他のスキル…"
   },
   "panel": {
     "modelsUpdateHint": "保存後に適用されます",

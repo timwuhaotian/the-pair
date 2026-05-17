@@ -9,43 +9,18 @@
       content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
     <style>
+      /* The Tauri window is launched hidden and revealed only after React paints
+         its own BootSplash (see src/renderer/src/main.tsx). These styles only
+         matter for `npm run dev:renderer` (browser, no Tauri host) and as a
+         theme-matched fallback in case `window.show()` ever races a paint. */
       :root {
-        --bg: #ffffff;
-        --fg: #0f172a;
-        --e-core: rgba(99, 102, 241, 0.28);
-        --e-mid: rgba(139, 92, 246, 0.16);
-        --e-rim: rgba(99, 102, 241, 0.08);
-        --bolt-a: #4f46e5;
-        --bolt-b: #818cf8;
-        --bolt-c: #ffffff;
-        --bolt-d: #a5b4fc;
-        --bolt-e: #4338ca;
-        --ring-color: rgba(99, 102, 241, 0.35);
-        --spark-color: #c7d2fe;
-        --shadow-a: rgba(99, 102, 241, 0.55);
-        --shadow-b: rgba(139, 92, 246, 0.35);
+        --boot-bg: #ffffff;
       }
       html.dark {
-        --bg: #020617;
-        --fg: #f8fafc;
-        --e-core: rgba(129, 140, 248, 0.32);
-        --e-mid: rgba(167, 139, 250, 0.18);
-        --e-rim: rgba(99, 102, 241, 0.1);
-        --bolt-a: #818cf8;
-        --bolt-b: #c4b5fd;
-        --bolt-c: #ffffff;
-        --bolt-d: #a5b4fc;
-        --bolt-e: #6366f1;
-        --ring-color: rgba(129, 140, 248, 0.4);
-        --spark-color: #e0e7ff;
-        --shadow-a: rgba(129, 140, 248, 0.65);
-        --shadow-b: rgba(167, 139, 250, 0.4);
+        --boot-bg: #020617;
       }
       body {
-        background:
-          radial-gradient(circle at 50% 30%, var(--e-rim), transparent 40%),
-          var(--bg);
-        color: var(--fg);
+        background: var(--boot-bg);
         margin: 0;
         overflow: hidden;
         font-family:
@@ -56,135 +31,8 @@
       #root {
         display: flex;
         flex-direction: column;
-        height: 100vh;
+        min-height: 100vh;
         width: 100vw;
-        align-items: center;
-        justify-content: center;
-      }
-      .boot-loader {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2.2rem;
-      }
-      .boot-zap {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 72px;
-        height: 72px;
-        transform: translateZ(0);
-      }
-      /* Colored energy aura */
-      .boot-zap::before {
-        content: '';
-        position: absolute;
-        inset: -44%;
-        border-radius: 9999px;
-        background: radial-gradient(
-          circle at 50% 50%,
-          var(--e-core) 0%,
-          var(--e-mid) 38%,
-          var(--e-rim) 58%,
-          transparent 72%
-        );
-        filter: blur(4px);
-        animation: boot-aura 2.4s ease-in-out infinite;
-      }
-      /* Sheen sweep */
-      .boot-zap::after {
-        content: '';
-        position: absolute;
-        inset: -22%;
-        border-radius: 9999px;
-        background: linear-gradient(
-          148deg,
-          transparent 0%,
-          transparent 38%,
-          rgba(255, 255, 255, 0.72) 50%,
-          transparent 62%,
-          transparent 100%
-        );
-        background-size: 200% 200%;
-        mix-blend-mode: screen;
-        pointer-events: none;
-        animation: boot-sheen 2.6s ease-in-out infinite;
-      }
-      /* Expanding ripple rings */
-      .boot-ring {
-        position: absolute;
-        inset: 0;
-        border-radius: 9999px;
-        border: 1.5px solid var(--ring-color);
-        animation: boot-ripple 2.4s ease-out infinite;
-        pointer-events: none;
-      }
-      .boot-ring:nth-child(2) { animation-delay: 0.8s; }
-      .boot-ring:nth-child(3) { animation-delay: 1.6s; }
-      /* Spark dots */
-      .boot-spark {
-        position: absolute;
-        width: 3px;
-        height: 3px;
-        border-radius: 9999px;
-        background: var(--spark-color);
-        box-shadow: 0 0 5px 2px var(--shadow-b);
-        pointer-events: none;
-        z-index: 3;
-        animation: boot-spark 2.4s ease-in-out infinite;
-      }
-      .boot-spark:nth-child(4) { top:  6%; left: 64%; animation-delay: 0s;    }
-      .boot-spark:nth-child(5) { top: 18%; left: 18%; animation-delay: 0.7s;  }
-      .boot-spark:nth-child(6) { top: 74%; left: 70%; animation-delay: 1.3s;  }
-      .boot-spark:nth-child(7) { top: 80%; left: 28%; animation-delay: 2.0s;  }
-      .boot-zap svg {
-        position: relative;
-        z-index: 2;
-        width: 52px;
-        height: 52px;
-        display: block;
-        animation: boot-bolt 2.4s ease-in-out infinite;
-      }
-      .boot-text {
-        font-size: 10px;
-        font-weight: 900;
-        letter-spacing: 0.3em;
-        text-transform: uppercase;
-        color: var(--fg);
-        opacity: 0.5;
-      }
-      @keyframes boot-aura {
-        0%, 100% { transform: scale(0.88); opacity: 0.6; }
-        50%       { transform: scale(1.12); opacity: 1;   }
-      }
-      @keyframes boot-sheen {
-        0%   { background-position: 160% 160%; opacity: 0; }
-        15%  { opacity: 1; }
-        85%  { opacity: 1; }
-        100% { background-position: -60% -60%; opacity: 0; }
-      }
-      @keyframes boot-ripple {
-        0%   { transform: scale(0.75); opacity: 0.7; }
-        100% { transform: scale(2.8);  opacity: 0;   }
-      }
-      @keyframes boot-spark {
-        0%, 100% { transform: scale(0); opacity: 0; }
-        35%, 65% { transform: scale(1); opacity: 1; }
-        50%      { transform: scale(1.6); opacity: 0.6; }
-      }
-      @keyframes boot-bolt {
-        0%, 100% {
-          filter:
-            drop-shadow(0 0  6px var(--shadow-a))
-            drop-shadow(0 0 14px var(--shadow-b));
-        }
-        50% {
-          filter:
-            drop-shadow(0 0 10px var(--shadow-a))
-            drop-shadow(0 0 24px var(--shadow-b))
-            drop-shadow(0 0  4px rgba(255, 255, 255, 0.9));
-        }
       }
     </style>
     <script>
@@ -204,50 +52,7 @@
   </head>
 
   <body>
-    <!-- Pre-React boot splash.
-         If you need to change the very first "Powering Up" screen, edit this HTML block.
-         Do not move these visuals into App.tsx; that file is only used after React mounts. -->
-    <div id="root">
-      <div class="boot-loader">
-        <div class="boot-zap">
-          <!-- ripple rings -->
-          <div class="boot-ring"></div>
-          <div class="boot-ring"></div>
-          <div class="boot-ring"></div>
-          <!-- spark dots -->
-          <div class="boot-spark"></div>
-          <div class="boot-spark"></div>
-          <div class="boot-spark"></div>
-          <div class="boot-spark"></div>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <defs>
-              <linearGradient
-                id="boot-zap-gradient"
-                x1="12"
-                y1="2"
-                x2="12"
-                y2="22"
-                gradientUnits="userSpaceOnUse"
-              >
-                <stop offset="0%"   stop-color="var(--bolt-a)" />
-                <stop offset="22%"  stop-color="var(--bolt-b)" />
-                <stop offset="44%"  stop-color="var(--bolt-c)" />
-                <stop offset="62%"  stop-color="var(--bolt-d)" />
-                <stop offset="100%" stop-color="var(--bolt-e)" />
-              </linearGradient>
-            </defs>
-            <polygon
-              points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-              fill="url(#boot-zap-gradient)"
-              stroke="url(#boot-zap-gradient)"
-              stroke-width="0.3"
-              stroke-linejoin="round"
-            ></polygon>
-          </svg>
-        </div>
-        <div class="boot-text">The Pair · Powering Up</div>
-      </div>
-    </div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
