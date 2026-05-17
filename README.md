@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<img src="./build/icon.png" alt="The Pair" width="128" />
+<img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
 
 # The Pair
 

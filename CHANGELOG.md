@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-17
+
+### Added
+
+- **Unified Pair Console:** Replaced the split PairDetail view with a new `PairConsole` component that merges the agent console, timeline, and activity tracking into a single scrollable feed.
+- **System Banner:** New `SystemBanner` component for surfacing app-wide notifications and alerts.
+- **Dashboard Operations Panel:** Replaced the recent activity sidebar with a live operations summary showing attention items, running pairs, resource load, workspaces, and changed files.
+- **Pair Cards:** Added compact per-pair metrics for turns, CPU, memory, and modified files directly in the pair list.
+- **Dashboard Insight Panel:** New `DashboardInsightPanel` for contextual tips and guidance.
+- **Empty State Guide:** New `EmptyStateGuide` with step-by-step onboarding for first-time users.
+- **Terminal Components:** New `TerminalBlock`, `TerminalDivider`, and `TerminalEventRow` for structured terminal-like output rendering.
+- **Handoff Prompts Library:** New `handoffPrompts.ts` module for structured agent handoff messages.
+- **Sound Cue System:** New `pairSoundCue.ts` for contextual audio feedback during pair runs.
+
+### Changed
+
+- **Major UI Redesign:** Comprehensive visual overhaul of all components with improved glass-morphism effects, refined spacing, and consistent dark/light theme tokens.
+- **App Chrome:** Updated window chrome with new logo, refined title bar, and streamlined controls.
+- **Dashboard Layout:** Restructured from sidebar-heavy design to a card-based grid with responsive stat cards.
+- **Activity Tracking:** `ActivityIndicator` and `ActivityItem` components redesigned for better clarity and visual hierarchy.
+- **Message Cards:** `MessageCard` and `TurnCardView` simplified for better readability and reduced visual noise.
+- **Timeline Panel:** `TimelinePanel`, `TimelineEventItem`, and `TimelineIterationGroup` refined for cleaner iteration grouping.
+- **Status Badge:** `StatusBadge` updated with new color variants and improved accessibility.
+- **Locale Persistence:** Language preference now persists across sessions via `useLocaleStore`.
+- **Glass UI Components:** `GlassButton`, `GlassCard`, `GlassModal`, and `StatCard` updated with refined tokens and animation variants.
+- **Resource Meter:** `ResourceMeter` improved with better compact mode and label hiding.
+- **Acceptance Messages:** `AcceptanceMessageBody` updated for cleaner mentor verdict rendering.
+
+### Removed
+
+- **PairDetail Component:** Deleted the legacy `PairDetail.tsx` in favor of the unified `PairConsole`.
+- **ToolCallSteps Component:** Removed `ToolCallSteps.tsx` as cognitive event visualization is now handled inline.
+
+### Fixed
+
+- **Dashboard Create Action:** Moved the new-pair call to action into the pair list area and removed the dead floating action menu entries.
+- **Persisted Status Handling:** Normalized restored pair statuses before rendering so older snapshots do not create invisible dashboard groups.
+- **Claude Output Capture:** Captured assistant text blocks when Claude events do not include a final result payload, preserving visible mentor output in the console.
+- **Acceptance Parsing:** Improved robustness of mentor acceptance report parsing for edge cases in JSON extraction.
+- **E2E Selectors:** Updated e2e helper selectors to match the new component structure.
+
 ## [1.4.5] - 2026-05-11
 
 ### Added
@@ -542,6 +583,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[2.0.0]: https://github.com/timwuhaotian/the-pair/compare/v1.4.5...v2.0.0
+[1.4.5]: https://github.com/timwuhaotian/the-pair/compare/v1.4.4...v1.4.5
+[1.4.4]: https://github.com/timwuhaotian/the-pair/compare/v1.4.3...v1.4.4
+[1.4.3]: https://github.com/timwuhaotian/the-pair/compare/v1.4.2...v1.4.3
+[1.4.2]: https://github.com/timwuhaotian/the-pair/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/timwuhaotian/the-pair/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/timwuhaotian/the-pair/compare/v1.3.14...v1.4.0
 [1.3.14]: https://github.com/timwuhaotian/the-pair/compare/v1.3.13...v1.3.14
 [1.3.13]: https://github.com/timwuhaotian/the-pair/compare/v1.3.12...v1.3.13
 [1.3.12]: https://github.com/timwuhaotian/the-pair/compare/v1.3.10...v1.3.12
