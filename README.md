@@ -40,12 +40,17 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 ### Key Benefits
 
 - **Dual-Model Cross-Validation** — Two models check each other's work, dramatically reducing code hallucinations
+- **Cognitive Transparency** — Live intent chips and tool call visualization show exactly what each agent is doing
+- **Unified Pair Console** — Single scrollable feed merges conversation, timeline, and activity into one cohesive view
 - **Automated Collaboration** — Agents work together without constant human intervention
-- **Real-Time Monitoring** — Watch CPU/memory usage per agent with live activity tracking
-- **Git Integration** — Automatic tracking of all file changes made during a session
-- **Human Oversight** — Step in at any time to pause, adjust, or reassign tasks
-- **Session Recovery** — Resume interrupted sessions with full conversation history restoration
+- **Smart Coordination** — Structured handoff prompts, quality gates, and smart pauses keep iterations focused
+- **Real-Time Monitoring** — CPU/memory per agent with live activity tracking and stall detection
+- **Operations Panel** — Dashboard surfaces attention items, running pairs, resource load, workspaces, and changed files at a glance
+- **Git Integration** — Automatic tracking of all file changes plus inline diff viewer for any modified file
+- **Human Oversight** — Step in at any time to pause, adjust, reassign, or resume after the iteration limit
+- **Session Recovery** — Resume interrupted sessions with full conversation history and turn state restored
 - **Onboarding Wizard** — Guided first-time setup with model configuration and directory selection
+- **i18n Support** — English, 简体中文, 日本語, and 한국어 with persisted language preference
 - **Dark/Light Themes** — Automatic system theme detection with manual toggle
 
 ### Use Cases
@@ -61,16 +66,22 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 ## Features
 
 - **Dual-Agent Architecture** — Separation of planning (Mentor) and execution (Executor)
+- **Unified Pair Console** — Conversation, timeline, terminal events, and activity in one scrollable feed
+- **Cognitive Event Stream** — Intent chips, reasoning steps, and tool call status surfaced per turn
+- **Smart Coordination** — Structured handoff prompts, quality gates, and smart-pause logic for healthier iterations
+- **Iteration Budgeting** — Flat 20-turn default with human-in-the-loop pause when the budget is reached
 - **Full Automation Mode** — Agents work autonomously with workspace-scoped permissions
-- **Real-Time Activity Tracking** — Live status showing agent activity (thinking, doing, waiting)
+- **Real-Time Activity Tracking** — Live status with stalled-activity detection after 60s of inactivity
 - **Resource Monitoring** — CPU and memory usage per agent, updated every second
-- **Git Change Tracking** — Automatic detection of modified, added, or deleted files
-- **Conversation History** — Full transcript of all agent interactions
+- **Git Change Tracking** — Detect modified/added/deleted files, with click-through unified diff viewer
+- **Sound Cues** — Contextual finish, pause, and error chimes with global mute toggle
+- **Conversation History** — Full transcript of all agent interactions, exportable as a run report
 - **Local Orchestration** — Runs the app and agent coordination locally; model calls depend on your selected provider or local model
 - **Multi-Provider** — Works with opencode, Claude Code, Codex, and Gemini CLI
 - **Reasoning Controls** — Adjust thinking effort per agent role (low/medium/high)
-- **Token Tracking** — Real-time per-turn token usage displayed inline
+- **Token Tracking** — Real-time per-turn input/output token usage in timeline, turn cards, and run reports
 - **Skill System** — Attach project-specific skill files to guide agent behavior
+- **Global Shortcuts** — Platform-agnostic shortcuts for new pair, pair settings, focus console, and mute
 - **Auto-Update** — In-app update checking with one-click install
 
 ---
@@ -197,7 +208,8 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 ├─────────────────────────────────────────────────────────┤
 │  Frontend (React UI)                                    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  Dashboard   │ Pair Detail  │    Settings      │    │
+│  │  Dashboard   │ PairConsole  │    Settings      │    │
+│  │ (Ops Panel)  │ (Unified)    │  (Onboarding)    │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │                          ↕ Tauri IPC                    │
 ├─────────────────────────────────────────────────────────┤
@@ -205,6 +217,10 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
 │  │ (Lifecycle)  │(State Machine)│(Multi-Provider) │    │
+│  └──────────────┴──────────────┴──────────────────┘    │
+│  ┌──────────────┬──────────────┬──────────────────┐    │
+│  │ContextBridge │ QualityGate  │   SmartPause     │    │
+│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
@@ -226,14 +242,20 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 ### Agent Workflow
 
 ```
-Start → Initialize & Baseline → Mentoring Phase → Executing Phase → Reviewing Phase
-                                                        ↓
-                                              Done? ──Yes→ Finished
-                                                 │
-                                                 No
-                                                 ↓
-                                         (loop back to Mentoring)
+Start → Initialize & Baseline → Mentoring → Executing → Reviewing
+                                                  ↓
+                                        Done? ──Yes→ Finished
+                                           │
+                                           No
+                                           ↓
+                          Iteration limit? ──Yes→ Paused (Awaiting Human Review)
+                                           │
+                                           No
+                                           ↓
+                                  (loop back to Mentoring)
 ```
+
+Pairs are capped at a flat 20-iteration default and pause for human review on hitting the budget — rather than running unbounded — so you can continue, reassign, or finish from the console.
 
 ---
 
@@ -336,11 +358,15 @@ A: Yes. The Pair supports **reasoning effort controls** for models that offer it
 
 **Q: How do I track token usage and costs?**
 
-A: Token usage is tracked in real-time per agent turn. Live output token counts appear inline in the agent console so you can monitor spend as agents work.
+A: Token usage is tracked in real-time per agent turn with full input/output breakdown. Live counts appear inline in the unified Pair Console, the timeline, and the exported run report so you can monitor spend as agents work.
+
+**Q: Can I see what the agent is actually doing?**
+
+A: Yes. Each turn renders a stream of **cognitive events** — intent chips (analyzing / writing / verifying / reviewing), reasoning steps, and tool call status (pending / running / completed / error) — so you can follow the agent's logic without parsing raw output.
 
 **Q: What happens if an agent gets stuck in a loop?**
 
-A: The Pair implements iteration limits. After a configured number of iterations, agents pause for human intervention.
+A: The Pair caps each run at a flat 20-iteration default. When the limit is reached, the pair pauses into **Awaiting Human Review** so you can continue, reassign, or finish. A per-turn step-cycle guard also kills runaway agent processes to prevent CPU exhaustion.
 
 **Q: What if the app crashes or I close it mid-session?**
 
