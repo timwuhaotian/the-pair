@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
@@ -14,7 +14,16 @@
     "ai-coding",
     "multi-agent",
     "code-review",
-    "automation"
+    "automation",
+    "claude",
+    "codex",
+    "gemini",
+    "copilot-alternative",
+    "coding-assistant",
+    "desktop-app",
+    "ai-code-review",
+    "rust",
+    "react"
   ],
   "engines": {
     "node": ">=22.22.0"

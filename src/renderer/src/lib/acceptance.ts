@@ -365,17 +365,26 @@ export function buildExecutorAcceptanceFollowupPrompt(input: {
     .map((step, index) => `${index + 1}. ${step}`)
     .join('\n')
 
-  return [
+  const taskSpec = input.taskSpec.trim()
+
+  const sections: string[] = [
     'The reviewer asked for some adjustments to your previous turn. Carry them out and report what you did.',
     '',
     'A few constraints for this turn:',
     '- Treat each instruction below as a direct task to carry out.',
     '- For text-only instructions, output exactly the text the reviewer asked for — no commentary, no completion markers. Do not append TASK_COMPLETE (only the reviewer ends the workflow).',
-    '- If a tool is unavailable, fall back to a close text-based equivalent and briefly note the limitation only if it blocks you.',
-    '',
-    'ADJUSTMENTS',
-    instructions
-  ].join('\n')
+    '- If a tool is unavailable, fall back to a close text-based equivalent and briefly note the limitation only if it blocks you.'
+  ]
+
+  // Re-anchor the executor to the original mission so multi-iteration runs
+  // don't drift into responding only to the latest instruction list.
+  if (taskSpec) {
+    sections.push('', 'ORIGINAL TASK', taskSpec)
+  }
+
+  sections.push('', 'ADJUSTMENTS', instructions)
+
+  return sections.join('\n')
 }
 
 export interface ParsedAcceptanceRecord {

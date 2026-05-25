@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
@@ -21,6 +21,7 @@ function formatDuration(seconds: number): string {
 
 export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const { t } = useTranslation()
+  const [showEarlierSteps, setShowEarlierSteps] = useState(false)
 
   const cognitiveEvents = useMemo(
     () =>
@@ -32,8 +33,9 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
   const visibleEvents = useMemo(() => {
     if (cognitiveEvents.length <= MAX_INLINE_EVENTS) return cognitiveEvents
+    if (showEarlierSteps) return cognitiveEvents
     return cognitiveEvents.slice(-MAX_INLINE_EVENTS)
-  }, [cognitiveEvents])
+  }, [cognitiveEvents, showEarlierSteps])
 
   const hiddenCount = cognitiveEvents.length - visibleEvents.length
   const currentAction = (card.content || card.activity.detail || card.activity.label || '').trim()
@@ -93,10 +95,16 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
       {/* Tree of cognitive events */}
       {visibleEvents.length > 0 && (
         <div className="mb-1.5 space-y-px">
-          {hiddenCount > 0 && (
-            <div className="font-mono text-[10px] text-muted-foreground-faint uppercase tracking-[0.14em]">
-              · {hiddenCount} earlier {hiddenCount === 1 ? 'step' : 'steps'} ·
-            </div>
+          {(hiddenCount > 0 || showEarlierSteps) && cognitiveEvents.length > MAX_INLINE_EVENTS && (
+            <button
+              type="button"
+              onClick={() => setShowEarlierSteps((v) => !v)}
+              className="font-mono text-[10px] text-muted-foreground-faint hover:text-foreground/80 uppercase tracking-[0.14em] transition-colors cursor-pointer"
+            >
+              {showEarlierSteps
+                ? `· ${t('console.earlierStepsHide')} ·`
+                : `· ${t('console.earlierStepsButton', { count: hiddenCount })} ·`}
+            </button>
           )}
           <AnimatePresence initial={false}>
             {visibleEvents.map((event, idx) => (

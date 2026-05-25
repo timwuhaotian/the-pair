@@ -302,6 +302,9 @@ function PairOperationsPanel({
               <span className="role-mentor font-bold tracking-[0.08em]">
                 {t('common.mentor').toUpperCase()}
               </span>
+              <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground-faint">
+                · {t('panel.modelsActiveBadge')}
+              </span>
             </span>
             {mentorIsExecuting && (
               <span className="text-[9px] uppercase tracking-[0.14em] state-running">
@@ -319,8 +322,13 @@ function PairOperationsPanel({
             onReasoningEffortChange={setPanelMentorEffort}
           />
           {pair.pendingMentorModel && (
-            <div className="text-[10px] state-running">
-              → {t('pair.nextTask', { model: pair.pendingMentorModel })}
+            <div className="text-[10px] state-running flex items-baseline gap-1">
+              <span className="uppercase tracking-[0.14em] text-[9px]">
+                · {t('panel.modelsQueuedBadge')}
+              </span>
+              <span className="text-foreground/80">
+                → {t('pair.nextTask', { model: pair.pendingMentorModel })}
+              </span>
             </div>
           )}
           <div className="flex items-baseline justify-between mt-2">
@@ -330,6 +338,9 @@ function PairOperationsPanel({
               </span>
               <span className="role-executor font-bold tracking-[0.08em]">
                 {t('common.executor').toUpperCase()}
+              </span>
+              <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground-faint">
+                · {t('panel.modelsActiveBadge')}
               </span>
             </span>
             {executorIsExecuting && (
@@ -348,44 +359,55 @@ function PairOperationsPanel({
             onReasoningEffortChange={setPanelExecutorEffort}
           />
           {pair.pendingExecutorModel && (
-            <div className="text-[10px] state-running">
-              → {t('pair.nextTask', { model: pair.pendingExecutorModel })}
+            <div className="text-[10px] state-running flex items-baseline gap-1">
+              <span className="uppercase tracking-[0.14em] text-[9px]">
+                · {t('panel.modelsQueuedBadge')}
+              </span>
+              <span className="text-foreground/80">
+                → {t('pair.nextTask', { model: pair.pendingExecutorModel })}
+              </span>
             </div>
           )}
           {(modelsChanged || saveStatus === 'success' || saveStatus === 'error') && (
-            <div className="flex items-center gap-2 pt-1 min-h-[26px]">
-              {saveStatus === 'success' ? (
-                <span className="flex items-center gap-1 text-[10px] font-semibold state-done animate-in fade-in">
-                  <Check size={10} />
-                  {t('panel.saved')}
-                </span>
-              ) : saveStatus === 'error' ? (
-                <span className="flex items-center gap-1 text-[10px] font-semibold state-error animate-in fade-in">
-                  ✗ {t('panel.saveFailed')}
-                </span>
-              ) : (
-                <GlassButton
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveModels}
-                  disabled={isStoreBusy || saveStatus !== 'idle'}
-                >
-                  {saveStatus === 'saving' ? (
-                    <>
-                      <Loader2 size={10} className="animate-spin" />
-                      {t('common.saving')}
-                    </>
-                  ) : (
-                    <>
-                      <SlidersHorizontal size={10} />
-                      {t('common.save')}
-                    </>
-                  )}
-                </GlassButton>
-              )}
+            <div className="flex flex-col gap-1 pt-1">
+              <div className="flex items-center gap-2 min-h-[26px]">
+                {saveStatus === 'success' ? (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold state-done animate-in fade-in">
+                    <Check size={10} />
+                    {isPairActive(pair.status) ? t('panel.savedQueued') : t('panel.saved')}
+                  </span>
+                ) : saveStatus === 'error' ? (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold state-error animate-in fade-in">
+                    ✗ {t('panel.saveFailed')}
+                  </span>
+                ) : (
+                  <GlassButton
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveModels}
+                    disabled={isStoreBusy || saveStatus !== 'idle'}
+                  >
+                    {saveStatus === 'saving' ? (
+                      <>
+                        <Loader2 size={10} className="animate-spin" />
+                        {t('common.saving')}
+                      </>
+                    ) : (
+                      <>
+                        <SlidersHorizontal size={10} />
+                        {isPairActive(pair.status)
+                          ? t('panel.saveActionRunning')
+                          : t('panel.saveActionIdle')}
+                      </>
+                    )}
+                  </GlassButton>
+                )}
+              </div>
               {saveStatus === 'idle' && (
-                <span className="text-[10px] text-muted-foreground-faint">
-                  {t('panel.modelsUpdateHint')}
+                <span className="text-[10px] text-muted-foreground-faint leading-snug [overflow-wrap:anywhere]">
+                  {isPairActive(pair.status)
+                    ? t('panel.modelsUpdateHintRunning')
+                    : t('panel.modelsUpdateHintIdle')}
                 </span>
               )}
             </div>
@@ -398,7 +420,7 @@ function PairOperationsPanel({
         <div className="flex items-baseline justify-between">
           <span className="text-muted-foreground">{t('pair.run', { count: pair.runCount })}</span>
           <span className="border border-border bg-secondary/40 px-1.5 py-px text-[10px] uppercase tracking-[0.14em] text-foreground/90">
-            {pair.status}
+            {t(`status.${pair.status}`, { defaultValue: pair.status })}
           </span>
         </div>
         <div className="text-[10px] text-muted-foreground">

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2, XCircle } from 'lucide-react'
+import { Square, Trash2, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { usePairStore, type Message, type Pair } from '../store/usePairStore'
@@ -13,7 +13,7 @@ import { MessageCard } from './MessageCard'
 import { TurnCardView } from './TurnCardView'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
-import { collapseConsecutiveConsoleMessages } from '../lib/consoleMessages'
+import { collapseWithDropCounts } from '../lib/consoleMessages'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
@@ -66,10 +66,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
 
-  const deduplicatedConsoleMessages = useMemo(
-    () => collapseConsecutiveConsoleMessages<Message>(consoleMessages),
-    [consoleMessages]
-  )
+  const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
+    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(consoleMessages)
+    return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
+  }, [consoleMessages])
 
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages
@@ -132,6 +132,19 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             ? 'justify-end'
             : 'justify-center'
 
+      const droppedBefore = dropCountByMessageId.get(msg.id) ?? 0
+      if (droppedBefore > 0) {
+        nodes.push(
+          <div key={`drops-${msg.id}`} className={cn('flex', alignClass)}>
+            <div className={cn(maxWidthClass, 'pl-[3ch]')}>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint">
+                {t('console.earlierMessagesDropped', { count: droppedBefore })}
+              </span>
+            </div>
+          </div>
+        )
+      }
+
       nodes.push(
         <div key={msg.id} className={cn('flex', alignClass)}>
           <div className={cn(maxWidthClass)}>
@@ -141,7 +154,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       )
     }
     return nodes
-  }, [deduplicatedConsoleMessages, pair.maxIterations])
+  }, [deduplicatedConsoleMessages, dropCountByMessageId, pair.maxIterations, t])
 
   const handleClearMessages = (): void => {
     setMessages(pair.id, [])
@@ -150,6 +163,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const submitTask = async (): Promise<void> => {
     const spec = taskInput.trim()
     if (!spec || isLoading || isSubmittingTask) return
+    // Guard: if pair is running, refuse silently. The UI already disables the textarea,
+    // but keep this as a belt-and-suspenders fallback against stale state.
+    if (isPairActive(pair.status)) return
 
     setIsSubmittingTask(true)
     try {
@@ -184,21 +200,40 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const hasText = taskInput.length > 0 || composingText.length > 0
 
+  const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
+  const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
+  const isRunning = isPairActive(pair.status) || mentorIsExecuting || executorIsExecuting
+  // Input is "locked" while the pair runs — submitting a new task would silently
+  // archive the in-progress run, which is almost never what the user wants.
+  const inputLocked = isRunning
+
   const taskInputRow = !viewingRunId ? (
     <form
       onSubmit={handleTaskSubmit}
-      className="mt-2 cursor-text"
-      onClick={() => inputRef.current?.focus()}
+      className={cn('mt-2', inputLocked ? 'cursor-not-allowed opacity-60' : 'cursor-text')}
+      onClick={() => {
+        if (!inputLocked) inputRef.current?.focus()
+      }}
       data-testid="pair-task-input"
+      aria-disabled={inputLocked}
     >
       <div className="flex items-baseline gap-2 font-mono text-[12px] leading-relaxed">
-        <span aria-hidden className="state-running select-none">
+        <span
+          aria-hidden
+          className={cn(
+            'select-none',
+            inputLocked ? 'text-muted-foreground-faint' : 'state-running'
+          )}
+        >
           {'>'}
         </span>
         <div className="relative flex-1 min-w-0">
           <div
             aria-hidden
-            className="whitespace-pre-wrap break-words font-mono text-[12px] text-foreground"
+            className={cn(
+              'whitespace-pre-wrap break-words font-mono text-[12px]',
+              inputLocked ? 'text-muted-foreground-faint' : 'text-foreground'
+            )}
           >
             {hasText ? (
               <>
@@ -210,8 +245,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 )}
                 <span
                   className={cn(
-                    'state-running select-none ml-[1px]',
-                    isSubmittingTask ? '' : 'tty-blink'
+                    'select-none ml-[1px]',
+                    inputLocked ? 'text-muted-foreground-faint' : 'state-running',
+                    isSubmittingTask || inputLocked ? '' : 'tty-blink'
                   )}
                 >
                   ▍
@@ -221,14 +257,17 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               <>
                 <span
                   className={cn(
-                    'state-running select-none mr-[2px]',
-                    isSubmittingTask ? '' : 'tty-blink'
+                    'select-none mr-[2px]',
+                    inputLocked ? 'text-muted-foreground-faint' : 'state-running',
+                    isSubmittingTask || inputLocked ? '' : 'tty-blink'
                   )}
                 >
                   ▍
                 </span>
                 <span className="text-muted-foreground-faint">
-                  {t('console.taskInputPlaceholder')}
+                  {inputLocked
+                    ? t('console.inputDisabledRunningHint')
+                    : t('console.taskInputPlaceholder')}
                 </span>
               </>
             )}
@@ -242,14 +281,21 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             onCompositionStart={(e) => setComposingText(e.data || '')}
             onCompositionUpdate={(e) => setComposingText(e.data || '')}
             onCompositionEnd={() => setComposingText('')}
-            aria-label={t('console.taskInputPlaceholder')}
+            aria-label={
+              inputLocked
+                ? t('console.inputDisabledRunningHint')
+                : t('console.taskInputPlaceholder')
+            }
             autoComplete="off"
             spellCheck={false}
-            disabled={isSubmittingTask}
-            className="absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent"
+            disabled={isSubmittingTask || inputLocked}
+            className={cn(
+              'absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent',
+              inputLocked && 'pointer-events-none'
+            )}
             style={{ caretColor: 'transparent' }}
           />
-          {pair.directory && (
+          {pair.directory && !inputLocked && (
             <FileMention
               textareaRef={inputRef}
               onChange={setTaskInput}
@@ -258,12 +304,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               onFileSelect={handleFileSelect}
             />
           )}
-          <SkillMention
-            textareaRef={inputRef}
-            onChange={setTaskInput}
-            projectDir={pair.directory}
-            onSkillSelect={handleSkillSelect}
-          />
+          {!inputLocked && (
+            <SkillMention
+              textareaRef={inputRef}
+              onChange={setTaskInput}
+              projectDir={pair.directory}
+              onSkillSelect={handleSkillSelect}
+            />
+          )}
         </div>
       </div>
       {(fileContexts.size > 0 || skillContexts.size > 0) && (
@@ -308,10 +356,6 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       </div>
     )
   }
-
-  const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
-  const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
-  const isRunning = isPairActive(pair.status) || mentorIsExecuting || executorIsExecuting
 
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
@@ -388,18 +432,32 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                     {visibleCurrentTurnCard ? (
                       <div key={visibleCurrentTurnCard.id} className="space-y-1">
                         <TurnCardView card={visibleCurrentTurnCard} />
-                        {visibleCurrentTurnCard.activity.phase === 'stalled' && (
-                          <div className="pl-[3ch]">
+                        {isRunning && (
+                          <div className="pl-[3ch] flex items-center gap-2">
                             <GlassButton
-                              variant="destructive"
+                              variant={
+                                visibleCurrentTurnCard.activity.phase === 'stalled'
+                                  ? 'destructive'
+                                  : 'secondary'
+                              }
                               size="sm"
                               className="gap-1.5"
                               onClick={() => {
                                 void killProcess(pair.id, visibleCurrentTurnCard.role)
                               }}
+                              title={t('console.stopTurn')}
                             >
-                              <XCircle size={11} />
-                              {t('pair.killProcess')}
+                              {visibleCurrentTurnCard.activity.phase === 'stalled' ? (
+                                <>
+                                  <XCircle size={11} />
+                                  {t('pair.killProcess')}
+                                </>
+                              ) : (
+                                <>
+                                  <Square size={10} />
+                                  {t('console.stopTurn')}
+                                </>
+                              )}
                             </GlassButton>
                           </div>
                         )}

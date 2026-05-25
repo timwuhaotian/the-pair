@@ -29,7 +29,15 @@
     "workspace": "ワークスペース",
     "task": "タスク",
     "name": "名前",
-    "directory": "ディレクトリ"
+    "directory": "ディレクトリ",
+    "mentoring": "メンタリング",
+    "executing": "実行中",
+    "reviewing": "レビュー中",
+    "awaitingHumanReview": "人手レビュー待ち",
+    "error": "エラー",
+    "finished": "完了",
+    "running": "実行中",
+    "stop": "停止"
   },
   "chrome": {
     "title": "The Pair",
@@ -269,7 +277,20 @@
     "taskInputPlaceholder": "ペアに新しいタスクを入力...",
     "viewingArchived": "アーカイブされた実行を閲覧中",
     "attachedFile": "添付ファイル：{{path}}",
-    "attachedSkill": "添付スキル：/{{name}}"
+    "attachedSkill": "添付スキル：/{{name}}",
+    "inputDisabledRunningHint": "ペアが実行中です — 新しいタスクを入れる前に一時停止してください",
+    "stopTurn": "現在のターンを停止",
+    "earlierStepsButton": "前の{{count}}ステップを表示",
+    "earlierStepsButton_plural": "前の{{count}}ステップを表示",
+    "earlierStepsHide": "前のステップを非表示",
+    "earlierMessagesDropped_one": "+ 前のメッセージ {{count}} 件を非表示",
+    "earlierMessagesDropped_other": "+ 前のメッセージ {{count}} 件を非表示",
+    "showDetailsBoth_one": "{{count}}ステップとレポート全文を表示",
+    "showDetailsBoth_other": "{{count}}ステップとレポート全文を表示",
+    "showStepsOnly_one": "{{count}}ステップを表示",
+    "showStepsOnly_other": "{{count}}ステップを表示",
+    "showReportOnly": "レポート全文を表示",
+    "hideDetails": "詳細を非表示"
   },
   "skills": {
     "popoverTitle": "スキル",
@@ -282,7 +303,14 @@
     "modelsUpdateHint": "保存後に適用されます",
     "saved": "保存済み",
     "saving": "保存中...",
-    "saveFailed": "保存に失敗しました"
+    "saveFailed": "保存に失敗しました",
+    "modelsUpdateHintIdle": "次のタスクの既定として保存",
+    "modelsUpdateHintRunning": "次のタスク用にキュー — 実行中のターンは現在のモデルのまま",
+    "modelsActiveBadge": "使用中",
+    "modelsQueuedBadge": "キュー済み",
+    "saveActionIdle": "保存",
+    "saveActionRunning": "次のタスクにキュー",
+    "savedQueued": "次のタスクにキューしました"
   },
   "activity": {
     "stalled": "停滞",
@@ -310,7 +338,9 @@
     "errorTip": "ヒント: このエラーが継続する場合は、タスクを小さなステップに分割するか、変更ファイルパネルで意図しない変更を確認してください。",
     "iterations": "反復回数",
     "iterationsAdaptive": "反復回数（アダプティブ）",
-    "iterationLimit": "反復制限に達しました — 手動介入が必要です"
+    "iterationLimit": "反復制限に達しました — 手動介入が必要です",
+    "approachingLimit": "反復回数の上限に近づいています",
+    "approachingLimitHint": "上限に達するとペアは自動的に一時停止します — 範囲を絞るか、ターンを停止してください。"
   },
   "updates": {
     "install": "v{{version}} をインストール",
@@ -334,5 +364,15 @@
     "pausePair": "ペアを一時停止",
     "resumePair": "ペアを再開",
     "newPair": "新しいペア"
+  },
+  "status": {
+    "Idle": "アイドル",
+    "Mentoring": "メンタリング",
+    "Executing": "実行中",
+    "Reviewing": "レビュー中",
+    "Paused": "一時停止中",
+    "Awaiting Human Review": "人手レビュー待ち",
+    "Error": "エラー",
+    "Finished": "完了"
   }
 }

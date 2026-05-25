@@ -29,7 +29,15 @@
     "workspace": "작업 공간",
     "task": "작업",
     "name": "이름",
-    "directory": "디렉토리"
+    "directory": "디렉토리",
+    "mentoring": "멘토링",
+    "executing": "실행 중",
+    "reviewing": "검토 중",
+    "awaitingHumanReview": "사람 검토 대기 중",
+    "error": "오류",
+    "finished": "완료",
+    "running": "실행 중",
+    "stop": "중지"
   },
   "chrome": {
     "title": "The Pair",
@@ -269,7 +277,20 @@
     "taskInputPlaceholder": "페어에 새 작업 입력...",
     "viewingArchived": "보관된 실행 보기",
     "attachedFile": "첨부됨: {{path}}",
-    "attachedSkill": "첨부된 스킬: /{{name}}"
+    "attachedSkill": "첨부된 스킬: /{{name}}",
+    "inputDisabledRunningHint": "페어가 실행 중입니다 — 새 작업을 추가하려면 먼저 일시 중지하세요",
+    "stopTurn": "현재 턴 중지",
+    "earlierStepsButton": "이전 {{count}}개 단계 표시",
+    "earlierStepsButton_plural": "이전 {{count}}개 단계 표시",
+    "earlierStepsHide": "이전 단계 숨기기",
+    "earlierMessagesDropped_one": "+ 이전 메시지 {{count}}개 숨김",
+    "earlierMessagesDropped_other": "+ 이전 메시지 {{count}}개 숨김",
+    "showDetailsBoth_one": "{{count}}개 단계와 전체 보고서 보기",
+    "showDetailsBoth_other": "{{count}}개 단계와 전체 보고서 보기",
+    "showStepsOnly_one": "{{count}}개 단계 보기",
+    "showStepsOnly_other": "{{count}}개 단계 보기",
+    "showReportOnly": "전체 보고서 보기",
+    "hideDetails": "세부 정보 숨기기"
   },
   "skills": {
     "popoverTitle": "스킬",
@@ -282,7 +303,14 @@
     "modelsUpdateHint": "저장 후 적용",
     "saved": "저장됨",
     "saving": "저장 중...",
-    "saveFailed": "저장 실패"
+    "saveFailed": "저장 실패",
+    "modelsUpdateHintIdle": "다음 작업의 기본값으로 저장",
+    "modelsUpdateHintRunning": "다음 작업용으로 대기 — 실행 중인 턴은 현재 모델 유지",
+    "modelsActiveBadge": "사용 중",
+    "modelsQueuedBadge": "대기 중",
+    "saveActionIdle": "저장",
+    "saveActionRunning": "다음 작업에 대기",
+    "savedQueued": "다음 작업에 대기됨"
   },
   "activity": {
     "stalled": "정체됨",
@@ -310,7 +338,9 @@
     "errorTip": "팁: 이 오류가 계속 발생하면 작업을 더 작은 단계로 나누거나 수정된 파일 패널에서 의도하지 않은 변경사항을 확인하십시오.",
     "iterations": "반복 횟수",
     "iterationsAdaptive": "반복 횟수 (적응형)",
-    "iterationLimit": "반복 제한에 도달했습니다 — 수동 개입이 필요합니다"
+    "iterationLimit": "반복 제한에 도달했습니다 — 수동 개입이 필요합니다",
+    "approachingLimit": "반복 한도에 접근 중",
+    "approachingLimitHint": "한도에 도달하면 페어가 자동으로 일시 중지됩니다 — 범위를 좁히거나 턴을 중지하세요."
   },
   "updates": {
     "install": "v{{version}} 설치",
@@ -334,5 +364,15 @@
     "pausePair": "페어 일시 중지",
     "resumePair": "페어 재개",
     "newPair": "새 페어"
+  },
+  "status": {
+    "Idle": "대기 중",
+    "Mentoring": "멘토링",
+    "Executing": "실행 중",
+    "Reviewing": "검토 중",
+    "Paused": "일시 중지됨",
+    "Awaiting Human Review": "사람 검토 대기 중",
+    "Error": "오류",
+    "Finished": "완료"
   }
 }

@@ -632,10 +632,18 @@ fn is_dev_smoke_pair_spec(spec: &str) -> bool {
 }
 
 fn is_dev_smoke_greeting_output(output: &str) -> bool {
-    matches!(
-        output.trim(),
-        "Greeting 1/3" | "Greeting 2/3" | "Greeting 3/3"
-    )
+    let trimmed = output.trim();
+    if matches!(trimmed, "Greeting 1/3" | "Greeting 2/3" | "Greeting 3/3") {
+        return true;
+    }
+    // Accept paraphrased forms ("Send Greeting 1/3", "Greeting 1/3 received",
+    // "Acknowledged: Greeting 2/3", etc.). Real executor CLIs sometimes echo
+    // the mentor's instruction text instead of emitting the bare greeting, and
+    // we don't want that to drag the run through code-quality checks.
+    let lower = trimmed.to_lowercase();
+    ["greeting 1/3", "greeting 2/3", "greeting 3/3"]
+        .iter()
+        .any(|needle| lower.contains(needle))
 }
 
 fn has_dev_smoke_pair_spec(messages: &[crate::types::Message]) -> bool {
@@ -2220,6 +2228,14 @@ mod tests {
 
         assert!(is_dev_smoke_pair_spec(spec));
         assert!(is_dev_smoke_greeting_output("Greeting 2/3"));
+        // Paraphrased forms should also count — real executor CLIs sometimes
+        // echo the mentor's "Send Greeting N/3" wording instead of the bare
+        // greeting, and that shouldn't trigger code-quality checks.
+        assert!(is_dev_smoke_greeting_output("Send Greeting 1/3"));
+        assert!(is_dev_smoke_greeting_output("Greeting 1/3 received"));
+        assert!(is_dev_smoke_greeting_output(
+            "Acknowledged: Greeting 2/3 is on the way."
+        ));
         assert!(!is_dev_smoke_greeting_output(
             "Acknowledged. Ready to receive remaining greetings."
         ));

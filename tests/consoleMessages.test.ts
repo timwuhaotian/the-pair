@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { collapseConsecutiveConsoleMessages } from '../src/renderer/src/lib/consoleMessages.ts'
+import {
+  collapseConsecutiveConsoleMessages,
+  collapseWithDropCounts
+} from '../src/renderer/src/lib/consoleMessages.ts'
 
 const baseMessage = {
   timestamp: 1000,
@@ -60,6 +63,60 @@ test('collapseConsecutiveConsoleMessages does not hide a mentor acceptance from 
     collapsed.map((msg) => msg.id),
     ['mentor-plan', 'mentor-acceptance']
   )
+})
+
+test('collapseWithDropCounts reports how many same-role same-iteration messages were dropped before the survivor', () => {
+  const messages = [
+    {
+      ...baseMessage,
+      id: 'mentor-1',
+      from: 'mentor',
+      type: 'plan',
+      content: 'first thought'
+    },
+    {
+      ...baseMessage,
+      id: 'mentor-2',
+      from: 'mentor',
+      type: 'plan',
+      content: 'second thought'
+    },
+    {
+      ...baseMessage,
+      id: 'mentor-3',
+      from: 'mentor',
+      type: 'plan',
+      content: 'final plan'
+    }
+  ]
+
+  const { kept, droppedBeforeId } = collapseWithDropCounts(messages)
+
+  assert.deepEqual(
+    kept.map((m) => m.id),
+    ['mentor-3']
+  )
+  assert.equal(droppedBeforeId.get('mentor-3'), 2)
+})
+
+test('collapseWithDropCounts reports zero drops when nothing was collapsed', () => {
+  const messages = [
+    {
+      ...baseMessage,
+      id: 'mentor-only',
+      from: 'mentor',
+      type: 'plan',
+      content: 'only plan'
+    }
+  ]
+
+  const { kept, droppedBeforeId } = collapseWithDropCounts(messages)
+
+  assert.deepEqual(
+    kept.map((m) => m.id),
+    ['mentor-only']
+  )
+  assert.equal(droppedBeforeId.size, 0)
 })
 
 test('collapseConsecutiveConsoleMessages keeps only the final role summary per iteration', () => {

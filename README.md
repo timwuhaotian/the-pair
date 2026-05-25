@@ -9,6 +9,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
+[![Stars](https://img.shields.io/github/stars/timwuhaotian/the-pair?style=social)](https://github.com/timwuhaotian/the-pair/stargazers)
+[![Downloads](https://img.shields.io/github/downloads/timwuhaotian/the-pair/total)](https://github.com/timwuhaotian/the-pair/releases)
 [![Build Status](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
@@ -16,7 +18,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
 
-🌐 **English** • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md)
+🌐 **English** • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md) &nbsp;|&nbsp; [![Share on X](https://img.shields.io/badge/Share-000000?logo=x&logoColor=white)](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair)
 
 **macOS** • **Windows** • **Linux**
 
@@ -36,6 +38,25 @@ _Watch Mentor and Executor agents collaborate in real-time_
 - **Executor Agent** — Writes code and runs commands
 
 While they work, go grab a coffee. Come back to reviewed, cross-validated code.
+
+> **💡 Common Questions**
+>
+> **How is this different from single-agent tools?** — One model writing _and_ reviewing its own code can miss its own mistakes. The Pair's Mentor independently reviews everything the Executor produces.
+>
+> **Which models work?** — Any model from opencode, Claude Code, Codex, or Gemini CLI. Mix and match providers freely (e.g., Claude as Mentor + Codex as Executor).
+>
+> **Does it need internet?** — The app runs locally. Only model API calls need connectivity (or use Ollama for fully offline sessions).
+
+### Why The Pair?
+
+| Capability                      | The Pair                           | Cursor / Copilot    | Claude Code (solo)  |
+| ------------------------------- | ---------------------------------- | ------------------- | ------------------- |
+| Cross-validation between agents | ✅ Two independent agents          | ❌ Single agent     | ❌ Single agent     |
+| Dedicated review role           | ✅ Mentor (read-only)              | ❌ Self-review only | ❌ Self-review only |
+| Multi-provider support          | ✅ opencode, Claude, Codex, Gemini | ❌ Locked to one    | ❌ Claude only      |
+| Local orchestration             | ✅ Fully local                     | ❌ Cloud-dependent  | ❌ Cloud-dependent  |
+| Session recovery                | ✅ Full snapshot restore           | ❌                  | ❌                  |
+| Open source                     | ✅ Apache 2.0                      | ❌ Proprietary      | ❌ Proprietary      |
 
 ### Key Benefits
 
@@ -382,6 +403,6 @@ A: Yes. The Pair checks for new versions on launch and notifies you with a one-c
 
 Built with ❤️ by [timwuhaotian](https://github.com/timwuhaotian)
 
-**⭐ Star this repo if you find it helpful!**
+**[⭐ Star this repo](https://github.com/timwuhaotian/the-pair)** if you find it helpful! &nbsp;|&nbsp; [📢 Share on X](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair) &nbsp;|&nbsp; [💬 Discuss](https://github.com/timwuhaotian/the-pair/discussions)
 
 </div>

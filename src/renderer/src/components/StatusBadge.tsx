@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 
 interface StatusBadgeProps {
@@ -52,11 +53,15 @@ function toneClasses(tone: Tone): { fg: string; bg: string; border: string } {
 }
 
 export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactNode {
+  const { t } = useTranslation()
   const tone: Tone = stalled ? 'error' : (STATUS_TONE[status] ?? 'muted')
   const glyph = stalled ? '!' : (STATUS_GLYPH[status] ?? '·')
   const c = toneClasses(tone)
   const isActive =
     status === 'Mentoring' || status === 'Executing' || status === 'Reviewing' || stalled
+
+  // Localized label — fall back to raw status if no translation key exists.
+  const label = t(`status.${status}`, { defaultValue: status })
 
   return (
     <span
@@ -66,12 +71,12 @@ export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactN
         c.bg,
         c.border
       )}
-      title={status}
+      title={label}
     >
       <span aria-hidden className={cn('select-none w-[1ch] tabular-nums', isActive && 'tty-blink')}>
         {glyph}
       </span>
-      <span>{status}</span>
+      <span>{label}</span>
     </span>
   )
 }

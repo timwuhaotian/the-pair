@@ -216,12 +216,27 @@ function App(): React.ReactNode {
   }, [isPairSettingsOpen])
 
   useEffect(() => {
-    const handleBeforeUnload = (): void => {
+    // Snapshot save is async + fire-and-forget; on a true app close we have no
+    // way to await it. Listen on multiple lifecycle events so we get a save in
+    // before the window dies even if the user closes via OS rather than menu:
+    //   - visibilitychange (hidden): user minimized / switched workspace → checkpoint
+    //   - pagehide: webview is being torn down → last-chance flush
+    //   - beforeunload: classic reload / close path
+    const flush = (): void => {
       void flushSnapshots()
     }
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'hidden') flush()
+    }
 
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [flushSnapshots])
 
   const selectedPair = pairs.find((p) => p.id === selectedPairId) ?? null

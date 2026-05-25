@@ -294,6 +294,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('fs')
+          const { execSync } = require('child_process')
 
           const version = process.env.VERSION
           const changelog = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/)
@@ -308,7 +309,38 @@ jobs:
           }
 
           const releaseNotes = changelog.slice(start + 1, end).join('\n').trim()
-          fs.writeFileSync('release-notes.md', `${releaseNotes}\n`)
+
+          const downloadTable = [
+            '## Downloads',
+            '',
+            '| Platform | File |',
+            '|---|---|',
+            `| **macOS** (Apple Silicon + Intel) | \`the-pair-${version}.zip\` |`,
+            `| **Windows** | \`the-pair-${version}-setup.exe\` |`,
+            `| **Linux** | \`the-pair-${version}.AppImage\` |`,
+            '',
+          ].join('\n')
+
+          let contributors = ''
+          try {
+            const tags = execSync('git tag --sort=-version:refname', { encoding: 'utf8' }).trim().split('\n')
+            const prevTag = tags.find((t) => t !== `v${version}`)
+            if (prevTag) {
+              const logins = [
+                ...new Set(
+                  execSync(`git log ${prevTag}...HEAD --format='%an'`, { encoding: 'utf8' })
+                    .trim()
+                    .split('\n')
+                    .filter(Boolean)
+                ),
+              ]
+              if (logins.length > 0) {
+                contributors = `\n## Contributors\n\nThanks to ${logins.map((l) => `@${l}`).join(', ')} for contributing to this release!\n`
+              }
+            }
+          } catch {}
+
+          fs.writeFileSync('release-notes.md', `${downloadTable}\n${releaseNotes}\n${contributors}\n`)
           NODE
 
       - name: Generate updater manifest

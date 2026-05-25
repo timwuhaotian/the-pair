@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-05-26
+
+### Fixed
+
+- **Acceptance checks no longer fight text-only turns:** `git diff --check`, `npm run typecheck`, and `npm run test` are now skipped when the executor produced no file modifications. Previously a smoke greeting or text-only diagnostic would still trigger `git diff --check`, and any environment-level failure (e.g. exit 129 from a signal kill) was reported to the mentor as a hard `failed`, costing ~1K tokens per iteration to explain away.
+- **`git diff --check` env failures are no longer treated as bugs:** spawn errors, signal kills (exit > 128), and "not a git repository" stderr are now reported as `Skipped` instead of `Failed`. Real whitespace errors (exit 1/2) still surface as `Failed`.
+- **Dev-smoke detection is more forgiving:** `is_dev_smoke_greeting_output` now matches paraphrased forms ("Send Greeting 1/3", "Greeting 1/3 received", "Acknowledged: Greeting 2/3") so a real executor CLI that echoes the mentor's instruction wording instead of the bare greeting still skips code-quality checks.
+- **Executor re-anchored to original task on follow-up turns:** `buildExecutorAcceptanceFollowupPrompt` now appends an `ORIGINAL TASK` section before the adjustments list so multi-iteration runs don't drift into responding only to the latest instruction.
+
+### Added
+
+- **Hidden-message indicator in pair console:** When consecutive messages from the same role/iteration get collapsed, the console now shows "+ N earlier messages hidden" so users know content was suppressed rather than silently lost. New `collapseWithDropCounts` helper in `consoleMessages.ts` powers this.
+- **Iteration-limit approaching warning:** New banner in `IterationProgress` warns when a pair is nearing its iteration budget, with hint to narrow scope or stop the turn before the auto-pause kicks in.
+- **Stop turn button + running input hint:** Pair console now exposes a Stop Turn action and surfaces "Pair is running — pause first to queue a new task" when input is disabled mid-run.
+- **Models-panel queue state:** Model changes mid-run now show as `queued`/`in use` badges with copy clarifying that updates apply to the next task, not the running turn (`saveActionRunning`, `savedQueued`, `modelsUpdateHintRunning`).
+- **Status label localization:** All `PairStatus` values (Idle/Mentoring/Executing/Reviewing/Paused/Awaiting Human Review/Error/Finished) are now i18n keys with translations for en/zh/ja/ko.
+- **Acceptance details toggle:** New show/hide controls on `TurnCardView` to reveal full acceptance reports and step lists on demand.
+- **`.github/` polish:** Added `FUNDING.yml`, issue template `config.yml`, and social-preview image; refreshed `build-signed-mac.yml` workflow.
+- **README and package.json keywords** expanded for discoverability (claude, codex, gemini, copilot-alternative, rust, react, etc.).
+
 ## [2.0.1] - 2026-05-18
 
 ### Added

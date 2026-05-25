@@ -35,7 +35,19 @@
     "reviewing": "Reviewing",
     "awaitingHumanReview": "Awaiting Human Review",
     "error": "Error",
-    "finished": "Finished"
+    "finished": "Finished",
+    "running": "Running",
+    "stop": "Stop"
+  },
+  "status": {
+    "Idle": "Idle",
+    "Mentoring": "Mentoring",
+    "Executing": "Executing",
+    "Reviewing": "Reviewing",
+    "Paused": "Paused",
+    "Awaiting Human Review": "Awaiting Human Review",
+    "Error": "Error",
+    "Finished": "Finished"
   },
   "chrome": {
     "title": "The Pair",
@@ -270,6 +282,12 @@
     "acceptance": "acceptance",
     "collapse": "Collapse",
     "expand": "Expand full report",
+    "showDetailsBoth_one": "Show {{count}} step + full report",
+    "showDetailsBoth_other": "Show {{count}} steps + full report",
+    "showStepsOnly_one": "Show {{count}} step",
+    "showStepsOnly_other": "Show {{count}} steps",
+    "showReportOnly": "Show full report",
+    "hideDetails": "Hide details",
     "stalled": "Stalled",
     "noOutput": "no output",
     "error": "Error",
@@ -291,7 +309,14 @@
     "taskInputPlaceholder": "Type a new task for the pair...",
     "viewingArchived": "viewing archived run",
     "attachedFile": "Attached: {{path}}",
-    "attachedSkill": "Attached skill: /{{name}}"
+    "attachedSkill": "Attached skill: /{{name}}",
+    "inputDisabledRunningHint": "Pair is running — pause first to queue a new task",
+    "stopTurn": "Stop turn",
+    "earlierStepsButton": "Show {{count}} earlier step",
+    "earlierStepsButton_plural": "Show {{count}} earlier steps",
+    "earlierStepsHide": "Hide earlier steps",
+    "earlierMessagesDropped_one": "+ {{count}} earlier message hidden",
+    "earlierMessagesDropped_other": "+ {{count}} earlier messages hidden"
   },
   "skills": {
     "popoverTitle": "skills",
@@ -302,7 +327,14 @@
   },
   "panel": {
     "modelsUpdateHint": "Changes apply after you save",
+    "modelsUpdateHintIdle": "Saves as the default for the next task",
+    "modelsUpdateHintRunning": "Queues for the next task — the running turn keeps its current models",
+    "modelsActiveBadge": "in use",
+    "modelsQueuedBadge": "queued",
+    "saveActionIdle": "Save",
+    "saveActionRunning": "Queue for next task",
     "saved": "Saved",
+    "savedQueued": "Queued for next task",
     "saving": "Saving...",
     "saveFailed": "Save failed"
   },
@@ -332,7 +364,9 @@
     "errorTip": "Tip: If this error persists, try breaking the task into smaller steps or check the modified files panel for any unintended changes.",
     "iterations": "Iterations",
     "iterationsAdaptive": "Iterations (adaptive)",
-    "iterationLimit": "Iteration limit reached \u2014 manual intervention required"
+    "iterationLimit": "Iteration limit reached \u2014 manual intervention required",
+    "approachingLimit": "Approaching iteration limit",
+    "approachingLimitHint": "Pair will auto-pause when it hits the limit \u2014 consider narrowing scope or stopping the turn."
   },
   "updates": {
     "install": "Install v{{version}}",

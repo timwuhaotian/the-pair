@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/timwuhaotian/the-pair#readme
+    about: Check the README for setup, configuration, and usage instructions.
+  - name: Discussions
+    url: https://github.com/timwuhaotian/the-pair/discussions
+    about: Ask questions, share ideas, and connect with other users in Discussions.
+  - name: FAQ
+    url: https://github.com/timwuhaotian/the-pair#faq
+    about: Browse frequently asked questions before opening an issue.

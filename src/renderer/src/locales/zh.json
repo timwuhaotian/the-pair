@@ -29,7 +29,25 @@
     "workspace": "工作区",
     "task": "任务",
     "name": "名称",
-    "directory": "目录"
+    "directory": "目录",
+    "mentoring": "指导中",
+    "executing": "执行中",
+    "reviewing": "审查中",
+    "awaitingHumanReview": "等待人工审查",
+    "error": "错误",
+    "finished": "已完成",
+    "running": "运行中",
+    "stop": "停止"
+  },
+  "status": {
+    "Idle": "空闲",
+    "Mentoring": "指导中",
+    "Executing": "执行中",
+    "Reviewing": "审查中",
+    "Paused": "已暂停",
+    "Awaiting Human Review": "等待人工审查",
+    "Error": "错误",
+    "Finished": "已完成"
   },
   "chrome": {
     "title": "The Pair",
@@ -134,7 +152,7 @@
     "workspaceDesc": "选择 The Pair 工作的项目文件夹。",
     "changeDirectory": "更改项目目录",
     "selectFolder": "点击选择文件夹",
-    "folderHint": "选择任意文件夹 \u2014 The Pair 将读取、分析和修改其中的文件。",
+    "folderHint": "选择任意文件夹 — The Pair 将读取、分析和修改其中的文件。",
     "taskSpec": "任务规格",
     "taskSpecDesc": "为此 Pair 命名并描述期望的结果。",
     "pairName": "Pair 名称",
@@ -146,7 +164,7 @@
     "modelSelection": "模型选择",
     "modelDesc": "选择最近使用的模型或从完整列表中搜索。",
     "workflowPreset": "工作流预设",
-    "charsHint": "{{count}} 字符 \u00b7 输入 @ 引用文件"
+    "charsHint": "{{count}} 字符 · 输入 @ 引用文件"
   },
   "modals": {
     "createTitle": "创建新 Pair",
@@ -154,14 +172,14 @@
     "usingPreset": "使用 \"{{name}}\" 预设",
     "creating": "创建中...",
     "create": "创建 Pair",
-    "restoreTask": "恢复任务 \u00b7 {{name}}",
-    "assignTask": "分配新任务 \u00b7 {{name}}",
+    "restoreTask": "恢复任务 · {{name}}",
+    "assignTask": "分配新任务 · {{name}}",
     "workspaceLabel": "工作区",
     "modelUpdateNote": "更新的模型将成为此 Pair 的新默认值。",
     "startNewTask": "开始新任务",
     "restore": "恢复任务",
     "starting": "正在启动...",
-    "pairDefaults": "Pair 默认设置 \u00b7 {{name}}",
+    "pairDefaults": "Pair 默认设置 · {{name}}",
     "pairDefaultsDesc": "未来任务的默认模型",
     "pairDefaultsNote": "更改导师和执行者的默认设置，无需重新创建 Pair。",
     "modelUpdateQueued": "模型更新已排队，将在下次任务时生效。",
@@ -207,12 +225,12 @@
     "remoteBranches": "远程分支",
     "current": "当前",
     "trackingBranch": "将创建本地跟踪分支",
-    "uncommittedChanges": "仓库有未提交的更改 \u2014 切换分支可能会丢失工作。",
+    "uncommittedChanges": "仓库有未提交的更改 — 切换分支可能会丢失工作。",
     "noMatch": "没有匹配 \"{{query}}\" 的分支",
     "checkingRepo": "正在检查仓库...",
     "repoError": "无法检查仓库状态",
     "gitError": "错误：{{message}}",
-    "notGitRepo": "不是 git 仓库 \u2014 无法使用 worktree",
+    "notGitRepo": "不是 git 仓库 — 无法使用 worktree",
     "today": "今天",
     "yesterday": "昨天",
     "daysAgo": "{{count}} 天前",
@@ -285,7 +303,20 @@
     "taskInputPlaceholder": "输入新的配对任务...",
     "viewingArchived": "查看历史运行",
     "attachedFile": "已附加：{{path}}",
-    "attachedSkill": "已附加技能：/{{name}}"
+    "attachedSkill": "已附加技能：/{{name}}",
+    "inputDisabledRunningHint": "配对正在运行 — 请先暂停再排队新任务",
+    "stopTurn": "停止当前轮次",
+    "earlierStepsButton": "显示之前的 {{count}} 个步骤",
+    "earlierStepsButton_plural": "显示之前的 {{count}} 个步骤",
+    "earlierStepsHide": "隐藏之前的步骤",
+    "earlierMessagesDropped_one": "+ 已隐藏 {{count}} 条早期消息",
+    "earlierMessagesDropped_other": "+ 已隐藏 {{count}} 条早期消息",
+    "showDetailsBoth_one": "显示 {{count}} 个步骤 + 完整报告",
+    "showDetailsBoth_other": "显示 {{count}} 个步骤 + 完整报告",
+    "showStepsOnly_one": "显示 {{count}} 个步骤",
+    "showStepsOnly_other": "显示 {{count}} 个步骤",
+    "showReportOnly": "显示完整报告",
+    "hideDetails": "隐藏详情"
   },
   "skills": {
     "popoverTitle": "技能",
@@ -298,7 +329,14 @@
     "modelsUpdateHint": "保存后生效",
     "saved": "已保存",
     "saving": "保存中...",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "modelsUpdateHintIdle": "保存为下次任务的默认值",
+    "modelsUpdateHintRunning": "排队等待下次任务 — 当前运行的轮次保留现有模型",
+    "modelsActiveBadge": "使用中",
+    "modelsQueuedBadge": "已排队",
+    "saveActionIdle": "保存",
+    "saveActionRunning": "排队到下次任务",
+    "savedQueued": "已排队到下次任务"
   },
   "activity": {
     "stalled": "已停滞",
@@ -326,7 +364,9 @@
     "errorTip": "提示：如果此错误持续出现，请尝试将任务分解为更小的步骤，或检查修改文件面板是否有意外更改。",
     "iterations": "迭代次数",
     "iterationsAdaptive": "迭代次数（自适应）",
-    "iterationLimit": "已达到迭代限制 \u2014 需要人工干预"
+    "iterationLimit": "已达到迭代限制 — 需要人工干预",
+    "approachingLimit": "接近迭代限制",
+    "approachingLimitHint": "配对在达到限制时会自动暂停 — 可考虑缩小范围或停止当前轮次。"
   },
   "updates": {
     "install": "安装 v{{version}}",
@@ -335,7 +375,7 @@
     "upToDate": "已是最新版本",
     "checkAgain": "再次检查",
     "checkUpdates": "检查更新",
-    "available": "更新可用 \u2014 v{{version}}",
+    "available": "更新可用 — v{{version}}",
     "remindLater": "稍后提醒",
     "installingPercent": "已安装 {{percent}}%"
   },

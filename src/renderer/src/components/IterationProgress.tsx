@@ -54,7 +54,16 @@ export function IterationProgress({
         </span>
         <span aria-hidden>]</span>
       </div>
-      {isAtLimit && <p className="text-[10px] state-error">{t('errors.iterationLimit')}</p>}
+      {isAtLimit ? (
+        <p className="text-[10px] state-error">{t('errors.iterationLimit')}</p>
+      ) : isNearLimit ? (
+        <div className="text-[10px] state-running space-y-0.5">
+          <p className="font-bold uppercase tracking-[0.14em]">! {t('errors.approachingLimit')}</p>
+          <p className="text-muted-foreground normal-case tracking-normal">
+            {t('errors.approachingLimitHint')}
+          </p>
+        </div>
+      ) : null}
     </div>
   )
 }

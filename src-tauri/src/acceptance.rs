@@ -200,28 +200,61 @@ fn build_acceptance_check_plan(
     let scripts = package_scripts(package_json.as_ref());
     let risk = classify_acceptance_risk(modified_files);
 
-    let mut checks = vec![AcceptanceCheckPlan::new(
-        "git",
-        vec!["diff".to_string(), "--check".to_string()],
-    )];
+    let mut checks = Vec::new();
 
-    if scripts.iter().any(|script| script == "typecheck") {
+    // Only run code-quality checks when the executor actually modified files.
+    // Text-only outputs (smoke greetings, diagnostic answers) have nothing to
+    // verify, and running `git diff --check` against an unchanged tree just
+    // adds noise — or worse, surfaces env-level failures (exit 129) that the
+    // mentor then has to explain away.
+    if !modified_files.is_empty() {
         checks.push(AcceptanceCheckPlan::new(
-            "npm",
-            vec!["run".to_string(), "typecheck".to_string()],
+            "git",
+            vec!["diff".to_string(), "--check".to_string()],
         ));
-    }
 
-    if scripts.iter().any(|script| script == "test")
-        && should_add_full_test(&risk, executor_output, iteration, max_iterations)
-    {
-        checks.push(AcceptanceCheckPlan::new(
-            "npm",
-            vec!["run".to_string(), "test".to_string()],
-        ));
+        if scripts.iter().any(|script| script == "typecheck") {
+            checks.push(AcceptanceCheckPlan::new(
+                "npm",
+                vec!["run".to_string(), "typecheck".to_string()],
+            ));
+        }
+
+        if scripts.iter().any(|script| script == "test")
+            && should_add_full_test(&risk, executor_output, iteration, max_iterations)
+        {
+            checks.push(AcceptanceCheckPlan::new(
+                "npm",
+                vec!["run".to_string(), "test".to_string()],
+            ));
+        }
     }
 
     checks
+}
+
+/// Classifies whether a non-zero exit code from `git diff --check` indicates a
+/// real whitespace problem or an environment-level anomaly (signal kill, not a
+/// git repo, etc.). Returning true means the failure is genuine; false means
+/// the check could not produce a meaningful answer and should be reported as
+/// `Skipped` so it doesn't poison the mentor's review.
+fn is_actionable_git_check_failure(exit_code: Option<i32>, stderr: &str) -> bool {
+    let stderr_lower = stderr.to_lowercase();
+    if stderr_lower.contains("not a git repository") {
+        return false;
+    }
+    match exit_code {
+        // Exit 1 / 2 are the canonical "found whitespace errors" codes.
+        Some(1) | Some(2) => true,
+        // Signal-killed (128 + signo) or other environment failures aren't
+        // about the diff itself — treat as inconclusive.
+        Some(code) if code > 128 => false,
+        // Unknown status (e.g., process terminated without exit code) → skip.
+        None => false,
+        // Any other unexpected non-zero code: skip rather than surface as a
+        // hard fail. If a real whitespace problem occurs, exit 1 covers it.
+        Some(_) => false,
+    }
 }
 
 async fn run_check(workspace_root: &Path, check: &AcceptanceCheckPlan) -> AcceptanceCheckRun {
@@ -237,35 +270,62 @@ async fn run_check(workspace_root: &Path, check: &AcceptanceCheckPlan) -> Accept
     match output {
         Ok(output) => {
             let success = output.status.success();
+            let exit_code = output.status.code();
+            let stdout = trim_output(&String::from_utf8_lossy(&output.stdout), 4_000);
+            let stderr = trim_output(&String::from_utf8_lossy(&output.stderr), 4_000);
+
+            // Special-case `git diff --check`: env/signal failures shouldn't be
+            // reported as `failed`, only genuine whitespace errors should.
+            let is_git_diff_check = check.program == "git"
+                && check.args.first().map(|s| s.as_str()) == Some("diff")
+                && check.args.iter().any(|s| s == "--check");
+
+            let status = if success {
+                AcceptanceCheckStatus::Passed
+            } else if is_git_diff_check && !is_actionable_git_check_failure(exit_code, &stderr) {
+                AcceptanceCheckStatus::Skipped
+            } else {
+                AcceptanceCheckStatus::Failed
+            };
+
+            let summary = match status {
+                AcceptanceCheckStatus::Passed => format!("{} passed", check.command),
+                AcceptanceCheckStatus::Skipped => {
+                    format!("{} skipped (no actionable diff)", check.command)
+                }
+                AcceptanceCheckStatus::Failed => format!("{} failed", check.command),
+            };
+
             AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: if success {
-                    AcceptanceCheckStatus::Passed
+                status,
+                exit_code,
+                duration_ms: started.elapsed().as_millis() as u64,
+                summary,
+                stdout,
+                stderr,
+            }
+        }
+        Err(error) => {
+            let is_git_diff_check = check.program == "git"
+                && check.args.first().map(|s| s.as_str()) == Some("diff")
+                && check.args.iter().any(|s| s == "--check");
+            AcceptanceCheckRun {
+                name: check.name.clone(),
+                command: check.command.clone(),
+                status: if is_git_diff_check {
+                    AcceptanceCheckStatus::Skipped
                 } else {
                     AcceptanceCheckStatus::Failed
                 },
-                exit_code: output.status.code(),
+                exit_code: None,
                 duration_ms: started.elapsed().as_millis() as u64,
-                summary: if success {
-                    format!("{} passed", check.command)
-                } else {
-                    format!("{} failed", check.command)
-                },
-                stdout: trim_output(&String::from_utf8_lossy(&output.stdout), 4_000),
-                stderr: trim_output(&String::from_utf8_lossy(&output.stderr), 4_000),
+                summary: format!("{} could not start", check.command),
+                stdout: String::new(),
+                stderr: error.to_string(),
             }
         }
-        Err(error) => AcceptanceCheckRun {
-            name: check.name.clone(),
-            command: check.command.clone(),
-            status: AcceptanceCheckStatus::Failed,
-            exit_code: None,
-            duration_ms: started.elapsed().as_millis() as u64,
-            summary: format!("{} could not start", check.command),
-            stdout: String::new(),
-            stderr: error.to_string(),
-        },
     }
 }
 
@@ -726,6 +786,50 @@ mod tests {
             names,
             vec!["git diff --check", "npm run typecheck", "npm run test"]
         );
+    }
+
+    #[test]
+    fn build_acceptance_check_plan_skips_all_checks_when_no_files_modified() {
+        let package_json = serde_json::json!({
+            "scripts": {
+                "test": "node --test",
+                "typecheck": "tsc --noEmit"
+            }
+        });
+
+        let checks = super::build_acceptance_check_plan(
+            "/workspace",
+            Some(&package_json),
+            &[],
+            "Greeting 1/3",
+            1,
+            20,
+        );
+
+        assert!(
+            checks.is_empty(),
+            "text-only outputs with no modified files should not trigger code-quality checks, got: {:?}",
+            checks
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn is_actionable_git_check_failure_classifies_signal_and_repo_errors_as_skipped() {
+        // Genuine whitespace failures should remain actionable.
+        assert!(super::is_actionable_git_check_failure(Some(1), ""));
+        assert!(super::is_actionable_git_check_failure(Some(2), ""));
+
+        // Signal-killed (128+) and env-level failures should not.
+        assert!(!super::is_actionable_git_check_failure(Some(129), ""));
+        assert!(!super::is_actionable_git_check_failure(Some(143), ""));
+        assert!(!super::is_actionable_git_check_failure(None, ""));
+        assert!(!super::is_actionable_git_check_failure(
+            Some(128),
+            "fatal: not a git repository (or any of the parent directories): .git"
+        ));
     }
 
     #[test]

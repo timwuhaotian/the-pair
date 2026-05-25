@@ -45,8 +45,11 @@ function typeLabel(type: Message['type']): string {
 
 export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const { t } = useTranslation()
-  const [stepsExpanded, setStepsExpanded] = useState(false)
-  const [contentExpanded, setContentExpanded] = useState(false)
+  // Single expansion state covers both cognitive steps and long-body collapse.
+  // When a message has both kinds of hidden content, users used to face two
+  // separate toggles in different parts of the card — combining them removes
+  // that choice-paralysis without losing functionality.
+  const [detailsExpanded, setDetailsExpanded] = useState(false)
 
   const isSystem = msg.type === 'handoff'
   const isHuman = msg.from === 'human'
@@ -87,6 +90,19 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
     msg.startedAt && msg.finalizedAt ? msg.finalizedAt - msg.startedAt : undefined
   )
   const showCollapse = displayContent.length > CONTENT_COLLAPSE_THRESHOLD
+  const hasExpandable = hasSteps || showCollapse
+
+  // Label for the unified toggle reflects exactly what's hidden behind it.
+  const expandLabel = ((): string => {
+    if (detailsExpanded) return t('console.hideDetails')
+    if (hasSteps && showCollapse) {
+      return t('console.showDetailsBoth', { count: cognitiveEvents.length })
+    }
+    if (hasSteps) {
+      return t('console.showStepsOnly', { count: cognitiveEvents.length })
+    }
+    return t('console.showReportOnly')
+  })()
 
   const typeTag = (
     <span
@@ -116,51 +132,49 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
         </span>
       }
     >
-      {/* Collapsible step replay */}
-      {hasSteps && (
+      {/* Unified expand control — covers cognitive steps and/or long-body collapse */}
+      {hasExpandable && (
         <div className="mb-1.5">
           <button
-            onClick={() => setStepsExpanded((v) => !v)}
+            onClick={() => setDetailsExpanded((v) => !v)}
             className={cn(
               'group flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em]',
               'text-muted-foreground-faint hover:text-foreground/80 transition-colors'
             )}
+            aria-expanded={detailsExpanded}
           >
-            <span className="text-muted-foreground-faint">{stepsExpanded ? '└─' : '├─'}</span>
-            {stepsExpanded ? (
+            <span className="text-muted-foreground-faint">{detailsExpanded ? '└─' : '├─'}</span>
+            {detailsExpanded ? (
               <ChevronDown size={10} className="text-muted-foreground-faint translate-y-px" />
             ) : (
               <ChevronRight size={10} className="text-muted-foreground-faint translate-y-px" />
             )}
-            <span className="text-foreground/70">
-              {cognitiveEvents.length} {cognitiveEvents.length === 1 ? 'step' : 'steps'}
-            </span>
-            <span className="text-muted-foreground-faint normal-case tracking-normal">
-              · {stepsExpanded ? t('console.collapse').toLowerCase() : 'expand'}
-            </span>
+            <span className="text-foreground/70 normal-case tracking-normal">{expandLabel}</span>
           </button>
-          <AnimatePresence initial={false}>
-            {stepsExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.16 }}
-                className="overflow-hidden"
-              >
-                <div className="mt-1 space-y-px">
-                  {cognitiveEvents.map((event, idx) => (
-                    <TerminalEventRow
-                      key={event.id}
-                      event={event}
-                      isLast={idx === cognitiveEvents.length - 1}
-                      flat
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {hasSteps && (
+            <AnimatePresence initial={false}>
+              {detailsExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.16 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-1 space-y-px">
+                    {cognitiveEvents.map((event, idx) => (
+                      <TerminalEventRow
+                        key={event.id}
+                        event={event}
+                        isLast={idx === cognitiveEvents.length - 1}
+                        flat
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       )}
 
@@ -168,7 +182,7 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       <div
         className={cn(
           'text-[12px] leading-relaxed',
-          !contentExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
+          !detailsExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
         )}
       >
         {isAcceptance ? (
@@ -176,23 +190,18 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
         ) : (
           <MarkdownContent content={displayContent} />
         )}
-        {!contentExpanded && showCollapse && (
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent" />
+        {!detailsExpanded && showCollapse && (
+          <button
+            onClick={() => setDetailsExpanded(true)}
+            className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent cursor-pointer flex items-end justify-center pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground/80 transition-colors"
+            aria-label={t('console.expand')}
+          >
+            <span className={role === 'mentor' ? 'role-mentor' : 'role-executor'}>
+              {t('console.showReportOnly')}
+            </span>
+          </button>
         )}
       </div>
-      {showCollapse && (
-        <button
-          onClick={() => setContentExpanded((v) => !v)}
-          className={cn(
-            'mt-1 font-mono text-[10px] uppercase tracking-[0.14em] hover:underline',
-            role === 'mentor' ? 'role-mentor' : 'role-executor'
-          )}
-        >
-          {contentExpanded
-            ? `└─ ${t('console.collapse').toLowerCase()}`
-            : `└─ ${t('console.expand').toLowerCase()}`}
-        </button>
-      )}
     </TerminalBlock>
   )
 }

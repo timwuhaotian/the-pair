@@ -631,13 +631,17 @@ function resetPairForNewRun(
   const archivedRun = createRunSummary(pair)
   const now = Date.now()
 
+  // Display only the bare task spec to the user. The backend (see
+  // `build_mentor_planning_prompt` in src-tauri/src/util.rs) builds the actual
+  // ROLE/PLAN wrapper when it sends the prompt to the mentor — keeping that
+  // scaffolding out of the human message means we don't need to strip it later.
   const userMessage: Message = {
     id: Math.random().toString(36).substring(7),
     timestamp: now,
     from: 'human',
     to: 'mentor',
     type: 'plan',
-    content: `ROLE: MENTOR. Analyze the following task and provide a detailed PLAN for the EXECUTOR. DO NOT execute it yourself.\n\nTASK: ${nextSpec}`,
+    content: nextSpec,
     iteration: 0
   }
 
@@ -1370,13 +1374,16 @@ export const usePairStore = create<PairStore>((set) => ({
       })) as PairCreatedResponse
 
       const now = Date.now()
+      // Store only the user's task verbatim. The backend wraps it with
+      // mentor instructions before sending it to the agent (see
+      // build_mentor_planning_prompt in src-tauri/src/util.rs).
       const initialMessage: Message = {
         id: Math.random().toString(36).substring(7),
         timestamp: now,
         from: 'human',
         to: 'mentor',
         type: 'plan',
-        content: `ROLE: MENTOR. Analyze the following task and provide a detailed PLAN for the EXECUTOR. DO NOT execute it yourself.\n\nTASK: ${input.spec}`,
+        content: input.spec,
         iteration: 0
       }
 
