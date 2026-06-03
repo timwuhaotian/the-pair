@@ -82,6 +82,7 @@ pub(crate) fn fallback_path_dirs(
             dirs.push(home.join("go/bin"));
             dirs.push(home.join(".npm-global/bin"));
             dirs.push(home.join(".volta/bin"));
+            dirs.push(home.join(".opencode/bin"));
             dirs.extend(nvm_bin_dirs(&home));
         }
 
@@ -219,5 +220,7 @@ mod tests {
         assert!(dirs.contains(&PathBuf::from("/Users/alex/go/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.npm-global/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.volta/bin")));
+        assert!(dirs.contains(&PathBuf::from("/Users/alex/.opencode/bin")));
+        assert_eq!(dirs.len(), 9);
     }
 }
