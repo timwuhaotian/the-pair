@@ -52,6 +52,8 @@
   "chrome": {
     "title": "The Pair",
     "newTask": "新任务",
+    "newTaskHint": "为当前 Pair 分配新任务",
+    "newTaskDisabledBusy": "开始新任务前请先暂停或停止该 Pair",
     "newPair": "新建 Pair",
     "clearSession": "清空会话",
     "clearSessionHint": "清空当前 Pair 的对话记录",

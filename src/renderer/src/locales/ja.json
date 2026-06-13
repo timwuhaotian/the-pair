@@ -42,6 +42,8 @@
   "chrome": {
     "title": "The Pair",
     "newTask": "新しいタスク",
+    "newTaskHint": "このペアに新しいタスクを割り当てる",
+    "newTaskDisabledBusy": "新しいタスクを開始する前にペアを一時停止または停止してください",
     "newPair": "新しいペア",
     "clearSession": "セッションをクリア",
     "clearSessionHint": "このペアのチャット履歴をクリア",

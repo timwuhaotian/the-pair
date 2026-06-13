@@ -30,7 +30,13 @@ export function PairListSection({
   const workspaceGroups = buildWorkspaceGroups(pairs)
 
   const createButton = (
-    <GlassButton variant="primary" size="sm" icon={<Plus size={12} />} onClick={onCreatePair}>
+    <GlassButton
+      variant="primary"
+      size="sm"
+      icon={<Plus size={12} />}
+      onClick={onCreatePair}
+      data-testid="sidebar-new-pair"
+    >
       {t('quickActions.create')}
     </GlassButton>
   )

@@ -12,7 +12,7 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { isPairActive } from './lib/pairStatus'
+import { isPairActive, isPairBusy } from './lib/pairStatus'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -274,6 +274,14 @@ function App(): React.ReactNode {
     }
   }
 
+  // Open the "New Task" modal for the currently selected pair. Clears any
+  // restore state so the modal treats this as a fresh task, not a restore.
+  const handleNewTask = (): void => {
+    if (!selectedPair || isPairBusy(selectedPair.status)) return
+    setRestoringSpec(null)
+    setIsAssignTaskOpen(true)
+  }
+
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   const cmdKey = isMac ? 'meta' : 'ctrl'
 
@@ -299,8 +307,14 @@ function App(): React.ReactNode {
     {
       key: 'n',
       modifiers: [cmdKey],
-      handler: () => setIsCreatePairOpen(true),
-      description: 'New Pair'
+      handler: () => {
+        if (selectedPair) {
+          handleNewTask()
+        } else {
+          setIsCreatePairOpen(true)
+        }
+      },
+      description: selectedPair ? 'New Task' : 'New Pair'
     }
   ])
 
@@ -359,7 +373,7 @@ function App(): React.ReactNode {
           modelsLoading={modelsLoading}
           theme={theme}
           onToggleTheme={toggleTheme}
-          onNewPair={() => setIsCreatePairOpen(true)}
+          onNewTask={handleNewTask}
           onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
           onClearSession={selectedPair ? handleRequestClearSession : undefined}
           onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}

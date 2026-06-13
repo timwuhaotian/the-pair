@@ -1,6 +1,7 @@
 export const S = {
   TOOLBAR: '.app-chrome',
-  NEW_PAIR_BTN: '[data-testid="chrome-new-pair"]',
+  NEW_PAIR_BTN: '[data-testid="sidebar-new-pair"]',
+  NEW_TASK_BTN: '[data-testid="chrome-new-task"]',
   CLEAR_SESSION_BTN: '[data-testid="chrome-clear-session"]',
   MODELS_BTN: '[data-testid="chrome-models"]',
   BACK_BTN: '[data-testid="chrome-back"]',

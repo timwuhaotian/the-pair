@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ChevronLeft, Eraser, Moon, Plus, Settings2, Sun, Volume2, VolumeX } from 'lucide-react'
+import { ChevronLeft, Eraser, Moon, Settings2, Sparkles, Sun, Volume2, VolumeX } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { Pair } from '../store/usePairStore'
@@ -17,7 +17,7 @@ interface AppChromeProps {
   modelsLoading?: boolean
   theme: 'light' | 'dark'
   onToggleTheme: () => void
-  onNewPair: () => void
+  onNewTask: () => void
   onBack?: () => void
   onClearSession?: () => void
   onOpenSettings?: () => void
@@ -53,7 +53,7 @@ export function AppChrome({
   modelsLoading = false,
   theme,
   onToggleTheme,
-  onNewPair,
+  onNewTask,
   onBack,
   onClearSession,
   onOpenSettings
@@ -175,18 +175,19 @@ export function AppChrome({
               >
                 {t('chrome.clearSession')}
               </GlassButton>
+              <GlassButton
+                variant="primary"
+                size="sm"
+                onClick={onNewTask}
+                disabled={pairBusy}
+                title={pairBusy ? t('chrome.newTaskDisabledBusy') : t('chrome.newTaskHint')}
+                icon={<Sparkles size={11} />}
+                data-testid="chrome-new-task"
+              >
+                {t('chrome.newTask')}
+              </GlassButton>
             </>
           )}
-
-          <GlassButton
-            variant="secondary"
-            size="sm"
-            onClick={onNewPair}
-            icon={<Plus size={11} />}
-            data-testid="chrome-new-pair"
-          >
-            {t('chrome.newPair')}
-          </GlassButton>
 
           <ChromeIconButton
             onClick={toggleMute}

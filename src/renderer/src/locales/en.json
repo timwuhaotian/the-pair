@@ -52,6 +52,8 @@
   "chrome": {
     "title": "The Pair",
     "newTask": "New Task",
+    "newTaskHint": "Assign a new task to this pair",
+    "newTaskDisabledBusy": "Pause or stop the pair before starting a new task",
     "newPair": "New Pair",
     "clearSession": "Clear Session",
     "clearSessionHint": "Clear chat history for this pair",

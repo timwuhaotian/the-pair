@@ -42,6 +42,8 @@
   "chrome": {
     "title": "The Pair",
     "newTask": "새 작업",
+    "newTaskHint": "이 페어에 새 작업을 할당하세요",
+    "newTaskDisabledBusy": "새 작업을 시작하기 전에 페어를 일시 중지하거나 중지하세요",
     "newPair": "새 페어",
     "clearSession": "세션 지우기",
     "clearSessionHint": "이 페어의 채팅 기록 지우기",

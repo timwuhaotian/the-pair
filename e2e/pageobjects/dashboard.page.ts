@@ -6,6 +6,10 @@ export class DashboardPage extends BasePage {
     await this.click(S.NEW_PAIR_BTN)
   }
 
+  async clickNewTask(): Promise<void> {
+    await this.click(S.NEW_TASK_BTN)
+  }
+
   async clickClearSession(): Promise<void> {
     await this.click(S.CLEAR_SESSION_BTN)
   }
