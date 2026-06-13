@@ -20,11 +20,15 @@ export function IterationProgress({
 }: IterationProgressProps): React.ReactNode {
   const { t } = useTranslation()
   const effectiveMax = adaptiveBudget ?? max
-  const filled = Math.min(Math.round((current / Math.max(effectiveMax, 1)) * cells), cells)
+  // A budget of 0 means unlimited: no proportional bar, no limit warnings.
+  const isUnlimited = !effectiveMax || effectiveMax <= 0
+  const filled = isUnlimited
+    ? 0
+    : Math.min(Math.round((current / Math.max(effectiveMax, 1)) * cells), cells)
   const empty = cells - filled
-  const percentage = Math.min((current / Math.max(effectiveMax, 1)) * 100, 100)
-  const isNearLimit = percentage >= 80
-  const isAtLimit = current >= effectiveMax
+  const percentage = isUnlimited ? 0 : Math.min((current / Math.max(effectiveMax, 1)) * 100, 100)
+  const isNearLimit = !isUnlimited && percentage >= 80
+  const isAtLimit = !isUnlimited && current >= effectiveMax
 
   const stateClass = isAtLimit
     ? 'state-error'
@@ -43,17 +47,21 @@ export function IterationProgress({
           )}
         </span>
         <span className={cn('tabular-nums', stateClass)}>
-          {current}/{effectiveMax}
+          {current}/{isUnlimited ? '∞' : effectiveMax}
         </span>
       </div>
-      <div className={cn('flex items-baseline gap-0 tabular-nums', stateClass)}>
-        <span aria-hidden>[</span>
-        <span aria-hidden className="select-none">
-          {'█'.repeat(filled)}
-          <span className="text-muted-foreground/30">{'░'.repeat(empty)}</span>
-        </span>
-        <span aria-hidden>]</span>
-      </div>
+      {isUnlimited ? (
+        <div className="text-[10px] text-muted-foreground tabular-nums">[ ∞ unlimited ]</div>
+      ) : (
+        <div className={cn('flex items-baseline gap-0 tabular-nums', stateClass)}>
+          <span aria-hidden>[</span>
+          <span aria-hidden className="select-none">
+            {'█'.repeat(filled)}
+            <span className="text-muted-foreground/30">{'░'.repeat(empty)}</span>
+          </span>
+          <span aria-hidden>]</span>
+        </div>
+      )}
       {isAtLimit ? (
         <p className="text-[10px] state-error">{t('errors.iterationLimit')}</p>
       ) : isNearLimit ? (

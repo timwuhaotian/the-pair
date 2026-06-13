@@ -1394,7 +1394,7 @@ export const usePairStore = create<PairStore>((set) => ({
         createdAt: now,
         status: 'Idle',
         iterations: 0,
-        maxIterations: input.maxIterations ?? 20,
+        maxIterations: input.maxIterations ?? 0,
         cpuUsage: 0,
         memUsage: 0,
         spec: input.spec,

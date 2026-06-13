@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Square, Trash2, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
-import { cn } from '../lib/utils'
+import { cn, formatIterations } from '../lib/utils'
 import { usePairStore, type Message, type Pair } from '../store/usePairStore'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { MessageFilterBar } from './MessageFilterBar'
@@ -372,7 +372,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         )}
         <span className="text-muted-foreground-faint">·</span>
         <span className="tabular-nums">
-          iter {pair.iterations}/{pair.maxIterations}
+          iter {formatIterations(pair.iterations, pair.maxIterations)}
         </span>
         <div className="ml-auto flex items-center gap-3">
           {!viewingRunId && (

@@ -166,7 +166,7 @@ fn capture_command_output_with_timeout(
     }
 }
 
-fn which_binary(name: &str) -> Option<PathBuf> {
+pub fn which_binary(name: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PATH").and_then(|value| {
         std::env::split_paths(&value).find_map(|dir| resolve_binary_in_dir(&dir, name))
     }) {
@@ -981,6 +981,22 @@ impl ProviderRegistry {
     }
 
     pub fn detect_gemini() -> DetectedProviderProfile {
+        // Prefer Antigravity CLI (`agy`) — Google's successor to the Gemini CLI, which
+        // stops serving requests on 2026-06-18. Fall back to the legacy `gemini` binary.
+        if let Some(agy_bin) = which_binary("agy") {
+            let models = discover_antigravity_model_ids(&agy_bin);
+            let authenticated = !models.is_empty();
+            return DetectedProviderProfile {
+                kind: ProviderKind::Gemini,
+                installed: true,
+                authenticated,
+                runnable: authenticated,
+                subscription_label: "antigravity-backed".into(),
+                current_models: models,
+                detected_at: detected_at_now(),
+            };
+        }
+
         let installed = which_binary_exists("gemini");
 
         let homedir = homedir();
@@ -1011,6 +1027,49 @@ impl ProviderRegistry {
             detected_at: detected_at_now(),
         }
     }
+}
+
+/// Resolve which executable backs the "Gemini" provider. Prefers Antigravity CLI
+/// (`agy`, the successor to the sunsetting Gemini CLI) when installed, falling back
+/// to `gemini`. Returns `(executable_name, is_antigravity)`.
+pub fn resolve_gemini_executable() -> (String, bool) {
+    if which_binary("agy").is_some() {
+        return ("agy".to_string(), true);
+    }
+    ("gemini".to_string(), false)
+}
+
+/// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
+/// name per line (e.g. "Gemini 3.5 Flash (Low)") and those names double as the
+/// `--model` values. We surface only the Gemini-family models here: agy also offers
+/// Claude/GPT models, but those are owned by the native Claude/Codex providers and
+/// would misroute if inferred from the display name.
+fn discover_antigravity_model_ids(agy_bin: &Path) -> Vec<DetectedModelOption> {
+    // agy models may hit the network on first run; give it more headroom than the
+    // default 3s CLI probe.
+    let output = capture_command_output_with_timeout(
+        agy_bin,
+        &["models"],
+        &homedir(),
+        Duration::from_secs(8),
+    )
+    .unwrap_or_default();
+
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| line.to_ascii_lowercase().starts_with("gemini "))
+        .map(|name| DetectedModelOption {
+            model_id: name.to_string(),
+            display_name: name.to_string(),
+            source_provider: Some("google".to_string()),
+            family: Some("gemini".to_string()),
+            subscription_label: "antigravity-backed".to_string(),
+            supports_pair_execution: true,
+            runnable: true,
+        })
+        .collect()
 }
 
 #[cfg(test)]

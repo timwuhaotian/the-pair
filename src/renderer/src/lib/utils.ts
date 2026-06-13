@@ -14,6 +14,20 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+/**
+ * Format an iteration count against its budget. A `max` of 0 (or absent) means
+ * unlimited → renders as "∞" instead of a finite cap.
+ */
+export function formatIterations(current: number, max?: number): string {
+  if (!max || max <= 0) return `${current}/∞`
+  return `${current}/${max}`
+}
+
+/** True when the iteration budget is unlimited (0 or absent). */
+export function isUnlimitedIterations(max?: number): boolean {
+  return !max || max <= 0
+}
+
 export function stripSystemPrompt(content: string): string {
   let result = content
 

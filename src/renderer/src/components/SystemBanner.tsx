@@ -37,7 +37,7 @@ export function SystemBanner({
     return (
       <TerminalDivider
         className={cn('my-1', className)}
-        label={`iteration ${iteration}${maxIterations ? `/${maxIterations}` : ''}`}
+        label={`iteration ${iteration}/${maxIterations || '∞'}`}
       />
     )
   }

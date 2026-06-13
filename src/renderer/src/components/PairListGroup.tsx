@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { type Pair } from '../store/usePairStore'
 import { isPairActive } from '../lib/pairStatus'
 import { fadeInUp } from '../lib/animations'
-import { cn } from '../lib/utils'
+import { cn, formatIterations } from '../lib/utils'
 
 interface PairListGroupProps {
   title: string
@@ -99,7 +99,7 @@ export function PairListGroup({
               </span>
 
               <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground-faint">
-                {pair.iterations}/{pair.maxIterations}
+                {formatIterations(pair.iterations, pair.maxIterations)}
               </span>
 
               <span className="flex shrink-0 items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity">

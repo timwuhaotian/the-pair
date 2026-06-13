@@ -47,8 +47,12 @@ fn normalize_provider_label(slug: &str) -> String {
 
 fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option<Vec<String>> {
     match provider {
-        ProviderKind::Claude => Some(vec!["low".into(), "medium".into(), "high".into()]),
+        // Claude Code (2.1.x) and Gemini CLI (0.46.x) expose no CLI flag for
+        // reasoning/thinking effort, so the control is hidden to avoid offering a
+        // value that either crashes the turn (Claude) or is silently ignored (Gemini).
+        ProviderKind::Claude | ProviderKind::Gemini | ProviderKind::Opencode => None,
         ProviderKind::Codex => {
+            // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
             if model_id.starts_with("o3")
                 || model_id.starts_with("o4")
                 || model_id.starts_with("o1")
@@ -58,19 +62,6 @@ fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option
                 None
             }
         }
-        ProviderKind::Gemini => {
-            if model_id.contains("2.5") || model_id.contains("2.0-flash") {
-                Some(vec![
-                    "none".into(),
-                    "low".into(),
-                    "medium".into(),
-                    "high".into(),
-                ])
-            } else {
-                None
-            }
-        }
-        ProviderKind::Opencode => None,
     }
 }
 
@@ -238,6 +229,33 @@ mod tests {
             current_models,
             detected_at: 0,
         }
+    }
+
+    #[test]
+    fn reasoning_effort_levels_only_offered_for_codex_o_series() {
+        // Claude Code and Gemini CLI have no reasoning-effort CLI flag, so the control
+        // must be hidden (None) to avoid crashing the turn (Claude) or a silent no-op
+        // (Gemini). Opencode delegates to the underlying model. Only Codex o-series
+        // honors reasoning via `-c model_reasoning_effort=`.
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Claude, "claude-sonnet-4-6"),
+            None
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Gemini, "gemini-2.5-pro"),
+            None
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Opencode, "openai/gpt-4o"),
+            None
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Codex, "gpt-4o"),
+            None
+        );
+        let levels =
+            reasoning_effort_levels_for(ProviderKind::Codex, "o3").expect("o3 offers reasoning");
+        assert_eq!(levels, vec!["low", "medium", "high"]);
     }
 
     #[test]

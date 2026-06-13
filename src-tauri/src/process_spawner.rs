@@ -260,6 +260,14 @@ fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnToke
             let usage = event.get("usage")?;
             (usage, true)
         }
+        // stream-json emits per-message usage on `assistant` events (message.usage).
+        // This is the real live source — `content_block_delta`/`content_block_stop` are
+        // raw Anthropic SSE events that stream-json does not emit, so we keep them only
+        // as a fallback for older Claude Code versions that did.
+        "assistant" => {
+            let usage = event.get("message")?.get("usage")?;
+            (usage, false)
+        }
         "content_block_delta" | "content_block_stop" => {
             let usage = event.get("usage")?;
             (usage, false)
@@ -307,7 +315,12 @@ fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnToken
         .or_else(|| usage.get("input_tokens").and_then(|v| v.as_u64()));
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
+    // codex exec's terminal event is `turn.completed` (not "result"/"complete"/"done").
+    // Keep the legacy strings as fallback for older codex versions.
+    let is_final = matches!(
+        event_type,
+        "result" | "complete" | "done" | "turn.completed" | "completed"
+    );
 
     Some(TurnTokenUsage {
         output_tokens,
@@ -345,6 +358,14 @@ fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTo
 
                 if let Some(output) = output_tokens {
                     let input_val = input_tokens.and_then(|v| v.as_u64());
+                    // A step is final only when `reason == "stop"` (the model is done) or
+                    // when `reason` is absent. `reason == "tool-calls"` is an intermediate
+                    // step that continues into the next tool round → Live.
+                    let is_stop = part
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .map(|reason| reason == "stop")
+                        .unwrap_or(true);
                     return Some(TurnTokenUsage {
                         output_tokens: output,
                         input_tokens: input_val,
@@ -352,7 +373,11 @@ fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTo
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
                             .as_millis() as u64,
-                        source: TokenUsageSource::Final,
+                        source: if is_stop {
+                            TokenUsageSource::Final
+                        } else {
+                            TokenUsageSource::Live
+                        },
                         provider: Some("opencode".to_string()),
                     });
                 }
@@ -451,6 +476,50 @@ fn extract_claude_final_output(event: &serde_json::Value) -> Option<String> {
         .and_then(|value| value.as_str())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Detect a Claude Code `result` event that ended in error. The stream-json schema sets
+/// `subtype: "error"` and/or `is_error: true`, often with an `error` string and/or a
+/// `permission_denials[]` array. Without this, the (usually empty) `result.result` text
+/// leaks into the conversation as if the turn succeeded, and the pair never enters Error.
+fn claude_result_error_detail(event: &serde_json::Value) -> Option<String> {
+    if event.get("type").and_then(|v| v.as_str()) != Some("result") {
+        return None;
+    }
+
+    let is_error = event
+        .get("is_error")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+    if !is_error && subtype != "error" {
+        return None;
+    }
+
+    if let Some(err) = event
+        .get("error")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        return Some(err.trim().to_string());
+    }
+
+    if let Some(denials) = event
+        .get("permission_denials")
+        .and_then(|v| v.as_array())
+        .filter(|arr| !arr.is_empty())
+    {
+        let tools: Vec<String> = denials
+            .iter()
+            .filter_map(|d| d.get("tool_name").and_then(|t| t.as_str()).map(String::from))
+            .collect();
+        if !tools.is_empty() {
+            return Some(format!("Permission denied for tool(s): {}", tools.join(", ")));
+        }
+        return Some("Claude Code reported permission denials".to_string());
+    }
+
+    Some("Claude Code reported an error".to_string())
 }
 
 fn collect_claude_assistant_text_blocks(event: &serde_json::Value, out: &mut Vec<String>) {
@@ -1140,7 +1209,8 @@ impl ProcessSpawner {
                     } else if role_mock == "executor" {
                         if let Some(state) = broker.get_state(&pair_id_mock) {
                             let budget = state.max_iterations;
-                            if state.iteration >= budget {
+                            // budget == 0 means unlimited — never auto-pause.
+                            if budget > 0 && state.iteration >= budget {
                                 println!(
                                     "[ProcessSpawner] [MOCK] [{}] Max iterations reached ({})",
                                     pair_id_mock, budget
@@ -1278,6 +1348,9 @@ impl ProcessSpawner {
             let mut accumulated_plain_output = String::new();
             let mut json_candidates: Vec<String> = Vec::new();
             let mut last_token_usage: Option<TurnTokenUsage> = None;
+            // Captured when a provider emits a hard turn-level error (e.g. Claude Code
+            // `result` with is_error/subtype=error). Surfaced after the stream closes.
+            let mut provider_turn_error: Option<String> = None;
 
             // Step cycle detection to prevent infinite loops
             let mut step_cycle_count: u32 = 0;
@@ -1322,6 +1395,14 @@ impl ProcessSpawner {
                         &event,
                         &mut json_candidates,
                     );
+
+                    // Capture Claude Code error results so we can surface them after the
+                    // stream closes instead of treating the empty result text as success.
+                    if provider_kind_clone == ProviderKind::Claude {
+                        if let Some(detail) = claude_result_error_detail(&event) {
+                            provider_turn_error = Some(detail);
+                        }
+                    }
 
                     if let Some(usage) = extract_token_usage(provider_kind_clone, &event) {
                         last_token_usage = Some(usage.clone());
@@ -1615,6 +1696,18 @@ impl ProcessSpawner {
                 );
             }
 
+            // If the provider signaled a hard turn error (e.g. Claude Code permission
+            // denial / API error), make the message unambiguous so the error isn't
+            // mistaken for a normal result.
+            let provider_turn_error = provider_turn_error.take();
+            if let Some(detail) = provider_turn_error.as_ref() {
+                final_output = if no_text_output {
+                    format!("{} reported an error: {}", role_clone, detail)
+                } else {
+                    format!("{}\n\n[error] {}", final_output, detail)
+                };
+            }
+
             let state_before_completion =
                 if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                     let broker = broker_state.lock().unwrap();
@@ -1763,7 +1856,20 @@ impl ProcessSpawner {
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
 
-                if is_mentor_review_turn {
+                if let Some(detail) = provider_turn_error.as_ref() {
+                    // Provider reported a hard turn error (e.g. Claude Code permission
+                    // denial / API error). Surface it and stop — skip review/budget/handoff.
+                    println!(
+                        "[ProcessSpawner] [{}] {} reported turn error: {}",
+                        pair_id_clone, role_clone, detail
+                    );
+                    broker.set_pair_status(
+                        &pair_id_clone,
+                        crate::types::PairStatus::Error,
+                        Some(format!("{} error: {}", role_clone, detail)),
+                    );
+                    should_handoff = false;
+                } else if is_mentor_review_turn {
                     let smoke_needs_more = broker
                         .get_state(&pair_id_clone)
                         .map(|s| {
@@ -2028,7 +2134,8 @@ impl ProcessSpawner {
                 } else if role_clone == "executor" || role_clone == "mentor" {
                     if let Some(state) = broker.get_state(&pair_id_clone) {
                         let budget = state.max_iterations;
-                        if state.iteration >= budget {
+                        // budget == 0 means unlimited — never auto-pause on budget.
+                        if budget > 0 && state.iteration >= budget {
                             let pause_reason =
                                 crate::smart_pause::PauseReason::BudgetExhausted {
                                     iterations: state.iteration,
@@ -2396,6 +2503,112 @@ mod tests {
         assert_eq!(usage.output_tokens, 350);
         assert_eq!(usage.input_tokens, Some(200));
         assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn extract_token_usage_from_codex_marks_turn_completed_as_final() {
+        // codex exec's terminal event is `turn.completed` (with input_tokens/output_tokens,
+        // not prompt/completion_tokens). It must be classified Final — without this the
+        // UI token chip never flips from the live spinner.
+        let event = json!({
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 24763,
+                "cached_input_tokens": 24448,
+                "output_tokens": 122,
+                "reasoning_output_tokens": 0
+            }
+        });
+
+        let usage = extract_token_usage_from_codex(&event).expect("should parse turn.completed");
+        assert_eq!(usage.output_tokens, 122);
+        assert_eq!(usage.input_tokens, Some(24763));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn extract_token_usage_from_claude_reads_assistant_message_usage_as_live() {
+        // stream-json emits per-message usage on `assistant` events (message.usage).
+        // This is the real live token source; the prior content_block_delta path never
+        // fired because stream-json does not emit those raw SSE events.
+        let event = json!({
+            "type": "assistant",
+            "session_id": "session_01",
+            "message": {
+                "id": "msg_1",
+                "usage": { "input_tokens": 120, "output_tokens": 45 }
+            }
+        });
+
+        let usage =
+            extract_token_usage_from_claude(&event).expect("should parse assistant usage");
+        assert_eq!(usage.output_tokens, 45);
+        assert_eq!(usage.input_tokens, Some(120));
+        assert!(matches!(usage.source, TokenUsageSource::Live));
+    }
+
+    #[test]
+    fn claude_result_error_detail_detects_error_and_permission_denials() {
+        let is_error_result = json!({
+            "type": "result",
+            "subtype": "error",
+            "is_error": true,
+            "result": "",
+            "error": "Permission denied"
+        });
+        assert_eq!(
+            claude_result_error_detail(&is_error_result).as_deref(),
+            Some("Permission denied")
+        );
+
+        let denial_result = json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": true,
+            "permission_denials": [
+                { "tool_name": "Bash", "tool_use_id": "t1" }
+            ]
+        });
+        let detail = claude_result_error_detail(&denial_result).expect("should detect denials");
+        assert!(detail.contains("Bash"));
+
+        // Success results must not be flagged.
+        let success = json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "Done."
+        });
+        assert!(claude_result_error_detail(&success).is_none());
+    }
+
+    #[test]
+    fn opencode_step_finish_tokens_are_final_only_when_reason_is_stop() {
+        let final_step = json!({
+            "type": "step_finish",
+            "part": {
+                "type": "step-finish",
+                "reason": "stop",
+                "tokens": { "input": 671, "output": 8 }
+            }
+        });
+        let usage = extract_token_usage_from_opencode(&final_step)
+            .expect("should parse stop step-finish");
+        assert_eq!(usage.output_tokens, 8);
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+
+        let tool_step = json!({
+            "type": "step_finish",
+            "part": {
+                "type": "step-finish",
+                "reason": "tool-calls",
+                "tokens": { "input": 21772, "output": 110 }
+            }
+        });
+        let usage = extract_token_usage_from_opencode(&tool_step)
+            .expect("should parse tool-calls step-finish");
+        assert_eq!(usage.output_tokens, 110);
+        assert!(matches!(usage.source, TokenUsageSource::Live));
     }
 
     #[test]

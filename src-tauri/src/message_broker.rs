@@ -105,7 +105,9 @@ impl MessageBroker {
             directory,
             status: PairStatus::Idle,
             iteration: 0,
-            max_iterations: input.max_iterations.unwrap_or(20),
+            // 0 = unlimited. Pairs run until the mentor signals completion (or a human
+            // stops them); the iteration budget is no longer a default safety cap.
+            max_iterations: input.max_iterations.unwrap_or(0),
             turn: AgentRole::Mentor,
             mentor: AgentState {
                 status: PairStatus::Idle,
