@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-06-13
+
+### Added
+
+- **Antigravity CLI (`agy`) now backs the Gemini provider**, with automatic fallback to the legacy `gemini` CLI. The legacy Gemini CLI stops serving requests on 2026-06-18, so The Pair now prefers `agy` when installed (discovered via `agy models`), runs it with `--dangerously-skip-permissions` (no approval prompts), and only falls back to `gemini` when `agy` is absent. Antigravity model display names (e.g. "Gemini 3.5 Flash (Low)") are routed correctly alongside canonical lowercase ids.
+- **Unlimited iteration budget.** A `maxIterations` of `0` now means no cap: the progress bar shows `∞`, the "nearing limit" banner is suppressed, and a `0` budget never auto-pauses. Pairs that should run unbounded no longer hit a false limit.
+- **Context-aware "New Task" button in pair sessions.** The top-right chrome button was a duplicate "New Pair" that stayed a create action even inside a session. It now hides on the dashboard (the sidebar remains the single create entry) and, inside a session, becomes a prominent "New Task" button that opens the assign-task modal for the selected pair as a fresh task. It is disabled while the pair is busy to avoid losing in-flight work, and `Cmd/Ctrl+N` is context-aware too.
+
+### Changed
+
+- **Reasoning-effort control is now provider-aware.** Claude Code (2.1.x), the Gemini CLI, and `opencode` expose no CLI flag for reasoning/thinking effort — injecting one hard-crashes the Claude turn or is silently ignored — so the control is hidden for them. Codex configures reasoning via `-c model_reasoning_effort=` (the removed `--reasoning-effort` flag now errors out). Only Codex o-series models offer the control.
+- **Codex sandbox is now per-role.** The mentor runs read-only (the CLI default) while the executor gets workspace-write, so the executor can actually apply edits in the worktree instead of silently failing.
+
+### Fixed
+
+- **Claude Code error results no longer look like success.** A `result` event with `subtype: "error"` / `is_error: true` (including permission denials) now surfaces as a hard Error with its detail, instead of leaking the (usually empty) result text into the conversation and never entering Error.
+- **Codex token usage now flips live.** `turn.completed` (with `input_tokens`/`output_tokens`) is classified as the terminal/final usage event, so the UI token chip updates instead of staying on a spinner.
+
 ## [2.0.3] - 2026-06-05
 
 ### Fixed
