@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-06-14
+
+### Added
+
+- **Unified model picker that merges routes.** The same model reachable through more than one route — a native CLI _and_ OpenCode, or different plans/keys — now collapses into a single entry in the picker instead of appearing as near-duplicate rows. Selecting a multi-route model reveals a nested route sub-picker so you choose _how_ to run it (e.g. "Claude Code login" vs "OpenAI API key"), and the last route you used for each role is remembered. Merging is driven by a backend `canonicalKey` (`brand::normalized-model`, with provider prefixes and trailing date stamps stripped), so `claude-sonnet-4-5` and `claude-sonnet-4-5-20250929` collapse onto one entry while genuinely different versions (4-5 vs 4-6) stay apart. When there's no remembered route, plan-included native routes are preferred over pay-as-you-go OpenCode so you don't accidentally spend on an API key.
+- **Keyboard focus rings.** A crisp accent ring now appears for keyboard and assistive-tech navigation (`:focus-visible`) on buttons, links, and list rows that previously had no focus affordance; pointer clicks stay ring-free.
+- **Animated, accessible modals.** `GlassModal` and `ConfirmModal` now animate in (honoring `prefers-reduced-motion`) and expose proper `role="dialog"`, `aria-modal`, and `aria-label`.
+
+### Changed
+
+- **Reasoning effort is now inline and route-aware.** The effort control lives inside the model picker as a segmented selector sourced from the currently selected route, replacing the standalone picker. Antigravity bakes effort into the model name ("Gemini 3.5 Flash (Low/Medium/High)"), so those rows now collapse onto one model with the effort offered as a sub-control; Codex o-series still passes effort through as a runtime flag. Medium is the default when a route exposes the axis.
+- **Acceptance verdict and next action are now independent axes.** A mentor's `verdict` ("pass"/"fail") judges the executor's latest output, while `nextStep.action` ("continue"/"finish") tracks whether the whole task is done. Previously a "pass" was forced to pair with "finish", which derailed multi-step tasks — a correct intermediate step had to be mislabeled "fail" just to keep the loop running. A good step with work remaining is now legitimately "pass" + "continue" with the next instructions; "fail" + "finish" is still rejected (it would leave the loop with no actionable next turn). The mentor prompt explains the two axes, and the console now renders whatever structured verdict the mentor produced instead of falling back to raw JSON on a contract mismatch.
+- **OpenCode model list is de-noised.** OpenCode mirrors the entire models.dev catalog plus any provider you hold a key for; unauthenticated rows you can't actually run are now filtered out so they no longer bury the native providers. A model offered by both a native CLI and OpenCode is no longer dropped — both routes survive and merge into one picker entry (see above). Native CLIs still surface their unavailable rows so you can see _why_ an installed CLI isn't usable yet.
+
+### Removed
+
+- **Standalone `ReasoningEffortPicker` component.** Reasoning effort is now part of the model picker itself, sourced from the selected route.
+
 ## [2.1.0] - 2026-06-13
 
 ### Added
@@ -647,6 +665,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[2.2.0]: https://github.com/timwuhaotian/the-pair/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/timwuhaotian/the-pair/compare/v2.0.3...v2.1.0
+[2.0.3]: https://github.com/timwuhaotian/the-pair/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/timwuhaotian/the-pair/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/timwuhaotian/the-pair/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/timwuhaotian/the-pair/compare/v1.4.5...v2.0.0
 [1.4.5]: https://github.com/timwuhaotian/the-pair/compare/v1.4.4...v1.4.5
