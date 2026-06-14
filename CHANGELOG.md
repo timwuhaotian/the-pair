@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-06-14
+
+### Changed
+
+- **Conversation feed is now a single left-aligned column.** Mentor and executor turns previously sat on opposite sides as left/right chat bubbles; they now share one left-aligned column distinguished by a role-colored left accent border (mentor / executor / human). Long, mixed transcripts read more clearly and stay legible on narrow windows.
+- **Provider backend refactored into a `Provider` trait (internal).** Per-provider behavior — CLI args, token extraction, detection, and model metadata — for opencode, Codex, Claude Code, and Gemini moved out of `process_spawner`/`provider_adapter` into dedicated modules under `src-tauri/src/providers/`, with `provider_adapter` kept as a thin compatibility facade. No user-facing behavior change; adding a provider is now a self-contained module.
+
+### Fixed
+
+- **Updating a pair's model now sends the bare model ID the CLI expects.** The picker uses qualified IDs such as `claude/claude-haiku-4-5`; applying a model change to an existing pair now strips the `claude`/`codex`/`gemini` prefix before it reaches the backend (OpenCode `provider/model` IDs are left intact), preventing a mismatched or unrecognized ID on model swaps.
+- **Onboarding shows the current brand icon.** The first-run onboarding header displayed the retired icon; it now uses the current robots logo, matching the app icon and README.
+
+### Removed
+
+- Orphaned old-brand icon assets (`build/icon.*`, `resources/icon.png`, `resources/the-pair-icon-1.png`) and the unused `scripts/generate-ico.cjs` helper.
+
 ## [2.2.0] - 2026-06-14
 
 ### Added
