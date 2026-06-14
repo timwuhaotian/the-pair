@@ -109,22 +109,46 @@ test('isAcceptanceVerdictContent rejects ordinary mentor markdown', () => {
   )
 })
 
-test('parseAcceptanceVerdict rejects pass verdicts that request continuation', () => {
-  assert.throws(
-    () =>
-      parseAcceptanceVerdict(`{
-        "verdict": "pass",
-        "risk": "low",
-        "confidence": 0.95,
-        "issues": [],
-        "evidence": ["Only one chat round completed"],
-        "summary": "More rounds are required",
-        "nextStep": {
-          "action": "continue",
-          "instructions": ["Send round 2"]
-        }
-      }`),
-    /pass.*finish/i
+test('parseAcceptanceVerdict accepts pass verdicts that continue to the next step', () => {
+  // A correct step in a multi-step task: the latest output passes, but more work
+  // remains, so the mentor continues with the next instructions. Verdict and next
+  // action are independent axes, so this must parse instead of being rejected.
+  const verdict = parseAcceptanceVerdict(`{
+    "verdict": "pass",
+    "risk": "low",
+    "confidence": 0.95,
+    "issues": [],
+    "evidence": ["Only one chat round completed"],
+    "summary": "Round 1 accepted, continuing to round 2",
+    "nextStep": {
+      "action": "continue",
+      "instructions": ["Send round 2"]
+    }
+  }`)
+
+  assert.equal(verdict.verdict, 'pass')
+  assert.equal(verdict.nextStep.action, 'continue')
+  assert.deepEqual(verdict.nextStep.instructions, ['Send round 2'])
+})
+
+test('isAcceptanceVerdictContent renders a contradictory verdict instead of raw JSON', () => {
+  // `fail` + `finish` violates the verdict/action contract and the strict parser
+  // rejects it, but the display layer must still recognise it as a verdict so the
+  // UI shows a readable card rather than dumping raw JSON.
+  assert.equal(
+    isAcceptanceVerdictContent(`{
+      "verdict": "fail",
+      "risk": "low",
+      "confidence": 0.4,
+      "issues": ["Task incomplete"],
+      "evidence": ["Only one chat round completed"],
+      "summary": "More rounds are required",
+      "nextStep": {
+        "action": "finish",
+        "instructions": []
+      }
+    }`),
+    true
   )
 })
 

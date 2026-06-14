@@ -436,11 +436,14 @@ fn validate_acceptance_verdict(verdict: AcceptanceVerdict) -> Result<AcceptanceV
     {
         return Err("Acceptance verdict cannot include instructions when finishing".to_string());
     }
-    if matches!(verdict.verdict, AcceptanceVerdictDecision::Pass)
-        && !matches!(verdict.next_step.action, AcceptanceNextAction::Finish)
-    {
-        return Err("Acceptance pass verdict must use nextStep.action finish".to_string());
-    }
+    // `verdict` and `nextStep.action` are independent axes: `verdict` judges the
+    // executor's latest output, while `action` tracks whether the overall task is
+    // done. A correct step in a multi-step task is legitimately `pass` + `continue`
+    // (good work, more to do), so we do NOT force `pass` to pair with `finish`.
+    // `fail` + `finish` stays rejected: finishing on a failing step with no
+    // follow-up would stall the loop (`should_stop_iteration` needs `pass`, and the
+    // executor follow-up needs `continue`, leaving no actionable next turn), so we
+    // ask the mentor to restate instead.
     if matches!(verdict.verdict, AcceptanceVerdictDecision::Fail)
         && !matches!(verdict.next_step.action, AcceptanceNextAction::Continue)
     {
@@ -534,10 +537,12 @@ pub fn build_mentor_acceptance_prompt(
         "}".to_string(),
         "".to_string(),
         "Notes:".to_string(),
-        "- confidence ≥ 0.8 is required to finish.".to_string(),
+        "- `verdict` judges the executor's latest output: \"pass\" if it's correct, \"fail\" if it needs rework. `nextStep.action` is a separate axis that tracks whether the overall task is finished.".to_string(),
+        "- These two are independent. In a multi-step task, a correct step that still has follow-up work is \"verdict\": \"pass\" with \"action\": \"continue\" plus the next instructions. Avoid marking a good step \"fail\" just because later steps remain.".to_string(),
+        "- Use \"action\": \"finish\" only when the entire task is complete; confidence ≥ 0.8 is required to finish.".to_string(),
         "- If nextStep.action is \"continue\", include concrete instructions for what the executor should do next.".to_string(),
         "- If nextStep.action is \"finish\", instructions should be an empty array.".to_string(),
-        "- If you're finishing the workflow, add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.".to_string(),
+        "- When you finish the workflow (action \"finish\"), add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.".to_string(),
         "".to_string(),
         "TASK".to_string(),
         task_spec.trim().to_string(),
@@ -668,26 +673,35 @@ mod tests {
     }
 
     #[test]
-    fn parse_acceptance_verdict_rejects_pass_with_continue_action() {
-        let error = super::parse_acceptance_verdict(
+    fn parse_acceptance_verdict_accepts_pass_with_continue_action() {
+        // A correct step in a multi-step task: the latest output passes, but more
+        // work remains, so the mentor continues with the next instructions. Verdict
+        // and next action are independent axes, so this must parse cleanly.
+        let verdict = super::parse_acceptance_verdict(
             r#"{
                 "verdict": "pass",
                 "risk": "low",
                 "confidence": 0.95,
                 "issues": [],
                 "evidence": ["Only one of three chat rounds completed"],
-                "reasoning": "More chat rounds are required",
-                "summary": "Task is not complete yet",
+                "reasoning": "Round 1 was correct; more chat rounds are required",
+                "summary": "Round 1 accepted, continuing to round 2",
                 "nextStep": {
                     "action": "continue",
                     "instructions": ["Send round 2"]
                 }
             }"#,
         )
-        .expect_err("pass verdict cannot request continuation");
+        .expect("pass + continue should parse after decoupling verdict from action");
 
-        assert!(error.contains("pass"));
-        assert!(error.contains("finish"));
+        assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Pass);
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Continue);
+        assert_eq!(
+            verdict.next_step.instructions,
+            vec!["Send round 2".to_string()]
+        );
+        // It passed a step but isn't finishing, so the loop must keep going.
+        assert!(!super::should_stop_iteration(&verdict));
     }
 
     #[test]

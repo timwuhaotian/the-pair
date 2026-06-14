@@ -74,13 +74,15 @@ function isAction(value: unknown): value is AcceptanceVerdict['nextStep']['actio
   return value === 'continue' || value === 'finish'
 }
 
+// `verdict` and `nextStep.action` are independent: `verdict` judges the executor's
+// latest output, `action` tracks whether the overall task is done. A correct step in
+// a multi-step task is legitimately `pass` + `continue`, so we don't force `pass` to
+// pair with `finish`. `fail` + `finish` stays rejected — finishing on a failing step
+// with no follow-up leaves the loop with no actionable next turn.
 function validateVerdictAction(
   verdict: AcceptanceVerdict['verdict'],
   action: AcceptanceVerdict['nextStep']['action']
 ): void {
-  if (verdict === 'pass' && action !== 'finish') {
-    throw new Error('Acceptance pass verdict must use nextStep.action finish')
-  }
   if (verdict === 'fail' && action !== 'continue') {
     throw new Error('Acceptance fail verdict must use nextStep.action continue')
   }
@@ -239,7 +241,10 @@ function normalizeVerdictFallback(parsed: unknown): AcceptanceVerdict {
   if (!Array.isArray(instructions) || instructions.some((item) => !item)) {
     throw new Error('Acceptance verdict must include string `nextStep.instructions`')
   }
-  validateVerdictAction(verdict, action)
+  // Display fallback intentionally skips the verdict/action contract check: render
+  // whatever structured verdict the mentor produced — even a contradictory
+  // `fail` + `finish` — so the UI shows a readable card instead of dumping raw JSON.
+  // The backend handles any repair of malformed verdicts separately.
 
   return {
     verdict,
@@ -329,10 +334,12 @@ export function buildMentorAcceptancePrompt(input: {
     '}',
     '',
     'Notes:',
-    '- confidence ≥ 0.8 is required to finish.',
+    '- `verdict` judges the executor\'s latest output: "pass" if it\'s correct, "fail" if it needs rework. `nextStep.action` is a separate axis that tracks whether the overall task is finished.',
+    '- These two are independent. In a multi-step task, a correct step that still has follow-up work is "verdict": "pass" with "action": "continue" plus the next instructions. Avoid marking a good step "fail" just because later steps remain.',
+    '- Use "action": "finish" only when the entire task is complete; confidence ≥ 0.8 is required to finish.',
     '- If nextStep.action is "continue", include concrete instructions for what the executor should do next.',
     '- If nextStep.action is "finish", instructions should be an empty array.',
-    "- If you're finishing the workflow, add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.",
+    '- When you finish the workflow (action "finish"), add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.',
     '',
     'TASK',
     input.taskSpec.trim(),

@@ -74,11 +74,15 @@ fn mock_responses_for_scenario(role: &str, iteration: u32, scenario: &str) -> Ve
 }
 
 fn mock_dev_smoke_verdict(greeting: u32) -> String {
+    // Each greeting is correct on its own (verdict "pass"); the loop keeps going via
+    // action "continue" until the final greeting, which finishes. This mirrors a real
+    // multi-step review where a good intermediate step is pass + continue rather than
+    // a misleading "fail".
     let (verdict, action, instructions) = if greeting >= 3 {
         ("pass", "finish", Vec::<String>::new())
     } else {
         (
-            "fail",
+            "pass",
             "continue",
             vec![format!("Send Greeting {}/3", greeting + 1)],
         )
@@ -87,7 +91,7 @@ fn mock_dev_smoke_verdict(greeting: u32) -> String {
     let payload = serde_json::json!({
         "verdict": verdict,
         "risk": "low",
-        "confidence": if greeting >= 3 { 1.0 } else { 0.0 },
+        "confidence": if greeting >= 3 { 1.0 } else { 0.95 },
         "issues": [],
         "evidence": [format!("Executor sent Greeting {}/3", greeting)],
         "reasoning": format!("Greeting {}/3 received by deterministic mock provider.", greeting),
