@@ -201,6 +201,23 @@
     background: color-mix(in srgb, var(--role-mentor) 28%, transparent);
     color: inherit;
   }
+
+  /* Keyboard focus — crisp accent ring, terminal-grade. `:focus-visible` only
+     fires for keyboard / assistive-tech navigation, so pointer clicks stay
+     ring-free. Text inputs opt out via their own `focus:outline-none`
+     (utilities layer wins over this base rule) and brighten their border
+     instead; this rule therefore lands on the buttons, links, and list rows
+     that previously had zero focus affordance. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Belt-and-suspenders: suppress any UA focus ring on pointer focus so the
+     accent ring above is the single source of truth. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────

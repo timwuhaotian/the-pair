@@ -364,7 +364,7 @@ function App(): React.ReactNode {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
+    <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground grain-overlay">
       <div className="flex h-full flex-col">
         <AppChrome
           selectedPair={selectedPair}

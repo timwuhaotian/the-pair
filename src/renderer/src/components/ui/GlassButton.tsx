@@ -22,7 +22,7 @@ interface GlassButtonProps {
  */
 const variantMap: Record<NonNullable<GlassButtonProps['variant']>, string> = {
   primary:
-    'bg-primary text-primary-foreground border-primary font-semibold hover:bg-primary/85 hover:border-primary/85',
+    'bg-primary text-primary-foreground border-primary font-semibold hover:bg-primary/85 hover:border-primary/85 focus-visible:outline-[color:var(--foreground)]',
   secondary:
     'bg-transparent text-foreground border-border hover:bg-foreground/[0.06] hover:border-foreground/40',
   ghost:

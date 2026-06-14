@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { modalVariants, overlayVariants } from '../../lib/animations'
 
 interface GlassModalProps {
   isOpen: boolean
@@ -24,6 +26,7 @@ export function GlassModal({
   className
 }: GlassModalProps): React.ReactNode {
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
+  const reduceMotion = useReducedMotion()
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
@@ -37,12 +40,21 @@ export function GlassModal({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
+      <motion.div
+        variants={overlayVariants}
+        initial="hidden"
+        animate="visible"
         className="absolute inset-0 bg-background/80 cursor-pointer"
         onClick={onClose}
         aria-hidden
       />
-      <div
+      <motion.div
+        variants={reduceMotion ? overlayVariants : modalVariants}
+        initial="hidden"
+        animate="visible"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className={cn(
           'glass-modal relative w-full max-w-lg max-h-[90vh] flex flex-col font-mono',
           className
@@ -68,7 +80,7 @@ export function GlassModal({
           </div>
         )}
         <div className="p-5 overflow-y-auto flex-1 scrollbar-thin">{children}</div>
-      </div>
+      </motion.div>
     </div>,
     portalRoot
   )

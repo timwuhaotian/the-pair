@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { GlassButton } from './GlassButton'
+import { modalVariants, overlayVariants } from '../../lib/animations'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -26,6 +28,7 @@ export function ConfirmModal({
   onCancel
 }: ConfirmModalProps): React.ReactNode {
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
+  const reduceMotion = useReducedMotion()
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
@@ -41,8 +44,23 @@ export function ConfirmModal({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
-      <div className="absolute inset-0 bg-background/80 cursor-pointer" onClick={onCancel} />
-      <div className="glass-modal relative w-full max-w-md">
+      <motion.div
+        variants={overlayVariants}
+        initial="hidden"
+        animate="visible"
+        className="absolute inset-0 bg-background/80 cursor-pointer"
+        onClick={onCancel}
+        aria-hidden
+      />
+      <motion.div
+        variants={reduceMotion ? overlayVariants : modalVariants}
+        initial="hidden"
+        animate="visible"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="glass-modal relative w-full max-w-md"
+      >
         <div className="flex items-baseline justify-between border-b border-border px-4 py-2.5">
           <div className="flex items-baseline gap-2 min-w-0">
             <span aria-hidden className="text-foreground/70 select-none">
@@ -74,7 +92,7 @@ export function ConfirmModal({
             {confirmLabel}
           </GlassButton>
         </div>
-      </div>
+      </motion.div>
     </div>,
     portalRoot
   )
