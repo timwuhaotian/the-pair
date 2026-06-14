@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-06-14
+
+### Added
+
+- **Provider Sign In and Install guidance in onboarding.** When a CLI tool is installed but not authenticated — or not installed at all — the first-run onboarding screen now shows a per-provider card with a one-click **Sign In** button (opens a terminal running the provider's login command) or an **Install** button (opens the download page). The `Provider` trait gained `login_command()` and `install_url()` methods, each implemented for Claude Code, Codex, Gemini (agy / legacy aware), and OpenCode. A new `provider_launch_login` Tauri command opens the system terminal cross-platform (Terminal.app on macOS, gnome-terminal/konsole/xterm on Linux, cmd on Windows).
+- **Auth-missing hint in the model picker.** When a provider has models locked behind authentication, the picker now shows a compact "N more models available after signing in" row with an inline Sign In link, so users discover hidden models without leaving the picker.
+
 ## [2.2.1] - 2026-06-14
 
 ### Changed

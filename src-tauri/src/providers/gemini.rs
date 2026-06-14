@@ -115,6 +115,24 @@ impl Provider for GeminiProvider {
     fn access_label(&self, _source_provider_label: &str) -> String {
         "Google account".into()
     }
+
+    fn login_command(&self) -> Option<String> {
+        let (_, is_antigravity) = resolve_gemini_executable();
+        Some(if is_antigravity {
+            "agy auth".into()
+        } else {
+            "gemini auth login".into()
+        })
+    }
+
+    fn install_url(&self) -> Option<String> {
+        let (_, is_antigravity) = resolve_gemini_executable();
+        Some(if is_antigravity {
+            "https://github.com/google-gemini/antigravity".into()
+        } else {
+            "https://github.com/google-gemini/gemini-cli".into()
+        })
+    }
 }
 
 // ── Gemini-specific helpers ────────────────────────────────────────────────

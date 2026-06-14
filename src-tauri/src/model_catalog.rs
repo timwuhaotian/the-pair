@@ -278,6 +278,8 @@ mod tests {
             runnable,
             subscription_label: subscription_label.to_string(),
             current_models,
+            login_command: None,
+            install_url: None,
             detected_at: 0,
         }
     }

@@ -396,5 +396,18 @@
   },
   "quickActions": {
     "create": "New Pair"
+  },
+  "providers": {
+    "ready": "{{count}} models ready",
+    "ready_one": "{{count}} model ready",
+    "notSignedIn": "Not signed in",
+    "notInstalled": "Not installed",
+    "signIn": "Sign In",
+    "install": "Install",
+    "moreAfterSignIn_one": "{{count}} more model available after signing in",
+    "moreAfterSignIn_other": "{{count}} more models available after signing in",
+    "loginLaunched": "Terminal opened — complete login, then click Refresh",
+    "loginFailed": "Could not open terminal. Run this command manually:",
+    "copyCommand": "Copy"
   }
 }

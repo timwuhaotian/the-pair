@@ -377,5 +377,18 @@
     "Awaiting Human Review": "人手レビュー待ち",
     "Error": "エラー",
     "Finished": "完了"
+  },
+  "providers": {
+    "ready": "{{count}} 個のモデルが利用可能",
+    "ready_one": "{{count}} 個のモデルが利用可能",
+    "notSignedIn": "未サインイン",
+    "notInstalled": "未インストール",
+    "signIn": "サインイン",
+    "install": "インストール",
+    "moreAfterSignIn_one": "サインインであと {{count}} 個のモデルが利用可能",
+    "moreAfterSignIn_other": "サインインであと {{count}} 個のモデルが利用可能",
+    "loginLaunched": "ターミナルを開きました — ログイン完了後、更新をクリックしてください",
+    "loginFailed": "ターミナルを開けませんでした。手動で以下を実行してください：",
+    "copyCommand": "コピー"
   }
 }

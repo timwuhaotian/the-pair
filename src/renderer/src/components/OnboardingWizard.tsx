@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { usePairStore } from '../store/usePairStore'
 import { useThemeStore } from '../store/useThemeStore'
-import type { AvailableModel, PairPreset } from '../types'
+import type { AvailableModel, PairPreset, DetectedProviderProfile } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
@@ -24,10 +24,14 @@ import { PresetPicker } from './PresetPicker'
 import { getPreferredPairModelSelection } from '../lib/modelPreferences'
 import { derivePairNameFromDirectory } from '../lib/workspace'
 import { shouldUseCompactOnboardingLayout } from '../lib/onboardingLayout'
-import { buildProviderSetupSummary } from '../lib/providerSetup'
+import {
+  buildProviderSetupSummary,
+  buildProviderSetupHints
+} from '../lib/providerSetup'
+import type { ProviderSetupSummary } from '../lib/providerSetup'
+import type { ProviderSetupHint } from '../types'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { usePresets } from '../lib/usePresets'
-import type { ProviderSetupSummary } from '../lib/providerSetup'
 import appIcon from '../assets/app-icon.png'
 
 interface OnboardingWizardProps {
@@ -128,16 +132,88 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     () => buildProviderSetupSummary(availableModels),
     [availableModels]
   )
+  const [providerProfiles, setProviderProfiles] = useState<DetectedProviderProfile[]>([])
+
+  // Build per-provider hints. We use two data sources:
+  // 1. availableModels → model counts + ready/auth classification
+  // 2. providerProfiles → covers providers that are installed but have zero models
+  //    in the catalog (e.g. OpenCode filters out unavailable models entirely).
+  //    Also provides authoritative loginCommand/installUrl (important for Gemini
+  //    where it differs between agy and legacy).
+  const providerHints = useMemo<ProviderSetupHint[]>(() => {
+    const modelHints = buildProviderSetupHints(availableModels)
+    const seenKinds = new Set(modelHints.map((h) => h.kind))
+
+    // Add providers from profiles that have no models in the catalog
+    for (const profile of providerProfiles) {
+      if (seenKinds.has(profile.kind)) continue
+      // Only include if installed (don't show profiles for CLIs not even on the system)
+      if (!profile.installed) continue
+      seenKinds.add(profile.kind)
+      modelHints.push({
+        kind: profile.kind,
+        label:
+          profile.kind === 'claude'
+            ? 'Claude Code'
+            : profile.kind === 'codex'
+              ? 'Codex'
+              : profile.kind === 'gemini'
+                ? 'Gemini CLI'
+                : 'OpenCode',
+        installed: true,
+        authenticated: profile.authenticated,
+        readyModelCount: 0,
+        loginCommand: profile.loginCommand,
+        installUrl: profile.installUrl
+      })
+    }
+
+    // Overlay backend-provided loginCommand/installUrl for existing hints too
+    const merged = modelHints.map((hint) => {
+      const profile = providerProfiles.find((p) => p.kind === hint.kind)
+      return {
+        ...hint,
+        loginCommand: profile?.loginCommand ?? hint.loginCommand,
+        installUrl: profile?.installUrl ?? hint.installUrl
+      }
+    })
+
+    // Re-sort: ready first, then auth-missing, then cli-missing
+    return merged.sort((a, b) => {
+      const rank = (ready: number, installed: boolean): number => {
+        if (ready > 0) return 0
+        if (installed) return 1
+        return 2
+      }
+      return rank(a.readyModelCount, a.installed) - rank(b.readyModelCount, b.installed)
+    })
+  }, [availableModels, providerProfiles])
 
   useEffect(() => {
     if (availableModels.length > 0) {
       setIsCheckingProviders(false)
+      // Also fetch provider profiles (for login commands) if we haven't yet
+      if (providerProfiles.length === 0) {
+        void window.api?.config?.getProviders?.().then((data: unknown) => {
+          if (Array.isArray(data)) {
+            setProviderProfiles(data as DetectedProviderProfile[])
+          }
+        })
+      }
       return
     }
     let cancelled = false
     setIsCheckingProviders(true)
     void (async () => {
       await loadAvailableModels()
+      try {
+        const profiles = await window.api?.config?.getProviders?.()
+        if (!cancelled && Array.isArray(profiles)) {
+          setProviderProfiles(profiles as DetectedProviderProfile[])
+        }
+      } catch {
+        // non-critical — hints will use static fallbacks
+      }
       if (!cancelled) {
         setIsCheckingProviders(false)
       }
@@ -146,7 +222,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     return () => {
       cancelled = true
     }
-  }, [loadAvailableModels, availableModels.length])
+  }, [loadAvailableModels, availableModels.length, providerProfiles.length])
 
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '' && executorModel === '') {
@@ -186,6 +262,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     setIsCheckingProviders(true)
     try {
       await loadAvailableModels()
+      try {
+        const profiles = await window.api?.config?.getProviders?.()
+        if (Array.isArray(profiles)) {
+          setProviderProfiles(profiles as DetectedProviderProfile[])
+        }
+      } catch {
+        // non-critical
+      }
     } finally {
       setIsCheckingProviders(false)
     }
@@ -283,6 +367,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
           <div className="flex flex-col gap-3">
             <WelcomeCard
               summary={providerSummary}
+              hints={providerHints}
               loading={isCheckingProviders}
               onOpenConfig={handleOpenConfig}
               onRefresh={handleRefreshProviders}
@@ -346,18 +431,24 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
 function WelcomeCard({
   summary,
+  hints,
   loading,
   onOpenConfig,
   onRefresh,
   isOpening
 }: {
   summary: ProviderSetupSummary
+  hints: ProviderSetupHint[]
   loading: boolean
   onOpenConfig: () => void
   onRefresh: () => void
   isOpening: boolean
 }): React.ReactNode {
   const { t } = useTranslation()
+  const [loginStatus, setLoginStatus] = useState<
+    Record<string, 'launching' | 'launched' | 'failed'>
+  >({})
+
   const healthState = summary.isReady ? 'ready' : summary.readyModelCount > 0 ? 'partial' : 'none'
 
   const healthConfig = {
@@ -395,41 +486,138 @@ function WelcomeCard({
 
   const config = healthConfig[healthState]
 
+  const handleSignIn = async (hint: ProviderSetupHint): Promise<void> => {
+    if (!hint.loginCommand) return
+    setLoginStatus((prev) => ({ ...prev, [hint.kind]: 'launching' }))
+    try {
+      await window.api?.config?.launchLogin?.(hint.loginCommand)
+      setLoginStatus((prev) => ({ ...prev, [hint.kind]: 'launched' }))
+    } catch {
+      setLoginStatus((prev) => ({ ...prev, [hint.kind]: 'failed' }))
+    }
+  }
+
+  const handleInstall = (hint: ProviderSetupHint): void => {
+    if (hint.installUrl) {
+      window.open(hint.installUrl, '_blank')
+    }
+  }
+
   return (
-    <div className="flex items-baseline gap-3 border border-border bg-background/40 px-3 py-2 font-mono text-[12px]">
-      <span aria-hidden className={cn('w-[1ch] tabular-nums select-none', config.tone)}>
-        {config.glyph}
-      </span>
-      <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground shrink-0">
-        {t('onboarding.systemHealth')}
-      </span>
-      <span className="text-muted-foreground-faint shrink-0">·</span>
-      <div className="flex-1 min-w-0">
-        <span className={cn('font-bold', config.tone)}>{config.label}</span>
-        <span className="text-muted-foreground text-[11px]"> — {config.description}</span>
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <GlassButton
-          variant="ghost"
-          size="sm"
-          onClick={onRefresh}
-          disabled={loading || isOpening}
-          icon={<RefreshCw size={10} className={loading ? 'animate-spin' : ''} />}
-        >
-          {t('common.refresh')}
-        </GlassButton>
-        {!loading && (
+    <div className="border border-border bg-background/40 px-3 py-2 font-mono text-[12px]">
+      {/* Top row: summary line + action buttons */}
+      <div className="flex items-baseline gap-3">
+        <span aria-hidden className={cn('w-[1ch] tabular-nums select-none', config.tone)}>
+          {config.glyph}
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+          {t('onboarding.systemHealth')}
+        </span>
+        <span className="text-muted-foreground-faint shrink-0">·</span>
+        <div className="flex-1 min-w-0">
+          <span className={cn('font-bold', config.tone)}>{config.label}</span>
+          <span className="text-muted-foreground text-[11px]"> — {config.description}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
           <GlassButton
-            variant="secondary"
+            variant="ghost"
             size="sm"
-            onClick={onOpenConfig}
-            disabled={isOpening}
-            icon={<ExternalLink size={10} />}
+            onClick={onRefresh}
+            disabled={loading || isOpening}
+            icon={<RefreshCw size={10} className={loading ? 'animate-spin' : ''} />}
           >
-            {isOpening ? t('onboarding.opening') : t('onboarding.openConfig')}
+            {t('common.refresh')}
           </GlassButton>
-        )}
+          {!loading && (
+            <GlassButton
+              variant="secondary"
+              size="sm"
+              onClick={onOpenConfig}
+              disabled={isOpening}
+              icon={<ExternalLink size={10} />}
+            >
+              {isOpening ? t('onboarding.opening') : t('onboarding.openConfig')}
+            </GlassButton>
+          )}
+        </div>
       </div>
+
+      {/* Per-provider breakdown */}
+      {hints.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/50 pt-2">
+          {hints.map((hint) => {
+            const status = loginStatus[hint.kind]
+            const isReady = hint.readyModelCount > 0
+            const isAuthMissing = hint.installed && !hint.authenticated
+            const isCliMissing = !hint.installed
+            const isRuntimeUnsupported = hint.installed && hint.authenticated && !isReady
+            const tone = isReady
+              ? 'state-done'
+              : isAuthMissing
+                ? 'state-running'
+                : isRuntimeUnsupported
+                  ? 'state-running'
+                  : 'state-error'
+            const glyph = isReady ? '✓' : isAuthMissing || isRuntimeUnsupported ? '⚠' : '✗'
+
+            return (
+              <div key={hint.kind} className="flex items-center gap-1.5 text-[11px]">
+                <span aria-hidden className={cn('select-none', tone)}>
+                  {glyph}
+                </span>
+                <span className="text-foreground/80 font-medium">{hint.label}</span>
+                {isReady ? (
+                  <span className="text-muted-foreground">
+                    {hint.readyModelCount > 1
+                      ? t('providers.ready', { count: hint.readyModelCount })
+                      : t('providers.ready_one', { count: hint.readyModelCount })}
+                  </span>
+                ) : isAuthMissing ? (
+                  <>
+                    <span className="text-muted-foreground">{t('providers.notSignedIn')}</span>
+                    {hint.loginCommand && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSignIn(hint)}
+                        disabled={status === 'launching'}
+                        className="text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline disabled:opacity-50 cursor-pointer"
+                      >
+                        {t('providers.signIn')}
+                      </button>
+                    )}
+                  </>
+                ) : isCliMissing ? (
+                  <>
+                    <span className="text-muted-foreground">{t('providers.notInstalled')}</span>
+                    {hint.installUrl && (
+                      <button
+                        type="button"
+                        onClick={() => handleInstall(hint)}
+                        className="text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline cursor-pointer"
+                      >
+                        {t('providers.install')} ↗
+                      </button>
+                    )}
+                  </>
+                ) : null}
+                {status === 'launched' && !isReady && (
+                  <span className="text-[10px] text-muted-foreground italic">
+                    {t('providers.loginLaunched')}
+                  </span>
+                )}
+                {status === 'failed' && hint.loginCommand && (
+                  <span className="text-[10px] text-red-500 dark:text-red-400">
+                    {t('providers.loginFailed')}{' '}
+                    <code className="bg-foreground/[0.06] px-1 rounded select-all">
+                      {hint.loginCommand}
+                    </code>
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

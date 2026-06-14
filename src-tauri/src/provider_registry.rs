@@ -41,6 +41,8 @@ pub struct DetectedProviderProfile {
     pub runnable: bool,
     pub subscription_label: String,
     pub current_models: Vec<DetectedModelOption>,
+    pub login_command: Option<String>,
+    pub install_url: Option<String>,
     pub detected_at: u64,
 }
 
@@ -735,6 +737,8 @@ impl ProviderRegistry {
                     supports_pair_execution: true,
                     runnable: true,
                 }],
+                login_command: None,
+                install_url: None,
                 detected_at: detected_at_now(),
             },
             DetectedProviderProfile {
@@ -752,6 +756,8 @@ impl ProviderRegistry {
                     supports_pair_execution: true,
                     runnable: true,
                 }],
+                login_command: None,
+                install_url: None,
                 detected_at: detected_at_now(),
             },
         ]
@@ -876,6 +882,8 @@ impl ProviderRegistry {
             runnable: installed,
             subscription_label: "multi-provider".into(),
             current_models: models,
+            login_command: None,
+            install_url: None,
             detected_at: detected_at_now(),
         }
     }
@@ -906,6 +914,8 @@ impl ProviderRegistry {
             runnable: installed && (authenticated || config_path.exists()),
             subscription_label,
             current_models: models,
+            login_command: None,
+            install_url: None,
             detected_at: detected_at_now(),
         }
     }
@@ -964,6 +974,8 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label,
             current_models: claude_models,
+            login_command: None,
+            install_url: None,
             detected_at: detected_at_now(),
         }
     }
@@ -981,6 +993,8 @@ impl ProviderRegistry {
                 runnable: authenticated,
                 subscription_label: "antigravity-backed".into(),
                 current_models: models,
+                login_command: None,
+                install_url: None,
                 detected_at: detected_at_now(),
             };
         }
@@ -1012,6 +1026,8 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label: "subscription-backed".into(),
             current_models: models,
+            login_command: None,
+            install_url: None,
             detected_at: detected_at_now(),
         }
     }

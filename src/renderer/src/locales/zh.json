@@ -396,5 +396,18 @@
   },
   "quickActions": {
     "create": "新建 Pair"
+  },
+  "providers": {
+    "ready": "{{count}} 个模型可用",
+    "ready_one": "{{count}} 个模型可用",
+    "notSignedIn": "未登录",
+    "notInstalled": "未安装",
+    "signIn": "登录",
+    "install": "安装",
+    "moreAfterSignIn_one": "登录后还可使用 {{count}} 个模型",
+    "moreAfterSignIn_other": "登录后还可使用 {{count}} 个模型",
+    "loginLaunched": "终端已打开 — 完成登录后请点击刷新",
+    "loginFailed": "无法打开终端，请手动运行此命令：",
+    "copyCommand": "复制"
   }
 }

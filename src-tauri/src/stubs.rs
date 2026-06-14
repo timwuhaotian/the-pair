@@ -253,6 +253,71 @@ pub fn config_open_file() -> Result<(), String> {
     Ok(())
 }
 
+/// Launch a provider's login command in the system's native terminal.
+/// Fire-and-forget — the terminal stays open for the user to complete the login flow.
+#[tauri::command]
+pub fn provider_launch_login(login_command: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // AppleScript opens Terminal.app and runs the command.
+        let script = format!(
+            "tell application \"Terminal\" to do script \"{}\"",
+            login_command.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .spawn()
+            .map_err(|e| format!("Failed to open Terminal: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try common terminal emulators. We invoke `sh -c "<cmd>"` so multi-word
+        // commands (e.g. "claude login") work correctly. After the login command
+        // exits, we `exec sh` to keep the terminal window open for the user.
+        let shell_cmd = format!("{}; exec sh", login_command);
+        let launched = [
+            // gnome-terminal: `gnome-terminal -- sh -c '<cmd>; exec sh'`
+            ("gnome-terminal", &["--", "sh", "-c"][..]),
+            // konsole: `konsole -e sh -c '<cmd>; exec sh'`
+            ("konsole", &["-e", "sh", "-c"][..]),
+            // x-terminal-emulator (Debian/Ubuntu wrapper)
+            ("x-terminal-emulator", &["-e", "sh", "-c"][..]),
+            // xterm fallback
+            ("xterm", &["-e", "sh", "-c"][..]),
+        ]
+        .iter()
+        .any(|(term, prefix)| {
+            std::process::Command::new(term)
+                .args(*prefix)
+                .arg(&shell_cmd)
+                .spawn()
+                .is_ok()
+        });
+        if !launched {
+            return Err("Could not find a terminal emulator. Run this command manually:".into());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // `start ""` — the empty string is consumed as the window title,
+        // preventing `start` from misinterpreting quoted commands.
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg("cmd")
+            .arg("/k")
+            .arg(&login_command)
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

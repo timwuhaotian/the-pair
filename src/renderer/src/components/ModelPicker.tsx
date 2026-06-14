@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
-import type { AvailableModel } from '../types'
+import type { AvailableModel, ProviderKind } from '../types'
 import {
   getQualifiedModel,
   isSelectableForPairExecution,
@@ -166,6 +166,38 @@ export function ModelPicker({
     return canonicalModels.filter((model) => modelMatchesQuery(model, searchQuery))
   }, [canonicalModels, searchQuery])
 
+  // Models that are auth-missing (CLI installed but not signed in). We show a hint
+  // so the user knows there are more models available after authenticating.
+  const authMissingProviders = useMemo((): Array<{
+    kind: ProviderKind
+    label: string
+    loginCommand?: string
+    count: number
+  }> => {
+    const byProvider = new Map<ProviderKind, { label: string; count: number }>()
+    for (const model of models) {
+      if (model.availabilityStatus === 'auth-missing') {
+        const existing = byProvider.get(model.provider)
+        if (existing) {
+          existing.count++
+        } else {
+          byProvider.set(model.provider, { label: model.providerLabel, count: 1 })
+        }
+      }
+    }
+    const LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
+      claude: 'claude login',
+      codex: 'codex auth',
+      opencode: 'opencode auth login'
+    }
+    return Array.from(byProvider.entries()).map(([kind, info]) => ({
+      kind,
+      label: info.label,
+      loginCommand: LOGIN_COMMANDS[kind],
+      count: info.count
+    }))
+  }, [models])
+
   const applyLeaf = (
     qualifiedId: string,
     reasoningEffortValue: string | undefined,
@@ -177,6 +209,14 @@ export function ModelPicker({
     saveLastRouteKey(role, canonicalKey, routeKey)
     onChange(qualifiedId)
     onReasoningEffortChange?.(reasoningEffortValue)
+  }
+
+  const handleProviderSignIn = async (loginCommand: string): Promise<void> => {
+    try {
+      await window.api?.config?.launchLogin?.(loginCommand)
+    } catch {
+      // silent — the onboarding screen handles error display
+    }
   }
 
   const selectModel = (model: CanonicalModel): void => {
@@ -406,6 +446,43 @@ export function ModelPicker({
                   </div>
                 )}
               </div>
+
+              {/* Auth-missing provider hint */}
+              {!searchQuery.trim() && authMissingProviders.length > 0 && (
+                <div className="border-t border-border/50 p-2 space-y-1">
+                  {authMissingProviders.map((p) => (
+                    <div
+                      key={p.kind}
+                      className="flex items-center gap-2 px-1 py-0.5 text-[10px] text-muted-foreground font-mono"
+                    >
+                      <span aria-hidden className="state-running">
+                        ⚠
+                      </span>
+                      <span>
+                        {p.count === 1
+                          ? t('providers.moreAfterSignIn_one', {
+                              count: p.count,
+                              defaultValue: `${p.count} more model available after signing in`
+                            })
+                          : t('providers.moreAfterSignIn_other', {
+                              count: p.count,
+                              defaultValue: `${p.count} more models available after signing in`
+                            })}{' '}
+                        ({p.label})
+                      </span>
+                      {p.loginCommand && (
+                        <button
+                          type="button"
+                          onClick={() => void handleProviderSignIn(p.loginCommand!)}
+                          className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline cursor-pointer"
+                        >
+                          {t('providers.signIn')}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -195,6 +195,14 @@ impl Provider for ClaudeProvider {
     fn normalize_model_display_name(&self, display_name: &str) -> String {
         crate::provider_registry::beautify_claude_display_name(display_name)
     }
+
+    fn login_command(&self) -> Option<String> {
+        Some("claude login".into())
+    }
+
+    fn install_url(&self) -> Option<String> {
+        Some("https://claude.ai/download".into())
+    }
 }
 
 // ── Claude-specific helpers ────────────────────────────────────────────────

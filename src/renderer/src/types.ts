@@ -65,6 +65,28 @@ export type PairStatus =
   | 'Error'
   | 'Finished'
 
+export interface DetectedProviderProfile {
+  kind: ProviderKind
+  installed: boolean
+  authenticated: boolean
+  runnable: boolean
+  subscriptionLabel: string
+  currentModels: unknown[]
+  loginCommand?: string
+  installUrl?: string
+  detectedAt: number
+}
+
+export interface ProviderSetupHint {
+  kind: ProviderKind
+  label: string
+  installed: boolean
+  authenticated: boolean
+  readyModelCount: number
+  loginCommand?: string
+  installUrl?: string
+}
+
 export interface AvailableModel {
   provider: ProviderKind
   modelId: string

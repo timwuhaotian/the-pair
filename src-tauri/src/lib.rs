@@ -130,6 +130,7 @@ pub fn run() {
             stubs::config_get_providers,
             stubs::config_read,
             stubs::config_open_file,
+            stubs::provider_launch_login,
             file_cache::file_list_files,
             file_cache::file_parse_mentions,
             file_cache::file_read_content,

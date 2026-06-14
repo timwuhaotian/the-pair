@@ -142,6 +142,14 @@ impl Provider for OpenCodeProvider {
     fn should_filter_unavailable_models(&self) -> bool {
         true
     }
+
+    fn login_command(&self) -> Option<String> {
+        Some("opencode auth login".into())
+    }
+
+    fn install_url(&self) -> Option<String> {
+        Some("https://opencode.ai".into())
+    }
 }
 
 #[cfg(test)]

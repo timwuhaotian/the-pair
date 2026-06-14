@@ -38,6 +38,7 @@ interface Window {
       getProviders: () => Promise<unknown>
       read: () => Promise<unknown>
       openFile: () => Promise<unknown>
+      launchLogin: (loginCommand: string) => Promise<void>
       getVersion: () => Promise<string>
     }
     file: {

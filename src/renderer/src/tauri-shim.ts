@@ -49,6 +49,8 @@ const api = {
     getProviders: () => invoke('config_get_providers') as Promise<unknown>,
     read: () => invoke('config_read') as Promise<unknown>,
     openFile: () => invoke('config_open_file') as Promise<unknown>,
+    launchLogin: (loginCommand: string) =>
+      invoke('provider_launch_login', { loginCommand }) as Promise<void>,
     getVersion: () => Promise.resolve(__APP_VERSION__)
   },
   file: {

@@ -130,6 +130,14 @@ impl Provider for CodexProvider {
         "ChatGPT plan".into()
     }
 
+    fn login_command(&self) -> Option<String> {
+        Some("codex auth".into())
+    }
+
+    fn install_url(&self) -> Option<String> {
+        Some("https://github.com/openai/codex".into())
+    }
+
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
         if model_id.starts_with("o3") || model_id.starts_with("o4") || model_id.starts_with("o1")

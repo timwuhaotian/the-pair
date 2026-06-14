@@ -377,5 +377,18 @@
     "Awaiting Human Review": "사람 검토 대기 중",
     "Error": "오류",
     "Finished": "완료"
+  },
+  "providers": {
+    "ready": "{{count}}개 모델 사용 가능",
+    "ready_one": "{{count}}개 모델 사용 가능",
+    "notSignedIn": "로그인되지 않음",
+    "notInstalled": "설치되지 않음",
+    "signIn": "로그인",
+    "install": "설치",
+    "moreAfterSignIn_one": "로그인 후 {{count}}개 모델 추가 사용 가능",
+    "moreAfterSignIn_other": "로그인 후 {{count}}개 모델 추가 사용 가능",
+    "loginLaunched": "터미널이 열렸습니다 — 로그인 완료 후 새로고침을 클릭하세요",
+    "loginFailed": "터미널을 열 수 없습니다. 수동으로 다음 명령을 실행하세요:",
+    "copyCommand": "복사"
   }
 }

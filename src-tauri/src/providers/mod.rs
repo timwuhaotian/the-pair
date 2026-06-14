@@ -120,6 +120,20 @@ pub trait Provider: Send + Sync {
     fn normalize_model_display_name(&self, display_name: &str) -> String {
         display_name.to_string()
     }
+
+    // ── Provider Login / Install Guidance ─────────────────────────────────
+
+    /// The CLI login command for this provider (e.g. `"claude login"`).
+    /// Returns `None` if no simple login command exists.
+    fn login_command(&self) -> Option<String> {
+        None
+    }
+
+    /// A URL where the user can install this CLI tool.
+    /// Returns `None` if not applicable.
+    fn install_url(&self) -> Option<String> {
+        None
+    }
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────
@@ -143,14 +157,83 @@ pub fn provider_for_kind(kind: ProviderKind) -> Arc<dyn Provider> {
 }
 
 /// Detect all providers in parallel (one thread per provider).
+/// Enriches each profile with `login_command` and `install_url` from the
+/// Provider trait so the frontend can show actionable Sign In / Install buttons.
 pub fn detect_all() -> Vec<DetectedProviderProfile> {
     let providers = all_providers();
     let handles: Vec<_> = providers
         .into_iter()
-        .map(|p| std::thread::spawn(move || p.detect()))
+        .map(|p| {
+            let login_command = p.login_command();
+            let install_url = p.install_url();
+            std::thread::spawn(move || {
+                let mut profile = p.detect();
+                profile.login_command = login_command;
+                profile.install_url = install_url;
+                profile
+            })
+        })
         .collect();
     handles
         .into_iter()
         .map(|h| h.join().expect("provider detection should not panic"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claude_provider_returns_login_command_and_install_url() {
+        let provider = claude::ClaudeProvider;
+        assert_eq!(provider.login_command().as_deref(), Some("claude login"));
+        assert!(provider.install_url().is_some());
+        assert!(provider.install_url().unwrap().contains("claude"));
+    }
+
+    #[test]
+    fn codex_provider_returns_login_command_and_install_url() {
+        let provider = codex::CodexProvider;
+        assert_eq!(provider.login_command().as_deref(), Some("codex auth"));
+        assert!(provider.install_url().is_some());
+    }
+
+    #[test]
+    fn opencode_provider_returns_login_command_and_install_url() {
+        let provider = opencode::OpenCodeProvider;
+        assert_eq!(
+            provider.login_command().as_deref(),
+            Some("opencode auth login")
+        );
+        assert!(provider.install_url().is_some());
+    }
+
+    #[test]
+    fn gemini_provider_returns_login_command() {
+        let provider = gemini::GeminiProvider;
+        // Gemini login command depends on agy vs legacy, but should always be Some
+        let login = provider.login_command();
+        assert!(login.is_some(), "Gemini should always have a login command");
+        let cmd = login.unwrap();
+        assert!(
+            cmd.starts_with("agy") || cmd.starts_with("gemini"),
+            "Unexpected gemini login command: {}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn all_providers_have_login_or_install_info() {
+        for provider in all_providers() {
+            let kind = provider.kind();
+            let login = provider.login_command();
+            let install = provider.install_url();
+            assert!(
+                login.is_some() || install.is_some(),
+                "Provider {:?} should have at least login_command or install_url",
+                kind
+            );
+        }
+    }
 }
