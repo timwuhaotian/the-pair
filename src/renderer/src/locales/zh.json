@@ -211,6 +211,7 @@
     "selectModel": "选择模型",
     "searchModels": "搜索模型...",
     "noModels": "未找到模型",
+    "routes": "线路",
     "reasoningOff": "关闭",
     "reasoningFast": "快速",
     "reasoningBalanced": "平衡",

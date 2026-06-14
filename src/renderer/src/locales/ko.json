@@ -185,6 +185,7 @@
     "selectModel": "모델 선택",
     "searchModels": "모델 검색...",
     "noModels": "모델을 찾을 수 없습니다",
+    "routes": "경로",
     "reasoningOff": "끔",
     "reasoningFast": "빠름",
     "reasoningBalanced": "균형",

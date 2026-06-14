@@ -1,6 +1,5 @@
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +20,13 @@ pub struct AvailableModel {
     pub supports_pair_execution: bool,
     pub recommended_roles: Vec<String>,
     pub reasoning_effort_levels: Option<Vec<String>>,
+    /// Stable identity used to merge the same model across routes (providers/plans).
+    /// Two rows collapse onto one model picker entry iff this matches exactly.
+    pub canonical_key: String,
+    /// Display name with any baked-in effort suffix removed (e.g. "Gemini 3.5 Flash").
+    pub canonical_display_name: String,
+    /// Reasoning effort baked into this row's name by the provider (Antigravity), if any.
+    pub effort_tag: Option<String>,
 }
 
 /// Normalize a provider slug or family name into its canonical display label.
@@ -65,24 +71,82 @@ fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option
     }
 }
 
+/// Split a trailing reasoning-effort suffix (e.g. "Gemini 3.5 Flash (Low)") from a
+/// model name. Returns the base name plus the canonical effort tag when the suffix is a
+/// recognized effort word. Only a small fixed vocabulary is matched so unrelated
+/// parenthetical suffixes (e.g. "(Preview)") are left untouched — an under-merge bias.
+fn split_effort_suffix(name: &str) -> (String, Option<String>) {
+    let trimmed = name.trim();
+    if trimmed.ends_with(')') {
+        if let Some(open) = trimmed.rfind('(') {
+            let inside = trimmed[open + 1..trimmed.len() - 1].trim().to_lowercase();
+            let effort = match inside.as_str() {
+                "low" => Some("low"),
+                "medium" => Some("medium"),
+                "high" | "thinking" => Some("high"),
+                _ => None,
+            };
+            if let Some(effort) = effort {
+                let base = trimmed[..open].trim().to_string();
+                if !base.is_empty() {
+                    return (base, Some(effort.to_string()));
+                }
+            }
+        }
+    }
+    (trimmed.to_string(), None)
+}
+
+/// The brand a model belongs to, used as the high-order part of the canonical key.
+/// Native providers map to their fixed brand; OpenCode rides on the resolved source
+/// label so an OpenCode "openai/*" model keys to the same brand as native Codex.
+fn brand_for_key(kind: ProviderKind, source_provider_label: &str) -> String {
+    match kind {
+        ProviderKind::Codex => "openai".to_string(),
+        ProviderKind::Claude => "anthropic".to_string(),
+        ProviderKind::Gemini => "google".to_string(),
+        ProviderKind::Opencode => source_provider_label.to_lowercase(),
+    }
+}
+
+/// Normalize a model identity into a stable token string: drop the provider prefix,
+/// split on non-alphanumerics, and drop a trailing date stamp (>= 6 digits). This makes
+/// "anthropic/claude-sonnet-4-5" and "claude-sonnet-4-5-20250929" collapse, while keeping
+/// genuinely different versions (4-5 vs 4-6) apart.
+fn normalize_model_base(base_name: &str) -> String {
+    let without_prefix = base_name.rsplit('/').next().unwrap_or(base_name);
+    let lowered = without_prefix.to_lowercase();
+    let mut tokens: Vec<&str> = lowered
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    if let Some(last) = tokens.last() {
+        if last.len() >= 6 && last.chars().all(|c| c.is_ascii_digit()) {
+            tokens.pop();
+        }
+    }
+    tokens.join("-")
+}
+
+/// Build the canonical merge key: `brand::normalized-model`. Two routes collapse onto
+/// the same model row iff this key matches exactly.
+fn compute_canonical_key(
+    kind: ProviderKind,
+    source_provider_label: &str,
+    id_base: &str,
+) -> String {
+    format!(
+        "{}::{}",
+        brand_for_key(kind, source_provider_label),
+        normalize_model_base(id_base)
+    )
+}
+
 pub struct ModelCatalog;
 
 impl ModelCatalog {
     pub fn build_catalog(profiles: Vec<DetectedProviderProfile>) -> Vec<AvailableModel> {
         let mut catalog = Vec::new();
-        let native_source_labels: HashSet<String> = profiles
-            .iter()
-            .filter(|profile| {
-                !profile.current_models.is_empty()
-                    && !matches!(profile.kind, ProviderKind::Opencode)
-            })
-            .map(|profile| match profile.kind {
-                ProviderKind::Codex => "OpenAI".to_string(),
-                ProviderKind::Claude => "Anthropic".to_string(),
-                ProviderKind::Gemini => "Google".to_string(),
-                ProviderKind::Opencode => unreachable!(),
-            })
-            .collect();
 
         for profile in profiles {
             let provider_label = match profile.kind {
@@ -102,12 +166,6 @@ impl ModelCatalog {
                 } else {
                     "Configured Provider".to_string()
                 };
-
-                if matches!(profile.kind, ProviderKind::Opencode)
-                    && native_source_labels.contains(&source_provider_label)
-                {
-                    continue;
-                }
 
                 let (status, reason, available) = if !profile.installed {
                     (
@@ -134,6 +192,15 @@ impl ModelCatalog {
                     ("ready".to_string(), None, true)
                 };
 
+                // OpenCode mirrors the entire models.dev catalog plus any provider the
+                // user has a key for. The unauthenticated long tail would bury the native
+                // providers, so keep only OpenCode routes the user can actually run.
+                // Native providers still surface unavailable rows so the user sees *why*
+                // an installed CLI is not usable yet.
+                if matches!(profile.kind, ProviderKind::Opencode) && !available {
+                    continue;
+                }
+
                 let billing_kind = match profile.kind {
                     ProviderKind::Opencode => "byok",
                     _ => "plan",
@@ -150,6 +217,16 @@ impl ModelCatalog {
                     ProviderKind::Claude => "Claude Code login".into(),
                     ProviderKind::Gemini => "Google account".into(),
                 };
+
+                // Identity for cross-route merging. Antigravity bakes the reasoning effort
+                // into the model name ("Gemini 3.5 Flash (Low)"); strip it so every effort
+                // variant collapses onto one canonical model, and tag the effort so the UI
+                // can offer it as a sub-control.
+                let (id_base, effort_from_id) = split_effort_suffix(&model.model_id);
+                let (display_base, effort_from_display) = split_effort_suffix(&model.display_name);
+                let effort_tag = effort_from_display.or(effort_from_id);
+                let canonical_key =
+                    compute_canonical_key(profile.kind, &source_provider_label, &id_base);
 
                 let entry = AvailableModel {
                     provider: profile.kind,
@@ -171,6 +248,9 @@ impl ModelCatalog {
                         profile.kind,
                         &model.model_id,
                     ),
+                    canonical_key,
+                    canonical_display_name: display_base,
+                    effort_tag,
                 };
                 catalog.push(entry);
             }
@@ -290,20 +370,22 @@ mod tests {
     }
 
     #[test]
-    fn build_catalog_keeps_unavailable_models_visible_and_sorted_after_ready_models() {
+    fn build_catalog_keeps_unavailable_native_models_visible_and_sorted_after_ready_models() {
+        // Native providers keep their unavailable rows so the user sees *why* an installed
+        // CLI is not yet usable; only OpenCode's unauthenticated long tail is filtered out.
         let catalog = ModelCatalog::build_catalog(vec![
             profile(
-                ProviderKind::Opencode,
+                ProviderKind::Codex,
                 false,
                 true,
                 true,
-                "provider-backed",
+                "subscription-backed",
                 vec![model(
-                    "openai/gpt-4o-mini",
-                    "GPT-4o Mini",
+                    "gpt-5",
+                    "GPT-5",
                     Some("openai"),
                     None,
-                    "provider-backed",
+                    "subscription-backed",
                     true,
                     true,
                 )],
@@ -335,11 +417,14 @@ mod tests {
             .availability_reason
             .as_deref()
             .unwrap_or_default()
-            .contains("OpenCode CLI is not installed"));
+            .contains("Codex CLI is not installed"));
     }
 
     #[test]
-    fn build_catalog_prefers_native_provider_over_opencode_duplicate() {
+    fn build_catalog_keeps_both_routes_with_shared_canonical_key() {
+        // The same model reachable via a native CLI and via OpenCode is no longer dropped;
+        // both survive as separate routes sharing one canonical key, so the UI can merge
+        // them into a single model entry with a route sub-picker.
         let catalog = ModelCatalog::build_catalog(vec![
             profile(
                 ProviderKind::Opencode,
@@ -348,10 +433,10 @@ mod tests {
                 true,
                 "pay-as-you-go",
                 vec![model(
-                    "opencode/claude-sonnet-4-20250514",
+                    "anthropic/claude-sonnet-4-20250514",
                     "Claude Sonnet 4",
                     Some("anthropic"),
-                    Some("claude"),
+                    None,
                     "pay-as-you-go",
                     true,
                     true,
@@ -375,15 +460,104 @@ mod tests {
             ),
         ]);
 
+        assert_eq!(catalog.len(), 2, "both routes survive (no brand dedup)");
+        let claude = catalog
+            .iter()
+            .find(|m| m.provider == ProviderKind::Claude)
+            .expect("native Claude route present");
+        let opencode = catalog
+            .iter()
+            .find(|m| m.provider == ProviderKind::Opencode)
+            .expect("OpenCode route present");
         assert_eq!(
-            catalog.len(),
-            1,
-            "native Claude rows should replace OpenCode duplicates"
+            claude.canonical_key, opencode.canonical_key,
+            "same model via different routes shares one canonical key"
         );
-        assert_eq!(catalog[0].provider, ProviderKind::Claude);
-        assert_eq!(catalog[0].provider_label, "Claude Code");
-        assert_eq!(catalog[0].source_provider_label, "Anthropic");
-        assert_eq!(catalog[0].model_id, "claude-sonnet-4-20250514");
+        assert_eq!(claude.canonical_key, "anthropic::claude-sonnet-4");
+    }
+
+    #[test]
+    fn build_catalog_collapses_antigravity_effort_variants() {
+        // Antigravity bakes effort into the model name; the Gemini rows must share a
+        // canonical key and surface their effort as a tag with a clean display name.
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Gemini,
+            true,
+            true,
+            true,
+            "antigravity-backed",
+            vec![
+                model(
+                    "Gemini 3.5 Flash (Low)",
+                    "Gemini 3.5 Flash (Low)",
+                    Some("google"),
+                    Some("gemini"),
+                    "antigravity-backed",
+                    true,
+                    true,
+                ),
+                model(
+                    "Gemini 3.5 Flash (Medium)",
+                    "Gemini 3.5 Flash (Medium)",
+                    Some("google"),
+                    Some("gemini"),
+                    "antigravity-backed",
+                    true,
+                    true,
+                ),
+                model(
+                    "Gemini 3.5 Flash (High)",
+                    "Gemini 3.5 Flash (High)",
+                    Some("google"),
+                    Some("gemini"),
+                    "antigravity-backed",
+                    true,
+                    true,
+                ),
+            ],
+        )]);
+
+        assert_eq!(catalog.len(), 3);
+        let keys: std::collections::HashSet<&str> =
+            catalog.iter().map(|m| m.canonical_key.as_str()).collect();
+        assert_eq!(keys.len(), 1, "all effort variants share one canonical key");
+        assert_eq!(catalog[0].canonical_key, "google::gemini-3-5-flash");
+        for entry in &catalog {
+            assert_eq!(entry.canonical_display_name, "Gemini 3.5 Flash");
+        }
+        let mut efforts: Vec<&str> = catalog
+            .iter()
+            .filter_map(|m| m.effort_tag.as_deref())
+            .collect();
+        efforts.sort_unstable();
+        assert_eq!(efforts, vec!["high", "low", "medium"]);
+    }
+
+    #[test]
+    fn build_catalog_drops_unauthenticated_opencode_long_tail() {
+        // OpenCode mirrors all of models.dev; rows the user cannot run (provider not
+        // authenticated) are filtered out so they don't bury the native providers.
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Opencode,
+            true,
+            false,
+            true,
+            "multi-provider",
+            vec![model(
+                "deepseek/deepseek-chat",
+                "DeepSeek Chat",
+                Some("deepseek"),
+                None,
+                "multi-provider",
+                true,
+                true,
+            )],
+        )]);
+
+        assert!(
+            catalog.is_empty(),
+            "unauthenticated OpenCode models are filtered out"
+        );
     }
 
     #[test]

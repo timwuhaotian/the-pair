@@ -211,6 +211,7 @@
     "selectModel": "Select a model",
     "searchModels": "Search models...",
     "noModels": "No models found",
+    "routes": "routes",
     "reasoningOff": "Off",
     "reasoningFast": "Fast",
     "reasoningBalanced": "Balanced",

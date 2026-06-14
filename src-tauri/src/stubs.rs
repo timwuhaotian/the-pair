@@ -281,6 +281,9 @@ mod tests {
             supports_pair_execution: true,
             recommended_roles: vec!["mentor".to_string(), "executor".to_string()],
             reasoning_effort_levels: None,
+            canonical_key: format!("openai::{}", model_id),
+            canonical_display_name: model_id.to_string(),
+            effort_tag: None,
         }
     }
 

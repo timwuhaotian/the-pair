@@ -82,6 +82,12 @@ export interface AvailableModel {
   supportsPairExecution: boolean
   recommendedRoles: ('mentor' | 'executor')[]
   reasoningEffortLevels?: string[]
+  /** Stable identity used to merge the same model across routes (providers/plans). */
+  canonicalKey?: string
+  /** Display name with any baked-in effort suffix removed (e.g. "Gemini 3.5 Flash"). */
+  canonicalDisplayName?: string
+  /** Reasoning effort baked into this row's name by the provider (Antigravity), if any. */
+  effortTag?: string
 }
 
 export interface CreatePairInput {

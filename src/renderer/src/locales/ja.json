@@ -185,6 +185,7 @@
     "selectModel": "モデルを選択",
     "searchModels": "モデルを検索...",
     "noModels": "モデルが見つかりません",
+    "routes": "ルート",
     "reasoningOff": "オフ",
     "reasoningFast": "高速",
     "reasoningBalanced": "バランス",

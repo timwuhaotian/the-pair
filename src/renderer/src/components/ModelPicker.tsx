@@ -8,10 +8,25 @@ import {
   isSelectableForPairExecution,
   savePreferredModelId
 } from '../lib/modelPreferences'
-import { ReasoningEffortPicker } from './ReasoningEffortPicker'
+import {
+  buildCanonicalModels,
+  defaultLeafForRoute,
+  modelMatchesQuery,
+  pickDefaultRoute,
+  resolveSelection,
+  saveLastRouteKey,
+  type CanonicalModel,
+  type EffortOption,
+  type ModelRoute
+} from '../lib/modelCatalogGrouping'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
+const EFFORT_FALLBACK_LABELS: Record<string, string> = {
+  low: 'fast',
+  medium: 'balanced',
+  high: 'deep'
+}
 
 function getRecentModelIds(role: 'mentor' | 'executor'): string[] {
   try {
@@ -48,11 +63,7 @@ export interface ModelPickerProps {
   onReasoningEffortChange?: (value: string | undefined) => void
 }
 
-function roleClasses(role: 'mentor' | 'executor'): {
-  fg: string
-  border: string
-  bg: string
-} {
+function roleClasses(role: 'mentor' | 'executor'): { fg: string; border: string; bg: string } {
   if (role === 'mentor')
     return { fg: 'role-mentor', border: 'border-role-mentor', bg: 'bg-role-mentor' }
   return { fg: 'role-executor', border: 'border-role-executor', bg: 'bg-role-executor' }
@@ -87,8 +98,10 @@ function QuickPickRow({
       >
         {selected ? '●' : '○'}
       </span>
-      <span className="min-w-0 flex-1 truncate text-foreground/90">{model.displayName}</span>
-      <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[10ch]">
+      <span className="min-w-0 flex-1 truncate text-foreground/90">
+        {model.canonicalDisplayName?.trim() || model.displayName}
+      </span>
+      <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[12ch]">
         {model.providerLabel}
       </span>
     </button>
@@ -129,61 +142,92 @@ export function ModelPicker({
     if (isDropdownOpen && inputRef.current) inputRef.current.focus()
   }, [isDropdownOpen])
 
-  const readyModels = useMemo(
+  const selectableModels = useMemo(
     () => models.filter((model) => isSelectableForPairExecution(model)),
     [models]
   )
 
+  const canonicalModels = useMemo(() => buildCanonicalModels(selectableModels), [selectableModels])
+
+  const current = useMemo(
+    () => resolveSelection(canonicalModels, value, reasoningEffort),
+    [canonicalModels, value, reasoningEffort]
+  )
+
   const recentModels = useMemo(() => {
     return recentModelIds
-      .map((id) => readyModels.find((model) => getQualifiedModel(model) === id))
+      .map((id) => selectableModels.find((model) => getQualifiedModel(model) === id))
       .filter((model): model is AvailableModel => model !== undefined)
       .slice(0, MAX_RECENT_MODELS)
-  }, [recentModelIds, readyModels])
+  }, [recentModelIds, selectableModels])
 
-  const filteredDropdownModels = useMemo(() => {
-    const selectable = models.filter((m) => isSelectableForPairExecution(m))
-    if (!searchQuery.trim()) return selectable
-    const query = searchQuery.toLowerCase().replace(/[\s.-]/g, '')
-    const fuzzyMatch = (text: string, search: string): boolean => {
-      const normalized = text.toLowerCase().replace(/[\s.-]/g, '')
-      let searchIndex = 0
-      for (let i = 0; i < normalized.length && searchIndex < search.length; i++) {
-        if (normalized[i] === search[searchIndex]) searchIndex++
-      }
-      return searchIndex === search.length
-    }
-    return selectable.filter(
-      (model) =>
-        fuzzyMatch(model.displayName, query) ||
-        fuzzyMatch(model.providerLabel, query) ||
-        fuzzyMatch(model.modelId, query)
-    )
-  }, [models, searchQuery])
+  const filteredModels = useMemo(() => {
+    if (!searchQuery.trim()) return canonicalModels
+    return canonicalModels.filter((model) => modelMatchesQuery(model, searchQuery))
+  }, [canonicalModels, searchQuery])
 
-  const handleSelect = (model: AvailableModel): void => {
-    if (!isSelectableForPairExecution(model)) return
-    const modelId = getQualifiedModel(model)
-    saveRecentModelId(role, modelId)
-    savePreferredModelId(role, modelId)
-    onChange(modelId)
-    setIsDropdownOpen(false)
-    setSearchQuery('')
+  const applyLeaf = (
+    qualifiedId: string,
+    reasoningEffortValue: string | undefined,
+    canonicalKey: string,
+    routeKey: string
+  ): void => {
+    saveRecentModelId(role, qualifiedId)
+    savePreferredModelId(role, qualifiedId)
+    saveLastRouteKey(role, canonicalKey, routeKey)
+    onChange(qualifiedId)
+    onReasoningEffortChange?.(reasoningEffortValue)
+  }
 
-    const levels = model.reasoningEffortLevels
-    if (levels && levels.length > 0 && onReasoningEffortChange) {
-      const defaultLevel = levels.includes('medium') ? 'medium' : levels[0]
-      onReasoningEffortChange(defaultLevel)
-    } else if (onReasoningEffortChange) {
-      onReasoningEffortChange(undefined)
+  const selectModel = (model: CanonicalModel): void => {
+    const route = pickDefaultRoute(model, role)
+    if (!route) return
+    const leaf = defaultLeafForRoute(route)
+    applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
+    // Single-route models have nothing left to choose; multi-route models stay open so
+    // the route sub-picker can be refined.
+    if (model.routes.length <= 1) {
+      setIsDropdownOpen(false)
+      setSearchQuery('')
     }
   }
 
-  const selectedModel = useMemo(
-    () => models.find((model) => getQualifiedModel(model) === value),
-    [models, value]
-  )
-  const isRecentSelection = recentModels.some((model) => getQualifiedModel(model) === value)
+  const selectRoute = (model: CanonicalModel, route: ModelRoute): void => {
+    const leaf = defaultLeafForRoute(route)
+    applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
+    setIsDropdownOpen(false)
+    setSearchQuery('')
+  }
+
+  const selectEffort = (model: CanonicalModel, route: ModelRoute, option: EffortOption): void => {
+    applyLeaf(option.qualifiedId, option.reasoningEffort, model.canonicalKey, route.key)
+  }
+
+  const selectRecent = (model: AvailableModel): void => {
+    const qualifiedId = getQualifiedModel(model)
+    const sel = resolveSelection(canonicalModels, qualifiedId)
+    if (sel.model && sel.route) {
+      const leaf = sel.effort
+        ? { qualifiedId: sel.effort.qualifiedId, reasoningEffort: sel.effort.reasoningEffort }
+        : defaultLeafForRoute(sel.route)
+      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, sel.model.canonicalKey, sel.route.key)
+    } else {
+      applyLeaf(qualifiedId, undefined, model.canonicalKey ?? '', '')
+    }
+    setIsDropdownOpen(false)
+    setSearchQuery('')
+  }
+
+  const effortLabel = (level: string): string => {
+    const key = `pickers.reasoning${level.charAt(0).toUpperCase() + level.slice(1)}` as const
+    const translated = t(key)
+    return translated !== key
+      ? translated.toLowerCase()
+      : (EFFORT_FALLBACK_LABELS[level] ?? level.toLowerCase())
+  }
+
+  const activeRoute = current.route
+  const showEffort = Boolean(activeRoute && activeRoute.effortOptions.length > 0)
 
   const pickerContent = (
     <>
@@ -201,7 +245,7 @@ export function ModelPicker({
                 model={model}
                 selected={getQualifiedModel(model) === value}
                 role={role}
-                onSelect={handleSelect}
+                onSelect={selectRecent}
               />
             ))}
           </div>
@@ -216,20 +260,20 @@ export function ModelPicker({
             aria-expanded={isDropdownOpen}
             className={cn(
               'flex w-full items-center gap-2 border px-2 py-1.5 text-left rounded-sm transition-colors cursor-pointer font-mono text-[12px]',
-              selectedModel && !isRecentSelection
-                ? c.border
-                : 'border-border hover:border-foreground/40'
+              current.model ? c.border : 'border-border hover:border-foreground/40'
             )}
           >
-            {selectedModel && !isRecentSelection ? (
+            {current.model ? (
               <div className="flex min-w-0 flex-1 items-baseline gap-2">
                 <span aria-hidden className={c.fg}>
                   ●
                 </span>
-                <span className="truncate text-foreground/90">{selectedModel.displayName}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground-faint">
-                  · {selectedModel.providerLabel}
-                </span>
+                <span className="truncate text-foreground/90">{current.model.displayName}</span>
+                {current.route && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
+                    · {current.route.providerLabel}
+                  </span>
+                )}
               </div>
             ) : (
               <div className="flex min-w-0 flex-1 items-baseline gap-2 text-muted-foreground">
@@ -278,60 +322,85 @@ export function ModelPicker({
                 </div>
               </div>
               <div className="max-h-60 overflow-y-auto scrollbar-thin p-1">
-                {filteredDropdownModels.length === 0 ? (
+                {filteredModels.length === 0 ? (
                   <div className="py-3 text-center text-[11px] text-muted-foreground">
                     — {t('pickers.noModels')} —
                   </div>
                 ) : (
                   <div className="space-y-px">
-                    {filteredDropdownModels.map((model) => {
-                      const selected = getQualifiedModel(model) === value
-                      const showSourceProvider =
-                        model.sourceProviderLabel &&
-                        model.sourceProviderLabel !== model.providerLabel
+                    {filteredModels.map((model) => {
+                      const isActiveModel = model.canonicalKey === current.model?.canonicalKey
+                      const multiRoute = model.routes.length > 1
                       return (
-                        <button
-                          key={getQualifiedModel(model)}
-                          type="button"
-                          onClick={() => handleSelect(model)}
-                          title={`${model.displayName} · ${
-                            showSourceProvider ? `${model.sourceProviderLabel} → ` : ''
-                          }${model.providerLabel}${
-                            model.planLabel && model.planLabel !== 'BYOK'
-                              ? ` [${model.planLabel}]`
-                              : ''
-                          }`}
-                          className={cn(
-                            'flex w-full items-start gap-2 px-2 py-1 text-left rounded-sm transition-colors cursor-pointer font-mono text-[11px]',
-                            selected ? cn(c.bg, c.fg) : 'hover:bg-foreground/[0.05]'
-                          )}
-                        >
-                          <span
-                            aria-hidden
+                        <div key={model.canonicalKey}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isActiveModel && multiRoute) return
+                              selectModel(model)
+                            }}
+                            title={model.displayName}
                             className={cn(
-                              'shrink-0 leading-[1.4]',
-                              model.supportsPairExecution ? c.fg : 'state-running'
+                              'flex w-full items-center gap-2 px-2 py-1 text-left rounded-sm transition-colors cursor-pointer font-mono text-[11px]',
+                              isActiveModel ? cn(c.bg, c.fg) : 'hover:bg-foreground/[0.05]'
                             )}
                           >
-                            {model.supportsPairExecution ? (selected ? '●' : '○') : '!'}
-                          </span>
-                          <span className="min-w-0 flex-1 flex flex-col gap-0.5">
-                            <span className="truncate text-foreground/90">{model.displayName}</span>
-                            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground-faint">
-                              {showSourceProvider && (
-                                <span className="role-mentor truncate">
-                                  {model.sourceProviderLabel} →
-                                </span>
+                            <span
+                              aria-hidden
+                              className={cn(
+                                'shrink-0',
+                                isActiveModel ? c.fg : 'text-muted-foreground-faint'
                               )}
-                              <span className="truncate">{model.providerLabel}</span>
-                              {model.planLabel && model.planLabel !== 'BYOK' && (
-                                <span className="shrink-0 state-done text-[9px] uppercase">
-                                  [{model.planLabel}]
-                                </span>
-                              )}
+                            >
+                              {isActiveModel ? '●' : '○'}
                             </span>
-                          </span>
-                        </button>
+                            <span className="min-w-0 flex-1 truncate text-foreground/90">
+                              {model.displayName}
+                            </span>
+                            {multiRoute ? (
+                              <span className="shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground-faint">
+                                {model.routes.length} {t('pickers.routes')} ›
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[12ch]">
+                                {model.routes[0]?.providerLabel}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Nested route sub-picker for the active multi-route model */}
+                          {isActiveModel && multiRoute && (
+                            <div className="ml-3 mt-px mb-1 flex flex-col gap-px border-l border-border pl-2">
+                              {model.routes.map((route) => {
+                                const selectedRoute = route.key === current.route?.key
+                                return (
+                                  <button
+                                    key={route.key}
+                                    type="button"
+                                    onClick={() => selectRoute(model, route)}
+                                    title={route.accessLabel}
+                                    className={cn(
+                                      'flex w-full items-baseline gap-2 px-2 py-1 text-left rounded-sm transition-colors cursor-pointer font-mono text-[10px]',
+                                      selectedRoute
+                                        ? c.fg
+                                        : 'text-muted-foreground hover:bg-foreground/[0.05]'
+                                    )}
+                                  >
+                                    <span aria-hidden className="shrink-0">
+                                      {selectedRoute ? '●' : '○'}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-foreground/80">
+                                      {route.providerLabel}
+                                    </span>
+                                    <span className="shrink-0 text-[9px] text-muted-foreground-faint truncate max-w-[16ch]">
+                                      {route.accessLabel}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
                       )
                     })}
                   </div>
@@ -341,16 +410,43 @@ export function ModelPicker({
           )}
         </div>
 
-        {selectedModel?.reasoningEffortLevels &&
-          selectedModel.reasoningEffortLevels.length > 0 &&
-          onReasoningEffortChange && (
-            <ReasoningEffortPicker
-              levels={selectedModel.reasoningEffortLevels}
-              value={reasoningEffort}
-              onChange={onReasoningEffortChange}
-              role={role}
-            />
-          )}
+        {/* Reasoning effort — sourced from the selected route, hidden when it has none */}
+        {showEffort && activeRoute && current.model && (
+          <div className="space-y-1 font-mono">
+            <div className="flex items-baseline gap-2">
+              <span className={cn('text-[10px] uppercase tracking-[0.16em]', c.fg)}>
+                {t('pickers.reasoning')}
+              </span>
+              {current.effort && (
+                <span className={cn('text-[10px] uppercase tracking-[0.14em]', c.fg)}>
+                  · {effortLabel(current.effort.value)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-1 border border-border rounded-sm overflow-hidden">
+              {activeRoute.effortOptions.map((option) => {
+                const isActive = option.value === current.effort?.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() =>
+                      selectEffort(current.model as CanonicalModel, activeRoute, option)
+                    }
+                    className={cn(
+                      'flex-1 px-2 py-0.5 text-[11px] transition-colors cursor-pointer border-r border-border last:border-r-0',
+                      isActive
+                        ? cn(c.bg, c.fg, c.border)
+                        : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground'
+                    )}
+                  >
+                    {effortLabel(option.value)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
