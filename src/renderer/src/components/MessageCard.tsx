@@ -125,6 +125,7 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       state="done"
       timestamp={msg.startedAt ?? msg.timestamp}
       badges={typeTag}
+      accentBorder
       meta={
         <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {duration && <span className="tabular-nums">{duration}</span>}

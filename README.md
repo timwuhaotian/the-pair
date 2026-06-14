@@ -5,7 +5,7 @@
 
 # The Pair
 
-**Automated pair programming — grab a coffee while two AI agents cross-check each other's work, built by itself**
+**Automated AI pair programming — two AI agents cross-check each other's code, so you can grab a coffee and come back to reviewed, validated work. _(Yes, The Pair was built by The Pair.)_**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
@@ -20,9 +20,9 @@
 
 🌐 **English** • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md) &nbsp;|&nbsp; [![Share on X](https://img.shields.io/badge/Share-000000?logo=x&logoColor=white)](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair)
 
-**macOS** • **Windows** • **Linux**
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 Website**](https://apps.timwuhaotian.dev/)
 
-![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
+![The Pair desktop app — Mentor and Executor AI agents collaborating on a coding task in real time, with live conversation, tool calls, and git changes](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 _Watch Mentor and Executor agents collaborate in real-time_
 
@@ -30,7 +30,25 @@ _Watch Mentor and Executor agents collaborate in real-time_
 
 ---
 
+<details>
+<summary><b>Table of Contents</b></summary>
+
+- [Overview](#overview) — what The Pair is and why dual agents reduce AI hallucinations
+- [Why The Pair?](#why-the-pair) — comparison vs. Cursor, Copilot, and single-agent tools
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Installation](#installation) — macOS, Windows, Linux
+- [Quick Start](#quick-start) — install a provider CLI and create your first pair
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Development](#development)
+- [FAQ](#faq)
+
+</details>
+
 ## Overview
+
+**The Pair is a free, open-source desktop app that runs two AI coding agents — a read-only _Mentor_ that plans and reviews, and an _Executor_ that writes code and runs commands — which cross-check each other's work to catch AI hallucinations before they reach your codebase.** It runs locally on macOS, Windows, and Linux, and is model-agnostic: pair Claude Code, OpenAI Codex, Gemini CLI, and opencode in any combination (plus local models via Ollama).
 
 **Worried about AI code hallucinations?** The Pair solves this by running two AI agents that cross-check each other:
 
@@ -43,7 +61,7 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 >
 > **How is this different from single-agent tools?** — One model writing _and_ reviewing its own code can miss its own mistakes. The Pair's Mentor independently reviews everything the Executor produces.
 >
-> **Which models work?** — Any model from opencode, Claude Code, Codex, or Gemini CLI. Mix and match providers freely (e.g., Claude as Mentor + Codex as Executor).
+> **Which models work?** — Any model reachable through opencode, Claude Code, Codex, or Gemini CLI — including GPT, Claude, Gemini, GLM, Qwen, Kimi, MiniMax, and DeepSeek, plus local models via Ollama. Mix and match providers freely (e.g., Claude as Mentor + Codex as Executor).
 >
 > **Does it need internet?** — The app runs locally. Only model API calls need connectivity (or use Ollama for fully offline sessions).
 
@@ -357,6 +375,18 @@ the-pair/
 
 ## FAQ
 
+**Q: Is The Pair free and open source?**
+
+A: Yes. The Pair is fully open source under the Apache 2.0 license and free to download for macOS, Windows, and Linux. You only pay for your own AI provider usage — or run local models with [Ollama](https://ollama.com) for zero API cost.
+
+**Q: Is The Pair an alternative to Cursor, GitHub Copilot, or Aider?**
+
+A: Yes, with a different approach. Cursor, Copilot, and Aider drive a single agent. The Pair runs two independent agents — a Mentor (read-only reviewer) and an Executor (code writer) — that cross-check each other, so mistakes get caught by a second model instead of shipped. It's a local-first, open-source alternative, and it's model-agnostic: pair Claude Code, Codex, Gemini, or opencode in any combination.
+
+**Q: Which operating systems does The Pair support?**
+
+A: The Pair is a native desktop app for **macOS, Windows, and Linux**, built with Tauri 2 (Rust backend + React frontend).
+
 **Q: How does The Pair differ from single-agent AI coding tools?**
 
 A: Single-agent tools rely on one model to write and self-review code, which can miss its own mistakes. The Pair uses two separate agents where the Mentor reviews the Executor's work, catching errors before they land.
@@ -401,8 +431,12 @@ A: Yes. The Pair checks for new versions on launch and notifies you with a one-c
 
 <div align="center">
 
+[⬇ Download](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 Website](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 Discussions](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 Report a bug](https://github.com/timwuhaotian/the-pair/issues)
+
 Built with ❤️ by [timwuhaotian](https://github.com/timwuhaotian)
 
 **[⭐ Star this repo](https://github.com/timwuhaotian/the-pair)** if you find it helpful! &nbsp;|&nbsp; [📢 Share on X](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair) &nbsp;|&nbsp; [💬 Discuss](https://github.com/timwuhaotian/the-pair/discussions)
+
+<sub>The Pair — open-source AI pair programming · dual-agent AI code review · multi-agent coding assistant · Cursor &amp; Copilot alternative · works with Claude Code, Codex, Gemini, and opencode on macOS, Windows, and Linux.</sub>
 
 </div>

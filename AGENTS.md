@@ -34,22 +34,23 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Rust Backend Modules (`src-tauri/src/`)
 
-| Module              | Responsibility                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------- |
-| `pair_manager`      | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                       |
-| `message_broker`    | State machine for agent turn coordination and event routing                                           |
-| `process_spawner`   | Spawns opencode/claude/codex/gemini CLI processes, parses JSON event streams                          |
-| `provider_adapter`  | Abstracts provider differences (input/output transport, session/permission/cwd strategies)            |
-| `provider_registry` | Detects installed providers (opencode, codex, claude, gemini), reads their configs and model catalogs |
-| `model_catalog`     | Static model metadata (display names, billing kind, recommended roles)                                |
-| `session_snapshot`  | Persists and restores full pair state; supports session recovery after crash/restart                  |
-| `skill_discovery`   | Scans project dirs for `.md` skill files with YAML frontmatter                                        |
-| `resource_monitor`  | Per-agent CPU/memory polling (1s interval)                                                            |
-| `git_tracker`       | Detects modified/added/deleted files relative to a baseline commit                                    |
-| `file_cache`        | Lists files and parses `@mention` references in task specs                                            |
-| `path_env`          | Refreshes `$PATH` from login shell so CLI tools are discoverable                                      |
-| `config_paths`      | Resolves platform-specific config file locations                                                      |
-| `stubs`             | Placeholder Tauri commands not yet fully implemented                                                  |
+| Module              | Responsibility                                                                                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pair_manager`      | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                             |
+| `message_broker`    | State machine for agent turn coordination and event routing                                                                                                                 |
+| `process_spawner`   | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                 |
+| `provider_adapter`  | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                  |
+| `provider_registry` | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                |
+| `providers`         | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
+| `model_catalog`     | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                 |
+| `session_snapshot`  | Persists and restores full pair state; supports session recovery after crash/restart                                                                                        |
+| `skill_discovery`   | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                              |
+| `resource_monitor`  | Per-agent CPU/memory polling (1s interval)                                                                                                                                  |
+| `git_tracker`       | Detects modified/added/deleted files relative to a baseline commit                                                                                                          |
+| `file_cache`        | Lists files and parses `@mention` references in task specs                                                                                                                  |
+| `path_env`          | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                            |
+| `config_paths`      | Resolves platform-specific config file locations                                                                                                                            |
+| `stubs`             | Placeholder Tauri commands not yet fully implemented                                                                                                                        |
 
 ## Frontend Components (`src/renderer/src/components/`)
 
@@ -102,14 +103,24 @@ Snapshots are persisted to Tauri's app data directory. Each snapshot includes fu
 
 ## Provider Support
 
-Four provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Gemini CLI). Each has its own `InputTransport`, `OutputTransport`, `SessionStrategy`, `PermissionStrategy`, and `CwdStrategy` configured in `provider_adapter.rs`.
+Four provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Gemini CLI). Each is implemented as a `Provider` trait in its own module under `src-tauri/src/providers/`.
+
+### Adding a New Provider
+
+1. Create `src-tauri/src/providers/new_provider.rs` implementing the `Provider` trait
+2. Add `pub mod new_provider;` to `src-tauri/src/providers/mod.rs`
+3. Add `Arc::new(new_provider::NewProvider)` to `all_providers()` in `mod.rs`
+4. Add the variant to `ProviderKind` in `provider_registry.rs`
+5. Add the variant to the TypeScript `ProviderKind` union in `src/renderer/src/types.ts`
+6. Update `inferProviderFromModel()` in `providerResolution.ts` (frontend)
+7. Update `PROVIDER_PRIORITY` in `modelCatalogGrouping.ts` (frontend)
 
 ## Adding Features
 
 - **UI Components:** Keep components modular in `src/renderer/src/components/`. Reusable primitives go in `components/ui/`.
 - **State:** Use `usePairStore` for pair-related global state. Add new stores in `src/renderer/src/store/` only if the concern is orthogonal.
 - **Tauri Commands:** Add new commands to the appropriate Rust module and register them in `lib.rs`'s `invoke_handler`.
-- **Models:** Update `model_catalog.rs` when adding new model entries; update `provider_registry.rs` for new provider detection logic.
+- **Models:** Update `model_catalog.rs` when adding new model entries; implement the `Provider` trait in `providers/` for new CLI tools.
 
 ## Release Process (Automated)
 

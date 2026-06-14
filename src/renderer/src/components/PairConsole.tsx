@@ -117,20 +117,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         lastIteration = iter
       }
 
-      const isMentor = msg.from === 'mentor'
-      const isExecutor = msg.from === 'executor'
       const isHuman = msg.from === 'human'
       // Mission spec (the launching task at iteration 0) reads as a brief — let it span the full column.
       const isMission = isHuman && !(msg.type === 'feedback' && msg.iteration > 0)
 
-      const maxWidthClass = isMission ? 'w-full' : isHuman ? 'max-w-[85%]' : 'max-w-[80%]'
-      const alignClass = isMission
-        ? 'justify-stretch'
-        : isMentor
-          ? 'justify-start'
-          : isExecutor
-            ? 'justify-end'
-            : 'justify-center'
+      const maxWidthClass = isMission ? 'w-full' : 'max-w-[80%]'
+      const alignClass = isMission ? 'justify-stretch' : 'justify-start'
 
       const droppedBefore = dropCountByMessageId.get(msg.id) ?? 0
       if (droppedBefore > 0) {
@@ -471,6 +463,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                           ? t('common.mentor')
                           : t('common.executor')
                         ).toUpperCase()}
+                        accentBorder
                         meta={
                           <span className="text-muted-foreground normal-case tracking-normal">
                             {pair.turn === 'mentor'

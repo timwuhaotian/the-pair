@@ -24,6 +24,8 @@ interface TerminalBlockProps {
   className?: string
   /** No-animation render (useful inside virtualized lists). */
   flat?: boolean
+  /** Show a left accent border in the role's color. */
+  accentBorder?: boolean
 }
 
 function formatClock(ts: number): string {
@@ -54,6 +56,13 @@ const STATE_TEXT_CLASS: Record<TerminalState, string> = {
   pending: 'text-muted-foreground-faint'
 }
 
+const ROLE_BORDER_CLASS: Record<TerminalRole, string> = {
+  mentor: 'border-l-role-mentor',
+  executor: 'border-l-role-executor',
+  human: 'border-l-role-human',
+  system: 'border-l-border'
+}
+
 export function TerminalBlock({
   role,
   state = 'done',
@@ -65,7 +74,8 @@ export function TerminalBlock({
   children,
   caret = false,
   className,
-  flat = false
+  flat = false,
+  accentBorder = false
 }: TerminalBlockProps): React.ReactNode {
   const Wrap = flat ? 'div' : motion.div
   const wrapProps = flat
@@ -83,7 +93,15 @@ export function TerminalBlock({
   const labelText = label ?? role.toUpperCase()
 
   return (
-    <Wrap {...wrapProps} className={cn('font-mono text-[12px] leading-relaxed', className)}>
+    <Wrap
+      {...wrapProps}
+      className={cn(
+        'font-mono text-[12px] leading-relaxed',
+        accentBorder && 'border-l-4 pl-3',
+        accentBorder && ROLE_BORDER_CLASS[role],
+        className
+      )}
+    >
       {/* PREFIX LINE */}
       <div className="flex items-baseline gap-2 whitespace-nowrap">
         {state === 'running' ? (

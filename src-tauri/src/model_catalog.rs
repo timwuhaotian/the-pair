@@ -52,23 +52,7 @@ fn normalize_provider_label(slug: &str) -> String {
 }
 
 fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option<Vec<String>> {
-    match provider {
-        // Claude Code (2.1.x) and Gemini CLI (0.46.x) expose no CLI flag for
-        // reasoning/thinking effort, so the control is hidden to avoid offering a
-        // value that either crashes the turn (Claude) or is silently ignored (Gemini).
-        ProviderKind::Claude | ProviderKind::Gemini | ProviderKind::Opencode => None,
-        ProviderKind::Codex => {
-            // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
-            if model_id.starts_with("o3")
-                || model_id.starts_with("o4")
-                || model_id.starts_with("o1")
-            {
-                Some(vec!["low".into(), "medium".into(), "high".into()])
-            } else {
-                None
-            }
-        }
-    }
+    crate::providers::provider_for_kind(provider).reasoning_effort_levels(model_id)
 }
 
 /// Split a trailing reasoning-effort suffix (e.g. "Gemini 3.5 Flash (Low)") from a
@@ -101,11 +85,14 @@ fn split_effort_suffix(name: &str) -> (String, Option<String>) {
 /// Native providers map to their fixed brand; OpenCode rides on the resolved source
 /// label so an OpenCode "openai/*" model keys to the same brand as native Codex.
 fn brand_for_key(kind: ProviderKind, source_provider_label: &str) -> String {
-    match kind {
-        ProviderKind::Codex => "openai".to_string(),
-        ProviderKind::Claude => "anthropic".to_string(),
-        ProviderKind::Gemini => "google".to_string(),
-        ProviderKind::Opencode => source_provider_label.to_lowercase(),
+    let provider = crate::providers::provider_for_kind(kind);
+    let brand = provider.brand();
+    if brand == "opencode" {
+        // OpenCode rides on the resolved source label so an OpenCode "openai/*"
+        // model keys to the same brand as native Codex.
+        source_provider_label.to_lowercase()
+    } else {
+        brand.to_string()
     }
 }
 
@@ -149,12 +136,8 @@ impl ModelCatalog {
         let mut catalog = Vec::new();
 
         for profile in profiles {
-            let provider_label = match profile.kind {
-                ProviderKind::Opencode => "OpenCode",
-                ProviderKind::Codex => "Codex",
-                ProviderKind::Claude => "Claude Code",
-                ProviderKind::Gemini => "Gemini CLI",
-            };
+            let provider = crate::providers::provider_for_kind(profile.kind);
+            let provider_label = provider.provider_label();
 
             for model in profile.current_models {
                 // Use family field for display if available (for OpenCode models),
@@ -195,28 +178,13 @@ impl ModelCatalog {
                 // OpenCode mirrors the entire models.dev catalog plus any provider the
                 // user has a key for. The unauthenticated long tail would bury the native
                 // providers, so keep only OpenCode routes the user can actually run.
-                // Native providers still surface unavailable rows so the user sees *why*
-                // an installed CLI is not usable yet.
-                if matches!(profile.kind, ProviderKind::Opencode) && !available {
+                if provider.should_filter_unavailable_models() && !available {
                     continue;
                 }
 
-                let billing_kind = match profile.kind {
-                    ProviderKind::Opencode => "byok",
-                    _ => "plan",
-                };
-
-                let billing_label = match profile.kind {
-                    ProviderKind::Opencode => "Pay as you go",
-                    _ => "Included with plan",
-                };
-
-                let access_label = match profile.kind {
-                    ProviderKind::Opencode => format!("{} API key", source_provider_label),
-                    ProviderKind::Codex => "ChatGPT plan".into(),
-                    ProviderKind::Claude => "Claude Code login".into(),
-                    ProviderKind::Gemini => "Google account".into(),
-                };
+                let billing_kind = provider.billing_kind();
+                let billing_label = provider.billing_label();
+                let access_label = provider.access_label(&source_provider_label);
 
                 // Identity for cross-route merging. Antigravity bakes the reasoning effort
                 // into the model name ("Gemini 3.5 Flash (Low)"); strip it so every effort
@@ -228,10 +196,13 @@ impl ModelCatalog {
                 let canonical_key =
                     compute_canonical_key(profile.kind, &source_provider_label, &id_base);
 
+                // Normalize display name (e.g. Claude beautifier).
+                let normalized_display = provider.normalize_model_display_name(&model.display_name);
+
                 let entry = AvailableModel {
                     provider: profile.kind,
                     model_id: model.model_id.clone(),
-                    display_name: model.display_name,
+                    display_name: normalized_display,
                     available,
                     provider_label: provider_label.to_string(),
                     source_provider: model.source_provider,

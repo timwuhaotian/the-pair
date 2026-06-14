@@ -85,6 +85,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
       state={state}
       timestamp={card.startedAt}
       badges={badges}
+      accentBorder
       meta={
         <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {metaParts.length > 0 && <span>{metaParts.join(' · ')}</span>}

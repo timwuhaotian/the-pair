@@ -376,6 +376,72 @@ test('transactional: no backend mutation when no overrides (safe on failure)', (
   // No rollback needed because we never mutated backend state
 })
 
+test('payload: buildUpdateModelsPayload strips provider prefix from qualified IDs', () => {
+  const pair: PairLike = {
+    mentorModel: 'default-mentor',
+    executorModel: 'default-executor'
+  }
+
+  // Simulates the bug path: frontend sends qualified IDs like "claude/claude-haiku-4-5-20251001"
+  const effective = {
+    mentorModel: 'claude/claude-haiku-4-5-20251001',
+    executorModel: 'codex/o3-mini'
+  }
+  const payload = buildUpdateModelsPayload(pair, effective)
+
+  assert.equal(
+    payload.pendingMentorModel,
+    'claude-haiku-4-5-20251001',
+    'claude prefix should be stripped'
+  )
+  assert.equal(payload.pendingExecutorModel, 'o3-mini', 'codex prefix should be stripped')
+})
+
+test('payload: buildUpdateModelsPayload preserves bare model IDs unchanged', () => {
+  const pair: PairLike = {
+    mentorModel: 'default-mentor',
+    executorModel: 'default-executor'
+  }
+
+  const effective = {
+    mentorModel: 'claude-haiku-4-5-20251001',
+    executorModel: 'gemini-2.5-pro'
+  }
+  const payload = buildUpdateModelsPayload(pair, effective)
+
+  assert.equal(
+    payload.pendingMentorModel,
+    'claude-haiku-4-5-20251001',
+    'bare ID passes through unchanged'
+  )
+  assert.equal(payload.pendingExecutorModel, 'gemini-2.5-pro', 'bare ID passes through unchanged')
+})
+
+test('payload: buildUpdateModelsPayload preserves opencode qualified IDs', () => {
+  const pair: PairLike = {
+    mentorModel: 'default-mentor',
+    executorModel: 'default-executor'
+  }
+
+  // OpenCode uses "provider/model" as its native format — must NOT be stripped
+  const effective = {
+    mentorModel: 'anthropic/claude-sonnet-4-20250514',
+    executorModel: 'google/gemini-2.5-pro'
+  }
+  const payload = buildUpdateModelsPayload(pair, effective)
+
+  assert.equal(
+    payload.pendingMentorModel,
+    'anthropic/claude-sonnet-4-20250514',
+    'opencode-style qualified ID preserved'
+  )
+  assert.equal(
+    payload.pendingExecutorModel,
+    'google/gemini-2.5-pro',
+    'opencode-style qualified ID preserved'
+  )
+})
+
 test('transactional: rollback impossible after updateModels success', () => {
   // When overrides ARE provided, updateModels IS called.
   // If assignTask fails after updateModels succeeds, backend is partially updated.

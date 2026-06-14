@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<img src="./build/icon.png" alt="The Pair" width="128" />
+<img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
 
 # The Pair
 
-**自动化结对编程——喝杯咖啡的时间，两个 AI Agent 互相校验代码，且由它自身构建**
+**自动化 AI 结对编程 —— 两个 AI Agent 互相交叉校验代码，让你喝杯咖啡的工夫就能拿到经过审查、交叉验证的成果。_（没错，The Pair 正是由 The Pair 自己构建的。）_**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
@@ -18,9 +18,9 @@
 
 🌐 [English](README.md) • **简体中文** • [한국어](README.ko.md) • [日本語](README.ja.md)
 
-**macOS** • **Windows** • **Linux**
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 官网**](https://apps.timwuhaotian.dev/)
 
-![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
+![The Pair 桌面应用 — Mentor 与 Executor 两个 AI Agent 实时协作完成编码任务，展示对话、工具调用与 Git 变更](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 _实时观察 Mentor 和 Executor Agent 的协作过程_
 
@@ -28,7 +28,24 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 
 ---
 
+<details>
+<summary><b>目录</b></summary>
+
+- [概述](#概述) — The Pair 是什么，以及双 Agent 为何能减少 AI 幻觉
+- [功能特性](#功能特性)
+- [截图](#截图)
+- [安装](#安装) — macOS、Windows、Linux
+- [快速开始](#快速开始) — 安装 Provider CLI 并创建你的第一个 Pair
+- [配置](#配置)
+- [架构](#架构)
+- [开发](#开发)
+- [常见问题](#常见问题)
+
+</details>
+
 ## 概述
+
+**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：可任意组合 Claude Code、OpenAI Codex、Gemini CLI 和 opencode（也支持通过 Ollama 使用本地模型）。
 
 **担心 AI 代码幻觉？** The Pair 通过运行两个互相校验的 AI Agent 来解决这个问题：
 
@@ -314,6 +331,18 @@ the-pair/
 
 ## 常见问题
 
+**Q: The Pair 是免费和开源的吗？**
+
+A: 是的。The Pair 在 Apache 2.0 许可证下完全开源，并且可免费下载用于 macOS、Windows 和 Linux。你只需为自己的 AI Provider 用量付费——或使用 [Ollama](https://ollama.com) 运行本地模型，零 API 成本。
+
+**Q: The Pair 是 Cursor、GitHub Copilot 或 Aider 的替代品吗？**
+
+A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可任意组合 Claude Code、Codex、Gemini 或 opencode。
+
+**Q: The Pair 支持哪些操作系统？**
+
+A: The Pair 是面向 **macOS、Windows 和 Linux** 的原生桌面应用，基于 Tauri 2（Rust 后端 + React 前端）构建。
+
 **Q: The Pair 与单 Agent AI 编码工具有什么区别？**
 
 A: 单 Agent 工具依赖一个模型来编写和自我审查代码，容易遗漏自己的错误。The Pair 使用两个独立的 Agent，由 Mentor 审查 Executor 的工作，在代码提交前捕获错误。
@@ -354,8 +383,12 @@ A: 支持。The Pair 在启动时检查新版本，并通过一键式更新流�
 
 <div align="center">
 
+[⬇ 下载](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 官网](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 讨论区](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 反馈问题](https://github.com/timwuhaotian/the-pair/issues)
+
 由 [timwuhaotian](https://github.com/timwuhaotian) 用 ❤️ 构建
 
-**⭐ 如果觉得这个项目对你有帮助，请点个 Star！**
+**[⭐ 点个 Star](https://github.com/timwuhaotian/the-pair)** 如果觉得这个项目对你有帮助！
+
+<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持 Claude Code、Codex、Gemini、opencode，适配 macOS、Windows、Linux。</sub>
 
 </div>

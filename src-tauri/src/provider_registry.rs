@@ -494,7 +494,7 @@ fn is_plausible_model_id(value: &str) -> bool {
         && chars.all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '/')
 }
 
-fn beautify_claude_display_name(model_id: &str) -> String {
+pub fn beautify_claude_display_name(model_id: &str) -> String {
     let lower = model_id.to_lowercase();
     if !lower.starts_with("claude-") {
         return model_id.to_string();
@@ -715,19 +715,7 @@ pub struct ProviderRegistry;
 
 impl ProviderRegistry {
     pub fn detect_all() -> Vec<DetectedProviderProfile> {
-        let opencode = thread::spawn(Self::detect_opencode);
-        let codex = thread::spawn(Self::detect_codex);
-        let claude = thread::spawn(Self::detect_claude);
-        let gemini = thread::spawn(Self::detect_gemini);
-
-        vec![
-            opencode
-                .join()
-                .expect("OpenCode detection should not panic"),
-            codex.join().expect("Codex detection should not panic"),
-            claude.join().expect("Claude detection should not panic"),
-            gemini.join().expect("Gemini detection should not panic"),
-        ]
+        crate::providers::detect_all()
     }
 
     pub fn detect_all_mock() -> Vec<DetectedProviderProfile> {

@@ -10,6 +10,7 @@ mod path_env;
 mod process_spawner;
 mod provider_adapter;
 mod provider_registry;
+mod providers;
 mod quality_gate;
 mod recent_activity;
 mod report_generator;

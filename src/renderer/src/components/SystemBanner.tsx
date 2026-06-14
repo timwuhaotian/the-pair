@@ -85,6 +85,7 @@ export function SystemBanner({
       glyph=">"
       label="HUMAN"
       timestamp={timestamp}
+      accentBorder
       className={className}
     >
       {content && (

@@ -32,6 +32,24 @@ export function resolveEffectiveModels(
   }
 }
 
+/**
+ * Strip the provider prefix from a qualified model ID.
+ *
+ * The frontend uses "qualified" IDs like `claude/claude-haiku-4-5-20251001`
+ * for model selection and localStorage. The backend and CLI tools expect bare
+ * IDs (e.g. `claude-haiku-4-5-20251001`). OpenCode IDs already use
+ * `provider/model` format internally and must not be stripped.
+ */
+function stripProviderPrefix(qualifiedId: string): string {
+  if (qualifiedId.includes('/')) {
+    const [prefix, ...rest] = qualifiedId.split('/')
+    if (['claude', 'codex', 'gemini'].includes(prefix) && rest.length > 0) {
+      return rest.join('/')
+    }
+  }
+  return qualifiedId
+}
+
 export function buildUpdateModelsPayload(
   pair: PairLike,
   effectiveModels: { mentorModel: string; executorModel: string }
@@ -39,8 +57,8 @@ export function buildUpdateModelsPayload(
   return {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
-    pendingMentorModel: effectiveModels.mentorModel,
-    pendingExecutorModel: effectiveModels.executorModel
+    pendingMentorModel: stripProviderPrefix(effectiveModels.mentorModel),
+    pendingExecutorModel: stripProviderPrefix(effectiveModels.executorModel)
   }
 }
 

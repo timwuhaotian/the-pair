@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<img src="./build/icon.png" alt="The Pair" width="128" />
+<img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
 
 # The Pair
 
-**自動化ペアプログラミング — 2つのAIエージェントが互いの作業をクロスチェックしている間にコーヒーブレイク、自分自身によって構築**
+**自動化AIペアプログラミング — 2つのAIエージェントが互いのコードをクロスチェック。コーヒーを飲んでいる間に、レビュー済み・検証済みのコードが手に入ります。_（そう、The PairはThe Pair自身によって作られました。）_**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
@@ -18,9 +18,9 @@
 
 🌐 [English](README.md) • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md)
 
-**macOS** • **Windows** • **Linux**
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ ダウンロード**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 ウェブサイト**](https://apps.timwuhaotian.dev/)
 
-![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
+![The Pair デスクトップアプリ — MentorとExecutorの2つのAIエージェントがコーディングタスクをリアルタイムで協働し、会話・ツール呼び出し・Gitの変更を表示](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 _MentorとExecutorエージェントのリアルタイムコラボレーションを観察_
 
@@ -28,7 +28,24 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 
 ---
 
+<details>
+<summary><b>目次</b></summary>
+
+- [概要](#概要) — The Pairとは何か、なぜ2つのエージェントがAIの幻覚を減らすのか
+- [機能](#機能)
+- [スクリーンショット](#スクリーンショット)
+- [インストール](#インストール) — macOS、Windows、Linux
+- [クイックスタート](#クイックスタート) — プロバイダーCLIをインストールして最初のPairを作成
+- [設定](#設定)
+- [アーキテクチャ](#アーキテクチャ)
+- [開発](#開発)
+- [FAQ](#faq)
+
+</details>
+
 ## 概要
+
+**The Pairは、2つのAIコーディングエージェント — 計画とレビューを担う読み取り専用の _Mentor_ と、コードを書きコマンドを実行する _Executor_ — を実行する無料・オープンソースのデスクトップアプリです。両エージェントが互いの作業をクロスチェックし、AIの幻覚がコードベースに入り込む前に検出します。** ローカルで動作し、macOS・Windows・Linuxに対応。モデル非依存で、Claude Code、OpenAI Codex、Gemini CLI、opencodeを自由に組み合わせられます（Ollama経由のローカルモデルも利用可能）。
 
 **AIコードの幻覚が心配ですか？** The Pairは、互いにクロスチェックする2つのAIエージェントを実行することでこの問題を解決します：
 
@@ -314,6 +331,18 @@ the-pair/
 
 ## FAQ
 
+**Q: The Pairは無料でオープンソースですか？**
+
+A: はい。The PairはApache 2.0ライセンスの下で完全にオープンソースであり、macOS・Windows・Linux向けに無料でダウンロードできます。費用はご自身のAIプロバイダー利用分のみ——または[Ollama](https://ollama.com)でローカルモデルを実行すればAPIコストはゼロです。
+
+**Q: The PairはCursor、GitHub Copilot、Aiderの代替になりますか？**
+
+A: はい、ただしアプローチが異なります。Cursor、Copilot、Aiderは単一エージェントで動作します。The Pairは2つの独立したエージェント——Mentor（読み取り専用レビュアー）とExecutor（コード作成者）——を実行し、互いにクロスチェックすることで、ミスが出荷される前に2つ目のモデルが捕捉します。ローカルファーストでオープンソースの代替であり、モデル非依存です：Claude Code、Codex、Gemini、opencodeを自由に組み合わせられます。
+
+**Q: The Pairはどのオペレーティングシステムに対応していますか？**
+
+A: The Pairは **macOS・Windows・Linux** 向けのネイティブデスクトップアプリで、Tauri 2（Rustバックエンド + Reactフロントエンド）で構築されています。
+
 **Q: The PairはシングルエージェントAIコーディングツールとどう違うのですか？**
 
 A: シングルエージェントツールは1つのモデルがコードを書いて自己レビューするため、自分のミスを見逃すことがあります。The Pairは2つの独立したエージェントを使用し、MentorがExecutorの作業をレビューすることで、コードが適用される前にエラーを検出します。
@@ -354,8 +383,12 @@ A: はい。The Pairは起動時に新しいバージョンをチェックし、
 
 <div align="center">
 
+[⬇ ダウンロード](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 ウェブサイト](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 ディスカッション](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 バグ報告](https://github.com/timwuhaotian/the-pair/issues)
+
 [timwuhaotian](https://github.com/timwuhaotian) が ❤️ で構築
 
-**⭐ 役に立った場合はスターをつけてください！**
+**[⭐ スターをつける](https://github.com/timwuhaotian/the-pair)** — 役に立ったら応援してください！
+
+<sub>The Pair — オープンソースのAIペアプログラミング · デュアルエージェントAIコードレビュー · マルチエージェントコーディングアシスタント · Cursor / Copilotの代替 · Claude Code、Codex、Gemini、opencodeに対応、macOS・Windows・Linuxで動作。</sub>
 
 </div>

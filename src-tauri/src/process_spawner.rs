@@ -7,7 +7,7 @@ use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
 use crate::report_generator::{generate_session_report, save_report_to_file};
 use crate::session_snapshot::persist_current_pair_snapshot;
-use crate::types::{AcceptanceRecord, ActivityPhase, PairStatus, TokenUsageSource, TurnTokenUsage};
+use crate::types::{AcceptanceRecord, ActivityPhase, PairStatus, TurnTokenUsage};
 use crate::util::is_mock_mode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -228,327 +228,12 @@ fn extract_event_texts(event: &serde_json::Value) -> Vec<String> {
     out
 }
 
-fn extract_gemini_event_texts(event: &serde_json::Value) -> Vec<String> {
-    let mut out = Vec::new();
-
-    if let Some(candidates) = event.get("candidates").and_then(|value| value.as_array()) {
-        for candidate in candidates {
-            collect_text_candidates(candidate, &mut out);
-        }
-    }
-
-    if let Some(server_content) = event.get("serverContent") {
-        if let Some(model_turn) = server_content.get("modelTurn") {
-            collect_text_candidates(model_turn, &mut out);
-        } else {
-            collect_text_candidates(server_content, &mut out);
-        }
-    }
-
-    if let Some(model_turn) = event.get("modelTurn") {
-        collect_text_candidates(model_turn, &mut out);
-    }
-
-    if out.is_empty() {
-        collect_text_candidates(event, &mut out);
-    }
-
-    out
-}
-
-fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnTokenUsage> {
-    let event_type = event.get("type").and_then(|v| v.as_str())?;
-
-    let (usage_obj, is_final) = match event_type {
-        "result" => {
-            let usage = event.get("usage")?;
-            (usage, true)
-        }
-        // stream-json emits per-message usage on `assistant` events (message.usage).
-        // This is the real live source — `content_block_delta`/`content_block_stop` are
-        // raw Anthropic SSE events that stream-json does not emit, so we keep them only
-        // as a fallback for older Claude Code versions that did.
-        "assistant" => {
-            let usage = event.get("message")?.get("usage")?;
-            (usage, false)
-        }
-        "content_block_delta" | "content_block_stop" => {
-            let usage = event.get("usage")?;
-            (usage, false)
-        }
-        _ => return None,
-    };
-
-    let output_tokens = usage_obj
-        .get("output_tokens")
-        .and_then(|v| v.as_u64())
-        .or_else(|| usage_obj.get("completion_tokens").and_then(|v| v.as_u64()))?;
-
-    let input_tokens = usage_obj
-        .get("input_tokens")
-        .and_then(|v| v.as_u64())
-        .or_else(|| usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()));
-
-    Some(TurnTokenUsage {
-        output_tokens,
-        input_tokens,
-        last_updated_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64,
-        source: if is_final {
-            TokenUsageSource::Final
-        } else {
-            TokenUsageSource::Live
-        },
-        provider: Some("claude".to_string()),
-    })
-}
-
-fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnTokenUsage> {
-    let usage = event.get("usage")?;
-
-    let output_tokens = usage
-        .get("completion_tokens")
-        .and_then(|v| v.as_u64())
-        .or_else(|| usage.get("output_tokens").and_then(|v| v.as_u64()))?;
-
-    let input_tokens = usage
-        .get("prompt_tokens")
-        .and_then(|v| v.as_u64())
-        .or_else(|| usage.get("input_tokens").and_then(|v| v.as_u64()));
-
-    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    // codex exec's terminal event is `turn.completed` (not "result"/"complete"/"done").
-    // Keep the legacy strings as fallback for older codex versions.
-    let is_final = matches!(
-        event_type,
-        "result" | "complete" | "done" | "turn.completed" | "completed"
-    );
-
-    Some(TurnTokenUsage {
-        output_tokens,
-        input_tokens,
-        last_updated_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64,
-        source: if is_final {
-            TokenUsageSource::Final
-        } else {
-            TokenUsageSource::Live
-        },
-        provider: Some("codex".to_string()),
-    })
-}
-
-fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTokenUsage> {
-    // OpenCode emits message.updated events with part.type = "step-finish"
-    // The tokens are at event.part.tokens.{input, output, total}
-    if let Some(part) = event.get("part") {
-        let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if part_type == "step-finish" || part_type == "step_finish" {
-            if let Some(tokens) = part.get("tokens") {
-                let output_tokens = tokens
-                    .get("output")
-                    .or_else(|| tokens.get("completionTokens"))
-                    .or_else(|| tokens.get("completion_tokens"))
-                    .and_then(|v| v.as_u64());
-
-                let input_tokens = tokens
-                    .get("input")
-                    .or_else(|| tokens.get("promptTokens"))
-                    .or_else(|| tokens.get("prompt_tokens"));
-
-                if let Some(output) = output_tokens {
-                    let input_val = input_tokens.and_then(|v| v.as_u64());
-                    // A step is final only when `reason == "stop"` (the model is done) or
-                    // when `reason` is absent. `reason == "tool-calls"` is an intermediate
-                    // step that continues into the next tool round → Live.
-                    let is_stop = part
-                        .get("reason")
-                        .and_then(|v| v.as_str())
-                        .map(|reason| reason == "stop")
-                        .unwrap_or(true);
-                    return Some(TurnTokenUsage {
-                        output_tokens: output,
-                        input_tokens: input_val,
-                        last_updated_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64,
-                        source: if is_stop {
-                            TokenUsageSource::Final
-                        } else {
-                            TokenUsageSource::Live
-                        },
-                        provider: Some("opencode".to_string()),
-                    });
-                }
-            }
-        }
-    }
-
-    // Fallback: try direct usage field (older format or different event)
-    let usage = event.get("usage")?;
-
-    let output_tokens = usage
-        .get("output_tokens")
-        .or_else(|| usage.get("completion_tokens"))
-        .or_else(|| usage.get("completionTokens"))
-        .or_else(|| usage.get("output"))
-        .and_then(|v| v.as_u64())?;
-
-    let input_tokens = usage
-        .get("input_tokens")
-        .or_else(|| usage.get("prompt_tokens"))
-        .or_else(|| usage.get("promptTokens"))
-        .or_else(|| usage.get("input"))
-        .and_then(|v| v.as_u64());
-
-    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let is_final = event_type == "result" || event_type == "complete" || event_type == "done" || event_type == "finish-step" || event_type == "finish" || event_type == "step_finish";
-
-    Some(TurnTokenUsage {
-        output_tokens,
-        input_tokens,
-        last_updated_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64,
-        source: if is_final {
-            TokenUsageSource::Final
-        } else {
-            TokenUsageSource::Live
-        },
-        provider: Some("opencode".to_string()),
-    })
-}
-
-fn extract_token_usage_from_gemini(event: &serde_json::Value) -> Option<TurnTokenUsage> {
-    let usage = event.get("usageMetadata")?;
-
-    let output_tokens = usage
-        .get("candidatesTokenCount")
-        .or_else(|| usage.get("output_tokens"))
-        .and_then(|v| v.as_u64())?;
-
-    let input_tokens = usage
-        .get("promptTokenCount")
-        .or_else(|| usage.get("input_tokens"))
-        .and_then(|v| v.as_u64());
-
-    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
-
-    Some(TurnTokenUsage {
-        output_tokens,
-        input_tokens,
-        last_updated_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64,
-        source: if is_final {
-            TokenUsageSource::Final
-        } else {
-            TokenUsageSource::Live
-        },
-        provider: Some("gemini".to_string()),
-    })
-}
 
 fn extract_token_usage(
     provider_kind: ProviderKind,
     event: &serde_json::Value,
 ) -> Option<TurnTokenUsage> {
-    match provider_kind {
-        ProviderKind::Claude => extract_token_usage_from_claude(event),
-        ProviderKind::Codex => extract_token_usage_from_codex(event),
-        ProviderKind::Opencode => extract_token_usage_from_opencode(event),
-        ProviderKind::Gemini => extract_token_usage_from_gemini(event),
-    }
-}
-
-fn extract_claude_final_output(event: &serde_json::Value) -> Option<String> {
-    let event_type = event.get("type").and_then(|value| value.as_str())?;
-    if event_type != "result" {
-        return None;
-    }
-
-    event
-        .get("result")
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-/// Detect a Claude Code `result` event that ended in error. The stream-json schema sets
-/// `subtype: "error"` and/or `is_error: true`, often with an `error` string and/or a
-/// `permission_denials[]` array. Without this, the (usually empty) `result.result` text
-/// leaks into the conversation as if the turn succeeded, and the pair never enters Error.
-fn claude_result_error_detail(event: &serde_json::Value) -> Option<String> {
-    if event.get("type").and_then(|v| v.as_str()) != Some("result") {
-        return None;
-    }
-
-    let is_error = event
-        .get("is_error")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
-    if !is_error && subtype != "error" {
-        return None;
-    }
-
-    if let Some(err) = event
-        .get("error")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        return Some(err.trim().to_string());
-    }
-
-    if let Some(denials) = event
-        .get("permission_denials")
-        .and_then(|v| v.as_array())
-        .filter(|arr| !arr.is_empty())
-    {
-        let tools: Vec<String> = denials
-            .iter()
-            .filter_map(|d| d.get("tool_name").and_then(|t| t.as_str()).map(String::from))
-            .collect();
-        if !tools.is_empty() {
-            return Some(format!("Permission denied for tool(s): {}", tools.join(", ")));
-        }
-        return Some("Claude Code reported permission denials".to_string());
-    }
-
-    Some("Claude Code reported an error".to_string())
-}
-
-fn collect_claude_assistant_text_blocks(event: &serde_json::Value, out: &mut Vec<String>) {
-    let event_type = event.get("type").and_then(|value| value.as_str());
-    if event_type != Some("assistant") {
-        return;
-    }
-
-    let Some(content) = event
-        .get("message")
-        .and_then(|message| message.get("content"))
-        .and_then(|content| content.as_array())
-    else {
-        return;
-    };
-
-    for block in content {
-        if block.get("type").and_then(|value| value.as_str()) != Some("text") {
-            continue;
-        }
-
-        if let Some(text) = block.get("text").and_then(|value| value.as_str()) {
-            push_trimmed(out, text);
-        }
-    }
+    crate::providers::provider_for_kind(provider_kind).extract_token_usage(event)
 }
 
 fn collect_json_candidates_for_provider(
@@ -556,15 +241,17 @@ fn collect_json_candidates_for_provider(
     event: &serde_json::Value,
     out: &mut Vec<String>,
 ) {
-    if provider_kind == ProviderKind::Claude {
-        if let Some(text) = extract_claude_final_output(event) {
+    let provider = crate::providers::provider_for_kind(provider_kind);
+
+    // Provider-specific extraction (Claude, Gemini override the default).
+    if let Some(candidates) = provider.collect_json_candidates(event) {
+        for text in candidates {
             push_trimmed(out, &text);
-        } else {
-            collect_claude_assistant_text_blocks(event, out);
         }
         return;
     }
 
+    // Generic extraction with noise filtering.
     let event_type = event
         .get("type")
         .and_then(|value| value.as_str())
@@ -573,12 +260,7 @@ fn collect_json_candidates_for_provider(
         return;
     }
 
-    let texts = if provider_kind == ProviderKind::Gemini {
-        extract_gemini_event_texts(event)
-    } else {
-        extract_event_texts(event)
-    };
-
+    let texts = extract_event_texts(event);
     for text in texts {
         if !is_noise_text_candidate(&text) {
             push_trimmed(out, &text);
@@ -1324,7 +1006,7 @@ impl ProcessSpawner {
                     pair_id_clone_err, role_clone_err, line
                 );
 
-                if provider_kind_clone_err != ProviderKind::Claude {
+                if !crate::providers::provider_for_kind(provider_kind_clone_err).suppress_stderr() {
                     if let Some(broker) = app_clone_err.try_state::<Mutex<MessageBroker>>() {
                         let broker = broker.lock().unwrap();
                         broker.add_log_line(
@@ -1400,10 +1082,11 @@ impl ProcessSpawner {
                         &mut json_candidates,
                     );
 
-                    // Capture Claude Code error results so we can surface them after the
+                    // Capture provider-specific turn errors so we can surface them after the
                     // stream closes instead of treating the empty result text as success.
-                    if provider_kind_clone == ProviderKind::Claude {
-                        if let Some(detail) = claude_result_error_detail(&event) {
+                    {
+                        let provider = crate::providers::provider_for_kind(provider_kind_clone);
+                        if let Some(detail) = provider.extract_error_detail(&event) {
                             provider_turn_error = Some(detail);
                         }
                     }
@@ -1648,7 +1331,7 @@ impl ProcessSpawner {
                 }
 
                 // Keep detailed logs, but avoid polluting plain output fallback with JSON internals.
-                if provider_kind_clone != ProviderKind::Claude {
+                if !crate::providers::provider_for_kind(provider_kind_clone).suppress_plain_output_logging() {
                     if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                         let broker = broker.lock().unwrap();
                         if !should_skip_plain_output_line(&line) {
@@ -2463,6 +2146,8 @@ mod tests {
         );
     }
 
+    use crate::types::TokenUsageSource;
+
     #[test]
     fn extract_token_usage_from_claude_parses_result_and_streaming_events() {
         let result_event = json!({
@@ -2474,7 +2159,7 @@ mod tests {
         });
 
         let usage =
-            extract_token_usage_from_claude(&result_event).expect("should parse claude result");
+            extract_token_usage(ProviderKind::Claude, &result_event).expect("should parse claude result");
         assert_eq!(usage.output_tokens, 250);
         assert_eq!(usage.input_tokens, Some(100));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -2487,7 +2172,7 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_claude(&streaming_event)
+        let usage = extract_token_usage(ProviderKind::Claude, &streaming_event)
             .expect("should parse claude streaming");
         assert_eq!(usage.output_tokens, 75);
         assert!(matches!(usage.source, TokenUsageSource::Live));
@@ -2503,7 +2188,7 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_codex(&event).expect("should parse codex usage");
+        let usage = extract_token_usage(ProviderKind::Codex, &event).expect("should parse codex usage");
         assert_eq!(usage.output_tokens, 350);
         assert_eq!(usage.input_tokens, Some(200));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -2524,7 +2209,7 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_codex(&event).expect("should parse turn.completed");
+        let usage = extract_token_usage(ProviderKind::Codex, &event).expect("should parse turn.completed");
         assert_eq!(usage.output_tokens, 122);
         assert_eq!(usage.input_tokens, Some(24763));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -2545,7 +2230,7 @@ mod tests {
         });
 
         let usage =
-            extract_token_usage_from_claude(&event).expect("should parse assistant usage");
+            extract_token_usage(ProviderKind::Claude, &event).expect("should parse assistant usage");
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.input_tokens, Some(120));
         assert!(matches!(usage.source, TokenUsageSource::Live));
@@ -2553,6 +2238,8 @@ mod tests {
 
     #[test]
     fn claude_result_error_detail_detects_error_and_permission_denials() {
+        let provider = crate::providers::provider_for_kind(ProviderKind::Claude);
+
         let is_error_result = json!({
             "type": "result",
             "subtype": "error",
@@ -2561,7 +2248,7 @@ mod tests {
             "error": "Permission denied"
         });
         assert_eq!(
-            claude_result_error_detail(&is_error_result).as_deref(),
+            provider.extract_error_detail(&is_error_result).as_deref(),
             Some("Permission denied")
         );
 
@@ -2573,7 +2260,7 @@ mod tests {
                 { "tool_name": "Bash", "tool_use_id": "t1" }
             ]
         });
-        let detail = claude_result_error_detail(&denial_result).expect("should detect denials");
+        let detail = provider.extract_error_detail(&denial_result).expect("should detect denials");
         assert!(detail.contains("Bash"));
 
         // Success results must not be flagged.
@@ -2583,7 +2270,7 @@ mod tests {
             "is_error": false,
             "result": "Done."
         });
-        assert!(claude_result_error_detail(&success).is_none());
+        assert!(provider.extract_error_detail(&success).is_none());
     }
 
     #[test]
@@ -2596,7 +2283,7 @@ mod tests {
                 "tokens": { "input": 671, "output": 8 }
             }
         });
-        let usage = extract_token_usage_from_opencode(&final_step)
+        let usage = extract_token_usage(ProviderKind::Opencode, &final_step)
             .expect("should parse stop step-finish");
         assert_eq!(usage.output_tokens, 8);
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -2609,7 +2296,7 @@ mod tests {
                 "tokens": { "input": 21772, "output": 110 }
             }
         });
-        let usage = extract_token_usage_from_opencode(&tool_step)
+        let usage = extract_token_usage(ProviderKind::Opencode, &tool_step)
             .expect("should parse tool-calls step-finish");
         assert_eq!(usage.output_tokens, 110);
         assert!(matches!(usage.source, TokenUsageSource::Live));
@@ -2626,7 +2313,7 @@ mod tests {
         });
 
         let usage =
-            extract_token_usage_from_opencode(&live_event).expect("should parse opencode live");
+            extract_token_usage(ProviderKind::Opencode, &live_event).expect("should parse opencode live");
         assert_eq!(usage.output_tokens, 120);
         assert!(matches!(usage.source, TokenUsageSource::Live));
 
@@ -2639,7 +2326,7 @@ mod tests {
         });
 
         let usage =
-            extract_token_usage_from_opencode(&final_event).expect("should parse opencode final");
+            extract_token_usage(ProviderKind::Opencode, &final_event).expect("should parse opencode final");
         assert_eq!(usage.output_tokens, 150);
         assert!(matches!(usage.source, TokenUsageSource::Final));
     }
@@ -2654,7 +2341,7 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_gemini(&event).expect("should parse gemini usage");
+        let usage = extract_token_usage(ProviderKind::Gemini, &event).expect("should parse gemini usage");
         assert_eq!(usage.output_tokens, 450);
         assert_eq!(usage.input_tokens, Some(300));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -2667,10 +2354,10 @@ mod tests {
             "delta": { "text": "hello" }
         });
 
-        assert!(extract_token_usage_from_claude(&no_usage).is_none());
-        assert!(extract_token_usage_from_codex(&no_usage).is_none());
-        assert!(extract_token_usage_from_opencode(&no_usage).is_none());
-        assert!(extract_token_usage_from_gemini(&no_usage).is_none());
+        assert!(extract_token_usage(ProviderKind::Claude, &no_usage).is_none());
+        assert!(extract_token_usage(ProviderKind::Codex, &no_usage).is_none());
+        assert!(extract_token_usage(ProviderKind::Opencode, &no_usage).is_none());
+        assert!(extract_token_usage(ProviderKind::Gemini, &no_usage).is_none());
     }
 
     #[test]
@@ -2745,7 +2432,7 @@ mod tests {
                 "completion_tokens": 200
             }
         });
-        let claude_usage = extract_token_usage_from_claude(&claude_with_alternate_fields)
+        let claude_usage = extract_token_usage(ProviderKind::Claude, &claude_with_alternate_fields)
             .expect("claude alternate field names");
         assert_eq!(claude_usage.input_tokens, Some(100));
         assert_eq!(claude_usage.output_tokens, 200);
@@ -2756,7 +2443,7 @@ mod tests {
                 "output_tokens": 250
             }
         });
-        let codex_usage = extract_token_usage_from_codex(&codex_with_alternate_fields)
+        let codex_usage = extract_token_usage(ProviderKind::Codex, &codex_with_alternate_fields)
             .expect("codex alternate field names");
         assert_eq!(codex_usage.input_tokens, Some(150));
         assert_eq!(codex_usage.output_tokens, 250);
@@ -2768,7 +2455,7 @@ mod tests {
                 "output_tokens": 275
             }
         });
-        let gemini_usage = extract_token_usage_from_gemini(&gemini_with_alternate_fields)
+        let gemini_usage = extract_token_usage(ProviderKind::Gemini, &gemini_with_alternate_fields)
             .expect("gemini alternate field names");
         assert_eq!(gemini_usage.input_tokens, Some(175));
         assert_eq!(gemini_usage.output_tokens, 275);

@@ -451,6 +451,15 @@
 .border-role-human {
   border-color: color-mix(in srgb, var(--role-human) 35%, transparent);
 }
+.border-l-role-mentor {
+  border-left-color: color-mix(in srgb, var(--role-mentor) 50%, transparent);
+}
+.border-l-role-executor {
+  border-left-color: color-mix(in srgb, var(--role-executor) 50%, transparent);
+}
+.border-l-role-human {
+  border-left-color: color-mix(in srgb, var(--role-human) 50%, transparent);
+}
 .border-state-running {
   border-color: color-mix(in srgb, var(--state-running) 50%, transparent);
 }

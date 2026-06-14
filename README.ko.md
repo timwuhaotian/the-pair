@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<img src="./build/icon.png" alt="The Pair" width="128" />
+<img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
 
 # The Pair
 
-**자동화된 페어 프로그래밍 — 두 AI 에이전트가 서로의 작업을 교차 검증하는 동안 커피 한 잔, 스스로가 구축**
+**자동화된 AI 페어 프로그래밍 — 두 AI 에이전트가 서로의 코드를 교차 검증합니다. 커피 한 잔 하는 사이에 검토·검증을 마친 코드를 받아보세요. _(맞습니다, The Pair는 The Pair가 직접 만들었습니다.)_**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
@@ -18,9 +18,9 @@
 
 🌐 [English](README.md) • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md)
 
-**macOS** • **Windows** • **Linux**
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 다운로드**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 웹사이트**](https://apps.timwuhaotian.dev/)
 
-![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
+![The Pair 데스크톱 앱 — Mentor와 Executor 두 AI 에이전트가 코딩 작업을 실시간으로 협업하며 대화, 도구 호출, Git 변경 사항을 표시](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 _Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
 
@@ -28,7 +28,24 @@ _Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
 
 ---
 
+<details>
+<summary><b>목차</b></summary>
+
+- [개요](#개요) — The Pair란 무엇이며 두 에이전트가 AI 환각을 줄이는 이유
+- [기능](#기능)
+- [스크린샷](#스크린샷)
+- [설치](#설치) — macOS, Windows, Linux
+- [빠른 시작](#빠른-시작) — 프로바이더 CLI를 설치하고 첫 Pair 만들기
+- [구성](#구성)
+- [아키텍처](#아키텍처)
+- [개발](#개발)
+- [FAQ](#faq)
+
+</details>
+
 ## 개요
+
+**The Pair는 두 개의 AI 코딩 에이전트 — 계획과 검토를 담당하는 읽기 전용 _Mentor_ 와 코드를 작성하고 명령을 실행하는 _Executor_ — 를 실행하는 무료 오픈소스 데스크톱 앱으로, 두 에이전트가 서로의 작업을 교차 검증하여 AI 환각이 코드베이스에 도달하기 전에 잡아냅니다.** 로컬에서 실행되며 macOS, Windows, Linux를 지원하고 모델에 구애받지 않습니다: Claude Code, OpenAI Codex, Gemini CLI, opencode를 자유롭게 조합할 수 있습니다(Ollama를 통한 로컬 모델도 가능).
 
 **AI 코드 환각이 걱정되시나요?** The Pair는 서로를 교차 검증하는 두 AI 에이전트를 실행하여 이 문제를 해결합니다:
 
@@ -314,6 +331,18 @@ the-pair/
 
 ## FAQ
 
+**Q: The Pair는 무료이며 오픈소스인가요?**
+
+A: 네. The Pair는 Apache 2.0 라이선스로 완전한 오픈소스이며 macOS, Windows, Linux용으로 무료로 다운로드할 수 있습니다. 비용은 본인의 AI 프로바이더 사용분만 발생하며——[Ollama](https://ollama.com)로 로컬 모델을 실행하면 API 비용이 전혀 들지 않습니다.
+
+**Q: The Pair는 Cursor, GitHub Copilot 또는 Aider의 대안인가요?**
+
+A: 네, 다만 접근 방식이 다릅니다. Cursor, Copilot, Aider는 단일 에이전트로 작동합니다. The Pair는 두 개의 독립 에이전트——Mentor(읽기 전용 리뷰어)와 Executor(코드 작성자)——를 실행하여 서로 교차 검증하므로, 실수가 출시되기 전에 두 번째 모델이 잡아냅니다. 로컬 우선의 오픈소스 대안이며 모델에 구애받지 않습니다: Claude Code, Codex, Gemini, opencode를 자유롭게 조합할 수 있습니다.
+
+**Q: The Pair는 어떤 운영 체제를 지원하나요?**
+
+A: The Pair는 **macOS, Windows, Linux**용 네이티브 데스크톱 앱으로, Tauri 2(Rust 백엔드 + React 프론트엔드)로 구축되었습니다.
+
 **Q: The Pair는 단일 에이전트 AI 코딩 도구와 어떻게 다른가요?**
 
 A: 단일 에이전트 도구는 하나의 모델이 코드를 작성하고 자체 검토하는 데 의존하므로 자신의 실수를 놓칠 수 있습니다. The Pair는 두 개의 별도 에이전트를 사용하여 Mentor가 Executor의 작업을 검토하여 코드가 적용되기 전에 오류를 잡아냅니다.
@@ -354,8 +383,12 @@ A: 네. The Pair는 실행 시 새 버전을 확인하고 원클릭 업데이트
 
 <div align="center">
 
+[⬇ 다운로드](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 웹사이트](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 토론](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 버그 신고](https://github.com/timwuhaotian/the-pair/issues)
+
 [timwuhaotian](https://github.com/timwuhaotian)이 ❤️로 제작
 
-**⭐ 도움이 되셨다면 Star를 눌러주세요!**
+**[⭐ Star 누르기](https://github.com/timwuhaotian/the-pair)** — 도움이 되셨다면 응원해 주세요!
+
+<sub>The Pair — 오픈소스 AI 페어 프로그래밍 · 듀얼 에이전트 AI 코드 리뷰 · 멀티 에이전트 코딩 어시스턴트 · Cursor / Copilot 대안 · Claude Code, Codex, Gemini, opencode 지원, macOS, Windows, Linux에서 작동.</sub>
 
 </div>
