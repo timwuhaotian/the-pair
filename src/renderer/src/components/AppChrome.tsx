@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { ChevronLeft, Eraser, Moon, Settings2, Sparkles, Sun, Volume2, VolumeX } from 'lucide-react'
+import {
+  ChevronLeft,
+  Eraser,
+  Keyboard,
+  Moon,
+  Settings2,
+  Sparkles,
+  Sun,
+  Volume2,
+  VolumeX
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { Pair } from '../store/usePairStore'
@@ -9,6 +19,7 @@ import { UpdateControls } from './UpdateControls'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { isPairBusy } from '../lib/pairStatus'
 import { setMuted, isMuted } from '../lib/sound'
+import { modifierLabel } from '../lib/shortcuts'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -21,6 +32,7 @@ interface AppChromeProps {
   onBack?: () => void
   onClearSession?: () => void
   onOpenSettings?: () => void
+  onShowShortcuts?: () => void
 }
 
 function ChromeIconButton({
@@ -56,7 +68,8 @@ export function AppChrome({
   onNewTask,
   onBack,
   onClearSession,
-  onOpenSettings
+  onOpenSettings,
+  onShowShortcuts
 }: AppChromeProps): React.ReactNode {
   const { t } = useTranslation()
   const pairBusy = selectedPair ? isPairBusy(selectedPair.status) : false
@@ -180,13 +193,27 @@ export function AppChrome({
                 size="sm"
                 onClick={onNewTask}
                 disabled={pairBusy}
-                title={pairBusy ? t('chrome.newTaskDisabledBusy') : t('chrome.newTaskHint')}
+                title={
+                  pairBusy
+                    ? t('chrome.newTaskDisabledBusy')
+                    : `${t('chrome.newTaskHint')} · ${modifierLabel}N`
+                }
                 icon={<Sparkles size={11} />}
                 data-testid="chrome-new-task"
               >
                 {t('chrome.newTask')}
               </GlassButton>
             </>
+          )}
+
+          {onShowShortcuts && (
+            <ChromeIconButton
+              onClick={onShowShortcuts}
+              title={`${t('shortcuts.title')} · ?`}
+              testId="chrome-shortcuts"
+            >
+              <Keyboard size={13} />
+            </ChromeIconButton>
           )}
 
           <ChromeIconButton

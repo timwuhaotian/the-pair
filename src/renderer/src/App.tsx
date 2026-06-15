@@ -16,6 +16,8 @@ import { isPairActive, isPairBusy } from './lib/pairStatus'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
+import { ShortcutsModal } from './components/ShortcutsModal'
+import type { ShortcutDef } from './lib/shortcuts'
 
 const CreatePairModal = lazy(() =>
   import('./components/CreatePairModal').then(({ CreatePairModal }) => ({
@@ -81,6 +83,7 @@ function App(): React.ReactNode {
   const [isCreatePairOpen, setIsCreatePairOpen] = useState(false)
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
   const [isPairSettingsOpen, setIsPairSettingsOpen] = useState(false)
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [hasCreatePairModalLoaded, setHasCreatePairModalLoaded] = useState(false)
   const [hasAssignTaskModalLoaded, setHasAssignTaskModalLoaded] = useState(false)
   const [hasPairSettingsModalLoaded, setHasPairSettingsModalLoaded] = useState(false)
@@ -285,25 +288,7 @@ function App(): React.ReactNode {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   const cmdKey = isMac ? 'meta' : 'ctrl'
 
-  useShortcuts([
-    {
-      key: 'p',
-      modifiers: [cmdKey],
-      handler: () => {
-        void handlePauseSelectedPair()
-      },
-      description: 'Pause Pair',
-      condition: () => selectedPair !== null && isPairActive(selectedPair.status)
-    },
-    {
-      key: 'p',
-      modifiers: [cmdKey, 'shift'],
-      handler: () => {
-        void handleResumeSelectedPair()
-      },
-      description: 'Resume Pair',
-      condition: () => selectedPair?.status === 'Paused'
-    },
+  const shortcuts: ShortcutDef[] = [
     {
       key: 'n',
       modifiers: [cmdKey],
@@ -314,9 +299,37 @@ function App(): React.ReactNode {
           setIsCreatePairOpen(true)
         }
       },
-      description: selectedPair ? 'New Task' : 'New Pair'
+      description: selectedPair ? t('shortcuts.newTask') : t('shortcuts.newPair')
+    },
+    {
+      key: 'p',
+      modifiers: [cmdKey],
+      handler: () => {
+        void handlePauseSelectedPair()
+      },
+      description: t('shortcuts.pausePair'),
+      condition: () => selectedPair !== null && isPairActive(selectedPair.status)
+    },
+    {
+      key: 'p',
+      modifiers: [cmdKey, 'shift'],
+      handler: () => {
+        void handleResumeSelectedPair()
+      },
+      description: t('shortcuts.resumePair'),
+      condition: () => selectedPair?.status === 'Paused'
+    },
+    {
+      key: '?',
+      modifiers: ['shift'],
+      handler: () => {
+        setIsShortcutsOpen((open) => !open)
+      },
+      description: t('shortcuts.showShortcuts')
     }
-  ])
+  ]
+
+  useShortcuts(shortcuts)
 
   const handleRestoreTask = (spec: string, mentorModel: string, executorModel: string): void => {
     setRestoringSpec({ spec, mentorModel, executorModel })
@@ -377,6 +390,7 @@ function App(): React.ReactNode {
           onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
           onClearSession={selectedPair ? handleRequestClearSession : undefined}
           onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
+          onShowShortcuts={() => setIsShortcutsOpen(true)}
         />
 
         <div className="flex-1 overflow-hidden">
@@ -462,6 +476,12 @@ function App(): React.ReactNode {
           />
         )}
       </Suspense>
+
+      <ShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+        shortcuts={shortcuts}
+      />
 
       <UpdateNotification />
     </div>

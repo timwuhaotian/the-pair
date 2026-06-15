@@ -364,9 +364,12 @@
     "exportHTML": "HTMLをエクスポート"
   },
   "shortcuts": {
+    "title": "キーボードショートカット",
+    "newTask": "新しいタスク",
+    "newPair": "新しいペア",
     "pausePair": "ペアを一時停止",
     "resumePair": "ペアを再開",
-    "newPair": "新しいペア"
+    "showShortcuts": "ショートカットを表示"
   },
   "status": {
     "Idle": "アイドル",

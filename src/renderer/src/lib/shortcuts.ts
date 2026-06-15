@@ -41,15 +41,25 @@ export function isInputFocused(e: KeyboardEvent): boolean {
   return false
 }
 
-export function formatShortcutLabel(shortcut: ShortcutDef): string {
+/**
+ * Break a shortcut into display tokens, e.g. ['\u2318', '\u21e7', 'P'].
+ * Symbol keys like "?" already imply Shift on most layouts, so the standalone
+ * \u21e7 token is dropped for them to avoid redundant labels like "\u21e7?".
+ */
+export function formatShortcutParts(shortcut: ShortcutDef): string[] {
+  const isSymbolKey = shortcut.key.length === 1 && !/[a-z0-9]/i.test(shortcut.key)
   const parts: string[] = []
   for (const mod of shortcut.modifiers) {
-    if (mod === 'meta' || mod === 'cmd') parts.push(modifierLabel)
-    else if (mod === 'ctrl') parts.push(modifierLabel)
-    else if (mod === 'shift') parts.push(shiftLabel)
-    else if (mod === 'alt') parts.push(isMac ? '\u2325' : 'Alt')
+    if (mod === 'meta' || mod === 'cmd' || mod === 'ctrl') parts.push(modifierLabel)
+    else if (mod === 'shift') {
+      if (!isSymbolKey) parts.push(shiftLabel)
+    } else if (mod === 'alt') parts.push(isMac ? '\u2325' : 'Alt')
   }
   const keyLabel = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key
   parts.push(keyLabel)
-  return parts.join('')
+  return parts
+}
+
+export function formatShortcutLabel(shortcut: ShortcutDef): string {
+  return formatShortcutParts(shortcut).join('')
 }

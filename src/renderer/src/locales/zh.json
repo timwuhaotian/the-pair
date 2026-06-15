@@ -390,9 +390,12 @@
     "exportHTML": "导出 HTML"
   },
   "shortcuts": {
+    "title": "键盘快捷键",
+    "newTask": "新任务",
+    "newPair": "新建 Pair",
     "pausePair": "暂停 Pair",
     "resumePair": "恢复 Pair",
-    "newPair": "新建 Pair"
+    "showShortcuts": "显示快捷键"
   },
   "quickActions": {
     "create": "新建 Pair"

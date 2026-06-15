@@ -390,9 +390,12 @@
     "exportHTML": "Export HTML"
   },
   "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "newTask": "New Task",
+    "newPair": "New Pair",
     "pausePair": "Pause Pair",
     "resumePair": "Resume Pair",
-    "newPair": "New Pair"
+    "showShortcuts": "Show Shortcuts"
   },
   "quickActions": {
     "create": "New Pair"

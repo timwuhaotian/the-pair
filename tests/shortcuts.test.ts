@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import {
   matchesShortcut,
   formatShortcutLabel,
+  formatShortcutParts,
   type ShortcutDef
 } from '../src/renderer/src/lib/shortcuts.ts'
 
@@ -108,5 +109,39 @@ describe('formatShortcutLabel', () => {
     }
     const label = formatShortcutLabel(shortcut)
     assert.ok(label.includes('P'))
+  })
+
+  it('drops the redundant Shift token for symbol keys like "?"', () => {
+    const shortcut: ShortcutDef = {
+      key: '?',
+      modifiers: ['shift'],
+      handler: () => {},
+      description: 'test'
+    }
+    // "?" already implies Shift, so the label should be just "?" — no ⇧/Shift prefix.
+    assert.strictEqual(formatShortcutLabel(shortcut), '?')
+    assert.deepStrictEqual(formatShortcutParts(shortcut), ['?'])
+  })
+
+  it('keeps the Shift token for alphanumeric keys', () => {
+    const shortcut: ShortcutDef = {
+      key: 'p',
+      modifiers: ['shift'],
+      handler: () => {},
+      description: 'test'
+    }
+    const parts = formatShortcutParts(shortcut)
+    assert.strictEqual(parts.length, 2)
+    assert.strictEqual(parts[parts.length - 1], 'P')
+  })
+
+  it('joins parts into the same string formatShortcutLabel returns', () => {
+    const shortcut: ShortcutDef = {
+      key: 'n',
+      modifiers: ['meta'],
+      handler: () => {},
+      description: 'test'
+    }
+    assert.strictEqual(formatShortcutParts(shortcut).join(''), formatShortcutLabel(shortcut))
   })
 })
