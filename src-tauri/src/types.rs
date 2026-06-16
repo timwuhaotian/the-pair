@@ -269,6 +269,10 @@ pub struct CreatePairInput {
     pub branch: Option<String>,
     #[serde(rename = "maxIterations")]
     pub max_iterations: Option<u32>,
+    /// When true, the pair pauses for human approval after the mentor's first
+    /// plan (before the executor starts). Defaults to false (full-auto).
+    #[serde(rename = "planGate", default)]
+    pub plan_gate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -347,6 +351,8 @@ pub struct PairState {
     pub key_decisions: Vec<String>,
     #[serde(rename = "cognitiveEvents", default)]
     pub cognitive_events: Vec<CognitiveEvent>,
+    #[serde(rename = "planGate", default)]
+    pub plan_gate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,6 +385,8 @@ pub struct Pair {
     pub repo_path: Option<String>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
+    #[serde(rename = "planGate", default)]
+    pub plan_gate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

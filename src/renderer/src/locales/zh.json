@@ -168,7 +168,21 @@
     "workflowPreset": "工作流预设",
     "charsHint": "{{count}} 字符 · 输入 @ 引用文件"
   },
+  "planReview": {
+    "title": "计划待审核",
+    "description": "导师已完成规划。批准后执行者开始执行,或附上修改意见打回重新规划。",
+    "approve": "批准并开始",
+    "reject": "打回",
+    "sendBack": "打回给导师",
+    "feedbackPlaceholder": "希望导师修改什么?(可选)",
+    "approvedMessage": "已批准计划 — 执行者开始执行。",
+    "sentBackMessage": "已将计划打回重新规划。",
+    "reviewPending": "计划待审核",
+    "returnToReview": "返回审核"
+  },
   "modals": {
+    "planGateLabel": "执行前先审核计划",
+    "planGateHint": "在导师给出首个计划后暂停,让你先批准或修改,再让执行者动手。",
     "createTitle": "创建新 Pair",
     "choosePreset": "选择预设",
     "usingPreset": "使用 \"{{name}}\" 预设",

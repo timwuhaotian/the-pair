@@ -45,3 +45,38 @@ export function buildInitialMentorReviewPrompt({
   const body = outputBody && outputBody.length > 0 ? `${outputBody}\n\n` : ''
   return MENTOR_PROMPT_HEADER + body + MENTOR_PROMPT_FOOTER
 }
+
+export interface PlanRevisionPromptInput {
+  taskSpec: string
+  previousPlan?: string | null
+  feedback?: string | null
+}
+
+const PLAN_REVISION_HEADER =
+  "You're collaborating with another AI agent in a pair-programming workflow. " +
+  'A human reviewed your previous plan and sent it back for revision before the ' +
+  'executor starts. Produce a revised plan that addresses their feedback.\n\n' +
+  'For this turn, focus on planning — no need to run commands or edit files. ' +
+  "Don't add TASK_COMPLETE; the workflow decides when to stop.\n\n"
+
+/**
+ * Builds the mentor re-plan prompt used when a human rejects a gated plan.
+ * Threads the original task, the previous plan, and the human's feedback so the
+ * mentor revises rather than starts from scratch.
+ */
+export function buildPlanRevisionPrompt({
+  taskSpec,
+  previousPlan,
+  feedback
+}: PlanRevisionPromptInput): string {
+  const sections = [`${PLAN_REVISION_HEADER}TASK\n${taskSpec.trim()}`]
+  const plan = previousPlan?.trim()
+  if (plan && plan.length > 0) {
+    sections.push(`PREVIOUS PLAN\n${plan}`)
+  }
+  const note = feedback?.trim()
+  sections.push(
+    `HUMAN FEEDBACK\n${note && note.length > 0 ? note : '(no specific notes — improve the plan)'}`
+  )
+  return sections.join('\n\n')
+}

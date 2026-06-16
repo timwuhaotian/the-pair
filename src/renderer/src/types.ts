@@ -122,6 +122,7 @@ export interface CreatePairInput {
   executorReasoningEffort?: string
   branch?: string
   maxIterations?: number
+  planGate?: boolean
 }
 
 export interface AssignTaskInput {
@@ -247,6 +248,7 @@ export interface SessionSnapshotDraft {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  planGate?: boolean
   cognitiveEvents?: SnapshotCognitiveEvent[]
 }
 

@@ -144,6 +144,7 @@ impl MessageBroker {
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
             cognitive_events: Vec::new(),
+            plan_gate: input.plan_gate.unwrap_or(false),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -371,9 +372,15 @@ impl MessageBroker {
             };
 
             if role == "mentor" {
+                // A mentor turn resumed from AwaitingHumanReview is always a
+                // re-plan: the gate fires on planning turns (never review), so a
+                // rejected plan should re-plan (Mentoring), not review.
                 let is_planning_turn = matches!(
                     previous_status,
-                    PairStatus::Idle | PairStatus::Finished | PairStatus::Error
+                    PairStatus::Idle
+                        | PairStatus::Finished
+                        | PairStatus::Error
+                        | PairStatus::AwaitingHumanReview
                 ) || state.iteration == 0;
 
                 if is_planning_turn {
@@ -1008,6 +1015,7 @@ mod tests {
             plan_checklist: Vec::new(),
             key_decisions: Vec::new(),
             cognitive_events: Vec::new(),
+            plan_gate: false,
         }
     }
 
@@ -1032,6 +1040,7 @@ mod tests {
             executor_reasoning_effort: None,
             max_iterations: None,
             branch: None,
+            plan_gate: None,
         }
     }
 

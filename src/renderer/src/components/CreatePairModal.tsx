@@ -36,6 +36,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [executorReasoningEffort, setExecutorReasoningEffort] = useState<string | undefined>()
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [branch, setBranch] = useState<string | undefined>()
+  const [planGate, setPlanGate] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
@@ -130,6 +131,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         executorReasoningEffort,
         branch,
         maxIterations: undefined,
+        planGate,
         pauseOnIteration: selectedPreset?.pauseOnIteration,
         autoAttachGitBaseline: selectedPreset?.autoAttachGitBaseline
       })
@@ -140,6 +142,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setMentorReasoningEffort(undefined)
       setExecutorReasoningEffort(undefined)
       setBranch(undefined)
+      setPlanGate(false)
       setSelectedPreset(null)
       onClose()
     } catch {
@@ -262,6 +265,30 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
+
+          <button
+            type="button"
+            onClick={() => setPlanGate((v) => !v)}
+            aria-pressed={planGate}
+            className="flex items-start gap-2 text-left"
+          >
+            <span
+              className={cn(
+                'mt-px select-none font-mono text-[12px]',
+                planGate ? 'state-running' : 'text-muted-foreground-faint'
+              )}
+            >
+              {planGate ? '[x]' : '[ ]'}
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                {t('modals.planGateLabel')}
+              </span>
+              <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+                {t('modals.planGateHint')}
+              </span>
+            </span>
+          </button>
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <ModelPicker

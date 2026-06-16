@@ -142,7 +142,21 @@
     "workflowPreset": "ワークフロープリセット",
     "charsHint": "{{count}} 文字 · @を入力してファイルを参照"
   },
+  "planReview": {
+    "title": "プランをレビューしてください",
+    "description": "メンターがプランを作成しました。承認すると実行者が開始します。修正が必要な場合はメモを付けて差し戻してください。",
+    "approve": "承認して開始",
+    "reject": "差し戻す",
+    "sendBack": "メンターに差し戻す",
+    "feedbackPlaceholder": "メンターに修正してほしい点は?(任意)",
+    "approvedMessage": "プランを承認しました — 実行者を開始します。",
+    "sentBackMessage": "プランを修正のため差し戻しました。",
+    "reviewPending": "プランがレビュー待ちです",
+    "returnToReview": "レビューに戻る"
+  },
   "modals": {
+    "planGateLabel": "実行前にプランをレビュー",
+    "planGateHint": "メンターの最初のプランの後で一時停止し、実行者が始める前に承認または修正できます。",
     "createTitle": "新しいペアを作成",
     "choosePreset": "プリセットを選択",
     "usingPreset": "\"{{name}}\" プリセットを使用",

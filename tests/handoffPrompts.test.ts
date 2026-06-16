@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import {
   buildInitialExecutorHandoffPrompt,
-  buildInitialMentorReviewPrompt
+  buildInitialMentorReviewPrompt,
+  buildPlanRevisionPrompt
 } from '../src/renderer/src/lib/handoffPrompts.ts'
 
 test('executor handoff prompt frames the plan as direct actions, not a roadmap to narrate', () => {
@@ -46,6 +47,29 @@ test('mentor review prompt is well-formed even when executor output is missing',
 
   assert.match(prompt, /EXECUTOR OUTPUT\n/)
   assert.match(prompt, /TASK_COMPLETE/)
+  assert.doesNotMatch(prompt, /undefined/i)
+  assert.doesNotMatch(prompt, /null/i)
+})
+
+test('plan revision prompt threads task, previous plan, and human feedback', () => {
+  const prompt = buildPlanRevisionPrompt({
+    taskSpec: 'Add a logout button',
+    previousPlan: '1. Edit Navbar.tsx',
+    feedback: 'Put it in the user menu, not the navbar'
+  })
+
+  assert.match(prompt, /TASK\nAdd a logout button/)
+  assert.match(prompt, /PREVIOUS PLAN\n1\. Edit Navbar\.tsx/)
+  assert.match(prompt, /HUMAN FEEDBACK\nPut it in the user menu/)
+  assert.match(prompt, /revis/i)
+})
+
+test('plan revision prompt is well-formed when feedback and previous plan are omitted', () => {
+  const prompt = buildPlanRevisionPrompt({ taskSpec: 'Add a logout button' })
+
+  assert.match(prompt, /TASK\nAdd a logout button/)
+  assert.doesNotMatch(prompt, /PREVIOUS PLAN/)
+  assert.match(prompt, /HUMAN FEEDBACK\n\(no specific notes/)
   assert.doesNotMatch(prompt, /undefined/i)
   assert.doesNotMatch(prompt, /null/i)
 })

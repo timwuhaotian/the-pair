@@ -34,12 +34,14 @@ import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDif
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 import {
   buildInitialExecutorHandoffPrompt,
-  buildInitialMentorReviewPrompt
+  buildInitialMentorReviewPrompt,
+  buildPlanRevisionPrompt
 } from '../lib/handoffPrompts'
 import { playFinishChime, playErrorAlert, playPauseConfirm } from '../lib/sound'
 import { resolvePairSoundCue, type PairSoundCue } from '../lib/pairSoundCue'
 import { extractErrorMessage } from '../lib/utils'
 import { isPairActive } from '../lib/pairStatus'
+import i18n from '../i18n'
 
 export type PairStatus =
   | 'Idle'
@@ -199,6 +201,8 @@ export interface Pair {
   pauseMessage?: string
   planChecklist?: Array<{ description: string; completed: boolean }>
   keyDecisions?: string[]
+  /** When true, the pair pauses for human plan approval before the executor starts. */
+  planGate?: boolean
 }
 
 interface PairStateSnapshot {
@@ -278,6 +282,7 @@ interface PairStore {
       maxIterations?: number
       pauseOnIteration?: number
       autoAttachGitBaseline?: boolean
+      planGate?: boolean
     }
   ) => Promise<void>
   assignTask: (
@@ -290,6 +295,11 @@ interface PairStore {
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   pausePair: (id: string) => Promise<void>
   resumePair: (id: string) => Promise<void>
+  resolvePlanReview: (
+    pairId: string,
+    decision: 'approve' | 'reject',
+    feedback?: string
+  ) => Promise<void>
   deletePair: (id: string) => Promise<void>
   killProcess: (pairId: string, role: string) => Promise<void>
   updatePairStatus: (id: string, status: PairStatus) => void
@@ -389,7 +399,8 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     createdAt: pair.createdAt,
     branch: pair.branch,
     repoPath: pair.repoPath,
-    worktreePath: pair.worktreePath
+    worktreePath: pair.worktreePath,
+    planGate: pair.planGate
   }
 }
 
@@ -426,6 +437,7 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
       rootPath: snapshot.gitTracking.rootPath
     },
     automationMode: snapshot.automationMode,
+    planGate: snapshot.planGate,
     latestAcceptance: snapshot.latestAcceptance,
     turn: snapshot.turn,
     currentTurnCard: snapshot.currentTurnCard
@@ -1370,7 +1382,8 @@ export const usePairStore = create<PairStore>((set) => ({
         mentorReasoningEffort: input.mentorReasoningEffort,
         executorReasoningEffort: input.executorReasoningEffort,
         branch: input.branch,
-        maxIterations: input.maxIterations
+        maxIterations: input.maxIterations,
+        planGate: input.planGate
       })) as PairCreatedResponse
 
       const now = Date.now()
@@ -1419,7 +1432,8 @@ export const usePairStore = create<PairStore>((set) => ({
         currentTurnCard: undefined,
         branch: pairProcess.branch,
         repoPath: pairProcess.repoPath,
-        worktreePath: pairProcess.worktreePath
+        worktreePath: pairProcess.worktreePath,
+        planGate: input.planGate
       }
 
       set((state) => ({
@@ -1611,6 +1625,74 @@ export const usePairStore = create<PairStore>((set) => ({
         error: message
       })
       throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  resolvePlanReview: async (pairId, decision, feedback) => {
+    // Resolve a gated plan (status "Awaiting Human Review"). Approve releases the
+    // suppressed handoff to the executor; reject sends the plan back to the mentor
+    // to revise with the human's feedback. Both reuse the assignTask handoff path,
+    // which manages loading/error and starts the next turn without resetting state.
+    const pair = usePairStore.getState().pairs.find((p) => p.id === pairId)
+    if (!pair) return
+
+    // Prefer the backend's authoritative message log (it may hold the full plan
+    // when the local mirror is collapsed); fall back to local messages.
+    let contextMessages = pair.messages
+    try {
+      const backendState = (await window.api.pair.getState(pairId)) as BackendPairState | null
+      if (backendState?.messages?.length) {
+        contextMessages = backendState.messages
+      }
+    } catch (error) {
+      console.warn(
+        '[usePairStore] Failed to load backend state for plan review, using local messages',
+        error
+      )
+    }
+
+    const lastMentorPlan = [...contextMessages]
+      .reverse()
+      .find((m) => m.from === 'mentor' && m.type === 'plan')?.content
+
+    // Record the human's decision as a visible transcript message so the
+    // conversation shows why the plan was approved or sent back. The feedback is
+    // also threaded into the mentor's re-plan prompt below.
+    const trimmedFeedback = feedback?.trim()
+    const decisionContent =
+      decision === 'approve'
+        ? i18n.t('planReview.approvedMessage')
+        : trimmedFeedback && trimmedFeedback.length > 0
+          ? trimmedFeedback
+          : i18n.t('planReview.sentBackMessage')
+
+    usePairStore.getState().addMessage(pairId, {
+      id: Math.random().toString(36).substring(7),
+      timestamp: Date.now(),
+      from: 'human',
+      to: 'mentor',
+      type: 'feedback',
+      content: decisionContent,
+      iteration: pair.iterations
+    })
+
+    const { assignTask } = usePairStore.getState()
+    if (decision === 'approve') {
+      await assignTask(
+        pairId,
+        buildInitialExecutorHandoffPrompt({ mentorPlan: lastMentorPlan }),
+        'executor'
+      )
+    } else {
+      await assignTask(
+        pairId,
+        buildPlanRevisionPrompt({
+          taskSpec: pair.spec,
+          previousPlan: lastMentorPlan,
+          feedback
+        }),
+        'mentor'
+      )
     }
   },
 

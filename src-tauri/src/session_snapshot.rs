@@ -114,6 +114,8 @@ pub struct SessionSnapshotRecord {
     pub branch: Option<String>,
     pub repo_path: Option<String>,
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub plan_gate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +164,8 @@ pub struct SessionSnapshotDraft {
     pub branch: Option<String>,
     pub repo_path: Option<String>,
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub plan_gate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -607,6 +611,7 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         branch: snapshot.branch.clone(),
         repo_path: snapshot.repo_path.clone(),
         worktree_path: snapshot.worktree_path.clone(),
+        plan_gate: snapshot.plan_gate,
     }
 }
 
@@ -669,6 +674,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
             .as_ref()
             .and_then(|tc| tc.cognitive_events.clone())
             .unwrap_or_default(),
+        plan_gate: snapshot.plan_gate,
     }
 }
 
@@ -785,6 +791,7 @@ fn build_snapshot_from_state(
         branch: pair.branch.clone(),
         repo_path: pair.repo_path.clone(),
         worktree_path: pair.worktree_path.clone(),
+        plan_gate: pair.plan_gate,
     }
 }
 
@@ -854,6 +861,7 @@ fn build_snapshot_from_draft(
         branch: draft.branch,
         repo_path: draft.repo_path,
         worktree_path: draft.worktree_path,
+        plan_gate: draft.plan_gate,
     }
 }
 
@@ -1274,6 +1282,7 @@ mod tests {
             branch: None,
             repo_path: None,
             worktree_path: None,
+            plan_gate: false,
         }
     }
 
@@ -1332,6 +1341,7 @@ mod tests {
             branch: None,
             repo_path: None,
             worktree_path: None,
+            plan_gate: false,
         }
     }
 

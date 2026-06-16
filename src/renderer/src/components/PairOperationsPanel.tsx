@@ -195,7 +195,7 @@ function PairOperationsPanel({
       )}
     >
       <div className="flex flex-wrap items-center gap-1.5">
-        {(pair.status === 'Paused' || pair.status === 'Awaiting Human Review') && (
+        {pair.status === 'Paused' && (
           <GlassButton
             variant="secondary"
             size="sm"

@@ -142,7 +142,21 @@
     "workflowPreset": "워크플로 프리셋",
     "charsHint": "{{count}}자 · @를 입력하여 파일 참조"
   },
+  "planReview": {
+    "title": "검토할 계획이 준비됨",
+    "description": "멘토가 계획을 완료했습니다. 승인하면 실행자가 시작하고, 수정이 필요하면 메모와 함께 돌려보내세요.",
+    "approve": "승인 후 시작",
+    "reject": "되돌리기",
+    "sendBack": "멘토에게 되돌리기",
+    "feedbackPlaceholder": "멘토가 무엇을 바꿔야 하나요? (선택)",
+    "approvedMessage": "계획을 승인했습니다 — 실행자를 시작합니다.",
+    "sentBackMessage": "수정을 위해 계획을 되돌렸습니다.",
+    "reviewPending": "계획 검토 대기 중",
+    "returnToReview": "검토로 돌아가기"
+  },
   "modals": {
+    "planGateLabel": "실행 전 계획 검토",
+    "planGateHint": "멘토의 첫 계획 후 일시 정지하여 실행자가 시작하기 전에 승인하거나 수정할 수 있습니다.",
     "createTitle": "새 페어 만들기",
     "choosePreset": "프리셋 선택",
     "usingPreset": "\"{{name}}\" 프리셋 사용",

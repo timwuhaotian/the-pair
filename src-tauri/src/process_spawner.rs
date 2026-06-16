@@ -1845,6 +1845,35 @@ impl ProcessSpawner {
                 }
             }
 
+            // Plan approval gate: after a mentor planning turn (the initial plan
+            // or a re-plan after rejection, before the executor starts), pause for
+            // human approval when this pair has the gate enabled. Review turns and
+            // executor turns are never gated.
+            if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                let broker = broker_state.lock().unwrap();
+                let plan_gate_enabled = broker
+                    .get_state(&pair_id_clone)
+                    .map(|s| s.plan_gate)
+                    .unwrap_or(false);
+                if crate::smart_pause::should_gate_plan(
+                    &role_clone,
+                    is_mentor_review_turn,
+                    plan_gate_enabled,
+                    should_handoff,
+                ) {
+                    broker.set_pair_status(
+                        &pair_id_clone,
+                        crate::types::PairStatus::AwaitingHumanReview,
+                        Some("Plan ready — review it before the executor starts.".to_string()),
+                    );
+                    should_handoff = false;
+                    println!(
+                        "[ProcessSpawner] [{}] Plan gate engaged — awaiting human review before executor",
+                        pair_id_clone
+                    );
+                }
+            }
+
             if should_handoff {
                 // Check if a newer run was started while this process was running.
                 // If the run_generation in the context has advanced past the value we

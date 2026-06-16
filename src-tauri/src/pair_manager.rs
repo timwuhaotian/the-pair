@@ -140,6 +140,7 @@ impl PairManager {
             branch,
             repo_path,
             worktree_path,
+            plan_gate: input.plan_gate.unwrap_or(false),
         };
 
         self.pairs.insert(pair_id.clone(), pair.clone());
@@ -852,6 +853,7 @@ mod tests {
             executor_reasoning_effort: None,
             max_iterations: None,
             branch: None,
+            plan_gate: None,
         };
         let broker_new = broker.lock().unwrap();
         manager
@@ -879,6 +881,7 @@ mod tests {
             branch: None,
             repo_path: None,
             worktree_path: None,
+            plan_gate: false,
         });
 
         let broker_guard = broker.lock().unwrap();
@@ -1100,6 +1103,7 @@ mod tests {
             executor_reasoning_effort: None,
             max_iterations: None,
             branch: None,
+            plan_gate: None,
         }
     }
 

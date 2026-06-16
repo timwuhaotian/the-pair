@@ -168,7 +168,21 @@
     "workflowPreset": "Workflow Preset",
     "charsHint": "{{count}} chars \u00b7 Type @ to reference files"
   },
+  "planReview": {
+    "title": "Plan ready for review",
+    "description": "The mentor finished planning. Approve to let the executor start, or send it back with notes to revise.",
+    "approve": "Approve & start",
+    "reject": "Send back",
+    "sendBack": "Send back to mentor",
+    "feedbackPlaceholder": "What should the mentor change? (optional)",
+    "approvedMessage": "Approved the plan — executor starting.",
+    "sentBackMessage": "Sent the plan back for revision.",
+    "reviewPending": "Plan awaiting review",
+    "returnToReview": "Return to review"
+  },
   "modals": {
+    "planGateLabel": "Review plan before executing",
+    "planGateHint": "Pause after the mentor's first plan so you can approve or revise it before the executor starts.",
     "createTitle": "Create New Pair",
     "choosePreset": "Choose a Preset",
     "usingPreset": "Using \"{{name}}\" preset",

@@ -11,6 +11,7 @@ import { isPairActive } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { MessageCard } from './MessageCard'
 import { TurnCardView } from './TurnCardView'
+import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseWithDropCounts } from '../lib/consoleMessages'
@@ -31,6 +32,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const assignTask = usePairStore((s) => s.assignTask)
   const isLoading = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
+  const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [messageFilter, setMessageFilter] = useState<'all' | 'mentor' | 'executor'>('all')
@@ -485,6 +487,29 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                     )}
                   </AnimatePresence>
                 )}
+                {pair.status === 'Awaiting Human Review' &&
+                  (viewingRunId ? (
+                    // While viewing an archived run, don't render the approve/reject
+                    // controls (they act on the live pair, not the run on screen);
+                    // surface a clear one-click return to the pending plan instead.
+                    <div className="pl-[3ch]">
+                      <button
+                        type="button"
+                        onClick={() => setViewingRunId(null)}
+                        className="flex w-full items-center gap-1.5 rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 text-left font-mono text-[11px] state-running transition-colors hover:bg-state-running/[0.1]"
+                      >
+                        <span aria-hidden>▸</span>
+                        <span className="font-bold uppercase tracking-[0.16em]">
+                          {t('planReview.reviewPending')}
+                        </span>
+                        <span className="ml-auto text-muted-foreground">
+                          {t('planReview.returnToReview')} →
+                        </span>
+                      </button>
+                    </div>
+                  ) : (
+                    <PlanReviewBar pair={pair} />
+                  ))}
                 {taskInputRow}
               </>
             )}
