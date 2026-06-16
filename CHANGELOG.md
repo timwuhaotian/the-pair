@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.4] - 2026-06-17
+
+### Added
+
+- **Plan-approval gate (human-in-the-loop review).** A new per-pair toggle in the Create Pair modal pauses the workflow after the mentor's plan — before the executor starts — at an "Awaiting Human Review" checkpoint. A plan-review bar lets you **Approve & start** (releases the plan to the executor) or **Send back** with optional notes (the mentor re-plans, threading your feedback into the prompt). Your decision is recorded as a visible message in the conversation, a rejected plan re-plans rather than being mistaken for a review verdict, and the setting persists across restarts via session snapshots. If you navigate to an archived run while a plan is waiting, a banner offers a one-click return. Localized for English, Chinese, Japanese, and Korean.
+
 ## [2.2.3] - 2026-06-15
 
 ### Added
