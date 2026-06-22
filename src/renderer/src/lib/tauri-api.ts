@@ -54,13 +54,13 @@ export const tauriApi = {
   repo: {
     checkState: async (directory: string): Promise<RepoState> => {
       if (!isTauri) {
-        return mockRepoState
+        return { ...mockRepoState }
       }
       return await invokeTauri('repo_check_state', { directory })
     },
     listBranches: async (directory: string): Promise<BranchInfo[]> => {
       if (!isTauri) {
-        return mockRepoState.branches
+        return [...mockRepoState.branches]
       }
       return await invokeTauri('repo_list_branches', { directory })
     },

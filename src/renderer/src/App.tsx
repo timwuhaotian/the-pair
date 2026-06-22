@@ -34,6 +34,9 @@ const PairSettingsModal = lazy(() =>
     default: PairSettingsModal
   }))
 )
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+const cmdKey = isMac ? 'meta' : 'ctrl'
 /**
  * Dev/QA escape hatch — `?splash=hold` keeps the splash mounted, while
  * `?splash=<ms>` overrides the minimum visible duration. Production users
@@ -292,9 +295,6 @@ function App(): React.ReactNode {
     setRestoringSpec(null)
     setIsAssignTaskOpen(true)
   }
-
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
-  const cmdKey = isMac ? 'meta' : 'ctrl'
 
   const shortcuts: ShortcutDef[] = [
     {

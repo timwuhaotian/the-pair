@@ -24,7 +24,7 @@ export function inferProviderFromModel(modelId: string): ProviderKind {
 
   if (modelId.includes('claude')) return 'claude'
   if (modelId.includes('gemini')) return 'gemini'
-  if (modelId.includes('gpt') || modelId.startsWith('o1') || modelId.startsWith('o3')) {
+  if (modelId.includes('gpt') || /^o\d/.test(modelId)) {
     return 'codex'
   }
 

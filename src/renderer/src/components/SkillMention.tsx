@@ -37,6 +37,13 @@ export function SkillMention({
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const [isRefreshing, setIsRefreshing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => {
+    return () => {
+      if (mentionTimerRef.current) clearTimeout(mentionTimerRef.current)
+    }
+  }, [])
 
   const [fuse, setFuse] = useState<Fuse<SkillEntry> | null>(null)
   const skillsRef = useRef<SkillEntry[]>([])
@@ -158,7 +165,7 @@ export function SkillMention({
       setIsOpen(false)
       isOpenRef.current = false
 
-      setTimeout(() => {
+      mentionTimerRef.current = setTimeout(() => {
         const newPos = slashIndex + skill.name.length + 1
         textarea.focus()
         textarea.setSelectionRange(newPos, newPos)

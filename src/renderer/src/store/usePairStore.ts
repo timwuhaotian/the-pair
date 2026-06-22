@@ -1716,7 +1716,15 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   retryTurn: async (id) => {
-    await window.api.pair.retryTurn(id)
+    set({ isLoading: true, error: null })
+    try {
+      await window.api.pair.retryTurn(id)
+      set({ isLoading: false })
+    } catch (error) {
+      const message = extractErrorMessage(error, 'Failed to retry turn')
+      set({ isLoading: false, error: message })
+      throw error instanceof Error ? error : new Error(message)
+    }
   },
 
   killProcess: async (pairId, role) => {

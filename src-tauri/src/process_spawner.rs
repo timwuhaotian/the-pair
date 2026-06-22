@@ -8,7 +8,7 @@ use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind}
 use crate::report_generator::{generate_session_report, save_report_to_file};
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{AcceptanceRecord, ActivityPhase, PairStatus, TurnTokenUsage};
-use crate::util::is_mock_mode;
+use crate::util::{is_mock_mode, now_millis};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -133,10 +133,7 @@ fn mock_token_usage() -> crate::types::TurnTokenUsage {
     crate::types::TurnTokenUsage {
         output_tokens: 42,
         input_tokens: Some(100),
-        last_updated_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64,
+        last_updated_at: now_millis(),
         source: crate::types::TokenUsageSource::Final,
         provider: Some("mock".to_string()),
     }
@@ -760,10 +757,7 @@ impl ProcessSpawner {
                         &pair_id_mock,
                         Message {
                             id: uuid::Uuid::new_v4().to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis() as u64,
+                            timestamp: now_millis(),
                             from: if role_mock == "mentor" {
                                 MessageSender::Mentor
                             } else {
@@ -1442,10 +1436,7 @@ impl ProcessSpawner {
                     &pair_id_clone,
                     Message {
                         id: uuid::Uuid::new_v4().to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64,
+                        timestamp: now_millis(),
                         from: if role_clone == "mentor" {
                             MessageSender::Mentor
                         } else {

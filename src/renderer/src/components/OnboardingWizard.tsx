@@ -23,11 +23,7 @@ import { BranchPicker } from './BranchPicker'
 import { PresetPicker } from './PresetPicker'
 import { getPreferredPairModelSelection } from '../lib/modelPreferences'
 import { derivePairNameFromDirectory } from '../lib/workspace'
-import { shouldUseCompactOnboardingLayout } from '../lib/onboardingLayout'
-import {
-  buildProviderSetupSummary,
-  buildProviderSetupHints
-} from '../lib/providerSetup'
+import { buildProviderSetupSummary, buildProviderSetupHints } from '../lib/providerSetup'
 import type { ProviderSetupSummary } from '../lib/providerSetup'
 import type { ProviderSetupHint } from '../types'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
@@ -53,10 +49,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [branch, setBranch] = useState<string | undefined>()
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [viewportHeight, setViewportHeight] = useState(() =>
-    typeof window === 'undefined' ? 900 : window.innerHeight
-  )
-  const isCompactLayout = shouldUseCompactOnboardingLayout(viewportHeight)
   const {
     presets,
     loading: presetsLoading,
@@ -68,16 +60,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     window.api?.config?.getVersion?.().then((v: string) => {
       setAppVersion(v && v !== '0.0.0' ? v : '1.0.1')
     })
-  }, [])
-
-  useEffect(() => {
-    const updateViewportHeight = (): void => {
-      setViewportHeight(window.innerHeight)
-    }
-
-    updateViewportHeight()
-    window.addEventListener('resize', updateViewportHeight)
-    return () => window.removeEventListener('resize', updateViewportHeight)
   }, [])
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
@@ -236,6 +218,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     setIsOpeningFile(true)
     try {
       await window.api.config.openFile()
+    } catch (error) {
+      console.error('Failed to open config file:', error)
     } finally {
       setIsOpeningFile(false)
     }
@@ -396,7 +380,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
                 executorModel={executorModel}
                 onMentorChange={setMentorModel}
                 onExecutorChange={setExecutorModel}
-                isCompactLayout={isCompactLayout}
               />
 
               <DirectoryCard
@@ -404,7 +387,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
                 branch={branch}
                 onBranchChange={setBranch}
                 onSelectDirectory={handleSelectDirectory}
-                isCompactLayout={isCompactLayout}
               />
 
               <TaskSpecCard
@@ -632,7 +614,6 @@ function DirectoryCard({
   branch?: string
   onBranchChange: (branch: string | undefined) => void
   onSelectDirectory: () => void
-  isCompactLayout?: boolean
 }): React.ReactNode {
   const { t } = useTranslation()
   return (
@@ -788,7 +769,6 @@ function ModelCard({
   executorModel: string
   onMentorChange: (m: string) => void
   onExecutorChange: (m: string) => void
-  isCompactLayout?: boolean
 }): React.ReactNode {
   const { t } = useTranslation()
   return (

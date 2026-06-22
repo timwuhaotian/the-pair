@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
 import { cn } from '../lib/utils'
 
 interface SkillInfo {
@@ -26,9 +25,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
   const loadSkills = async (): Promise<void> => {
     setLoading(true)
     try {
-      const result = await invoke<SkillInfo[]>('discover_skills', {
-        projectDir: projectDir || null
-      })
+      const result = await window.api.skill.discover(projectDir || undefined)
       setSkills(result)
     } catch (error) {
       console.error('Failed to discover skills:', error)

@@ -5,7 +5,9 @@ function Versions(): React.JSX.Element {
   const [version, setVersion] = useState<string>('…')
 
   useEffect(() => {
-    void getVersion().then(setVersion)
+    void getVersion()
+      .then(setVersion)
+      .catch(() => setVersion('unknown'))
   }, [])
 
   return (

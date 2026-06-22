@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6] - 2026-06-22
+
+### Fixed
+
+- **`now_millis()` no longer panics on pre-epoch clocks.** A misconfigured system clock (VM resume, NTP correction) could crash the entire backend. Now uses `unwrap_or_default()`.
+- **Handoff events are no longer processed on errored pairs.** The handoff guard now ignores events when a pair is in `Error` status, preventing unwanted agent turns on already-errored pairs.
+- **`retryTurn` no longer causes unhandled promise rejections.** Added proper try/catch with error state, matching all other store actions.
+- **`FileMention` and `SkillMention` no longer leak `setTimeout` callbacks.** Timer cleanup prevents React state updates on unmounted components.
+- **`SkillPicker` no longer crashes in dev (non-Tauri) mode.** Switched from raw `invoke()` to the `window.api` wrapper with runtime guards.
+- **Mock API no longer returns mutable references.** `checkState` and `listBranches` now return shallow copies, preventing callers from corrupting mock data.
+- **`Versions` component handles `getVersion()` failures gracefully** instead of leaving an unhandled rejection.
+- **`handleOpenConfig` in OnboardingWizard catches errors** instead of propagating unhandled rejections.
+- **Provider inference matches future OpenAI model prefixes** (`o4`, `o5`, …) via regex instead of hardcoded `o1`/`o3` strings.
+- **Eliminated 3 duplicate timestamp code paths** in `process_spawner.rs` that each carried an independent `.unwrap()` panic risk; now all use the shared `now_millis()` utility.
+
+### Changed
+
+- Removed dead `getRoleColors()` helper (leftover from earlier design iteration).
+- Moved `isMac`/`cmdKey` to module-level constants in `App.tsx` (were recomputed on every render).
+- Removed unused `isCompactLayout` prop chain and associated viewport-height resize listener from `OnboardingWizard`.
+
 ## [2.2.5] - 2026-06-22
 
 ### Fixed

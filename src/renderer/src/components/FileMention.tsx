@@ -239,21 +239,27 @@ export function FileMention({
   }, [textareaRef, getCursorPosition, insertMention])
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
     if (!query || !fuse) {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         const initialResults = filesRef.current.slice(0, 50)
         setResults(initialResults)
         resultsRef.current = initialResults
       }, 0)
-      return
+      return () => {
+        if (timer) clearTimeout(timer)
+      }
     }
 
     const searchResults = fuse.search(query).slice(0, 50)
-    setTimeout(() => {
+    timer = setTimeout(() => {
       const mappedResults = searchResults.map((r) => r.item)
       setResults(mappedResults)
       resultsRef.current = mappedResults
     }, 0)
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
   }, [query, fuse])
 
   if (!isOpen || results.length === 0) return null

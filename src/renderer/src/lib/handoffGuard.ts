@@ -8,6 +8,8 @@ export function shouldIgnoreHandoffEvent({ pairStatus, backendStatus }: HandoffE
     backendStatus === 'Finished' ||
     pairStatus === 'Finished' ||
     backendStatus === 'Paused' ||
-    pairStatus === 'Paused'
+    pairStatus === 'Paused' ||
+    backendStatus === 'Error' ||
+    pairStatus === 'Error'
   )
 }
