@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.5] - 2026-06-22
+
+### Fixed
+
+- **Renamed files now show their diff.** Git reports a rename as `old -> new`; the file tracker stored that entire string as the path, so clicking a renamed file showed "No changes to display". It now records the destination path and the diff resolves correctly.
+- **Exported HTML reports sanitize agent output.** The session-report export rendered model/agent markdown through an unsanitized converter, so raw `<script>` / `<img onerror=…>` markup or `javascript:` links in agent output could execute when the saved report was opened in a browser. Raw HTML is now escaped and script-bearing URL protocols are neutralized.
+- **Activity stall monitor survives a backward clock jump.** A wall-clock step backward (NTP correction, VM resume) could underflow the stall timer — reporting a bogus multi-century "stalled" warning, or panicking in debug builds and poisoning the shared state lock. Elapsed time is now computed with saturating subtraction.
+- **Deleting a pair always clears its session snapshot.** A repeated delete could return early and leave the snapshot orphaned on disk; cleanup now always runs.
+- **Viewing task history no longer crashes when the pair was just deleted**, and model loading no longer throws if the cached-models response is empty or not an array.
+- **Acceptance cards no longer show "NaN%."** A non-numeric confidence value is now rejected by the display fallback instead of rendering as `NaN`.
+- **`@file` mentions no longer match path prefixes.** Mentioning `@lib/api-v2` no longer also attaches an unrelated `@lib/api` file whose path is a prefix of the mention.
+- **Fixed stray React state updates and a leaked update listener** when the file-mention, skill-mention, and recent-activity panels (or the app shell) unmount while an async load is still in flight.
+
+### Changed
+
+- Internal cleanups (no user-facing behavior change): extracted a unit-tested `git status --porcelain` parser, de-duplicated the model-resolution helpers, removed a dead diff branch, and hoisted a render-defined component to module scope. Adds 8 regression tests.
+
 ## [2.2.4] - 2026-06-17
 
 ### Added
