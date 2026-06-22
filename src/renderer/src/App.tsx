@@ -121,6 +121,7 @@ function App(): React.ReactNode {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
+    let active = true
 
     const performUpdateCheck = async (): Promise<void> => {
       setPhase('checking')
@@ -173,7 +174,13 @@ function App(): React.ReactNode {
     void listen('app:update:check', () => {
       void performUpdateCheck()
     }).then((cleanup) => {
-      unlisten = cleanup
+      // If the effect was already torn down before listen() resolved, dispose
+      // the handler immediately so it can't leak into the next mount.
+      if (active) {
+        unlisten = cleanup
+      } else {
+        cleanup()
+      }
     })
 
     const cancelQueuedUpdateCheck = import.meta.env.PROD
@@ -183,6 +190,7 @@ function App(): React.ReactNode {
       : undefined
 
     return () => {
+      active = false
       cancelQueuedUpdateCheck?.()
       unlisten?.()
       if (updateRef.current) {

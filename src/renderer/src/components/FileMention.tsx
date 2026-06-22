@@ -40,10 +40,15 @@ export function FileMention({
   useEffect(() => {
     if (!directory) return
 
+    let cancelled = false
     window.api.file.listFiles({ pairId, directory }).then((fileList) => {
+      if (cancelled) return
       setFiles(fileList)
       filesRef.current = fileList
     })
+    return () => {
+      cancelled = true
+    }
   }, [directory, pairId])
 
   useEffect(() => {

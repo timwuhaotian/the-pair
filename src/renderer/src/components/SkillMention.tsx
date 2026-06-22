@@ -45,10 +45,15 @@ export function SkillMention({
   const isOpenRef = useRef(false)
 
   useEffect(() => {
+    let cancelled = false
     window.api.skill.discover(projectDir).then((list) => {
+      if (cancelled) return
       setSkills(list)
       skillsRef.current = list
     })
+    return () => {
+      cancelled = true
+    }
   }, [projectDir])
 
   useEffect(() => {

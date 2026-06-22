@@ -6,7 +6,8 @@ import {
   buildMentorAcceptanceRepairPrompt,
   buildMentorAcceptancePrompt,
   isAcceptanceVerdictContent,
-  parseAcceptanceVerdict
+  parseAcceptanceVerdict,
+  parseAcceptanceVerdictForDisplay
 } from '../src/renderer/src/lib/acceptance.ts'
 import type { AcceptanceRecord } from '../src/renderer/src/types.ts'
 
@@ -150,6 +151,22 @@ test('isAcceptanceVerdictContent renders a contradictory verdict instead of raw 
     }`),
     true
   )
+})
+
+test('parseAcceptanceVerdictForDisplay rejects a non-numeric confidence instead of emitting NaN', () => {
+  // The display fallback must reject garbage confidence the same way the strict
+  // parser does, rather than returning `confidence: NaN` (which renders "NaN%").
+  // Verdict/action are consistent here so confidence is the only defect.
+  const raw = JSON.stringify({
+    verdict: 'pass',
+    risk: 'low',
+    confidence: 'not-a-number',
+    issues: [],
+    evidence: ['ok'],
+    summary: 'all good',
+    nextStep: { action: 'finish', instructions: [] }
+  })
+  assert.throws(() => parseAcceptanceVerdictForDisplay(raw))
 })
 
 test('parseAcceptanceVerdict rejects fail verdicts that request finish', () => {

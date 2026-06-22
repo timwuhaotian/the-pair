@@ -1,6 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
-import { marked } from 'marked'
+import { Marked, type Tokens } from 'marked'
 import type { AcceptanceVerdict } from '../types'
 import type { TimelineData, TimelineEvent } from './timeline'
 import {
@@ -424,9 +424,41 @@ function dotColor(event: TimelineEvent): string {
   }
 }
 
+/** Protocols that can execute script when a link/image href is opened. */
+function isUnsafeHref(href: string): boolean {
+  const value = href.trim().toLowerCase()
+  return (
+    value.startsWith('javascript:') ||
+    value.startsWith('vbscript:') ||
+    value.startsWith('data:text/html')
+  )
+}
+
+/**
+ * Dedicated marked instance for exported reports. Agent/model output is rendered
+ * as markdown into a standalone HTML file the user opens in a browser, so it must
+ * not be able to inject executable markup. We escape raw HTML passthrough (e.g.
+ * `<script>`, `<img onerror=…>`) and neutralize script-bearing URL protocols in
+ * links/images. Markdown-generated HTML (headings, code, tables) is unaffected.
+ */
+const reportMarkdown = new Marked({
+  breaks: true,
+  walkTokens: (token) => {
+    if (token.type === 'link' || token.type === 'image') {
+      const node = token as Tokens.Link | Tokens.Image
+      if (typeof node.href === 'string' && isUnsafeHref(node.href)) {
+        node.href = '#'
+      }
+    }
+  },
+  renderer: {
+    html: ({ text }: Tokens.HTML | Tokens.Tag): string => escapeHtml(text)
+  }
+})
+
 function renderMarkdown(md: string): string {
   if (!md) return ''
-  return marked.parse(md, { async: false, breaks: true }) as string
+  return reportMarkdown.parse(md, { async: false }) as string
 }
 
 function renderHtmlEvent(event: TimelineEvent): string {

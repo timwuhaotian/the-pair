@@ -44,3 +44,17 @@ test('prependFileContext concatenates multiple files with a blank line between t
   const out = prependFileContext('use @a and @b', ctx)
   assert.ok(out.includes('@a:\nAA\n\n@b:\nBB'))
 })
+
+test('selectReferencedFiles does not match a path that is only a prefix of a longer mention', () => {
+  const ctx = new Map([
+    ['lib/api', 'SHORT'],
+    ['lib/api-v2', 'LONG']
+  ])
+  const spec = 'See @lib/api-v2 for details'
+  assert.deepEqual(selectReferencedFiles(spec, ctx), [['lib/api-v2', 'LONG']])
+})
+
+test('selectReferencedFiles matches a mention at end of input', () => {
+  const ctx = new Map([['src/main.rs', 'M']])
+  assert.deepEqual(selectReferencedFiles('edit @src/main.rs', ctx), [['src/main.rs', 'M']])
+})

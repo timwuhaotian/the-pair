@@ -1332,7 +1332,7 @@ export const usePairStore = create<PairStore>((set) => ({
     set({ isLoadingModels: true, modelsError: null })
     try {
       const cachedModels = (await window.api.config.getCachedModels()) as AvailableModel[]
-      if (cachedModels.length > 0) {
+      if (Array.isArray(cachedModels) && cachedModels.length > 0) {
         set({ availableModels: cachedModels })
       }
 
@@ -1767,12 +1767,14 @@ export const usePairStore = create<PairStore>((set) => ({
 
   viewTaskHistory: (pairId, runId) => {
     set({ viewingRunId: runId })
-    void saveSnapshotForPair(usePairStore.getState().pairs.find((p) => p.id === pairId)!)
+    const pair = usePairStore.getState().pairs.find((p) => p.id === pairId)
+    if (pair) void saveSnapshotForPair(pair)
   },
 
   clearViewingTask: (pairId) => {
     set({ viewingRunId: null })
-    void saveSnapshotForPair(usePairStore.getState().pairs.find((p) => p.id === pairId)!)
+    const pair = usePairStore.getState().pairs.find((p) => p.id === pairId)
+    if (pair) void saveSnapshotForPair(pair)
   },
 
   setViewingRunId: (runId) => {

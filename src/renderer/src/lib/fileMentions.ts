@@ -8,15 +8,24 @@
 
 export type FileContexts = Map<string, string>
 
+/** Builds a regex matching `@path` only when it is not immediately followed by a
+ * path-continuation char, so a shorter path (`@lib/api`) is not falsely matched
+ * inside a longer mention (`@lib/api-v2`). Mirrors the boundary handling in
+ * `skillMentions.tokenMatcher`. */
+function mentionMatcher(path: string): RegExp {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`@${escaped}(?![A-Za-z0-9_./-])`)
+}
+
 /**
- * Returns only the mentions that still appear as `@path` substrings in the spec.
+ * Returns only the mentions that still appear as `@path` in the spec.
  * Users may have deleted some mentions after selecting them; we drop those.
  */
 export function selectReferencedFiles(
   spec: string,
   fileContexts: FileContexts
 ): Array<[string, string]> {
-  return Array.from(fileContexts.entries()).filter(([path]) => spec.includes(`@${path}`))
+  return Array.from(fileContexts.entries()).filter(([path]) => mentionMatcher(path).test(spec))
 }
 
 /**

@@ -215,7 +215,7 @@ function normalizeVerdictFallback(parsed: unknown): AcceptanceVerdict {
   if (!isRisk(risk)) {
     throw new Error('Acceptance verdict is missing a valid `risk` field')
   }
-  if (typeof confidenceValue !== 'number' || confidenceValue < 0 || confidenceValue > 1) {
+  if (!Number.isFinite(confidenceValue) || confidenceValue < 0 || confidenceValue > 1) {
     throw new Error('Acceptance verdict must include a valid `confidence` (0-1)')
   }
   if (!Array.isArray(evidence)) {

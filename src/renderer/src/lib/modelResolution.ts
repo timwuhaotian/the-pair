@@ -12,16 +12,6 @@ export type ModelOverrides = {
   executorModel?: string
 }
 
-export function getAssignableTaskModels(
-  pair: PairLike,
-  restoringModels?: ModelOverrides
-): { mentorModel: string; executorModel: string } {
-  return {
-    mentorModel: restoringModels?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel,
-    executorModel: restoringModels?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
-  }
-}
-
 export function resolveEffectiveModels(
   pair: PairLike,
   overrides?: ModelOverrides
@@ -30,6 +20,18 @@ export function resolveEffectiveModels(
     mentorModel: overrides?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel,
     executorModel: overrides?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
   }
+}
+
+/**
+ * Resolve the models to assign for a task. Identical resolution order to
+ * {@link resolveEffectiveModels} — kept as a named alias for the task-assignment
+ * call site (`AssignTaskModal`) where "restoring models" reads more clearly.
+ */
+export function getAssignableTaskModels(
+  pair: PairLike,
+  restoringModels?: ModelOverrides
+): { mentorModel: string; executorModel: string } {
+  return resolveEffectiveModels(pair, restoringModels)
 }
 
 /**

@@ -515,12 +515,17 @@ pub fn pair_delete(
         let _ = delete_worktree(&wt_path);
     }
 
-    let mut manager = state.lock().unwrap();
-    manager.delete_pair(&pair_id)?;
+    let delete_result = {
+        let mut manager = state.lock().unwrap();
+        manager.delete_pair(&pair_id)
+    };
 
+    // Always remove the on-disk snapshot, even when the in-memory pair was
+    // already gone (e.g. a double-delete), so the persisted snapshot can never
+    // be orphaned by an early return.
     let _ = delete_pair_snapshot(&app, &pair_id);
 
-    Ok(())
+    delete_result
 }
 
 #[tauri::command]

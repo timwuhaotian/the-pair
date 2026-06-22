@@ -499,7 +499,10 @@ impl MessageBroker {
                     let mut new_detail = activity.detail.clone();
 
                     if activity.last_output_at.is_some() {
-                        let elapsed_secs = (now - activity.last_output_at.unwrap()) / 1000;
+                        // saturating_sub guards against a backward wall-clock jump
+                        // (NTP correction, manual change, VM resume) which would
+                        // otherwise underflow and report a spurious multi-century stall.
+                        let elapsed_secs = now.saturating_sub(activity.last_output_at.unwrap()) / 1000;
                         if elapsed_secs >= STALL_CRITICAL_SECS {
                             new_phase = ActivityPhase::Stalled;
                             new_label =
@@ -514,7 +517,7 @@ impl MessageBroker {
                             activity_for_update = true;
                         }
                     } else if let Some(started) = state.turn_started_at {
-                        let elapsed_secs = (now - started) / 1000;
+                        let elapsed_secs = now.saturating_sub(started) / 1000;
                         if elapsed_secs >= STALL_CRITICAL_SECS {
                             new_phase = ActivityPhase::Stalled;
                             new_label =
