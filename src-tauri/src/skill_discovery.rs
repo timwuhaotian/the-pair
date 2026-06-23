@@ -236,7 +236,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         write_skill(&root, "valid", "ok", "body");
         // Empty folder — should be skipped.
-        fs::create_dir_all(&root.join("not-a-skill")).unwrap();
+        fs::create_dir_all(root.join("not-a-skill")).unwrap();
 
         let scanned = scan_skills_dir(&root);
         assert_eq!(scanned.len(), 1);

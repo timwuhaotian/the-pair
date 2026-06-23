@@ -1,11 +1,11 @@
 export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
 
-export type TokenUsageSource = 'live' | 'final' | 'none'
+type TokenUsageSource = 'live' | 'final' | 'none'
 
 export type AcceptanceCheckStatus = 'passed' | 'failed' | 'skipped'
 export type AcceptanceRisk = 'low' | 'medium' | 'high'
-export type AcceptanceVerdictDecision = 'pass' | 'fail'
-export type AcceptanceNextAction = 'continue' | 'finish'
+type AcceptanceVerdictDecision = 'pass' | 'fail'
+type AcceptanceNextAction = 'continue' | 'finish'
 
 export interface AcceptanceCheckRun {
   name: string
@@ -18,7 +18,7 @@ export interface AcceptanceCheckRun {
   stderr: string
 }
 
-export interface AcceptanceNextStep {
+interface AcceptanceNextStep {
   action: AcceptanceNextAction
   instructions: string[]
 }
@@ -64,18 +64,6 @@ export type PairStatus =
   | 'Awaiting Human Review'
   | 'Error'
   | 'Finished'
-
-export interface DetectedProviderProfile {
-  kind: ProviderKind
-  installed: boolean
-  authenticated: boolean
-  runnable: boolean
-  subscriptionLabel: string
-  currentModels: unknown[]
-  loginCommand?: string
-  installUrl?: string
-  detectedAt: number
-}
 
 export interface ProviderSetupHint {
   kind: ProviderKind
@@ -125,10 +113,6 @@ export interface CreatePairInput {
   planGate?: boolean
 }
 
-export interface AssignTaskInput {
-  spec: string
-}
-
 export interface PairModelSelection {
   mentorModel: string
   executorModel: string
@@ -138,7 +122,7 @@ export interface PairModelSelection {
   executorReasoningEffort?: string
 }
 
-export interface AgentActivity {
+interface AgentActivity {
   phase: 'idle' | 'thinking' | 'using_tools' | 'responding' | 'waiting' | 'error' | 'stalled'
   label: string
   detail?: string
@@ -148,7 +132,7 @@ export interface AgentActivity {
   outputLineCount?: number
 }
 
-export interface SnapshotTurnCard {
+interface SnapshotTurnCard {
   id: string
   role: 'mentor' | 'executor'
   state: 'live' | 'final'
@@ -160,7 +144,7 @@ export interface SnapshotTurnCard {
   cognitiveEvents?: SnapshotCognitiveEvent[]
 }
 
-export interface SnapshotCognitiveEvent {
+interface SnapshotCognitiveEvent {
   id: string
   timestamp: number
   role: 'mentor' | 'executor'
@@ -170,7 +154,7 @@ export interface SnapshotCognitiveEvent {
   status: 'running' | 'completed' | 'error'
 }
 
-export interface PairRunSummary {
+interface PairRunSummary {
   id: string
   spec: string
   status: PairStatus
@@ -250,29 +234,6 @@ export interface SessionSnapshotDraft {
   worktreePath?: string
   planGate?: boolean
   cognitiveEvents?: SnapshotCognitiveEvent[]
-}
-
-export interface RecoverableSessionSummary {
-  pairId: string
-  name: string
-  directory: string
-  spec: string
-  status: PairStatus
-  turn: 'mentor' | 'executor'
-  mentorModel: string
-  executorModel: string
-  pendingMentorModel?: string
-  pendingExecutorModel?: string
-  mentorReasoningEffort?: string
-  executorReasoningEffort?: string
-  runCount: number
-  currentRunStartedAt: number
-  currentRunFinishedAt?: number
-  savedAt: number
-  createdAt: number
-  currentTurnCard?: SnapshotTurnCard
-  hasMentorSession: boolean
-  hasExecutorSession: boolean
 }
 
 export interface SessionSnapshotRecord extends SessionSnapshotDraft {

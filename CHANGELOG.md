@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.7] - 2026-06-24
+
+### Removed
+
+- Deleted unused renderer components (`OnboardingWizard`, `SessionRecoveryModal`, `ActivityIndicator`, `DashboardEmptyState`, `IntentChip`, `Versions`, `GlassCard`) and hooks (`useMinimumVisibleText`, `usePrevious`) that were no longer referenced anywhere in the app.
+- Dropped unused runtime dependencies `recharts`, `class-variance-authority`, and `geist`, trimming install and bundle size.
+- Removed dead code: the `AssignTaskInput`/`RecoverableSessionSummary` types and renderer-side `DetectedProviderProfile`, the unused `isUnlimitedIterations` helper, orphaned Framer Motion variants, and stale CSS keyframes.
+
+### Changed
+
+- Tightened module encapsulation across `lib/`, `store/`, and `types.ts` by converting internal-only symbols from `export` to module-private.
+- Refactored the Rust backend with no behavior change: a bundled `ActivityUpdate` struct in `message_broker.rs`, `strip_prefix`-based checklist parsing in `context_bridge.rs`, and a shared `TimedCache` type alias in `stubs.rs`.
+- Documented the Pair Code terminal CLI in the README with a new "Choose Your Interface" section.
+
 ## [2.2.6] - 2026-06-22
 
 ### Fixed

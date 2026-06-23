@@ -13,16 +13,19 @@ pub fn parse_checklist(text: &str) -> Vec<PlanItem> {
     text.lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
-                let desc = trimmed[5..].trim();
+            if let Some(desc) = trimmed
+                .strip_prefix("- [x]")
+                .or_else(|| trimmed.strip_prefix("- [X]"))
+            {
+                let desc = desc.trim();
                 if !desc.is_empty() {
                     return Some(PlanItem {
                         description: desc.to_string(),
                         completed: true,
                     });
                 }
-            } else if trimmed.starts_with("- [ ]") {
-                let desc = trimmed[5..].trim();
+            } else if let Some(desc) = trimmed.strip_prefix("- [ ]") {
+                let desc = desc.trim();
                 if !desc.is_empty() {
                     return Some(PlanItem {
                         description: desc.to_string(),

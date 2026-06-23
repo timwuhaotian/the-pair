@@ -59,7 +59,7 @@ const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
  * Canonical merge identity. Trusts the backend-provided key; falls back to a
  * provider+bare-id heuristic for resilience (older cached data or test fixtures).
  */
-export function canonicalKeyOf(model: AvailableModel): string {
+function canonicalKeyOf(model: AvailableModel): string {
   if (model.canonicalKey && model.canonicalKey.length > 0) {
     return model.canonicalKey
   }
@@ -210,7 +210,7 @@ export function resolveSelection(
   return {}
 }
 
-export function getLastRouteKey(role: AgentRole, canonicalKey: string): string | undefined {
+function getLastRouteKey(role: AgentRole, canonicalKey: string): string | undefined {
   try {
     const raw = localStorage.getItem(LAST_ROUTE_KEY_PREFIX + role)
     if (!raw) return undefined

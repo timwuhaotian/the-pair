@@ -1,4 +1,4 @@
-export type PairSoundCueStatus =
+type PairSoundCueStatus =
   | 'Idle'
   | 'Mentoring'
   | 'Executing'

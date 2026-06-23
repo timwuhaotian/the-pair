@@ -163,7 +163,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         for issue in &report.final_verdict.issues {
             md.push_str(&format!("- {}\n", issue));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     if !report.final_verdict.evidence.is_empty() {
@@ -171,7 +171,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         for evidence in &report.final_verdict.evidence {
             md.push_str(&format!("- {}\n", evidence));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Iteration Metrics
@@ -198,7 +198,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
             }
         ));
     }
-    md.push_str("\n");
+    md.push('\n');
 
     // Git Changes
     if !report.git_changes.is_empty() {
@@ -208,7 +208,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         for file in &report.git_changes {
             md.push_str(&format!("| {:?} | {} |\n", file.status, file.path));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Validation History
@@ -233,7 +233,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
                 md.push_str(&format!("- {} {}\n", status_emoji, check.name));
             }
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     md

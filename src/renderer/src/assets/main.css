@@ -577,36 +577,6 @@
   mix-blend-mode: screen;
 }
 
-/* Kept utilities — used by ActivityIndicator/etc. */
-@keyframes breathe {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.animate-breathe {
-  animation: breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes gradient-shift {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
-
 /* ──────────────────────────────────────────────────────────────
  * Startup Hero — brand artwork animations.
  * Robots float, steam rises, code pulses, eyes blink occasionally.

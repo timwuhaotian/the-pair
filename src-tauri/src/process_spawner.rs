@@ -2631,6 +2631,6 @@ mod tests {
             envs.get(std::ffi::OsStr::new("LOCALAPPDATA")),
             Some(&local.as_os_str().to_owned())
         );
-        assert!(envs.get(std::ffi::OsStr::new("PATH")).is_some());
+        assert!(envs.contains_key(std::ffi::OsStr::new("PATH")));
     }
 }

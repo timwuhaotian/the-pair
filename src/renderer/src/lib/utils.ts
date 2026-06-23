@@ -23,11 +23,6 @@ export function formatIterations(current: number, max?: number): string {
   return `${current}/${max}`
 }
 
-/** True when the iteration budget is unlimited (0 or absent). */
-export function isUnlimitedIterations(max?: number): boolean {
-  return !max || max <= 0
-}
-
 export function stripSystemPrompt(content: string): string {
   let result = content
 

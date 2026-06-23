@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
-export function resolveRustupHome() {
+function resolveRustupHome() {
   if (process.env.CARGO_HOME) {
     return resolve(process.env.CARGO_HOME)
   }

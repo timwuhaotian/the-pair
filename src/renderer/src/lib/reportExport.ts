@@ -13,7 +13,7 @@ import {
 
 // ── Markdown Report ────────────────────────────────────
 
-export function generateMarkdownReport(timeline: TimelineData): string {
+function generateMarkdownReport(timeline: TimelineData): string {
   const lines: string[] = []
 
   // Header
@@ -118,7 +118,7 @@ export function generateMarkdownReport(timeline: TimelineData): string {
 
 // ── HTML Report ────────────────────────────────────────
 
-export function generateHtmlReport(timeline: TimelineData): string {
+function generateHtmlReport(timeline: TimelineData): string {
   const eventItems = timeline.iterations
     .map(
       (group) => `

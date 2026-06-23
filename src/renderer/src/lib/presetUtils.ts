@@ -14,7 +14,7 @@ const DEV_SMOKE_TEST_PRESET: PairPreset = {
   pauseOnIteration: 4
 }
 
-export const HARDCODED_PRESETS: PairPreset[] = [
+const HARDCODED_PRESETS: PairPreset[] = [
   {
     id: 'bug-fix',
     name: 'Bug Fix',

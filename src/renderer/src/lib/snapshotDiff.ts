@@ -1,6 +1,6 @@
 import type { TurnTokenUsage } from '../types'
 
-export type SnapshotComparableTurnCard = {
+type SnapshotComparableTurnCard = {
   content: string
   state: 'live' | 'final'
   tokenUsage?: TurnTokenUsage

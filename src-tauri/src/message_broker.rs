@@ -14,6 +14,22 @@ pub struct MessageBroker {
     app_handle: Option<AppHandle>,
 }
 
+struct ActivityUpdate<'a> {
+    phase: ActivityPhase,
+    label: &'a str,
+    detail: Option<String>,
+}
+
+impl<'a> ActivityUpdate<'a> {
+    fn new(phase: ActivityPhase, label: &'a str, detail: Option<String>) -> Self {
+        Self {
+            phase,
+            label,
+            detail,
+        }
+    }
+}
+
 impl MessageBroker {
     pub fn new() -> Self {
         Self {
@@ -54,20 +70,11 @@ impl MessageBroker {
     fn update_both_activities(
         mentor_activity: &mut AgentActivity,
         executor_activity: &mut AgentActivity,
-        mentor_phase: ActivityPhase,
-        mentor_label: &str,
-        mentor_detail: Option<String>,
-        executor_phase: ActivityPhase,
-        executor_label: &str,
-        executor_detail: Option<String>,
+        mentor: ActivityUpdate<'_>,
+        executor: ActivityUpdate<'_>,
     ) {
-        Self::update_activity(mentor_activity, mentor_phase, mentor_label, mentor_detail);
-        Self::update_activity(
-            executor_activity,
-            executor_phase,
-            executor_label,
-            executor_detail,
-        );
+        Self::update_activity(mentor_activity, mentor.phase, mentor.label, mentor.detail);
+        Self::update_activity(executor_activity, executor.phase, executor.label, executor.detail);
     }
 
     pub fn initialize_pair(
@@ -301,12 +308,16 @@ impl MessageBroker {
             Self::update_both_activities(
                 &mut state.mentor_activity,
                 &mut state.executor_activity,
-                ActivityPhase::Error,
-                "Human rejected review",
-                Some("Manual intervention required".to_string()),
-                ActivityPhase::Error,
-                "Human rejected review",
-                Some("Manual intervention required".to_string()),
+                ActivityUpdate::new(
+                    ActivityPhase::Error,
+                    "Human rejected review",
+                    Some("Manual intervention required".to_string()),
+                ),
+                ActivityUpdate::new(
+                    ActivityPhase::Error,
+                    "Human rejected review",
+                    Some("Manual intervention required".to_string()),
+                ),
             );
 
             self.notify_state_update(pair_id, state);
@@ -392,12 +403,16 @@ impl MessageBroker {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Thinking,
-                        "Analyzing task",
-                        Some("Preparing first instruction".to_string()),
-                        ActivityPhase::Waiting,
-                        "Executor standing by",
-                        None,
+                        ActivityUpdate::new(
+                            ActivityPhase::Thinking,
+                            "Analyzing task",
+                            Some("Preparing first instruction".to_string()),
+                        ),
+                        ActivityUpdate::new(
+                            ActivityPhase::Waiting,
+                            "Executor standing by",
+                            None,
+                        ),
                     );
 
                     state.executor.status = PairStatus::Idle;
@@ -408,12 +423,16 @@ impl MessageBroker {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Thinking,
-                        "Reviewing changes",
-                        Some("Checking the work".to_string()),
-                        ActivityPhase::Waiting,
-                        "Executor standing by",
-                        Some("Executor paused for review".to_string()),
+                        ActivityUpdate::new(
+                            ActivityPhase::Thinking,
+                            "Reviewing changes",
+                            Some("Checking the work".to_string()),
+                        ),
+                        ActivityUpdate::new(
+                            ActivityPhase::Waiting,
+                            "Executor standing by",
+                            Some("Executor paused for review".to_string()),
+                        ),
                     );
 
                     state.executor.status = PairStatus::Idle;
@@ -423,12 +442,12 @@ impl MessageBroker {
                 Self::update_both_activities(
                     &mut state.mentor_activity,
                     &mut state.executor_activity,
-                    ActivityPhase::Waiting,
-                    "Mentor observing",
-                    None,
-                    ActivityPhase::Thinking,
-                    "Executing plan",
-                    Some("Processing instructions".to_string()),
+                    ActivityUpdate::new(ActivityPhase::Waiting, "Mentor observing", None),
+                    ActivityUpdate::new(
+                        ActivityPhase::Thinking,
+                        "Executing plan",
+                        Some("Processing instructions".to_string()),
+                    ),
                 );
             }
 
@@ -498,11 +517,11 @@ impl MessageBroker {
                     let mut new_label = activity.label.clone();
                     let mut new_detail = activity.detail.clone();
 
-                    if activity.last_output_at.is_some() {
+                    if let Some(last_output_at) = activity.last_output_at {
                         // saturating_sub guards against a backward wall-clock jump
                         // (NTP correction, manual change, VM resume) which would
                         // otherwise underflow and report a spurious multi-century stall.
-                        let elapsed_secs = now.saturating_sub(activity.last_output_at.unwrap()) / 1000;
+                        let elapsed_secs = now.saturating_sub(last_output_at) / 1000;
                         if elapsed_secs >= STALL_CRITICAL_SECS {
                             new_phase = ActivityPhase::Stalled;
                             new_label =
@@ -605,12 +624,16 @@ impl MessageBroker {
                         Self::update_both_activities(
                             &mut state.mentor_activity,
                             &mut state.executor_activity,
-                            ActivityPhase::Thinking,
-                            "Analyzing task",
-                            Some("Resuming from pause".to_string()),
-                            ActivityPhase::Waiting,
-                            "Executor standing by",
-                            None,
+                            ActivityUpdate::new(
+                                ActivityPhase::Thinking,
+                                "Analyzing task",
+                                Some("Resuming from pause".to_string()),
+                            ),
+                            ActivityUpdate::new(
+                                ActivityPhase::Waiting,
+                                "Executor standing by",
+                                None,
+                            ),
                         );
 
                         state.executor.status = PairStatus::Idle;
@@ -619,12 +642,16 @@ impl MessageBroker {
                         Self::update_both_activities(
                             &mut state.mentor_activity,
                             &mut state.executor_activity,
-                            ActivityPhase::Thinking,
-                            "Reviewing changes",
-                            Some("Resuming from pause".to_string()),
-                            ActivityPhase::Waiting,
-                            "Executor standing by",
-                            Some("Executor paused for review".to_string()),
+                            ActivityUpdate::new(
+                                ActivityPhase::Thinking,
+                                "Reviewing changes",
+                                Some("Resuming from pause".to_string()),
+                            ),
+                            ActivityUpdate::new(
+                                ActivityPhase::Waiting,
+                                "Executor standing by",
+                                Some("Executor paused for review".to_string()),
+                            ),
                         );
 
                         state.executor.status = PairStatus::Idle;
@@ -634,12 +661,12 @@ impl MessageBroker {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Waiting,
-                        "Mentor observing",
-                        None,
-                        ActivityPhase::Thinking,
-                        "Executing plan",
-                        Some("Resuming from pause".to_string()),
+                        ActivityUpdate::new(ActivityPhase::Waiting, "Mentor observing", None),
+                        ActivityUpdate::new(
+                            ActivityPhase::Thinking,
+                            "Executing plan",
+                            Some("Resuming from pause".to_string()),
+                        ),
                     );
 
                     state.mentor.status = PairStatus::Idle;
@@ -869,60 +896,60 @@ impl MessageBroker {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Idle,
-                        "Mission finished",
-                        detail.clone(),
-                        ActivityPhase::Idle,
-                        "Executor idle",
-                        None,
+                        ActivityUpdate::new(
+                            ActivityPhase::Idle,
+                            "Mission finished",
+                            detail.clone(),
+                        ),
+                        ActivityUpdate::new(ActivityPhase::Idle, "Executor idle", None),
                     );
                 }
                 PairStatus::AwaitingHumanReview => {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Waiting,
-                        "Awaiting human review",
-                        detail.clone(),
-                        ActivityPhase::Waiting,
-                        "Awaiting human review",
-                        None,
+                        ActivityUpdate::new(
+                            ActivityPhase::Waiting,
+                            "Awaiting human review",
+                            detail.clone(),
+                        ),
+                        ActivityUpdate::new(
+                            ActivityPhase::Waiting,
+                            "Awaiting human review",
+                            None,
+                        ),
                     );
                 }
                 PairStatus::Reviewing => {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Thinking,
-                        "Reviewing changes",
-                        detail.clone(),
-                        ActivityPhase::Waiting,
-                        "Executor standing by",
-                        None,
+                        ActivityUpdate::new(
+                            ActivityPhase::Thinking,
+                            "Reviewing changes",
+                            detail.clone(),
+                        ),
+                        ActivityUpdate::new(
+                            ActivityPhase::Waiting,
+                            "Executor standing by",
+                            None,
+                        ),
                     );
                 }
                 PairStatus::Paused => {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Idle,
-                        "Paused",
-                        detail.clone(),
-                        ActivityPhase::Idle,
-                        "Paused",
-                        detail,
+                        ActivityUpdate::new(ActivityPhase::Idle, "Paused", detail.clone()),
+                        ActivityUpdate::new(ActivityPhase::Idle, "Paused", detail),
                     );
                 }
                 PairStatus::Error => {
                     Self::update_both_activities(
                         &mut state.mentor_activity,
                         &mut state.executor_activity,
-                        ActivityPhase::Error,
-                        "Error",
-                        detail.clone(),
-                        ActivityPhase::Error,
-                        "Error",
-                        None,
+                        ActivityUpdate::new(ActivityPhase::Error, "Error", detail.clone()),
+                        ActivityUpdate::new(ActivityPhase::Error, "Error", None),
                     );
                 }
                 _ => {}

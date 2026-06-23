@@ -2,8 +2,8 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 
-export type TerminalRole = 'mentor' | 'executor' | 'human' | 'system'
-export type TerminalState = 'running' | 'done' | 'error' | 'paused' | 'pending'
+type TerminalRole = 'mentor' | 'executor' | 'human' | 'system'
+type TerminalState = 'running' | 'done' | 'error' | 'paused' | 'pending'
 
 interface TerminalBlockProps {
   role: TerminalRole

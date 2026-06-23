@@ -12,9 +12,10 @@ use tauri::Manager;
 const MODEL_CACHE_TTL: Duration = Duration::from_secs(60);
 const MODEL_CACHE_FILE_NAME: &str = "model-cache.json";
 
-static MODEL_CACHE: OnceLock<Mutex<Option<(Instant, Vec<AvailableModel>)>>> = OnceLock::new();
-static PROVIDER_CACHE: OnceLock<Mutex<Option<(Instant, Vec<DetectedProviderProfile>)>>> =
-    OnceLock::new();
+type TimedCache<T> = OnceLock<Mutex<Option<(Instant, Vec<T>)>>>;
+
+static MODEL_CACHE: TimedCache<AvailableModel> = OnceLock::new();
+static PROVIDER_CACHE: TimedCache<DetectedProviderProfile> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

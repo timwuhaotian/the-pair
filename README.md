@@ -20,7 +20,7 @@
 
 🌐 **English** • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md) &nbsp;|&nbsp; [![Share on X](https://img.shields.io/badge/Share-000000?logo=x&logoColor=white)](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair)
 
-**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 Website**](https://apps.timwuhaotian.dev/)
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;•&nbsp; [**🌐 Website**](https://apps.timwuhaotian.dev/)
 
 ![The Pair desktop app — Mentor and Executor AI agents collaborating on a coding task in real time, with live conversation, tool calls, and git changes](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
@@ -35,6 +35,7 @@ _Watch Mentor and Executor agents collaborate in real-time_
 
 - [Overview](#overview) — what The Pair is and why dual agents reduce AI hallucinations
 - [Why The Pair?](#why-the-pair) — comparison vs. Cursor, Copilot, and single-agent tools
+- [Choose Your Interface](#choose-your-interface) — desktop app or terminal CLI
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Installation](#installation) — macOS, Windows, Linux
@@ -99,6 +100,19 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - Bug fixing — Agents collaborate to diagnose and resolve issues
 - Learning tool — Observe how AI agents break down and solve problems
 - Interrupted work recovery — Restore session state after app restart or crash
+
+---
+
+## Choose Your Interface
+
+The Pair is the desktop app for visual monitoring and hands-on oversight. **CLI** users can install [Pair Code](https://github.com/timwuhaotian/pair-code), the terminal edition of The Pair, from [npm](https://www.npmjs.com/package/pair-code) with `npm install -g pair-code`.
+
+| Interface   | Best for                                          | Start here                                                                                                       |
+| ----------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Desktop** | Visual monitoring, installers, long-running pairs | [Download The Pair](https://github.com/timwuhaotian/the-pair/releases)                                           |
+| **CLI**     | Terminal-native workflows, scripts, SSH sessions  | [Pair Code](https://github.com/timwuhaotian/pair-code) or [npm package](https://www.npmjs.com/package/pair-code) |
+
+Both use the same Mentor + Executor idea: one agent plans and reviews, the other writes and verifies.
 
 ---
 

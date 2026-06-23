@@ -18,7 +18,7 @@
 
 🌐 [English](README.md) • **简体中文** • [한국어](README.ko.md) • [日本語](README.ja.md)
 
-**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**🌐 官网**](https://apps.timwuhaotian.dev/)
+**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;•&nbsp; [**🌐 官网**](https://apps.timwuhaotian.dev/)
 
 ![The Pair 桌面应用 — Mentor 与 Executor 两个 AI Agent 实时协作完成编码任务，展示对话、工具调用与 Git 变更](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 

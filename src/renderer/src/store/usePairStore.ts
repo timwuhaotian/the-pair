@@ -43,7 +43,7 @@ import { extractErrorMessage } from '../lib/utils'
 import { isPairActive } from '../lib/pairStatus'
 import i18n from '../i18n'
 
-export type PairStatus =
+type PairStatus =
   | 'Idle'
   | 'Mentoring'
   | 'Executing'
@@ -72,31 +72,31 @@ export interface AgentActivity {
   outputLineCount?: number
 }
 
-export interface ResourceInfo {
+interface ResourceInfo {
   cpu: number
   memMb: number
 }
 
-export interface PairResources {
+interface PairResources {
   mentor: ResourceInfo
   executor: ResourceInfo
   pairTotal: ResourceInfo
 }
 
-export type FileStatus = 'A' | 'M' | 'D' | 'R' | '??'
+type FileStatus = 'A' | 'M' | 'D' | 'R' | '??'
 
-export interface ModifiedFile {
+interface ModifiedFile {
   path: string
   status: FileStatus
   displayPath: string
 }
 
-export interface GitTracking {
+interface GitTracking {
   available: boolean
   rootPath?: string
 }
 
-export type AutomationMode = 'full-auto'
+type AutomationMode = 'full-auto'
 
 export interface Message {
   id: string
@@ -116,8 +116,8 @@ export interface Message {
   finalizedAt?: number
 }
 
-export type CognitiveEventType = 'tool_call' | 'reasoning' | 'error'
-export type CognitiveEventStatus = 'running' | 'completed' | 'error'
+type CognitiveEventType = 'tool_call' | 'reasoning' | 'error'
+type CognitiveEventStatus = 'running' | 'completed' | 'error'
 
 export interface CognitiveEvent {
   id: string
@@ -456,7 +456,7 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
   }
 }
 
-export const shouldSaveSnapshot = shouldSaveSnapshotImpl
+const shouldSaveSnapshot = shouldSaveSnapshotImpl
 
 async function saveSnapshotForPair(pair: Pair): Promise<void> {
   if (typeof window === 'undefined' || !window.api?.session?.saveSnapshot) return
@@ -513,7 +513,7 @@ function castMessageType(
   return type as 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
 }
 
-export function turnCardToMessage(card: TurnCard, iteration = 0): Message {
+function turnCardToMessage(card: TurnCard, iteration = 0): Message {
   const result = turnCardToMessageImpl(card as TokenUsageTurnCard, iteration) as TokenUsageMessage
   return {
     id: result.id,
@@ -531,7 +531,7 @@ export function turnCardToMessage(card: TurnCard, iteration = 0): Message {
   }
 }
 
-export const syncTokenUsage = syncTokenUsageImpl
+const syncTokenUsage = syncTokenUsageImpl
 
 function commitTurnCard(messages: Message[], card?: TurnCard, iteration = 0): Message[] {
   if (!card) return messages

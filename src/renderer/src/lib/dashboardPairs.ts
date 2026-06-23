@@ -1,7 +1,7 @@
 import { type Pair } from '../store/usePairStore'
 import { isPairActive } from './pairStatus'
 
-export type DashboardPairGroupKey = 'attention' | 'active' | 'paused' | 'ready' | 'finished'
+type DashboardPairGroupKey = 'attention' | 'active' | 'paused' | 'ready' | 'finished'
 
 export interface DashboardPairGroup {
   key: DashboardPairGroupKey
