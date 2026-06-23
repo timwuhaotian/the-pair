@@ -1,0 +1,46 @@
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is The Pair?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Pair is a free, open-source AI pair programming desktop app for macOS, Windows, and Linux. It runs two AI coding agents, a read-only Mentor and an Executor, so coding work is planned, implemented, tested, and reviewed by separate roles."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is The Pair different from Cursor, GitHub Copilot, or Aider?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Cursor, GitHub Copilot, and Aider usually rely on one assistant to write code and self-review. The Pair is a Cursor and Copilot alternative that separates responsibilities: the Mentor reviews while the Executor changes code and runs verification."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which AI providers does The Pair support?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Pair supports opencode, Claude Code, OpenAI Codex CLI, and Gemini CLI. Developers can mix providers between Mentor and Executor, including local models through Ollama-compatible opencode routes."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does The Pair run locally?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The Pair orchestrates agents locally in a native Tauri desktop app. Only selected model providers need network access unless the developer uses a local model provider."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How does The Pair reduce AI coding hallucinations?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Pair reduces AI coding hallucinations by splitting the workflow into two roles. The Executor writes and verifies code, while the read-only Mentor reviews the result, requests fixes, and prevents unreviewed changes from being accepted too early."
+      }
+    }
+  ]
+}

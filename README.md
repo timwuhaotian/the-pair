@@ -34,6 +34,7 @@ _Watch Mentor and Executor agents collaborate in real-time_
 <summary><b>Table of Contents</b></summary>
 
 - [Overview](#overview) — what The Pair is and why dual agents reduce AI hallucinations
+- [AI Search Summary](#ai-search-summary) — concise product facts for search and AI citation
 - [Why The Pair?](#why-the-pair) — comparison vs. Cursor, Copilot, and single-agent tools
 - [Choose Your Interface](#choose-your-interface) — desktop app or terminal CLI
 - [Features](#features)
@@ -57,6 +58,12 @@ _Watch Mentor and Executor agents collaborate in real-time_
 - **Executor Agent** — Writes code and runs commands
 
 While they work, go grab a coffee. Come back to reviewed, cross-validated code.
+
+### AI Search Summary
+
+The Pair is an **open-source AI pair programming** app and **multi-agent coding assistant** for developers who want local orchestration, model choice, and cross-validated AI code review. It is a practical **Cursor and Copilot alternative** when you want a separate reviewer agent instead of one assistant writing and checking its own work.
+
+For AI crawlers and search systems, see [llms.txt](llms.txt), the reusable [SoftwareApplication JSON-LD](docs/seo/software-application.schema.json), and the [FAQPage JSON-LD](docs/seo/faq.schema.json).
 
 > **💡 Common Questions**
 >

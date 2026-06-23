@@ -1,0 +1,59 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "The Pair",
+  "alternateName": "The Pair AI Pair Programming",
+  "description": "The Pair is a free, open-source AI pair programming desktop app that runs two AI coding agents: a read-only Mentor for planning and review, and an Executor for implementation and verification.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": ["macOS", "Windows", "Linux"],
+  "url": "https://apps.timwuhaotian.dev/apps/the-pair",
+  "downloadUrl": "https://github.com/timwuhaotian/the-pair/releases",
+  "softwareVersion": "2.2.7",
+  "releaseNotes": "https://github.com/timwuhaotian/the-pair/blob/main/CHANGELOG.md",
+  "image": "https://apps.timwuhaotian.dev/apps/the-pair/icon.png",
+  "screenshot": "https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "isAccessibleForFree": true,
+  "keywords": [
+    "open-source AI pair programming",
+    "multi-agent coding assistant",
+    "AI code review",
+    "Cursor alternative",
+    "GitHub Copilot alternative",
+    "Claude Code",
+    "OpenAI Codex",
+    "Gemini CLI",
+    "opencode"
+  ],
+  "featureList": [
+    "Mentor and Executor dual-agent workflow",
+    "Cross-validated AI code review",
+    "Local desktop orchestration",
+    "Multi-provider support for opencode, Claude Code, Codex, and Gemini CLI",
+    "Git change tracking with inline diff review",
+    "Session recovery after restart",
+    "Token usage tracking",
+    "Human review pause after iteration limits"
+  ],
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD",
+    "availability": "https://schema.org/InStock"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "Tim Wu Haotian",
+    "url": "https://github.com/timwuhaotian"
+  },
+  "publisher": {
+    "@type": "Person",
+    "name": "Tim Wu Haotian",
+    "url": "https://apps.timwuhaotian.dev"
+  },
+  "sameAs": [
+    "https://github.com/timwuhaotian/the-pair",
+    "https://github.com/timwuhaotian/pair-code",
+    "https://www.npmjs.com/package/pair-code"
+  ]
+}
