@@ -103,7 +103,7 @@ pub fn run() {
             setup_menu(app.handle())?;
 
             let broker = app.state::<Mutex<MessageBroker>>();
-            let mut broker = broker.lock().unwrap();
+            let mut broker = broker.lock().unwrap_or_else(|e| e.into_inner());
             broker.set_app_handle(app.handle().clone());
             Ok(())
         })

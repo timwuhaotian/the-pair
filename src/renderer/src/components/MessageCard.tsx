@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { memo, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -43,7 +43,7 @@ function typeLabel(type: Message['type']): string {
   }
 }
 
-export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
+export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const { t } = useTranslation()
   // Single expansion state covers both cognitive steps and long-body collapse.
   // When a message has both kinds of hidden content, users used to face two
@@ -205,4 +205,4 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       </div>
     </TerminalBlock>
   )
-}
+})

@@ -346,6 +346,15 @@ pub fn ensure_local_tracking_branch(
     }
 }
 
+/// Atomic write for plain-text files: write to a temp sibling then rename.
+/// Mirrors the `write_json_atomic` pattern from `session_snapshot.rs`.
+fn write_text_atomic(path: &Path, content: &str) -> Result<(), String> {
+    let tmp_path = path.with_extension("tmp");
+    std::fs::write(&tmp_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("Failed to move file into place: {}", e))
+}
+
 pub fn ensure_gitignore_worktrees(repo_path: &str) -> Result<bool, String> {
     let exclude_path = Path::new(repo_path)
         .join(".git")
@@ -366,7 +375,7 @@ pub fn ensure_gitignore_worktrees(repo_path: &str) -> Result<bool, String> {
         } else {
             format!("{}\n{}\n", content, entry)
         };
-        std::fs::write(&exclude_path, new_content)
+        write_text_atomic(&exclude_path, &new_content)
             .map_err(|e| format!("Failed to update .git/info/exclude: {}", e))?;
         return Ok(true);
     }
@@ -375,7 +384,7 @@ pub fn ensure_gitignore_worktrees(repo_path: &str) -> Result<bool, String> {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create .git/info directory: {}", e))?;
     }
-    std::fs::write(&exclude_path, format!("{}\n", entry))
+    write_text_atomic(&exclude_path, &format!("{}\n", entry))
         .map_err(|e| format!("Failed to write .git/info/exclude: {}", e))?;
 
     if gitignore_path.exists() {

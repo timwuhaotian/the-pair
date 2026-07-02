@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { GlassButton } from './GlassButton'
 import { modalVariants, overlayVariants } from '../../lib/animations'
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -29,6 +32,8 @@ export function ConfirmModal({
 }: ConfirmModalProps): React.ReactNode {
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
   const reduceMotion = useReducedMotion()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const previouslyFocused = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
@@ -37,6 +42,54 @@ export function ConfirmModal({
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [isOpen, onCancel])
+
+  useEffect(() => {
+    if (!isOpen) {
+      previouslyFocused.current?.focus?.()
+      previouslyFocused.current = null
+      return
+    }
+
+    previouslyFocused.current = document.activeElement as HTMLElement | null
+
+    const container = containerRef.current
+    if (container) {
+      const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      if (focusable.length > 0) {
+        focusable[0].focus()
+      } else {
+        container.focus()
+      }
+    }
+
+    const handleTab = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return
+      const el = containerRef.current
+      if (!el) return
+      const nodes = el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      if (nodes.length === 0) {
+        e.preventDefault()
+        el.focus()
+        return
+      }
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first || !el.contains(document.activeElement)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last || !el.contains(document.activeElement)) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleTab)
+    return () => document.removeEventListener('keydown', handleTab)
+  }, [isOpen])
 
   if (!portalRoot || !isOpen) return null
 
@@ -53,13 +106,15 @@ export function ConfirmModal({
         aria-hidden
       />
       <motion.div
+        ref={containerRef}
         variants={reduceMotion ? overlayVariants : modalVariants}
         initial="hidden"
         animate="visible"
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="glass-modal relative w-full max-w-md"
+        tabIndex={-1}
+        className="glass-modal relative w-full max-w-md outline-none"
       >
         <div className="flex items-baseline justify-between border-b border-border px-4 py-2.5">
           <div className="flex items-baseline gap-2 min-w-0">

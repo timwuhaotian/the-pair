@@ -148,12 +148,9 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
     ]
 }
 
-/// Look up a single provider by kind. Panics if the kind is unknown.
-pub fn provider_for_kind(kind: ProviderKind) -> Arc<dyn Provider> {
-    all_providers()
-        .into_iter()
-        .find(|p| p.kind() == kind)
-        .unwrap_or_else(|| panic!("no provider registered for {:?}", kind))
+/// Look up a single provider by kind. Returns `None` if the kind is unknown.
+pub fn provider_for_kind(kind: ProviderKind) -> Option<Arc<dyn Provider>> {
+    all_providers().into_iter().find(|p| p.kind() == kind)
 }
 
 /// Detect all providers in parallel (one thread per provider).

@@ -20,7 +20,10 @@ export function PairSettingsModal({
   onClose
 }: PairSettingsModalProps): React.ReactNode {
   const { t } = useTranslation()
-  const { availableModels, updatePairModels, isLoading, error } = usePairStore()
+  const availableModels = usePairStore((s) => s.availableModels)
+  const updatePairModels = usePairStore((s) => s.updatePairModels)
+  const isLoading = usePairStore((s) => s.isLoading)
+  const error = usePairStore((s) => s.error)
   const [selection, setSelection] = useState<PairModelSelection>(() => ({
     mentorModel: pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
     executorModel: pair?.pendingExecutorModel ?? pair?.executorModel ?? '',

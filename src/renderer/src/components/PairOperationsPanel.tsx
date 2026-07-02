@@ -63,6 +63,20 @@ function PairOperationsPanel({
   const saveStatusRef = useRef(saveStatus)
   saveStatusRef.current = saveStatus
 
+  // Re-sync local panel state when the pair's effective models change externally
+  // (e.g., from another component or after a successful server-side update).
+  useEffect(() => {
+    setPanelMentorModel(effectiveMentorModel)
+    setPanelExecutorModel(effectiveExecutorModel)
+    setPanelMentorEffort(pair.mentorReasoningEffort)
+    setPanelExecutorEffort(pair.executorReasoningEffort)
+  }, [
+    effectiveMentorModel,
+    effectiveExecutorModel,
+    pair.mentorReasoningEffort,
+    pair.executorReasoningEffort
+  ])
+
   const modelsChanged =
     panelMentorModel !== effectiveMentorModel ||
     panelExecutorModel !== effectiveExecutorModel ||

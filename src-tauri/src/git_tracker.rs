@@ -76,22 +76,30 @@ impl GitTracker {
         let max_lines = 500;
         let full_path = Path::new(directory).join(file_path);
 
-        if full_path.exists() {
-            if let Ok(content) = fs::read(&full_path) {
-                if content.iter().take(8000).any(|&b| b == 0) {
-                    return Err("Binary file — cannot display diff".to_string());
-                }
-            }
+        // Canonicalize and verify the joined path stays inside the workspace
+        // directory to prevent path traversal (e.g. file_path = "../../etc/passwd").
+        let canonical_directory = Path::new(directory)
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve workspace directory: {}", e))?;
+        let canonical_full_path = full_path
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve file path: {}", e))?;
+        if !canonical_full_path.starts_with(&canonical_directory) {
+            return Err("File path escapes the workspace directory".to_string());
         }
 
         let output = if status == "??" {
-            match fs::read_to_string(&full_path) {
-                Ok(content) => {
+            match fs::read(&canonical_full_path) {
+                Ok(bytes) => {
+                    if bytes.iter().take(8000).any(|&b| b == 0) {
+                        return Err("Binary file — cannot display diff".to_string());
+                    }
+                    let content = String::from_utf8_lossy(&bytes);
                     let lines: Vec<&str> = content.lines().collect();
                     let truncated = if lines.len() > max_lines {
                         lines[..max_lines].join("\n") + "\n\n... (truncated)"
                     } else {
-                        content
+                        content.to_string()
                     };
                     return Ok(format!("--- /dev/null\n+++ b/{}\n{}", file_path, truncated));
                 }

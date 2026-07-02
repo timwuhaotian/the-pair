@@ -3,12 +3,5 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default",
-    "fs:default",
-    "fs:read-all",
-    "fs:write-all",
-    "updater:default"
-  ]
+  "permissions": ["core:default", "dialog:default", "fs:allow-write-text-file", "updater:default"]
 }

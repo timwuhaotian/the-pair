@@ -9,6 +9,25 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
+/// Lightweight signature of the state fields the UI reacts to. Used by the
+/// monitor loop to skip redundant `pair:state` emits when nothing meaningful
+/// changed between ticks (resource numbers still update on every real change).
+fn pair_state_signature(state: &PairState) -> String {
+    format!(
+        "{:?}|{}|{}|{:?}|{:?}|{}|{}|{:?}|{}|{}",
+        state.status,
+        state.iteration,
+        state.messages.len(),
+        state.turn,
+        state.mentor_activity.phase,
+        state.mentor_activity.label,
+        state.mentor_activity.output_line_count,
+        state.executor_activity.phase,
+        state.executor_activity.label,
+        state.executor_activity.output_line_count,
+    )
+}
+
 pub struct MessageBroker {
     pair_states: Arc<Mutex<HashMap<String, PairState>>>,
     app_handle: Option<AppHandle>,
@@ -154,14 +173,14 @@ impl MessageBroker {
             plan_gate: input.plan_gate.unwrap_or(false),
         };
 
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         pair_states.insert(pair_id.to_string(), state);
         println!("[MessageBroker::initialize_pair] Pair state inserted successfully");
         Ok(())
     }
 
     pub fn get_last_messages(&self, pair_id: &str) -> (Option<Message>, Option<Message>) {
-        let pair_states = self.pair_states.lock().unwrap();
+        let pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get(pair_id) {
             (
                 state.mentor.last_message.clone(),
@@ -173,7 +192,7 @@ impl MessageBroker {
     }
 
     pub fn add_message(&self, pair_id: &str, mut message: Message) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             // Assign current iteration
             message.iteration = state.iteration;
@@ -218,7 +237,7 @@ impl MessageBroker {
     }
 
     pub fn add_log_line(&self, pair_id: &str, role: &str, line: &str) {
-        let pair_states = self.pair_states.lock().unwrap();
+        let pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get(pair_id) {
             let msg = Message {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -336,7 +355,7 @@ impl MessageBroker {
     }
 
     pub fn reset_session(&self, pair_id: &str) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.messages.clear();
             state.iteration = 0;
@@ -352,7 +371,7 @@ impl MessageBroker {
         role: &str,
         active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
     ) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         let mut should_spawn_monitor = false;
 
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -481,9 +500,12 @@ impl MessageBroker {
 
         tauri::async_runtime::spawn(async move {
             let mut sys = sysinfo::System::new_all();
+            // Tracks the last state signature we emitted so we can skip
+            // redundant `pair:state` broadcasts when nothing changed.
+            let mut last_state_signature: Option<String> = None;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                let mut guard = pair_states.lock().unwrap();
+                let mut guard = pair_states.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(state) = guard.get_mut(&pair_id_string) {
                     if matches!(
                         state.status,
@@ -555,7 +577,7 @@ impl MessageBroker {
 
                     drop(guard);
                     if activity_for_update {
-                        let mut guard2 = pair_states.lock().unwrap();
+                        let mut guard2 = pair_states.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(state) = guard2.get_mut(&pair_id_string) {
                             let activity = if active_role == "mentor" {
                                 &mut state.mentor_activity
@@ -567,14 +589,19 @@ impl MessageBroker {
                             activity.detail = new_detail;
                             activity.updated_at = now_millis();
                             if let Some(handle) = &app_handle {
+                                last_state_signature = Some(pair_state_signature(state));
                                 let _ = handle.emit("pair:state", state.clone());
                             }
                         }
                     } else {
-                        let mut guard2 = pair_states.lock().unwrap();
-                        if let Some(state) = guard2.get_mut(&pair_id_string) {
-                            if let Some(handle) = &app_handle {
-                                let _ = handle.emit("pair:state", state.clone());
+                        let guard2 = pair_states.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(state) = guard2.get(&pair_id_string) {
+                            let sig = pair_state_signature(state);
+                            if last_state_signature.as_deref() != Some(sig.as_str()) {
+                                last_state_signature = Some(sig);
+                                if let Some(handle) = &app_handle {
+                                    let _ = handle.emit("pair:state", state.clone());
+                                }
                             }
                         }
                     }
@@ -592,7 +619,7 @@ impl MessageBroker {
         active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
     ) -> PairStatus {
         let resolved_status = {
-            let mut pair_states = self.pair_states.lock().unwrap();
+            let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
 
             if let Some(state) = pair_states.get_mut(pair_id) {
                 let turn = state.turn.clone();
@@ -700,12 +727,12 @@ impl MessageBroker {
     }
 
     pub fn get_state(&self, pair_id: &str) -> Option<PairState> {
-        let pair_states = self.pair_states.lock().unwrap();
+        let pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         pair_states.get(pair_id).cloned()
     }
 
     pub fn set_latest_acceptance(&self, pair_id: &str, acceptance: Option<AcceptanceRecord>) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             if let Some(ref record) = acceptance {
                 state.acceptance_history.push(record.clone());
@@ -716,7 +743,7 @@ impl MessageBroker {
     }
 
     pub fn set_plan_checklist(&self, pair_id: &str, checklist: Vec<PlanItem>) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.plan_checklist = checklist
                 .into_iter()
@@ -743,7 +770,7 @@ impl MessageBroker {
         label: String,
         detail: Option<String>,
     ) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             let activity = if role == "mentor" {
                 &mut state.mentor_activity
@@ -762,7 +789,7 @@ impl MessageBroker {
 
     pub fn update_output_progress(&self, pair_id: &str, role: &str) {
         let now = now_millis();
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             let activity = if role == "mentor" {
                 &mut state.mentor_activity
@@ -785,7 +812,7 @@ impl MessageBroker {
 
             drop(pair_states);
             if should_notify {
-                let pair_states = self.pair_states.lock().unwrap();
+                let pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(state) = pair_states.get(pair_id) {
                     self.notify_state_update(pair_id, state);
                 }
@@ -819,7 +846,7 @@ impl MessageBroker {
             status,
         };
 
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.cognitive_events.push(event);
             // Keep only last 50 events to prevent memory bloat
@@ -831,7 +858,7 @@ impl MessageBroker {
     }
 
     pub fn set_turn_started_at(&self, pair_id: &str, timestamp: u64) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             // Clear cognitive events for new turn
             state.cognitive_events.clear();
@@ -852,7 +879,7 @@ impl MessageBroker {
     }
 
     pub fn update_token_usage(&self, pair_id: &str, role: &str, usage: TurnTokenUsage) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             let agent_state = if role == "mentor" {
                 &mut state.mentor
@@ -866,7 +893,7 @@ impl MessageBroker {
     }
 
     pub fn reset_token_usage(&self, pair_id: &str, role: &str) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             let agent_state = if role == "mentor" {
                 &mut state.mentor
@@ -880,7 +907,7 @@ impl MessageBroker {
     }
 
     pub fn set_pair_status(&self, pair_id: &str, status: PairStatus, detail: Option<String>) {
-        let mut pair_states = self.pair_states.lock().unwrap();
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.status = status.clone();
             state.mentor.status = status.clone();

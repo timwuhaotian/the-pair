@@ -298,6 +298,12 @@ pub async fn pair_assign_task(
     println!("[pair_assign_task] Called for pair_id: {}", pair_id);
     println!("[pair_assign_task] Task spec: {}", input.spec);
 
+    if let Some(ref role) = input.role {
+        if role != "mentor" && role != "executor" {
+            return Err("Invalid role: must be 'mentor' or 'executor'".to_string());
+        }
+    }
+
     let pair = {
         let manager = pair_manager.lock().unwrap();
         manager.pairs.get(&pair_id).ok_or("Pair not found")?.clone()
@@ -764,6 +770,10 @@ pub async fn kill_process(
     pair_id: String,
     role: String,
 ) -> Result<(), String> {
+    if role != "mentor" && role != "executor" {
+        return Err("Invalid role: must be 'mentor' or 'executor'".to_string());
+    }
+
     {
         let manager = state.lock().unwrap();
         if !manager.pairs.contains_key(&pair_id) {

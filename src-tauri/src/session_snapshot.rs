@@ -346,6 +346,25 @@ fn snapshot_file_path_in_dir(snapshot_dir: &Path, pair_id: &str) -> PathBuf {
     snapshot_dir.join(format!("{}.json", pair_id))
 }
 
+/// Validate that a `pair_id` is safe to interpolate into a file path.
+/// Accepts UUID-format strings and similar alphanumeric+hyphen identifiers,
+/// rejecting path separators, `..`, and unreasonably long values.
+fn validate_pair_id(pair_id: &str) -> Result<(), String> {
+    if pair_id.is_empty() || pair_id.len() > 128 {
+        return Err("Invalid pair_id: length out of range".to_string());
+    }
+    if pair_id.contains('/') || pair_id.contains('\\') || pair_id.contains("..") {
+        return Err("Invalid pair_id: contains path separator or traversal sequence".to_string());
+    }
+    if !pair_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Invalid pair_id: must be alphanumeric, hyphens, or underscores".to_string());
+    }
+    Ok(())
+}
+
 pub(crate) fn ensure_snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = snapshot_dir(app)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create snapshot dir: {}", e))?;
@@ -360,6 +379,17 @@ fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()
 }
 
 pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+    const MAX_SNAPSHOT_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    if metadata.len() > MAX_SNAPSHOT_FILE_SIZE {
+        return Err(format!(
+            "Snapshot file too large ({} bytes, max {})",
+            metadata.len(),
+            MAX_SNAPSHOT_FILE_SIZE
+        ));
+    }
+
     let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
@@ -874,6 +904,7 @@ pub fn persist_pair_snapshot_from_state(
     pair_id: &str,
     state: &PairState,
 ) -> Result<(), String> {
+    validate_pair_id(pair_id)?;
     let pair_manager = app.state::<std::sync::Mutex<PairManager>>();
     let manager = pair_manager.lock().map_err(|e| e.to_string())?;
     let pair = manager
@@ -962,6 +993,8 @@ pub fn session_save_snapshot(
     app: AppHandle,
     input: SessionSnapshotDraft,
 ) -> Result<SessionSnapshotRecord, String> {
+    validate_pair_id(&input.pair_id)?;
+
     let context = {
         let spawner = app.state::<ProcessSpawner>();
         let contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
@@ -981,6 +1014,7 @@ pub fn delete_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(), String
 
 #[tauri::command]
 pub fn delete_recoverable_session(app: AppHandle, pair_id: String) -> Result<(), String> {
+    validate_pair_id(&pair_id)?;
     delete_pair_snapshot(&app, &pair_id)
 }
 
@@ -993,6 +1027,7 @@ pub fn list_recoverable_sessions(app: AppHandle) -> Result<Vec<RecoverableSessio
 }
 
 pub fn read_snapshot(app: &AppHandle, pair_id: &str) -> Result<SessionSnapshotRecord, String> {
+    validate_pair_id(pair_id)?;
     let path = snapshot_path_for_pair(app, pair_id)?;
     read_json(&path)
 }
@@ -1104,6 +1139,7 @@ pub async fn restore_session(
     spawner: State<'_, ProcessSpawner>,
     input: RestoreSessionInput,
 ) -> Result<SessionSnapshotRecord, String> {
+    validate_pair_id(&input.pair_id)?;
     let snapshot = read_snapshot(&app, &input.pair_id)?;
     let pair = build_pair(&snapshot);
     let mut state = build_pair_state(&snapshot);

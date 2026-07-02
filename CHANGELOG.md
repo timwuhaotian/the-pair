@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-07-02
+
+### Security
+
+- **Fixed command injection in `provider_launch_login`.** The Tauri command now accepts a `ProviderKind` enum instead of a free-form shell command string, resolving the arbitrary command execution vector via `osascript`/`sh`/`cmd`.
+- **Fixed path traversal in `git_get_file_diff`.** Untracked file reads are now guarded with canonicalization and path-containment checks, preventing `../` escapes from reading arbitrary files.
+- **Fixed path traversal in snapshot operations.** Added `validate_pair_id()` to reject non-UUID `pair_id` values, preventing arbitrary file read/delete via crafted paths.
+- **Enabled Content Security Policy.** Set a restrictive CSP (`default-src 'self'; script-src 'self'`) that was previously `null`.
+- **Scoped filesystem capabilities.** Replaced broad `fs:read-all`/`fs:write-all` permissions with the minimal `fs:allow-write-text-file` scope.
+- **Added role validation.** `pair_assign_task` and `kill_process` now reject role strings that are not `"mentor"` or `"executor"`.
+- **Capped snapshot JSON reads at 50 MB** to prevent OOM on truncated or maliciously large files.
+
+### Fixed
+
+- **`provider_for_kind()` no longer panics** on unknown `ProviderKind`. Returns `None` and callers handle it gracefully instead of crashing the app.
+- **Eliminated mutex poisoning cascade.** All 60+ `.lock().unwrap()` calls across the Rust backend now use `.lock().unwrap_or_else(|e| e.into_inner())`, preventing a single thread panic from permanently bracing all pair operations.
+- **Optimized resource monitor.** Replaced `sysinfo::refresh_all()` (which scans every system process) with targeted `refresh_processes()` for only the tracked PIDs.
+- **Eliminated redundant `pair:state` emissions.** The 5-second monitor tick now uses a state signature to skip emitting when nothing changed.
+- **Fixed non-atomic writes** in `worktree_manager.rs` (`.git/info/exclude`) and `report_generator.rs` (session reports) via temp-file + rename pattern.
+- **Fixed weak ID generation.** Replaced `Math.random().toString(36).substring(7)` with `crypto.randomUUID()` throughout the store.
+- **Fixed modal focus management.** `GlassModal` and `ConfirmModal` now implement focus traps (save/restore focus, Tab wrapping) for keyboard and screen-reader accessibility.
+- **Fixed PresetCard keyboard accessibility.** Changed from `<div onClick>` to `<button>` with `aria-pressed`.
+- **Fixed `PairOperationsPanel` model picker desync.** Local state now re-syncs when the pair's models change externally.
+- **Fixed `loadAllPairs` double-fire in React StrictMode** via cancellation guard.
+- **Fixed `App.tsx` shortcuts re-registration** by wrapping handlers in `useCallback` and shortcuts array in `useMemo`.
+
+### Changed
+
+- **Optimized frontend re-render performance.** Hoisted `MarkdownContent` components object to module level, wrapped `MessageCard`/`TokenChip` in `React.memo`, and converted three modal components to individual Zustand selectors.
+- **Added listener teardown API.** `usePairStore` now exposes `teardownListeners()` for proper IPC listener cleanup.
+
 ## [2.2.7] - 2026-06-24
 
 ### Removed

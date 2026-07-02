@@ -230,7 +230,8 @@ fn extract_token_usage(
     provider_kind: ProviderKind,
     event: &serde_json::Value,
 ) -> Option<TurnTokenUsage> {
-    crate::providers::provider_for_kind(provider_kind).extract_token_usage(event)
+    crate::providers::provider_for_kind(provider_kind)?
+        .extract_token_usage(event)
 }
 
 fn collect_json_candidates_for_provider(
@@ -238,7 +239,9 @@ fn collect_json_candidates_for_provider(
     event: &serde_json::Value,
     out: &mut Vec<String>,
 ) {
-    let provider = crate::providers::provider_for_kind(provider_kind);
+    let Some(provider) = crate::providers::provider_for_kind(provider_kind) else {
+        return;
+    };
 
     // Provider-specific extraction (Claude, Gemini override the default).
     if let Some(candidates) = provider.collect_json_candidates(event) {
@@ -494,7 +497,7 @@ async fn maybe_run_executor_acceptance(
         let Some(broker_state) = app.try_state::<Mutex<MessageBroker>>() else {
             return Ok(None);
         };
-        let broker = broker_state.lock().unwrap();
+        let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
         broker.get_state(pair_id)
     };
 
@@ -516,7 +519,7 @@ async fn maybe_run_executor_acceptance(
     .await;
 
     if let Some(broker_state) = app.try_state::<Mutex<MessageBroker>>() {
-        let broker = broker_state.lock().unwrap();
+        let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
         broker.set_latest_acceptance(pair_id, Some(acceptance.clone()));
     }
 
@@ -582,7 +585,7 @@ impl ProcessSpawner {
     ) -> Result<(), String> {
         let contexts = self.pair_contexts.clone();
         let ctx = {
-            let guard = contexts.lock().unwrap();
+            let guard = contexts.lock().unwrap_or_else(|e| e.into_inner());
             let c = guard
                 .get(&pair_id)
                 .ok_or_else(|| format!("Context not found for pair {}", pair_id))?;
@@ -646,7 +649,7 @@ impl ProcessSpawner {
                 use tauri::Manager;
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker.reset_token_usage(&pair_id_mock, &role_mock);
                     let now = crate::util::now_millis();
                     broker.update_agent_activity(
@@ -661,7 +664,7 @@ impl ProcessSpawner {
 
                 let current_iteration =
                     if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker
                             .get_state(&pair_id_mock)
                             .map(|s| s.iteration)
@@ -671,7 +674,7 @@ impl ProcessSpawner {
                     };
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker.update_agent_activity(
                         &pair_id_mock,
                         &role_mock,
@@ -692,14 +695,14 @@ impl ProcessSpawner {
 
                 for line in &responses {
                     if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker.add_log_line(&pair_id_mock, &role_mock, line);
                         broker.update_output_progress(&pair_id_mock, &role_mock);
                     }
                 }
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker.update_agent_activity(
                         &pair_id_mock,
                         &role_mock,
@@ -712,7 +715,7 @@ impl ProcessSpawner {
                 let final_output = responses.join("\n");
                 let state_before_completion =
                     if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker.get_state(&pair_id_mock)
                     } else {
                         None
@@ -752,7 +755,7 @@ impl ProcessSpawner {
                 };
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker.add_message(
                         &pair_id_mock,
                         Message {
@@ -774,7 +777,7 @@ impl ProcessSpawner {
 
                 if let Some(acceptance) = parsed_acceptance.clone() {
                     if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker.set_latest_acceptance(&pair_id_mock, Some(acceptance));
                     }
                 }
@@ -784,7 +787,7 @@ impl ProcessSpawner {
                         maybe_run_executor_acceptance(&app_mock, &pair_id_mock, &final_output).await
                     {
                         if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                            let broker = broker.lock().unwrap();
+                            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                             broker.set_pair_status(
                                 &pair_id_mock,
                                 PairStatus::Reviewing,
@@ -798,7 +801,7 @@ impl ProcessSpawner {
                 }
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker.update_token_usage(&pair_id_mock, &role_mock, mock_token_usage());
                 }
 
@@ -826,7 +829,7 @@ impl ProcessSpawner {
                 }
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
 
                     if is_mentor_review_turn && mentor_finish_actionable {
                         println!(
@@ -936,8 +939,8 @@ impl ProcessSpawner {
             pair_id: &pair_id,
             message: &message,
             reasoning_effort,
-        });
-        let spec = ProviderAdapter::runtime_spec(provider_kind);
+        })?;
+        let spec = ProviderAdapter::runtime_spec(provider_kind)?;
         let executable = command.executable.clone();
         let args = command.args;
         let codex_last_message_path = command.last_message_path;
@@ -961,7 +964,7 @@ impl ProcessSpawner {
 
         let now = crate::util::now_millis();
         if let Some(broker) = app.try_state::<Mutex<MessageBroker>>() {
-            let broker = broker.lock().unwrap();
+            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
             broker.update_agent_activity(
                 &pair_id,
                 &role,
@@ -1000,9 +1003,12 @@ impl ProcessSpawner {
                     pair_id_clone_err, role_clone_err, line
                 );
 
-                if !crate::providers::provider_for_kind(provider_kind_clone_err).suppress_stderr() {
+                if !crate::providers::provider_for_kind(provider_kind_clone_err)
+                    .map(|p| p.suppress_stderr())
+                    .unwrap_or(false)
+                {
                     if let Some(broker) = app_clone_err.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker.add_log_line(
                             &pair_id_clone_err,
                             &role_clone_err,
@@ -1020,7 +1026,7 @@ impl ProcessSpawner {
 
             // Reset token usage at the start of the turn
             if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker.lock().unwrap();
+                let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                 broker.reset_token_usage(&pair_id_clone, &role_clone);
             }
 
@@ -1041,7 +1047,7 @@ impl ProcessSpawner {
             // Get current iteration from state
             let current_iteration =
                 if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
+                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                     broker
                         .get_state(&pair_id_clone)
                         .map(|s| s.iteration)
@@ -1079,16 +1085,17 @@ impl ProcessSpawner {
                     // Capture provider-specific turn errors so we can surface them after the
                     // stream closes instead of treating the empty result text as success.
                     {
-                        let provider = crate::providers::provider_for_kind(provider_kind_clone);
-                        if let Some(detail) = provider.extract_error_detail(&event) {
-                            provider_turn_error = Some(detail);
+                        if let Some(provider) = crate::providers::provider_for_kind(provider_kind_clone) {
+                            if let Some(detail) = provider.extract_error_detail(&event) {
+                                provider_turn_error = Some(detail);
+                            }
                         }
                     }
 
                     if let Some(usage) = extract_token_usage(provider_kind_clone, &event) {
                         last_token_usage = Some(usage.clone());
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                            let broker = broker.lock().unwrap();
+                            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                             broker.update_token_usage(&pair_id_clone, &role_clone, usage);
                         }
                     } else {
@@ -1117,7 +1124,7 @@ impl ProcessSpawner {
 
                     if first_output {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                            let broker = broker.lock().unwrap();
+                            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                             let (phase, label, detail) =                             if event_type_lower.contains("tool")
                                 || event_type_lower.contains("function_call")
                             {
@@ -1190,7 +1197,7 @@ impl ProcessSpawner {
                                     pair_id_clone, role_clone, step_cycle_count
                                 );
                                 if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                                    let broker = broker.lock().unwrap();
+                                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                                     broker.set_pair_status(
                                         &pair_id_clone,
                                         crate::types::PairStatus::Error,
@@ -1199,7 +1206,7 @@ impl ProcessSpawner {
                                 }
                                 // Kill the process via active_processes map
                                 let process_key = format!("{}-{}", pair_id_clone, role_clone);
-                                if let Some(mut child) = active_processes_for_cleanup.lock().unwrap().remove(&process_key) {
+                                if let Some(mut child) = active_processes_for_cleanup.lock().unwrap_or_else(|e| e.into_inner()).remove(&process_key) {
                                     let _ = child.start_kill();
                                 }
                                 // Break out of the event loop
@@ -1253,7 +1260,7 @@ impl ProcessSpawner {
                         || event_type_lower.contains("function_call")
                     {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                            let broker = broker.lock().unwrap();
+                            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                             let tool_name =
                                 event.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
                             broker.add_cognitive_event(
@@ -1276,7 +1283,7 @@ impl ProcessSpawner {
 
                     if let Some(sid) = extract_session_id(&event) {
                         let mut should_persist_snapshot = false;
-                        let mut guard = contexts.lock().unwrap();
+                        let mut guard = contexts.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(c) = guard.get_mut(&pair_id_clone) {
                             if role_clone == "mentor" {
                                 if c.mentor_session_id.as_deref() != Some(sid.as_str()) {
@@ -1311,7 +1318,7 @@ impl ProcessSpawner {
 
                     if first_output {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                            let broker = broker.lock().unwrap();
+                            let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                             broker.update_agent_activity(
                                 &pair_id_clone,
                                 &role_clone,
@@ -1325,9 +1332,12 @@ impl ProcessSpawner {
                 }
 
                 // Keep detailed logs, but avoid polluting plain output fallback with JSON internals.
-                if !crate::providers::provider_for_kind(provider_kind_clone).suppress_plain_output_logging() {
+                if !crate::providers::provider_for_kind(provider_kind_clone)
+                    .map(|p| p.suppress_plain_output_logging())
+                    .unwrap_or(false)
+                {
                     if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         if !should_skip_plain_output_line(&line) {
                             broker.add_log_line(&pair_id_clone, &role_clone, &line);
                         }
@@ -1336,7 +1346,7 @@ impl ProcessSpawner {
 
                 if !is_internal_json && !should_skip_plain_output_line(&line) {
                     if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker.lock().unwrap();
+                        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                         broker.update_output_progress(&pair_id_clone, &role_clone);
                     }
                     if !accumulated_plain_output.is_empty() {
@@ -1391,7 +1401,7 @@ impl ProcessSpawner {
 
             let state_before_completion =
                 if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker_state.lock().unwrap();
+                    let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                     broker.get_state(&pair_id_clone)
                 } else {
                     None
@@ -1431,7 +1441,7 @@ impl ProcessSpawner {
             };
 
             if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker.lock().unwrap();
+                let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                 broker.add_message(
                     &pair_id_clone,
                     Message {
@@ -1453,14 +1463,14 @@ impl ProcessSpawner {
 
             if let Some(acceptance) = parsed_acceptance.clone() {
                 if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker_state.lock().unwrap();
+                    let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                     broker.set_latest_acceptance(&pair_id_clone, Some(acceptance));
                 }
             }
 
             // Parse plan checklist from mentor output if available
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker_state.lock().unwrap();
+                let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(state) = broker.get_state(&pair_id_clone) {
                     if let Some(last_mentor_msg) = state.messages.iter().rev().find(|m| {
                         matches!(m.from, crate::types::MessageSender::Mentor)
@@ -1478,7 +1488,7 @@ impl ProcessSpawner {
                     maybe_run_executor_acceptance(&app_clone, &pair_id_clone, &final_output).await
                 {
                     if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                        let broker = broker_state.lock().unwrap();
+                        let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                         broker.set_pair_status(
                             &pair_id_clone,
                             PairStatus::Reviewing,
@@ -1493,12 +1503,12 @@ impl ProcessSpawner {
 
             // Clean up from active processes
             {
-                let mut guard = active_processes_for_cleanup.lock().unwrap();
+                let mut guard = active_processes_for_cleanup.lock().unwrap_or_else(|e| e.into_inner());
                 guard.remove(&format!("{}-{}", pair_id_clone, role_clone));
             }
 
             if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker.lock().unwrap();
+                let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
                 broker.update_agent_activity(
                     &pair_id_clone,
                     &role_clone,
@@ -1532,7 +1542,7 @@ impl ProcessSpawner {
             }
 
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker_state.lock().unwrap();
+                let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
 
                 if let Some(detail) = provider_turn_error.as_ref() {
                     // Provider reported a hard turn error (e.g. Claude Code permission
@@ -1841,7 +1851,7 @@ impl ProcessSpawner {
             // human approval when this pair has the gate enabled. Review turns and
             // executor turns are never gated.
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker_state.lock().unwrap();
+                let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                 let plan_gate_enabled = broker
                     .get_state(&pair_id_clone)
                     .map(|s| s.plan_gate)
@@ -1888,7 +1898,7 @@ impl ProcessSpawner {
 
             if should_handoff {
                 if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker_state.lock().unwrap();
+                    let broker = broker_state.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(state) = broker.get_state(&pair_id_clone) {
                         if state.status == crate::types::PairStatus::Paused {
                             println!(
@@ -1918,7 +1928,7 @@ impl ProcessSpawner {
             }
         });
 
-        let mut guard = self.active_processes.lock().unwrap();
+        let mut guard = self.active_processes.lock().unwrap_or_else(|e| e.into_inner());
         guard.insert(format!("{}-{}", pair_id, role), child);
 
         Ok(())
@@ -2258,7 +2268,8 @@ mod tests {
 
     #[test]
     fn claude_result_error_detail_detects_error_and_permission_denials() {
-        let provider = crate::providers::provider_for_kind(ProviderKind::Claude);
+        let provider = crate::providers::provider_for_kind(ProviderKind::Claude)
+            .expect("Claude provider should be registered");
 
         let is_error_result = json!({
             "type": "result",

@@ -77,12 +77,18 @@ pub struct ProviderTurnCommand {
 pub struct ProviderAdapter;
 
 impl ProviderAdapter {
-    pub fn runtime_spec(kind: ProviderKind) -> ProviderRuntimeSpec {
-        crate::providers::provider_for_kind(kind).runtime_spec()
+    pub fn runtime_spec(kind: ProviderKind) -> Result<ProviderRuntimeSpec, String> {
+        let provider = crate::providers::provider_for_kind(kind)
+            .ok_or_else(|| format!("No provider registered for {:?}", kind))?;
+        Ok(provider.runtime_spec())
     }
 
-    pub fn build_turn_command(request: ProviderTurnRequest<'_>) -> ProviderTurnCommand {
-        crate::providers::provider_for_kind(request.provider_kind).build_turn_command(&request)
+    pub fn build_turn_command(
+        request: ProviderTurnRequest<'_>,
+    ) -> Result<ProviderTurnCommand, String> {
+        let provider = crate::providers::provider_for_kind(request.provider_kind)
+            .ok_or_else(|| format!("No provider registered for {:?}", request.provider_kind))?;
+        Ok(provider.build_turn_command(&request))
     }
 
     pub fn infer_provider_kind(model: &str) -> ProviderKind {
@@ -148,7 +154,8 @@ mod tests {
             pair_id: "pair-1",
             message: "hello world",
             reasoning_effort: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(command.executable, "codex");
         assert_eq!(
@@ -184,7 +191,8 @@ mod tests {
             pair_id: "pair-1",
             message: "plan the work",
             reasoning_effort: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(command.executable, "claude");
         assert_eq!(
@@ -284,7 +292,8 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        });
+        })
+        .unwrap();
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
@@ -300,7 +309,8 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        });
+        })
+        .unwrap();
 
         assert!(!command.args.contains(&"--thinking-budget".to_string()));
         assert!(!command.args.contains(&"32768".to_string()));
@@ -317,7 +327,8 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("medium"),
-        });
+        })
+        .unwrap();
 
         assert!(command.args.contains(&"-c".to_string()));
         assert!(command
@@ -336,7 +347,8 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        });
+        })
+        .unwrap();
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));

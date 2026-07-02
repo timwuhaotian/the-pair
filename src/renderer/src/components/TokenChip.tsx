@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { cn } from '../lib/utils'
 import type { TurnTokenUsage } from '../types'
 
@@ -14,7 +15,12 @@ function formatTokenCount(count: number): string {
   return count.toString()
 }
 
-export function TokenChip({ usage, isLive, compact, className }: TokenChipProps): React.ReactNode {
+export const TokenChip = memo(function TokenChip({
+  usage,
+  isLive,
+  compact,
+  className
+}: TokenChipProps): React.ReactNode {
   const hasUsage = !!usage
   const outputCount = usage?.outputTokens ?? 0
   const inputCount = usage?.inputTokens ?? 0
@@ -50,4 +56,4 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
       <span className="text-muted-foreground-faint">tok</span>
     </span>
   )
-}
+})

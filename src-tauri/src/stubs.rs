@@ -1,6 +1,6 @@
 use crate::config_paths::opencode_config_path;
 use crate::model_catalog::{AvailableModel, ModelCatalog};
-use crate::provider_registry::{DetectedProviderProfile, ProviderRegistry};
+use crate::provider_registry::{DetectedProviderProfile, ProviderKind, ProviderRegistry};
 use crate::util::is_mock_mode;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -256,8 +256,20 @@ pub fn config_open_file() -> Result<(), String> {
 
 /// Launch a provider's login command in the system's native terminal.
 /// Fire-and-forget — the terminal stays open for the user to complete the login flow.
+///
+/// The login command is resolved **server-side** from the `ProviderKind` enum —
+/// the frontend never sends a free-form command string. This prevents command
+/// injection via a crafted `login_command` parameter.
 #[tauri::command]
-pub fn provider_launch_login(login_command: String) -> Result<(), String> {
+pub fn provider_launch_login(provider_kind: ProviderKind) -> Result<(), String> {
+    use crate::providers::provider_for_kind;
+
+    let provider = provider_for_kind(provider_kind)
+        .ok_or_else(|| format!("No login command for {:?}", provider_kind))?;
+    let login_command = provider
+        .login_command()
+        .ok_or_else(|| format!("Provider {:?} has no login command", provider_kind))?;
+
     #[cfg(target_os = "macos")]
     {
         // AppleScript opens Terminal.app and runs the command.

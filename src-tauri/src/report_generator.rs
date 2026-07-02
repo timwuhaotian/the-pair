@@ -254,7 +254,14 @@ pub fn save_report_to_file(
     let filepath = reports_dir.join(&filename);
 
     let markdown = format_report_markdown(report);
-    fs::write(&filepath, markdown).map_err(|e| format!("Failed to write report file: {}", e))?;
+
+    // Atomic write: write to a temp sibling then rename so a crash mid-write
+    // never leaves a partial report file behind.
+    let tmp_path = filepath.with_extension("md.tmp");
+    fs::write(&tmp_path, markdown)
+        .map_err(|e| format!("Failed to write report file: {}", e))?;
+    fs::rename(&tmp_path, &filepath)
+        .map_err(|e| format!("Failed to move report file into place: {}", e))?;
 
     Ok(filepath)
 }

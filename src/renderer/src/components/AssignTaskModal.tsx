@@ -22,8 +22,12 @@ interface AssignTaskModalProps {
 
 export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps): React.ReactNode {
   const { t } = useTranslation()
-  const { assignTask, isLoading, error, availableModels, restoringSpec, setRestoringSpec } =
-    usePairStore()
+  const assignTask = usePairStore((s) => s.assignTask)
+  const isLoading = usePairStore((s) => s.isLoading)
+  const error = usePairStore((s) => s.error)
+  const availableModels = usePairStore((s) => s.availableModels)
+  const restoringSpec = usePairStore((s) => s.restoringSpec)
+  const setRestoringSpec = usePairStore((s) => s.setRestoringSpec)
   const [spec, setSpec] = useState('')
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)

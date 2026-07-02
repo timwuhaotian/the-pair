@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { useTranslation } from 'react-i18next'
@@ -204,13 +204,17 @@ function App(): React.ReactNode {
 
   useEffect(() => {
     preloadSounds()
+    let cancelled = false
     const init = async (): Promise<void> => {
       initMessageListener()
       void loadAvailableModels()
       await loadAllPairs()
-      setPairsLoaded(true)
+      if (!cancelled) setPairsLoaded(true)
     }
     void init()
+    return () => {
+      cancelled = true
+    }
   }, [loadAvailableModels, initMessageListener, loadAllPairs])
 
   useEffect(() => {
@@ -268,7 +272,7 @@ function App(): React.ReactNode {
     }
   }, [selectedPairId, selectedPair])
 
-  const handlePauseSelectedPair = async (): Promise<void> => {
+  const handlePauseSelectedPair = useCallback(async (): Promise<void> => {
     if (!selectedPair || !isPairActive(selectedPair.status)) return
 
     try {
@@ -276,9 +280,9 @@ function App(): React.ReactNode {
     } catch (error) {
       console.error('[App] Failed to pause pair:', error)
     }
-  }
+  }, [selectedPair, pausePair])
 
-  const handleResumeSelectedPair = async (): Promise<void> => {
+  const handleResumeSelectedPair = useCallback(async (): Promise<void> => {
     if (!selectedPair || selectedPair.status !== 'Paused') return
 
     try {
@@ -286,56 +290,59 @@ function App(): React.ReactNode {
     } catch (error) {
       console.error('[App] Failed to resume pair:', error)
     }
-  }
+  }, [selectedPair, resumePair])
 
   // Open the "New Task" modal for the currently selected pair. Clears any
   // restore state so the modal treats this as a fresh task, not a restore.
-  const handleNewTask = (): void => {
+  const handleNewTask = useCallback((): void => {
     if (!selectedPair || isPairBusy(selectedPair.status)) return
     setRestoringSpec(null)
     setIsAssignTaskOpen(true)
-  }
+  }, [selectedPair, setRestoringSpec])
 
-  const shortcuts: ShortcutDef[] = [
-    {
-      key: 'n',
-      modifiers: [cmdKey],
-      handler: () => {
-        if (selectedPair) {
-          handleNewTask()
-        } else {
-          setIsCreatePairOpen(true)
-        }
+  const shortcuts: ShortcutDef[] = useMemo(
+    () => [
+      {
+        key: 'n',
+        modifiers: [cmdKey],
+        handler: () => {
+          if (selectedPair) {
+            handleNewTask()
+          } else {
+            setIsCreatePairOpen(true)
+          }
+        },
+        description: selectedPair ? t('shortcuts.newTask') : t('shortcuts.newPair')
       },
-      description: selectedPair ? t('shortcuts.newTask') : t('shortcuts.newPair')
-    },
-    {
-      key: 'p',
-      modifiers: [cmdKey],
-      handler: () => {
-        void handlePauseSelectedPair()
+      {
+        key: 'p',
+        modifiers: [cmdKey],
+        handler: () => {
+          void handlePauseSelectedPair()
+        },
+        description: t('shortcuts.pausePair'),
+        condition: () => selectedPair !== null && isPairActive(selectedPair.status)
       },
-      description: t('shortcuts.pausePair'),
-      condition: () => selectedPair !== null && isPairActive(selectedPair.status)
-    },
-    {
-      key: 'p',
-      modifiers: [cmdKey, 'shift'],
-      handler: () => {
-        void handleResumeSelectedPair()
+      {
+        key: 'p',
+        modifiers: [cmdKey, 'shift'],
+        handler: () => {
+          void handleResumeSelectedPair()
+        },
+        description: t('shortcuts.resumePair'),
+        condition: () => selectedPair?.status === 'Paused'
       },
-      description: t('shortcuts.resumePair'),
-      condition: () => selectedPair?.status === 'Paused'
-    },
-    {
-      key: '?',
-      modifiers: ['shift'],
-      handler: () => {
-        setIsShortcutsOpen((open) => !open)
-      },
-      description: t('shortcuts.showShortcuts')
-    }
-  ]
+      {
+        key: '?',
+        modifiers: ['shift'],
+        handler: () => {
+          setIsShortcutsOpen((open) => !open)
+        },
+        description: t('shortcuts.showShortcuts')
+      }
+    ],
+    [selectedPair, t, handleNewTask, handlePauseSelectedPair, handleResumeSelectedPair]
+  )
 
   useShortcuts(shortcuts)
 

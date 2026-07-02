@@ -154,14 +154,16 @@ function PresetCard({
   const c = getTone(preset.id)
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        'relative border px-2 py-1.5 rounded-sm transition-colors cursor-pointer font-mono text-[11px]',
+        'relative border px-2 py-1.5 rounded-sm transition-colors cursor-pointer font-mono text-[11px] text-left w-full',
         selected
           ? cn(c.border, c.bg)
           : 'border-border bg-background hover:border-foreground/40 hover:bg-foreground/[0.04]'
       )}
       onClick={onSelect}
+      aria-pressed={selected}
       data-testid={`preset-card-${preset.id}`}
     >
       <div className="flex items-baseline gap-2">
@@ -193,7 +195,7 @@ function PresetCard({
           }
         </PresetPopover>
       </div>
-    </div>
+    </button>
   )
 }
 

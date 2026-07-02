@@ -25,7 +25,11 @@ interface CreatePairModalProps {
 
 export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): React.ReactNode {
   const { t } = useTranslation()
-  const { availableModels, loadAvailableModels, createPair, isLoading, error } = usePairStore()
+  const availableModels = usePairStore((s) => s.availableModels)
+  const loadAvailableModels = usePairStore((s) => s.loadAvailableModels)
+  const createPair = usePairStore((s) => s.createPair)
+  const isLoading = usePairStore((s) => s.isLoading)
+  const error = usePairStore((s) => s.error)
 
   const [name, setName] = useState('')
   const [directory, setDirectory] = useState('')

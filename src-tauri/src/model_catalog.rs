@@ -52,7 +52,8 @@ fn normalize_provider_label(slug: &str) -> String {
 }
 
 fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option<Vec<String>> {
-    crate::providers::provider_for_kind(provider).reasoning_effort_levels(model_id)
+    crate::providers::provider_for_kind(provider)?
+        .reasoning_effort_levels(model_id)
 }
 
 /// Split a trailing reasoning-effort suffix (e.g. "Gemini 3.5 Flash (Low)") from a
@@ -85,7 +86,9 @@ fn split_effort_suffix(name: &str) -> (String, Option<String>) {
 /// Native providers map to their fixed brand; OpenCode rides on the resolved source
 /// label so an OpenCode "openai/*" model keys to the same brand as native Codex.
 fn brand_for_key(kind: ProviderKind, source_provider_label: &str) -> String {
-    let provider = crate::providers::provider_for_kind(kind);
+    let Some(provider) = crate::providers::provider_for_kind(kind) else {
+        return source_provider_label.to_lowercase();
+    };
     let brand = provider.brand();
     if brand == "opencode" {
         // OpenCode rides on the resolved source label so an OpenCode "openai/*"
@@ -136,7 +139,9 @@ impl ModelCatalog {
         let mut catalog = Vec::new();
 
         for profile in profiles {
-            let provider = crate::providers::provider_for_kind(profile.kind);
+            let Some(provider) = crate::providers::provider_for_kind(profile.kind) else {
+                continue;
+            };
             let provider_label = provider.provider_label();
 
             for model in profile.current_models {

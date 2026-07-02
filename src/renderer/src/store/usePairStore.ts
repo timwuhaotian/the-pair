@@ -310,6 +310,7 @@ interface PairStore {
   syncFullState: (pairId: string, state: Record<string, unknown>) => void
   retryTurn: (id: string) => Promise<void>
   initMessageListener: () => void
+  teardownListeners: () => void
   viewTaskHistory: (pairId: string, runId: string) => void
   clearViewingTask: (pairId: string) => void
   setViewingRunId: (runId: string | null) => void
@@ -322,6 +323,14 @@ let _listenersInitialized = false
 let _modelsLoading = false
 const _handoffLocks = new Map<string, Promise<void>>()
 const _manualPauseTimestamps = new Map<string, number>()
+let _unlistenFns: Array<() => void> = []
+
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36)
+}
 
 function dispatchPairSoundCue(cue: PairSoundCue): void {
   switch (cue) {
@@ -495,7 +504,7 @@ function createTurnCard(
 ): TurnCard {
   const now = Date.now()
   return {
-    id: stableId ?? `turn-${role}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    id: stableId ?? generateId(),
     role,
     state,
     content,
@@ -648,7 +657,7 @@ function resetPairForNewRun(
   // ROLE/PLAN wrapper when it sends the prompt to the mentor — keeping that
   // scaffolding out of the human message means we don't need to strip it later.
   const userMessage: Message = {
-    id: Math.random().toString(36).substring(7),
+    id: generateId(),
     timestamp: now,
     from: 'human',
     to: 'mentor',
@@ -999,331 +1008,364 @@ export const usePairStore = create<PairStore>((set) => ({
     if (_listenersInitialized) return
     _listenersInitialized = true
 
-    window.api.pair.onMessage((payload) => {
-      const data = payload as PairMessageEvent
-      const incoming = data.message
+    const unlistenPromises: Array<Promise<unknown>> = []
 
-      if (incoming.type === 'progress') {
-        const progress = parseProgressUpdate(
-          incoming.content,
-          incoming.from === 'mentor' ? 'mentor' : 'executor'
-        )
-        if (!progress) return
+    unlistenPromises.push(
+      window.api.pair.onMessage((payload) => {
+        const data = payload as PairMessageEvent
+        const incoming = data.message
 
-        set((state) => ({
-          pairs: state.pairs.map((pair) => {
-            if (pair.id !== data.pairId) return pair
+        if (incoming.type === 'progress') {
+          const progress = parseProgressUpdate(
+            incoming.content,
+            incoming.from === 'mentor' ? 'mentor' : 'executor'
+          )
+          if (!progress) return
 
-            if (
-              pair.status === 'Finished' ||
-              pair.status === 'Paused' ||
-              pair.status === 'Error' ||
-              pair.status === 'Idle'
-            ) {
-              return pair
-            }
+          set((state) => ({
+            pairs: state.pairs.map((pair) => {
+              if (pair.id !== data.pairId) return pair
 
-            const role = incoming.from === 'mentor' ? 'mentor' : 'executor'
-            const nextActivity =
-              role === 'mentor'
-                ? {
-                    ...pair.mentorActivity,
-                    phase: progress.phase ?? pair.mentorActivity.phase,
-                    detail: progress.detail,
-                    updatedAt: Date.now()
-                  }
-                : {
-                    ...pair.executorActivity,
-                    phase: progress.phase ?? pair.executorActivity.phase,
-                    detail: progress.detail,
-                    updatedAt: Date.now()
-                  }
-
-            let messages = pair.messages
-            let currentTurnCard = pair.currentTurnCard
-
-            if (currentTurnCard && currentTurnCard.role !== role) {
-              messages = commitTurnCard(messages, currentTurnCard, pair.iterations)
-              currentTurnCard = undefined
-            }
-
-            const nextContent =
-              progress.detail || buildTurnCardContent(nextActivity, 'Working...', role)
-            if (!currentTurnCard) {
-              currentTurnCard = createTurnCard(
-                role,
-                nextActivity,
-                nextContent,
-                'live',
-                stableTurnCardId(role, pair.iterations)
-              )
-            } else {
-              currentTurnCard = {
-                ...currentTurnCard,
-                activity: nextActivity,
-                content: nextContent,
-                state: 'live',
-                updatedAt: Date.now(),
-                tokenUsage: currentTurnCard.tokenUsage
+              if (
+                pair.status === 'Finished' ||
+                pair.status === 'Paused' ||
+                pair.status === 'Error' ||
+                pair.status === 'Idle'
+              ) {
+                return pair
               }
-            }
 
-            return role === 'mentor'
-              ? {
-                  ...pair,
-                  messages,
-                  currentTurnCard,
-                  mentorActivity: nextActivity
-                }
-              : {
-                  ...pair,
-                  messages,
-                  currentTurnCard,
-                  executorActivity: nextActivity
-                }
-          })
-        }))
-        return
-      }
-
-      if (incoming.type === 'handoff') {
-        return
-      }
-
-      set((state) => ({
-        pairs: state.pairs.map((p) =>
-          p.id === data.pairId
-            ? (() => {
-                const role =
-                  incoming.from === 'mentor'
-                    ? 'mentor'
-                    : incoming.from === 'executor'
-                      ? 'executor'
-                      : null
-                if (!role) return p
-
-                const nextActivity =
-                  role === 'mentor'
-                    ? {
-                        ...p.mentorActivity,
-                        detail: incoming.content.slice(0, 260),
-                        updatedAt: Date.now()
-                      }
-                    : {
-                        ...p.executorActivity,
-                        detail: incoming.content.slice(0, 260),
-                        updatedAt: Date.now()
-                      }
-
-                let messages = p.messages
-                let currentTurnCard = p.currentTurnCard
-
-                if (currentTurnCard) {
-                  messages = commitTurnCard(messages, currentTurnCard, p.iterations)
-                  currentTurnCard = undefined
-                }
-
-                const messageExists = messages.some((m) => m.id === incoming.id)
-                if (!messageExists) {
-                  messages = [
-                    ...messages,
-                    {
-                      ...incoming,
-                      type: castMessageType(incoming.type),
-                      content:
-                        incoming.content.trim() ||
-                        buildTurnCardContent(nextActivity, 'Working...', role)
-                    }
-                  ]
-                }
-
-                return role === 'mentor'
+              const role = incoming.from === 'mentor' ? 'mentor' : 'executor'
+              const nextActivity =
+                role === 'mentor'
                   ? {
-                      ...p,
-                      messages,
-                      currentTurnCard,
-                      mentorActivity: nextActivity
+                      ...pair.mentorActivity,
+                      phase: progress.phase ?? pair.mentorActivity.phase,
+                      detail: progress.detail,
+                      updatedAt: Date.now()
                     }
                   : {
-                      ...p,
-                      messages,
-                      currentTurnCard,
-                      executorActivity: nextActivity
+                      ...pair.executorActivity,
+                      phase: progress.phase ?? pair.executorActivity.phase,
+                      detail: progress.detail,
+                      updatedAt: Date.now()
                     }
-              })()
-            : p
-        )
-      }))
 
-      const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === data.pairId)
-      if (currentPair) {
-        void saveSnapshotForPair(currentPair)
-      }
-    })
+              let messages = pair.messages
+              let currentTurnCard = pair.currentTurnCard
 
-    window.api.pair.onState((payload) => {
-      const pairState = payload as PairStateSnapshot
-      if (!pairState?.pairId) return
+              if (currentTurnCard && currentTurnCard.role !== role) {
+                messages = commitTurnCard(messages, currentTurnCard, pair.iterations)
+                currentTurnCard = undefined
+              }
 
-      let shouldSave = false
-      let prevStatus: string | undefined
-      let nextStatus: string | undefined
+              const nextContent =
+                progress.detail || buildTurnCardContent(nextActivity, 'Working...', role)
+              if (!currentTurnCard) {
+                currentTurnCard = createTurnCard(
+                  role,
+                  nextActivity,
+                  nextContent,
+                  'live',
+                  stableTurnCardId(role, pair.iterations)
+                )
+              } else {
+                currentTurnCard = {
+                  ...currentTurnCard,
+                  activity: nextActivity,
+                  content: nextContent,
+                  state: 'live',
+                  updatedAt: Date.now(),
+                  tokenUsage: currentTurnCard.tokenUsage
+                }
+              }
 
-      set((state) => ({
-        pairs: state.pairs.map((p) => {
-          if (p.id !== pairState.pairId) return p
-          prevStatus = p.status
-          const nextPair = syncPairFromState(p, pairState)
-          nextStatus = nextPair.status
-          shouldSave = shouldSave || shouldSaveSnapshot(p, nextPair)
-          return nextPair
-        })
-      }))
+              return role === 'mentor'
+                ? {
+                    ...pair,
+                    messages,
+                    currentTurnCard,
+                    mentorActivity: nextActivity
+                  }
+                : {
+                    ...pair,
+                    messages,
+                    currentTurnCard,
+                    executorActivity: nextActivity
+                  }
+            })
+          }))
+          return
+        }
 
-      const cue = resolvePairSoundCue({
-        prevStatus: prevStatus as PairStatus | undefined,
-        nextStatus: nextStatus as PairStatus | undefined,
-        manualPauseAt: _manualPauseTimestamps.get(pairState.pairId) ?? null
-      })
-      dispatchPairSoundCue(cue)
-      if (nextStatus && nextStatus !== 'Paused') {
-        _manualPauseTimestamps.delete(pairState.pairId)
-      }
+        if (incoming.type === 'handoff') {
+          return
+        }
 
-      if (shouldSave) {
-        const currentPair = usePairStore
-          .getState()
-          .pairs.find((pair) => pair.id === pairState.pairId)
+        set((state) => ({
+          pairs: state.pairs.map((p) =>
+            p.id === data.pairId
+              ? (() => {
+                  const role =
+                    incoming.from === 'mentor'
+                      ? 'mentor'
+                      : incoming.from === 'executor'
+                        ? 'executor'
+                        : null
+                  if (!role) return p
+
+                  const nextActivity =
+                    role === 'mentor'
+                      ? {
+                          ...p.mentorActivity,
+                          detail: incoming.content.slice(0, 260),
+                          updatedAt: Date.now()
+                        }
+                      : {
+                          ...p.executorActivity,
+                          detail: incoming.content.slice(0, 260),
+                          updatedAt: Date.now()
+                        }
+
+                  let messages = p.messages
+                  let currentTurnCard = p.currentTurnCard
+
+                  if (currentTurnCard) {
+                    messages = commitTurnCard(messages, currentTurnCard, p.iterations)
+                    currentTurnCard = undefined
+                  }
+
+                  const messageExists = messages.some((m) => m.id === incoming.id)
+                  if (!messageExists) {
+                    messages = [
+                      ...messages,
+                      {
+                        ...incoming,
+                        type: castMessageType(incoming.type),
+                        content:
+                          incoming.content.trim() ||
+                          buildTurnCardContent(nextActivity, 'Working...', role)
+                      }
+                    ]
+                  }
+
+                  return role === 'mentor'
+                    ? {
+                        ...p,
+                        messages,
+                        currentTurnCard,
+                        mentorActivity: nextActivity
+                      }
+                    : {
+                        ...p,
+                        messages,
+                        currentTurnCard,
+                        executorActivity: nextActivity
+                      }
+                })()
+              : p
+          )
+        }))
+
+        const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === data.pairId)
         if (currentPair) {
           void saveSnapshotForPair(currentPair)
         }
-      }
-    })
+      })
+    )
 
-    // Listen for handoff events to trigger next agent
-    window.api.pair.onHandoff(async (payload) => {
-      const data = payload as PairHandoffEvent
+    unlistenPromises.push(
+      window.api.pair.onState((payload) => {
+        const pairState = payload as PairStateSnapshot
+        if (!pairState?.pairId) return
 
-      const existing = _handoffLocks.get(data.pairId)
-      if (existing) return
-      const promise = (async () => {
-        try {
-          let backendState: BackendPairState | null = null
-          try {
-            backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
-          } catch (error) {
-            console.warn(
-              '[usePairStore] Failed to load backend state before handoff processing',
-              error
-            )
-          }
+        let shouldSave = false
+        let prevStatus: string | undefined
+        let nextStatus: string | undefined
 
-          if (backendState?.status === 'Finished') {
-            return
-          }
+        set((state) => ({
+          pairs: state.pairs.map((p) => {
+            if (p.id !== pairState.pairId) return p
+            prevStatus = p.status
+            const nextPair = syncPairFromState(p, pairState)
+            nextStatus = nextPair.status
+            shouldSave = shouldSave || shouldSaveSnapshot(p, nextPair)
+            return nextPair
+          })
+        }))
 
-          if (backendState?.status === 'Paused') {
-            return
-          }
+        const cue = resolvePairSoundCue({
+          prevStatus: prevStatus as PairStatus | undefined,
+          nextStatus: nextStatus as PairStatus | undefined,
+          manualPauseAt: _manualPauseTimestamps.get(pairState.pairId) ?? null
+        })
+        dispatchPairSoundCue(cue)
+        if (nextStatus && nextStatus !== 'Paused') {
+          _manualPauseTimestamps.delete(pairState.pairId)
+        }
 
-          const state = usePairStore.getState()
-          const pair = state.pairs.find((p) => p.id === data.pairId)
-
-          if (!pair) {
-            console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
-            return
-          }
-
-          if (
-            shouldIgnoreHandoffEvent({
-              pairStatus: pair.status,
-              backendStatus: backendState?.status
-            })
-          ) {
-            return
-          }
-
-          let contextMessages = pair.messages
-          try {
-            if (backendState?.messages?.length) {
-              contextMessages = backendState.messages
-            }
-          } catch (error) {
-            console.warn(
-              '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
-              error
-            )
-          }
-
-          let message = ''
-          const lastMentorMessage = [...contextMessages]
-            .reverse()
-            .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
-          const lastExecutorMessage = [...contextMessages]
-            .reverse()
-            .find((m) => m.from === 'executor' && m.type === 'result')
-          const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
-
-          if (data.nextRole === 'executor') {
-            if (latestAcceptance?.verdict?.nextStep.action === 'continue' && lastExecutorMessage) {
-              message = buildExecutorAcceptanceFollowupPrompt({
-                taskSpec: pair.spec,
-                previousExecutorResult:
-                  lastExecutorMessage?.content ?? '(previous executor result unavailable)',
-                verdict: latestAcceptance.verdict,
-                acceptance: latestAcceptance
-              })
-
-              const { assignTask } = state
-              await assignTask(data.pairId, message, data.nextRole)
-              return
-            }
-
-            message = buildInitialExecutorHandoffPrompt({
-              mentorPlan: lastMentorMessage?.content
-            })
-          } else {
-            if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
-              message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
-
-              const { assignTask } = state
-              await assignTask(data.pairId, message, data.nextRole)
-              return
-            }
-
-            if (latestAcceptance && lastExecutorMessage) {
-              message = buildMentorAcceptancePrompt({
-                taskSpec: pair.spec,
-                executorResult: lastExecutorMessage.content,
-                acceptance: latestAcceptance
-              })
-
-              const { assignTask } = state
-              await assignTask(data.pairId, message, data.nextRole)
-              return
-            }
-
-            message = buildInitialMentorReviewPrompt({
-              executorOutput: lastExecutorMessage?.content
-            })
-          }
-
-          const { assignTask } = state
-          await assignTask(data.pairId, message, data.nextRole)
-        } catch (error) {
-          console.error('[usePairStore] Handoff processing failed:', error)
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          set({ error: `Handoff failed: ${errorMessage}` })
-          try {
-            await window.api.pair.pause(data.pairId)
-          } catch (pauseError) {
-            console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
+        if (shouldSave) {
+          const currentPair = usePairStore
+            .getState()
+            .pairs.find((pair) => pair.id === pairState.pairId)
+          if (currentPair) {
+            void saveSnapshotForPair(currentPair)
           }
         }
-      })()
-      _handoffLocks.set(data.pairId, promise)
-      promise.finally(() => _handoffLocks.delete(data.pairId))
-    })
+      })
+    )
+
+    // Listen for handoff events to trigger next agent
+    unlistenPromises.push(
+      window.api.pair.onHandoff(async (payload) => {
+        const data = payload as PairHandoffEvent
+
+        const existing = _handoffLocks.get(data.pairId)
+        if (existing) return
+        const promise = (async () => {
+          try {
+            let backendState: BackendPairState | null = null
+            try {
+              backendState = (await window.api.pair.getState(
+                data.pairId
+              )) as BackendPairState | null
+            } catch (error) {
+              console.warn(
+                '[usePairStore] Failed to load backend state before handoff processing',
+                error
+              )
+            }
+
+            if (backendState?.status === 'Finished') {
+              return
+            }
+
+            if (backendState?.status === 'Paused') {
+              return
+            }
+
+            const state = usePairStore.getState()
+            const pair = state.pairs.find((p) => p.id === data.pairId)
+
+            if (!pair) {
+              console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
+              return
+            }
+
+            if (
+              shouldIgnoreHandoffEvent({
+                pairStatus: pair.status,
+                backendStatus: backendState?.status
+              })
+            ) {
+              return
+            }
+
+            let contextMessages = pair.messages
+            try {
+              if (backendState?.messages?.length) {
+                contextMessages = backendState.messages
+              }
+            } catch (error) {
+              console.warn(
+                '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
+                error
+              )
+            }
+
+            let message = ''
+            const lastMentorMessage = [...contextMessages]
+              .reverse()
+              .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
+            const lastExecutorMessage = [...contextMessages]
+              .reverse()
+              .find((m) => m.from === 'executor' && m.type === 'result')
+            const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
+
+            if (data.nextRole === 'executor') {
+              if (
+                latestAcceptance?.verdict?.nextStep.action === 'continue' &&
+                lastExecutorMessage
+              ) {
+                message = buildExecutorAcceptanceFollowupPrompt({
+                  taskSpec: pair.spec,
+                  previousExecutorResult:
+                    lastExecutorMessage?.content ?? '(previous executor result unavailable)',
+                  verdict: latestAcceptance.verdict,
+                  acceptance: latestAcceptance
+                })
+
+                const { assignTask } = state
+                await assignTask(data.pairId, message, data.nextRole)
+                return
+              }
+
+              message = buildInitialExecutorHandoffPrompt({
+                mentorPlan: lastMentorMessage?.content
+              })
+            } else {
+              if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
+                message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
+
+                const { assignTask } = state
+                await assignTask(data.pairId, message, data.nextRole)
+                return
+              }
+
+              if (latestAcceptance && lastExecutorMessage) {
+                message = buildMentorAcceptancePrompt({
+                  taskSpec: pair.spec,
+                  executorResult: lastExecutorMessage.content,
+                  acceptance: latestAcceptance
+                })
+
+                const { assignTask } = state
+                await assignTask(data.pairId, message, data.nextRole)
+                return
+              }
+
+              message = buildInitialMentorReviewPrompt({
+                executorOutput: lastExecutorMessage?.content
+              })
+            }
+
+            const { assignTask } = state
+            await assignTask(data.pairId, message, data.nextRole)
+          } catch (error) {
+            console.error('[usePairStore] Handoff processing failed:', error)
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            set({ error: `Handoff failed: ${errorMessage}` })
+            try {
+              await window.api.pair.pause(data.pairId)
+            } catch (pauseError) {
+              console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
+            }
+          }
+        })()
+        _handoffLocks.set(data.pairId, promise)
+        promise.finally(() => _handoffLocks.delete(data.pairId))
+      })
+    )
+
+    for (const p of unlistenPromises) {
+      Promise.resolve(p).then((fn) => {
+        if (typeof fn === 'function') {
+          _unlistenFns.push(fn as () => void)
+        }
+      })
+    }
+  },
+
+  teardownListeners: () => {
+    for (const fn of _unlistenFns) {
+      try {
+        fn()
+      } catch (error) {
+        console.warn('[usePairStore] Failed to unlisten event:', error)
+      }
+    }
+    _unlistenFns = []
+    _listenersInitialized = false
   },
 
   loadAvailableModels: async () => {
@@ -1391,7 +1433,7 @@ export const usePairStore = create<PairStore>((set) => ({
       // mentor instructions before sending it to the agent (see
       // build_mentor_planning_prompt in src-tauri/src/util.rs).
       const initialMessage: Message = {
-        id: Math.random().toString(36).substring(7),
+        id: generateId(),
         timestamp: now,
         from: 'human',
         to: 'mentor',
@@ -1667,7 +1709,7 @@ export const usePairStore = create<PairStore>((set) => ({
           : i18n.t('planReview.sentBackMessage')
 
     usePairStore.getState().addMessage(pairId, {
-      id: Math.random().toString(36).substring(7),
+      id: generateId(),
       timestamp: Date.now(),
       from: 'human',
       to: 'mentor',

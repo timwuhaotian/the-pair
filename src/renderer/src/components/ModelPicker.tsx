@@ -211,9 +211,9 @@ export function ModelPicker({
     onReasoningEffortChange?.(reasoningEffortValue)
   }
 
-  const handleProviderSignIn = async (loginCommand: string): Promise<void> => {
+  const handleProviderSignIn = async (providerKind: string): Promise<void> => {
     try {
-      await window.api?.config?.launchLogin?.(loginCommand)
+      await window.api?.config?.launchLogin?.(providerKind)
     } catch {
       // silent — the onboarding screen handles error display
     }
@@ -473,7 +473,7 @@ export function ModelPicker({
                       {p.loginCommand && (
                         <button
                           type="button"
-                          onClick={() => void handleProviderSignIn(p.loginCommand!)}
+                          onClick={() => void handleProviderSignIn(p.kind)}
                           className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline cursor-pointer"
                         >
                           {t('providers.signIn')}
