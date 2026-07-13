@@ -186,7 +186,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## Quick Start
 
 > [!NOTE]
-> The Pair requires at least one AI provider CLI: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), or [Gemini CLI](https://github.com/google-gemini/gemini-cli).
+> The Pair requires at least one AI provider CLI: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), or [Antigravity](https://github.com/google-gemini/antigravity).
 
 ### 1. Install an AI Provider
 
@@ -195,7 +195,7 @@ Install one or more of the supported CLIs:
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` or `npm install -g opencode-ai`
 - **Claude Code** — see [Claude Code setup](https://docs.anthropic.com/en/docs/claude-code/getting-started), or use `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Gemini CLI** — `npm install -g @google/gemini-cli` or `npx @google/gemini-cli`
+- **Antigravity** — `agy install` (see [Antigravity](https://github.com/google-gemini/antigravity) for setup)
 
 ### 2. Configure AI Models (Optional)
 
@@ -211,7 +211,7 @@ For opencode-backed models, set up your AI providers in `~/.config/opencode/open
 ```
 
 > [!TIP]
-> Codex, Claude Code, and Gemini CLI are detected from their installed CLIs and sign-in state. You can also use local models with [Ollama](https://ollama.com) for offline development.
+> Codex, Claude Code, and Antigravity (`agy`) are detected from their installed CLIs and sign-in state. You can also use local models with [Ollama](https://ollama.com) for offline development.
 
 ### 3. Launch The Pair
 

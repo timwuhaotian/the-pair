@@ -582,6 +582,9 @@ fn is_codex_model_id(value: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Returns true for legacy `gemini-*` model IDs.  Kept for snapshot-recovery
+/// paths that may encounter model IDs from the sunset Gemini CLI.
+#[allow(dead_code)]
 fn is_gemini_model_id(value: &str) -> bool {
     value.starts_with("gemini-")
 }
@@ -609,30 +612,6 @@ fn discover_codex_model_ids(home: &std::path::Path) -> Vec<String> {
         &predicate,
         2,
         20,
-        &mut model_ids,
-    );
-
-    model_ids
-}
-
-fn discover_gemini_model_ids(home: &std::path::Path) -> Vec<String> {
-    let predicate = |value: &str| is_gemini_model_id(value);
-    let mut model_ids = Vec::new();
-    let settings_path = home.join(".gemini/settings.json");
-
-    collect_model_ids_from_json_file(
-        &settings_path,
-        &["model", "name"],
-        &predicate,
-        &mut model_ids,
-    );
-    collect_model_ids_from_recent_files(
-        &home.join(".gemini/tmp"),
-        &["json", "jsonl"],
-        &["model", "name"],
-        &predicate,
-        4,
-        25,
         &mut model_ids,
     );
 
@@ -981,8 +960,8 @@ impl ProviderRegistry {
     }
 
     pub fn detect_gemini() -> DetectedProviderProfile {
-        // Prefer Antigravity CLI (`agy`) — Google's successor to the Gemini CLI, which
-        // stops serving requests on 2026-06-18. Fall back to the legacy `gemini` binary.
+        // Antigravity CLI (`agy`) is Google's successor to the Gemini CLI,
+        // which stopped serving requests on 2026-06-18.
         if let Some(agy_bin) = which_binary("agy") {
             let models = discover_antigravity_model_ids(&agy_bin);
             let authenticated = !models.is_empty();
@@ -999,48 +978,19 @@ impl ProviderRegistry {
             };
         }
 
-        let installed = which_binary_exists("gemini");
-
-        let homedir = homedir();
-        let settings_path = homedir.join(".gemini/settings.json");
-        let mut authenticated = false;
-
-        if settings_path.exists() {
-            authenticated = true;
-        }
-
-        let models = if installed {
-            build_detected_models(
-                discover_gemini_model_ids(&homedir),
-                "google",
-                "subscription-backed",
-            )
-        } else {
-            Vec::new()
-        };
-
+        // agy not found - report as not installed.
         DetectedProviderProfile {
             kind: ProviderKind::Gemini,
-            installed,
-            authenticated,
-            runnable: installed && authenticated,
-            subscription_label: "subscription-backed".into(),
-            current_models: models,
+            installed: false,
+            authenticated: false,
+            runnable: false,
+            subscription_label: "antigravity-backed".into(),
+            current_models: Vec::new(),
             login_command: None,
             install_url: None,
             detected_at: detected_at_now(),
         }
     }
-}
-
-/// Resolve which executable backs the "Gemini" provider. Prefers Antigravity CLI
-/// (`agy`, the successor to the sunsetting Gemini CLI) when installed, falling back
-/// to `gemini`. Returns `(executable_name, is_antigravity)`.
-pub fn resolve_gemini_executable() -> (String, bool) {
-    if which_binary("agy").is_some() {
-        return ("agy".to_string(), true);
-    }
-    ("gemini".to_string(), false)
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
@@ -1551,133 +1501,6 @@ exit 0
                 "PATH should include common Unix fallback directories"
             );
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn detect_gemini_finds_models_from_nvm_style_installation() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
-        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
-        let gemini_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
-        let settings_dir = temp_home.join(".gemini");
-        fs::create_dir_all(&gemini_dir).expect("failed to create temp gemini dir");
-        fs::create_dir_all(&settings_dir).expect("failed to create temp settings dir");
-
-        write_executable_script(
-            &gemini_dir,
-            "gemini",
-            r#"#!/bin/sh
-exit 0
-"#,
-        );
-
-        fs::write(
-            settings_dir.join("settings.json"),
-            r#"{"model":{"name":"gemini-3.1-pro-preview"}}"#,
-        )
-        .expect("failed to write settings file");
-
-        let original_home = std::env::var_os("HOME");
-        let original_path = std::env::var_os("PATH");
-
-        std::env::set_var("HOME", &temp_home);
-        std::env::set_var("PATH", "/usr/bin:/bin");
-
-        let profile = ProviderRegistry::detect_gemini();
-
-        if let Some(value) = original_home {
-            std::env::set_var("HOME", value);
-        }
-
-        if let Some(value) = original_path {
-            std::env::set_var("PATH", value);
-        }
-
-        assert!(profile.installed);
-        assert!(profile.authenticated);
-        assert!(
-            !profile.current_models.is_empty(),
-            "Gemini CLI should surface native models when installed in an NVM layout"
-        );
-        assert!(
-            profile
-                .current_models
-                .iter()
-                .any(|model| model.model_id == "gemini-3.1-pro-preview"),
-            "gemini should expose the configured model from settings"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn detect_gemini_reads_models_from_recent_local_history() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
-        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
-        let gemini_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
-        let settings_dir = temp_home.join(".gemini");
-        let chats_dir = settings_dir.join("tmp/sample/chats");
-        fs::create_dir_all(&gemini_dir).expect("failed to create temp gemini dir");
-        fs::create_dir_all(&chats_dir).expect("failed to create temp chat dir");
-
-        write_executable_script(
-            &gemini_dir,
-            "gemini",
-            r#"#!/bin/sh
-exit 0
-"#,
-        );
-
-        fs::write(
-            settings_dir.join("settings.json"),
-            r#"{"model":{"name":"gemini-3.1-pro-preview"}}"#,
-        )
-        .expect("failed to write settings file");
-
-        fs::write(
-            chats_dir.join("session.json"),
-            r#"{
-  "messages": [
-    { "model": "gemini-9-pro-experimental" },
-    { "model": "gemini-9-flash-experimental" }
-  ]
-}"#,
-        )
-        .expect("failed to write recent gemini history");
-
-        let original_home = std::env::var_os("HOME");
-        let original_path = std::env::var_os("PATH");
-
-        std::env::set_var("HOME", &temp_home);
-        std::env::set_var("PATH", "/usr/bin:/bin");
-
-        let profile = ProviderRegistry::detect_gemini();
-
-        if let Some(value) = original_home {
-            std::env::set_var("HOME", value);
-        } else {
-            std::env::remove_var("HOME");
-        }
-
-        if let Some(value) = original_path {
-            std::env::set_var("PATH", value);
-        } else {
-            std::env::remove_var("PATH");
-        }
-
-        assert!(
-            profile
-                .current_models
-                .iter()
-                .any(|model| model.model_id == "gemini-9-pro-experimental"),
-            "Gemini should discover model ids from recent local session history"
-        );
-        assert!(
-            profile
-                .current_models
-                .iter()
-                .any(|model| model.model_id == "gemini-9-flash-experimental"),
-            "Gemini should surface multiple history-backed model ids"
-        );
     }
 
     #[cfg(unix)]

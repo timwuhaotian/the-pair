@@ -20,7 +20,7 @@ function makeModel(
         : provider === 'codex'
           ? 'Codex'
           : provider === 'gemini'
-            ? 'Gemini CLI'
+            ? 'Antigravity'
             : 'OpenCode',
     sourceProvider: provider,
     sourceProviderLabel: provider,
@@ -98,7 +98,8 @@ test('buildProviderSetupHints sorts ready before auth-missing before cli-missing
 test('buildProviderSetupHints includes login commands for known providers', () => {
   const hints = buildProviderSetupHints([
     makeModel('claude', 'ready'),
-    makeModel('codex', 'ready')
+    makeModel('codex', 'ready'),
+    makeModel('gemini', 'ready')
   ])
 
   const claude = hints.find((h) => h.kind === 'claude')
@@ -106,12 +107,16 @@ test('buildProviderSetupHints includes login commands for known providers', () =
 
   const codex = hints.find((h) => h.kind === 'codex')
   assert.equal(codex!.loginCommand, 'codex auth')
+
+  const gemini = hints.find((h) => h.kind === 'gemini')
+  assert.equal(gemini!.loginCommand, 'agy auth')
 })
 
 test('buildProviderSetupHints includes install URLs for known providers', () => {
   const hints = buildProviderSetupHints([
     makeModel('claude', 'cli-missing'),
-    makeModel('opencode', 'cli-missing')
+    makeModel('opencode', 'cli-missing'),
+    makeModel('gemini', 'cli-missing')
   ])
 
   const claude = hints.find((h) => h.kind === 'claude')
@@ -120,6 +125,10 @@ test('buildProviderSetupHints includes install URLs for known providers', () => 
 
   const opencode = hints.find((h) => h.kind === 'opencode')
   assert.ok(opencode!.installUrl)
+
+  const gemini = hints.find((h) => h.kind === 'gemini')
+  assert.ok(gemini!.installUrl)
+  assert.ok(gemini!.installUrl!.includes('antigravity'))
 })
 
 test('buildProviderSetupHints handles empty model list', () => {

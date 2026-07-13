@@ -7,6 +7,15 @@ use serde_json::Value;
 /// Codex (OpenAI Codex CLI) — uses `codex exec` with session-json protocol.
 pub struct CodexProvider;
 
+/// Returns true if the model ID starts with `o` followed by a digit (o1, o3, o4, o5, …).
+/// Used for reasoning-effort eligibility and provider inference.
+fn is_o_series_model(model_id: &str) -> bool {
+    model_id
+        .strip_prefix('o')
+        .and_then(|s| s.chars().next())
+        .is_some_and(|c| c.is_ascii_digit())
+}
+
 impl Provider for CodexProvider {
     fn kind(&self) -> ProviderKind {
         ProviderKind::Codex
@@ -140,8 +149,8 @@ impl Provider for CodexProvider {
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
-        if model_id.starts_with("o3") || model_id.starts_with("o4") || model_id.starts_with("o1")
-        {
+        // Matches any o<digit> prefix (o1, o3, o4, o5, …) for future-proofing.
+        if is_o_series_model(model_id) {
             Some(vec!["low".into(), "medium".into(), "high".into()])
         } else {
             None

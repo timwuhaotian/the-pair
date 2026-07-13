@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## 快速开始
 
 > [!NOTE]
-> The Pair 至少需要一个 AI Provider CLI：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex) 或 [Gemini CLI](https://github.com/google-gemini/gemini-cli)。
+> The Pair 至少需要一个 AI Provider CLI：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex) 或 [Antigravity](https://github.com/google-gemini/antigravity)。
 
 ### 1. 安装 AI Provider
 
@@ -141,7 +141,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` 或 `npm install -g opencode-ai`
 - **Claude Code** — 参见 [Claude Code 配置指南](https://docs.anthropic.com/en/docs/claude-code/getting-started)，或运行 `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Gemini CLI** — `npm install -g @google/gemini-cli` 或 `npx @google/gemini-cli`
+- **Antigravity** — `agy install`（参见 [Antigravity](https://github.com/google-gemini/antigravity) 安装说明）
 
 ### 2. 配置 AI 模型（可选）
 
@@ -157,7 +157,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
 > [!TIP]
-> Codex、Claude Code 和 Gemini CLI 会通过已安装的 CLI 自动检测登录状态。你也可以使用 [Ollama](https://ollama.com) 搭配本地模型进行离线开发。
+> Codex、Claude Code 和 Antigravity (`agy`) 会通过已安装的 CLI 自动检测登录状态。你也可以使用 [Ollama](https://ollama.com) 搭配本地模型进行离线开发。
 
 ### 3. 启动 The Pair
 

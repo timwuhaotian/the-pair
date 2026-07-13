@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-07-13
+
+### Changed
+
+- **Migrated Gemini provider to Antigravity (`agy`).** The legacy Gemini CLI stopped serving requests on 2026-06-18. The backend now targets only the `agy` binary (Google's official successor). CLI args use role-based `--mode` flags: `plan` for the Mentor (read-only) and `accept-edits` for the Executor. Provider metadata (label, login command, install URL) updated throughout.
+- **Updated READMEs** (EN / ZH / JA / KO) to reference Antigravity instead of the sunset Gemini CLI.
+
+### Fixed
+
+- **`pair_resume` now enforces strict status check.** The command returns an error if the pair is not `Paused` or `Awaiting Human Review`. Previously, pairs in `Error` state could also be resumed via this path (a side effect of shared validation with `pair_retry_turn`).
+
+### Implemented
+
+- **`pair_retry_turn` command** — retries the current turn for pairs in `Error`, `Paused`, or `Awaiting Human Review` state. Bumps `run_generation` to invalidate stale handoffs from the failed turn.
+- **`pair_get_messages` command** — returns the full message history for a pair directly from `MessageBroker`.
+
 ## [2.3.1] - 2026-07-03
 
 ### Fixed

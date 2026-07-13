@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## クイックスタート
 
 > [!NOTE]
-> The PairにはAIプロバイダーCLIが少なくとも1つ必要です：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、または [Gemini CLI](https://github.com/google-gemini/gemini-cli)。
+> The PairにはAIプロバイダーCLIが少なくとも1つ必要です：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、または [Antigravity](https://github.com/google-gemini/antigravity)。
 
 ### 1. AIプロバイダーをインストール
 
@@ -141,7 +141,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` または `npm install -g opencode-ai`
 - **Claude Code** — [Claude Codeセットアップ](https://docs.anthropic.com/en/docs/claude-code/getting-started)を参照、または `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Gemini CLI** — `npm install -g @google/gemini-cli` または `npx @google/gemini-cli`
+- **Antigravity** — `agy install`（[Antigravity](https://github.com/google-gemini/antigravity)を参照）
 
 ### 2. AIモデルを設定（オプション）
 
@@ -157,7 +157,7 @@ opencodeベースのモデルの場合、`~/.config/opencode/opencode.json`でAI
 ```
 
 > [!TIP]
-> Codex、Claude Code、Gemini CLIはインストール済みCLIからログイン状態を自動検出します。[Ollama](https://ollama.com)でローカルモデルを使用してオフライン開発も可能です。
+> Codex、Claude Code、Antigravity（`agy`）はインストール済みCLIからログイン状態を自動検出します。[Ollama](https://ollama.com)でローカルモデルを使用してオフライン開発も可能です。
 
 ### 3. The Pairを起動
 

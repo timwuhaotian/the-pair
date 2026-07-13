@@ -62,7 +62,7 @@ function antigravityFlash(effort: string): AvailableModel {
     provider: 'gemini',
     modelId: `Gemini 3.5 Flash (${cap})`,
     displayName: `Gemini 3.5 Flash (${cap})`,
-    providerLabel: 'Gemini CLI',
+    providerLabel: 'Antigravity',
     accessLabel: 'Google account',
     planLabel: 'antigravity-backed',
     canonicalKey: 'google::gemini-3-5-flash',

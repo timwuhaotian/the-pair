@@ -23,16 +23,22 @@ export function buildProviderSetupSummary(models: AvailableModel[]): ProviderSet
   }
 }
 
-/** Static per-provider metadata for login/install guidance. Mirrors the Rust Provider trait. */
+/** Static per-provider metadata for login/install guidance. Mirrors the Rust Provider trait.
+ *
+ * Gemini defaults to Antigravity (`agy`) since the legacy Gemini CLI stopped
+ * serving requests on 2026-06-18. The backend's `DetectedProviderProfile`
+ * remains the authoritative source for the onboarding screen. */
 const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   claude: 'claude login',
   codex: 'codex auth',
+  gemini: 'agy auth',
   opencode: 'opencode auth login'
 }
 
 const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   claude: 'https://claude.ai/download',
   codex: 'https://github.com/openai/codex',
+  gemini: 'https://github.com/google-gemini/antigravity',
   opencode: 'https://opencode.ai'
 }
 
@@ -61,9 +67,7 @@ export function buildProviderSetupHints(models: AvailableModel[]): ProviderSetup
   for (const [kind, providerModels] of byProvider) {
     // A provider is "installed" if any model's status is NOT cli-missing
     // (i.e. the CLI binary was detected, even if not authenticated).
-    const installed = providerModels.some(
-      (m) => m.availabilityStatus !== 'cli-missing'
-    )
+    const installed = providerModels.some((m) => m.availabilityStatus !== 'cli-missing')
     // A provider is "authenticated" if it's installed and NOT auth-missing.
     // This avoids showing "Not signed in" when the real issue is runtime-unsupported.
     const authenticated =
@@ -72,10 +76,10 @@ export function buildProviderSetupHints(models: AvailableModel[]): ProviderSetup
 
     const label = providerModels[0]?.providerLabel ?? kind
 
-    // Gemini login/install depends on whether agy or legacy gemini is active.
-    // We can't know from models alone, so leave it undefined here — the
-    // backend's DetectedProviderProfile.loginCommand is the source of truth
-    // for the onboarding screen.
+    // Gemini provider label and login/install info come from the backend's
+    // DetectedProviderProfile, which always reports Antigravity (`agy`) values.
+    // The static fallbacks above are used when the onboarding screen needs
+    // guidance before the backend detection round-trip completes.
     const loginCommand = PROVIDER_LOGIN_COMMANDS[kind]
     const installUrl = PROVIDER_INSTALL_URLS[kind]
 

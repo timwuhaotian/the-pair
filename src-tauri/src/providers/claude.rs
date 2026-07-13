@@ -53,8 +53,8 @@ impl Provider for ClaudeProvider {
             args.push("--resume".into());
             args.push(sid.into());
         }
-        // NOTE: Claude Code (2.1.x) exposes no CLI flag for reasoning/thinking
-        // effort. Injecting `--reasoning-effort` hard-crashes the turn.
+        // NOTE: Claude Code exposes no CLI flag for reasoning/thinking effort.
+        // Injecting `--reasoning-effort` hard-crashes the turn.
         args.push(request.message.into());
 
         ProviderTurnCommand {

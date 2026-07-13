@@ -78,7 +78,7 @@ test('FAQ schema exposes extractable AI-search answers', async () => {
   assert.ok(schema.mainEntity.some((entry) => /Cursor|Copilot/.test(entry.acceptedAnswer.text)))
   assert.ok(
     schema.mainEntity.some((entry) =>
-      /Claude Code|OpenAI Codex|Gemini CLI|opencode/.test(entry.acceptedAnswer.text)
+      /Claude Code|OpenAI Codex|Antigravity|opencode/.test(entry.acceptedAnswer.text)
     )
   )
 })

@@ -121,7 +121,7 @@ pub fn run() {
             pair_manager::repo_check_state,
             pair_manager::repo_list_branches,
             pair_manager::kill_process,
-            stubs::pair_retry_turn,
+            pair_manager::pair_retry_turn,
             stubs::pair_get_messages,
             stubs::pair_get_state,
             stubs::config_get_models,

@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## 빠른 시작
 
 > [!NOTE]
-> The Pair에는 최소 하나의 AI 프로바이더 CLI가 필요합니다: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) 또는 [Gemini CLI](https://github.com/google-gemini/gemini-cli).
+> The Pair에는 최소 하나의 AI 프로바이더 CLI가 필요합니다: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) 또는 [Antigravity](https://github.com/google-gemini/antigravity).
 
 ### 1. AI 프로바이더 설치
 
@@ -141,7 +141,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` 또는 `npm install -g opencode-ai`
 - **Claude Code** — [Claude Code 설정](https://docs.anthropic.com/en/docs/claude-code/getting-started) 참조 또는 `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Gemini CLI** — `npm install -g @google/gemini-cli` 또는 `npx @google/gemini-cli`
+- **Antigravity** — `agy install` ([Antigravity](https://github.com/google-gemini/antigravity) 설치 참조)
 
 ### 2. AI 모델 구성 (선택 사항)
 
@@ -157,7 +157,7 @@ opencode 기반 모델의 경우, `~/.config/opencode/opencode.json`에서 AI �
 ```
 
 > [!TIP]
-> Codex, Claude Code, Gemini CLI는 설치된 CLI와 로그인 상태에서 자동 감지됩니다. [Ollama](https://ollama.com)와 로컬 모델을 사용하여 오프라인 개발도 가능합니다.
+> Codex, Claude Code, Antigravity(`agy`)는 설치된 CLI와 로그인 상태에서 자동 감지됩니다. [Ollama](https://ollama.com)와 로컬 모델을 사용하여 오프라인 개발도 가능합니다.
 
 ### 3. The Pair 실행
 

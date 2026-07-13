@@ -3,12 +3,12 @@ use crate::provider_adapter::{
     CwdStrategy, InputTransport, OutputTransport, PermissionStrategy, ProviderRuntimeSpec,
     ProviderTurnCommand, ProviderTurnRequest, SessionStrategy,
 };
-use crate::provider_registry::{resolve_gemini_executable, DetectedProviderProfile, ProviderKind};
+use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde_json::Value;
 
-/// Gemini CLI — dual backend: Antigravity (`agy --print`) or legacy
-/// (`gemini --output-format stream-json`).
+/// Antigravity CLI (`agy`) - Google's successor to the Gemini CLI.
+/// Uses `agy --print` for non-interactive plain-text output.
 pub struct GeminiProvider;
 
 impl Provider for GeminiProvider {
@@ -17,44 +17,32 @@ impl Provider for GeminiProvider {
     }
 
     fn executable(&self) -> &str {
-        // This is the "default" executable; actual resolution happens in
-        // runtime_spec/build_turn_command via resolve_gemini_executable().
-        "gemini"
+        "agy"
     }
 
     fn runtime_spec(&self) -> ProviderRuntimeSpec {
-        let (executable, is_antigravity) = resolve_gemini_executable();
         ProviderRuntimeSpec {
-            executable,
+            executable: "agy".into(),
             input_transport: InputTransport::Stdio,
-            // Antigravity (`agy --print`) emits the final response as plain text,
-            // so it is Stdio, not JsonEvents.
-            output_transport: if is_antigravity {
-                OutputTransport::Stdio
-            } else {
-                OutputTransport::JsonEvents
-            },
+            // agy --print emits the final response as plain text (Stdio),
+            // not structured JSON events.
+            output_transport: OutputTransport::Stdio,
             session_strategy: SessionStrategy::NewFirst,
-            // Antigravity runs with --dangerously-skip-permissions.
-            permission_strategy: if is_antigravity {
-                PermissionStrategy::PreApproved
-            } else {
-                PermissionStrategy::ManualConfirm
-            },
+            // agy runs with --dangerously-skip-permissions for auto-approval.
+            permission_strategy: PermissionStrategy::PreApproved,
             cwd_strategy: CwdStrategy::Worktree,
         }
     }
 
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
-        let (executable, is_antigravity) = resolve_gemini_executable();
-        // Strip provider prefix if present (e.g. "gemini/model-id" → "model-id").
+        // Strip provider prefix if present (e.g. "gemini/model-id" -> "model-id").
         let model = request
             .model
             .strip_prefix("gemini/")
             .unwrap_or(request.model);
         ProviderTurnCommand {
-            executable,
-            args: build_gemini_args(model, request.message, is_antigravity),
+            executable: "agy".into(),
+            args: build_agy_args(model, request.message, request.role),
             last_message_path: None,
         }
     }
@@ -101,7 +89,7 @@ impl Provider for GeminiProvider {
     }
 
     fn provider_label(&self) -> &str {
-        "Gemini CLI"
+        "Antigravity"
     }
 
     fn billing_kind(&self) -> &str {
@@ -117,56 +105,53 @@ impl Provider for GeminiProvider {
     }
 
     fn login_command(&self) -> Option<String> {
-        let (_, is_antigravity) = resolve_gemini_executable();
-        Some(if is_antigravity {
-            "agy auth".into()
-        } else {
-            "gemini auth login".into()
-        })
+        Some("agy auth".into())
     }
 
     fn install_url(&self) -> Option<String> {
-        let (_, is_antigravity) = resolve_gemini_executable();
-        Some(if is_antigravity {
-            "https://github.com/google-gemini/antigravity".into()
-        } else {
-            "https://github.com/google-gemini/gemini-cli".into()
-        })
+        Some("https://github.com/google-gemini/antigravity".into())
     }
 }
 
-// ── Gemini-specific helpers ────────────────────────────────────────────────
+// ── agy-specific helpers ───────────────────────────────────────────────────
 
-/// Build the Gemini-provider CLI args for either backend:
-/// - **Antigravity (`agy`)** — `--print` emits plain text, `--dangerously-skip-permissions`.
-/// - **Legacy `gemini`** — `--output-format stream-json`.
-pub fn build_gemini_args(model: &str, message: &str, is_antigravity: bool) -> Vec<String> {
-    if is_antigravity {
-        // agy uses Go's flag package, which treats an argv element starting with "-"
-        // as a flag — prepend a newline to keep the first byte as '\n'.
-        let prompt = if message.starts_with('-') {
-            format!("\n{}", message)
-        } else {
-            message.to_string()
-        };
-        vec![
-            "--print-timeout".into(),
-            "10m".into(),
-            "--dangerously-skip-permissions".into(),
-            "--model".into(),
-            model.into(),
-            "--print".into(),
-            prompt,
-        ]
+/// Build the `agy` CLI args for a single turn.
+///
+/// - **Mentor** (read-only planning): `--mode plan` restricts the agent to
+///   read-only operations.
+/// - **Executor** (code writing): `--mode accept-edits` allows file edits,
+///   and `--dangerously-skip-permissions` auto-approves tool calls.
+pub fn build_agy_args(model: &str, message: &str, role: &str) -> Vec<String> {
+    // agy uses Go's flag package, which treats an argv element starting with "-"
+    // as a flag - prepend a newline to keep the first byte as '\n'.
+    let prompt = if message.starts_with('-') {
+        format!("\n{}", message)
     } else {
-        vec![
-            "--model".into(),
-            model.into(),
-            "--output-format".into(),
-            "stream-json".into(),
-            message.into(),
-        ]
+        message.to_string()
+    };
+
+    let mut args = vec![
+        "--print-timeout".into(),
+        "10m".into(),
+    ];
+
+    // Role-based mode selection: mentor is read-only (plan), executor can edit files.
+    if role == "mentor" {
+        args.push("--mode".into());
+        args.push("plan".into());
+    } else {
+        args.push("--mode".into());
+        args.push("accept-edits".into());
+        // Executor needs auto-approval to run tools without prompting.
+        args.push("--dangerously-skip-permissions".into());
     }
+
+    args.push("--model".into());
+    args.push(model.into());
+    args.push("--print".into());
+    args.push(prompt);
+
+    args
 }
 
 fn push_trimmed(out: &mut Vec<String>, s: &str) {
@@ -235,47 +220,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gemini_legacy_args_use_stream_json() {
-        let args = build_gemini_args("gemini-2.5-pro", "explain the current diff", false);
-        assert_eq!(
-            args,
-            vec![
-                "--model".to_string(),
-                "gemini-2.5-pro".to_string(),
-                "--output-format".to_string(),
-                "stream-json".to_string(),
-                "explain the current diff".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn gemini_antigravity_args_use_print_and_skip_permissions() {
-        let args =
-            build_gemini_args("Gemini 3.5 Flash (Low)", "explain the current diff", true);
+    fn agy_mentor_args_use_plan_mode_without_skip_permissions() {
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "explain the current diff", "mentor");
         assert_eq!(
             args,
             vec![
                 "--print-timeout".to_string(),
                 "10m".to_string(),
-                "--dangerously-skip-permissions".to_string(),
+                "--mode".to_string(),
+                "plan".to_string(),
                 "--model".to_string(),
                 "Gemini 3.5 Flash (Low)".to_string(),
                 "--print".to_string(),
                 "explain the current diff".to_string()
             ]
         );
+        // Mentor should NOT have --dangerously-skip-permissions (plan mode is read-only).
+        assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
-    fn gemini_antigravity_prepends_newline_for_leading_dash_prompt() {
-        let args = build_gemini_args("Gemini 3.5 Flash (Low)", "- Do the next step", true);
+    fn agy_executor_args_use_accept_edits_and_skip_permissions() {
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "do the work", "executor");
+        assert_eq!(
+            args,
+            vec![
+                "--print-timeout".to_string(),
+                "10m".to_string(),
+                "--mode".to_string(),
+                "accept-edits".to_string(),
+                "--dangerously-skip-permissions".to_string(),
+                "--model".to_string(),
+                "Gemini 3.5 Flash (Low)".to_string(),
+                "--print".to_string(),
+                "do the work".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn agy_prepends_newline_for_leading_dash_prompt() {
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "- Do the next step", "executor");
         assert_eq!(
             args.last().expect("prompt is last"),
             "\n- Do the next step"
         );
 
-        let args = build_gemini_args("Gemini 3.5 Flash (Low)", "Plan the refactor", true);
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "Plan the refactor", "executor");
         assert_eq!(
             args.last().expect("prompt is last"),
             "Plan the refactor"
@@ -298,5 +289,43 @@ mod tests {
         assert!(!command.args.contains(&"--thinking-budget".to_string()));
         assert!(!command.args.contains(&"32768".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn agy_mentor_uses_plan_mode() {
+        let provider = GeminiProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "plan the work",
+            reasoning_effort: None,
+        });
+
+        assert_eq!(command.executable, "agy");
+        assert!(command.args.contains(&"--mode".to_string()));
+        assert!(command.args.contains(&"plan".to_string()));
+        assert!(!command.args.contains(&"--dangerously-skip-permissions".to_string()));
+    }
+
+    #[test]
+    fn agy_executor_uses_accept_edits_and_skip_permissions() {
+        let provider = GeminiProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+
+        assert_eq!(command.executable, "agy");
+        assert!(command.args.contains(&"--mode".to_string()));
+        assert!(command.args.contains(&"accept-edits".to_string()));
+        assert!(command.args.contains(&"--dangerously-skip-permissions".to_string()));
     }
 }

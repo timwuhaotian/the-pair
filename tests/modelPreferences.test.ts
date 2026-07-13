@@ -119,7 +119,7 @@ const viewOnlyGeminiModel: AvailableModel = {
   modelId: 'gemini-2.5-pro',
   displayName: 'Gemini 2.5 Pro',
   available: true,
-  providerLabel: 'Gemini CLI',
+  providerLabel: 'Antigravity',
   sourceProvider: 'google',
   sourceProviderLabel: 'Google',
   billingKind: 'plan',
@@ -127,7 +127,7 @@ const viewOnlyGeminiModel: AvailableModel = {
   accessLabel: 'Google account',
   planLabel: 'Individual',
   availabilityStatus: 'runtime-unsupported',
-  availabilityReason: 'Gemini CLI is detected, but pair execution is not yet supported',
+  availabilityReason: 'Antigravity is detected, but pair execution is not yet supported',
   supportsPairExecution: false,
   recommendedRoles: ['mentor', 'executor']
 }

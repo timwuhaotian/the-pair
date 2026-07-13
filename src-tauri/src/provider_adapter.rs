@@ -28,6 +28,9 @@ pub enum SessionStrategy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionStrategy {
     Auto,
+    /// Legacy strategy used by the sunset Gemini CLI.  Kept for enum completeness;
+    /// the Antigravity (`agy`) backend always uses PreApproved.
+    #[allow(dead_code)]
     ManualConfirm,
     PreApproved,
 }
@@ -113,7 +116,11 @@ impl ProviderAdapter {
                 ProviderKind::Claude
             } else if lower.contains("gemini") {
                 ProviderKind::Gemini
-            } else if lower.contains("gpt") || lower.starts_with("o1") || lower.starts_with("o3")
+            } else if lower.contains("gpt")
+                || lower
+                    .strip_prefix('o')
+                    .and_then(|s| s.chars().next())
+                    .is_some_and(|c| c.is_ascii_digit())
             {
                 ProviderKind::Codex
             } else {
@@ -131,13 +138,6 @@ impl ProviderAdapter {
             Some(trimmed.to_string())
         }
     }
-}
-
-/// Build the Gemini-provider CLI args for either backend. Kept as a public
-/// compatibility shim; new code should use `gemini::build_gemini_args` directly.
-#[allow(dead_code)]
-pub fn build_gemini_args(model: &str, message: &str, is_antigravity: bool) -> Vec<String> {
-    crate::providers::gemini::build_gemini_args(model, message, is_antigravity)
 }
 
 #[cfg(test)]
@@ -215,50 +215,106 @@ mod tests {
     }
 
     #[test]
-    fn gemini_legacy_args_use_stream_json() {
-        let args = build_gemini_args("gemini-2.5-pro", "explain the current diff", false);
-        assert_eq!(
-            args,
-            vec![
-                "--model".to_string(),
-                "gemini-2.5-pro".to_string(),
-                "--output-format".to_string(),
-                "stream-json".to_string(),
-                "explain the current diff".to_string()
-            ]
-        );
+    fn gemini_mentor_args_use_plan_mode() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "explain the current diff",
+            reasoning_effort: None,
+        })
+        .unwrap();
+
+        assert_eq!(command.executable, "agy");
+        assert!(command.args.contains(&"--mode".to_string()));
+        assert!(command.args.contains(&"plan".to_string()));
+        assert!(!command
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
-    fn gemini_antigravity_args_use_print_and_skip_permissions() {
-        let args =
-            build_gemini_args("Gemini 3.5 Flash (Low)", "explain the current diff", true);
-        assert_eq!(
-            args,
-            vec![
-                "--print-timeout".to_string(),
-                "10m".to_string(),
-                "--dangerously-skip-permissions".to_string(),
-                "--model".to_string(),
-                "Gemini 3.5 Flash (Low)".to_string(),
-                "--print".to_string(),
-                "explain the current diff".to_string()
-            ]
-        );
+    fn gemini_executor_args_use_accept_edits_and_skip_permissions() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "explain the current diff",
+            reasoning_effort: None,
+        })
+        .unwrap();
+
+        assert_eq!(command.executable, "agy");
+        assert!(command.args.contains(&"--mode".to_string()));
+        assert!(command.args.contains(&"accept-edits".to_string()));
+        assert!(command
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
-    fn gemini_antigravity_prepends_newline_for_leading_dash_prompt() {
-        let args = build_gemini_args("Gemini 3.5 Flash (Low)", "- Do the next step", true);
+    fn gemini_agy_prepends_newline_for_leading_dash_prompt() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "- Do the next step",
+            reasoning_effort: None,
+        })
+        .unwrap();
+
         assert_eq!(
-            args.last().expect("prompt is last"),
+            command.args.last().expect("prompt is last"),
             "\n- Do the next step"
         );
 
-        let args = build_gemini_args("Gemini 3.5 Flash (Low)", "Plan the refactor", true);
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "Gemini 3.5 Flash (Low)",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "Plan the refactor",
+            reasoning_effort: None,
+        })
+        .unwrap();
+
         assert_eq!(
-            args.last().expect("prompt is last"),
+            command.args.last().expect("prompt is last"),
             "Plan the refactor"
+        );
+    }
+
+    #[test]
+    fn inference_recognizes_future_o_series_models() {
+        // o4 and beyond should infer to Codex, matching the frontend /^o\d/ regex
+        // and is_codex_model_id() predicate.
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("o4"),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("o4-mini"),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("o5"),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("o9-preview"),
+            ProviderKind::Codex
+        );
+        // Non-digit o-prefix should NOT match (e.g. "openai")
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("openai"),
+            ProviderKind::Opencode
         );
     }
 

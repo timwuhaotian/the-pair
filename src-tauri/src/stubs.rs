@@ -182,13 +182,15 @@ pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
 }
 
 #[tauri::command]
-pub fn pair_retry_turn() -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub fn pair_get_messages() -> Result<Vec<()>, String> {
-    Ok(vec![])
+pub fn pair_get_messages(
+    broker: tauri::State<std::sync::Mutex<MessageBroker>>,
+    pair_id: String,
+) -> Result<Vec<crate::types::Message>, String> {
+    let broker = broker.lock().unwrap();
+    let state = broker
+        .get_state(&pair_id)
+        .ok_or_else(|| format!("No broker state found for pair {}", pair_id))?;
+    Ok(state.messages)
 }
 
 use crate::message_broker::MessageBroker;

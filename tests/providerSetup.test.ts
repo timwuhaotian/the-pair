@@ -26,7 +26,7 @@ const readyGeminiModel: AvailableModel = {
   modelId: 'gemini-2.5-pro',
   displayName: 'Gemini 2.5 Pro',
   available: true,
-  providerLabel: 'Gemini CLI',
+  providerLabel: 'Antigravity',
   sourceProvider: 'google',
   sourceProviderLabel: 'Google',
   billingKind: 'plan',
@@ -65,5 +65,5 @@ test('buildProviderSetupSummary counts ready models from every supported provide
 
   assert.equal(summary.isReady, true)
   assert.equal(summary.readyModelCount, 2)
-  assert.deepEqual(summary.readyProviderLabels, ['Claude Code', 'Gemini CLI'])
+  assert.deepEqual(summary.readyProviderLabels, ['Antigravity', 'Claude Code'])
 })

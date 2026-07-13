@@ -664,10 +664,10 @@ async fn resume_pair_core(
             .ok_or_else(|| format!("Pair {} not found", pair_id))?;
         if !matches!(
             pair.status,
-            PairStatus::Paused | PairStatus::AwaitingHumanReview
+            PairStatus::Paused | PairStatus::AwaitingHumanReview | PairStatus::Error
         ) {
             return Err(format!(
-                "Pair {} is not paused (status: {:?})",
+                "Pair {} is not in a retryable state (status: {:?})",
                 pair_id, pair.status
             ));
         }
@@ -727,9 +727,56 @@ pub async fn pair_resume(
     spawner: tauri::State<'_, ProcessSpawner>,
     pair_id: String,
 ) -> Result<(), String> {
+    // Validate status strictly for resume (only Paused or AwaitingHumanReview)
+    {
+        let manager_guard = state.lock().unwrap();
+        let pair = manager_guard
+            .pairs
+            .get(&pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+        if !matches!(
+            pair.status,
+            PairStatus::Paused | PairStatus::AwaitingHumanReview
+        ) {
+            return Err(format!(
+                "Pair {} is not in a resumeable state (status: {:?})",
+                pair_id, pair.status
+            ));
+        }
+    }
+
     let (role_str, prompt) = resume_pair_core(&state, &broker, &spawner, &pair_id).await?;
 
     // Bump run_generation to invalidate any stale handoffs from pre-pause turns.
+    {
+        let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
+        if let Some(ctx) = ctx_guard.get_mut(&pair_id) {
+            ctx.run_generation = ctx.run_generation.wrapping_add(1);
+        }
+    }
+
+    let _ = persist_current_pair_snapshot(&app, &pair_id);
+
+    spawner.trigger_turn(app, pair_id, role_str, prompt).await?;
+
+    Ok(())
+}
+
+/// Retry the current turn for a pair that is in Error, Paused, or
+/// AwaitingHumanReview state.  Unlike `pair_resume` (which is scoped to
+/// Paused / AwaitingHumanReview), this command also accepts `Error` status –
+/// the UI shows a "Retry Turn" button only when the pair has errored.
+#[tauri::command]
+pub async fn pair_retry_turn(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Mutex<PairManager>>,
+    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
+    spawner: tauri::State<'_, ProcessSpawner>,
+    pair_id: String,
+) -> Result<(), String> {
+    let (role_str, prompt) = resume_pair_core(&state, &broker, &spawner, &pair_id).await?;
+
+    // Bump run_generation to invalidate any stale handoffs from the failed turn.
     {
         let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
         if let Some(ctx) = ctx_guard.get_mut(&pair_id) {
