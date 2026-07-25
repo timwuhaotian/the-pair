@@ -52,7 +52,13 @@ export interface ResolvedSelection {
 const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 }
 // Preference order when there is no remembered route: plan-included native routes before
 // pay-as-you-go OpenCode, so the user does not accidentally spend on an API key.
-const PROVIDER_PRIORITY: Record<string, number> = { claude: 0, codex: 1, gemini: 2, opencode: 3 }
+const PROVIDER_PRIORITY: Record<string, number> = {
+  claude: 0,
+  codex: 1,
+  gemini: 2,
+  opencode: 3,
+  kimi: 4
+}
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 
 /**

@@ -11,7 +11,7 @@ The Pair is a Tauri 2 desktop app (Rust backend, React 19 + TypeScript frontend)
 - **Mentor** — read-only planner/reviewer
 - **Executor** — code writer / command runner
 
-The Rust backend spawns local provider CLIs (`opencode`, `claude`, `codex`, `gemini`), parses their JSON event streams, runs a turn-based state machine, monitors process resources, and tracks git changes. The React frontend renders the conversation, status, and controls.
+The Rust backend spawns local provider CLIs (`opencode`, `claude`, `codex`, `gemini`, `kimi`), parses their JSON event streams, runs a turn-based state machine, monitors process resources, and tracks git changes. The React frontend renders the conversation, status, and controls.
 
 ## Commands
 
@@ -102,7 +102,7 @@ Pairs hit an `iteration_limit` and pause for human review rather than running un
 
 ### Provider support
 
-Four kinds: `opencode`, `codex` (OpenAI), `claude` (Claude Code), `gemini`. Each has its own transport / session / permission / cwd strategy in `provider_adapter.rs`. Detection logic and model catalogs live in `provider_registry.rs` and `model_catalog.rs`. When adding provider features, update both.
+Five kinds: `opencode`, `codex` (OpenAI), `claude` (Claude Code), `gemini`, `kimi` (Kimi Code CLI). Each has its own transport / session / permission / cwd strategy in `provider_adapter.rs`. Detection logic and model catalogs live in `provider_registry.rs` and `model_catalog.rs`. When adding provider features, update both.
 
 ## Conventions
 

@@ -34,23 +34,23 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Rust Backend Modules (`src-tauri/src/`)
 
-| Module              | Responsibility                                                                                                                                                              |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pair_manager`      | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                             |
-| `message_broker`    | State machine for agent turn coordination and event routing                                                                                                                 |
-| `process_spawner`   | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                 |
-| `provider_adapter`  | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                  |
-| `provider_registry` | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                |
-| `providers`         | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
-| `model_catalog`     | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                 |
-| `session_snapshot`  | Persists and restores full pair state; supports session recovery after crash/restart                                                                                        |
-| `skill_discovery`   | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                              |
-| `resource_monitor`  | Per-agent CPU/memory polling (1s interval)                                                                                                                                  |
-| `git_tracker`       | Detects modified/added/deleted files relative to a baseline commit                                                                                                          |
-| `file_cache`        | Lists files and parses `@mention` references in task specs                                                                                                                  |
-| `path_env`          | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                            |
-| `config_paths`      | Resolves platform-specific config file locations                                                                                                                            |
-| `stubs`             | Placeholder Tauri commands not yet fully implemented                                                                                                                        |
+| Module              | Responsibility                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pair_manager`      | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                        |
+| `message_broker`    | State machine for agent turn coordination and event routing                                                                                                                            |
+| `process_spawner`   | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                            |
+| `provider_adapter`  | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                             |
+| `provider_registry` | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                           |
+| `providers`         | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
+| `model_catalog`     | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                            |
+| `session_snapshot`  | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                   |
+| `skill_discovery`   | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                         |
+| `resource_monitor`  | Per-agent CPU/memory polling (1s interval)                                                                                                                                             |
+| `git_tracker`       | Detects modified/added/deleted files relative to a baseline commit                                                                                                                     |
+| `file_cache`        | Lists files and parses `@mention` references in task specs                                                                                                                             |
+| `path_env`          | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                       |
+| `config_paths`      | Resolves platform-specific config file locations                                                                                                                                       |
+| `stubs`             | Placeholder Tauri commands not yet fully implemented                                                                                                                                   |
 
 ## Frontend Components (`src/renderer/src/components/`)
 
@@ -103,17 +103,18 @@ Snapshots are persisted to Tauri's app data directory. Each snapshot includes fu
 
 ## Provider Support
 
-Four provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Gemini CLI). Each is implemented as a `Provider` trait in its own module under `src-tauri/src/providers/`.
+Five provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Gemini CLI), `kimi` (Kimi Code CLI). Each is implemented as a `Provider` trait in its own module under `src-tauri/src/providers/`.
 
 ### Adding a New Provider
 
 1. Create `src-tauri/src/providers/new_provider.rs` implementing the `Provider` trait
 2. Add `pub mod new_provider;` to `src-tauri/src/providers/mod.rs`
 3. Add `Arc::new(new_provider::NewProvider)` to `all_providers()` in `mod.rs`
-4. Add the variant to `ProviderKind` in `provider_registry.rs`
+4. Add the variant to `ProviderKind` in `provider_registry.rs`, plus a `detect_*` fn there, and extend `infer_provider_kind()` in `provider_adapter.rs`
 5. Add the variant to the TypeScript `ProviderKind` union in `src/renderer/src/types.ts`
-6. Update `inferProviderFromModel()` in `providerResolution.ts` (frontend)
+6. Update `inferProviderFromModel()` in `providerResolution.ts` (frontend, keep in lockstep with the Rust heuristic) and decide whether `stripProviderPrefix()` in `modelResolution.ts` strips the new prefix (strip it only when bare model ids remain self-identifying — see the kimi comments there)
 7. Update `PROVIDER_PRIORITY` in `modelCatalogGrouping.ts` (frontend)
+8. Add login command + install URL to the maps in `providerSetup.ts` (frontend)
 
 ## Adding Features
 

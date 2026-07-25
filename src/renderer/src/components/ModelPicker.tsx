@@ -8,6 +8,7 @@ import {
   isSelectableForPairExecution,
   savePreferredModelId
 } from '../lib/modelPreferences'
+import { PROVIDER_LOGIN_COMMANDS } from '../lib/providerSetup'
 import {
   buildCanonicalModels,
   defaultLeafForRoute,
@@ -185,15 +186,10 @@ export function ModelPicker({
         }
       }
     }
-    const LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
-      claude: 'claude login',
-      codex: 'codex auth',
-      opencode: 'opencode auth login'
-    }
     return Array.from(byProvider.entries()).map(([kind, info]) => ({
       kind,
       label: info.label,
-      loginCommand: LOGIN_COMMANDS[kind],
+      loginCommand: PROVIDER_LOGIN_COMMANDS[kind],
       count: info.count
     }))
   }, [models])

@@ -60,7 +60,7 @@ test('composeFinalSpec injects a reference directive for the claude executor', (
 test('composeFinalSpec inlines skill bodies for non-claude executors', () => {
   const ctx = skills([['tdd', 'red-green', 'BODY_CONTENT_HERE']])
   const spec = '/tdd build the thing.'
-  for (const provider of ['opencode', 'codex', 'gemini'] as const) {
+  for (const provider of ['opencode', 'codex', 'gemini', 'kimi'] as const) {
     const out = composeFinalSpec(spec, new Map(), ctx, provider)
     assert.ok(out.startsWith('--- SKILLS LOADED ---'), `${provider} starts with SKILLS LOADED`)
     assert.ok(out.includes('## /tdd'), `${provider} contains skill heading`)

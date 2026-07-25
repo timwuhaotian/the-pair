@@ -2389,6 +2389,7 @@ mod tests {
         assert!(extract_token_usage(ProviderKind::Codex, &no_usage).is_none());
         assert!(extract_token_usage(ProviderKind::Opencode, &no_usage).is_none());
         assert!(extract_token_usage(ProviderKind::Gemini, &no_usage).is_none());
+        assert!(extract_token_usage(ProviderKind::Kimi, &no_usage).is_none());
     }
 
     #[test]
@@ -2422,6 +2423,47 @@ mod tests {
         let usage =
             extract_token_usage(ProviderKind::Gemini, &gemini_event).expect("gemini dispatch");
         assert_eq!(usage.output_tokens, 400);
+
+        // Kimi stream-json events carry no usage data — the parser must stay silent
+        // even for events that other providers would read a `usage` object from.
+        let kimi_event = json!({
+            "role": "assistant",
+            "content": "done",
+            "usage": { "output_tokens": 500 }
+        });
+        assert!(extract_token_usage(ProviderKind::Kimi, &kimi_event).is_none());
+    }
+
+    #[test]
+    fn kimi_stream_pipeline_extracts_final_message_and_session_id() {
+        // Verbatim stream captured from `kimi -p … --output-format stream-json`
+        // (kimi-code 0.29.1, model wanqing-streamlake/kat-coder-pro-v2.5). The
+        // first event carries a whitespace-only `content` alongside `tool_calls`.
+        let lines = [
+            r#"{"role":"assistant","content":"\n\n","tool_calls":[{"type":"function","id":"call_68cef8bf9e02409aabfa9830","function":{"name":"Write","arguments":"{\"content\":\"verified\",\"path\":\"kat-probe.txt\"}"}}]}"#,
+            r#"{"role":"tool","tool_call_id":"call_68cef8bf9e02409aabfa9830","content":"Wrote 8 bytes to kat-probe.txt"}"#,
+            r#"{"role":"assistant","content":"\n\ndone"}"#,
+            r#"{"role":"meta","type":"session.resume_hint","session_id":"session_b2ef5dc9-4101-465b-a731-8f9a5a625b92","command":"kimi -r session_b2ef5dc9-4101-465b-a731-8f9a5a625b92","content":"To resume this session: kimi -r session_b2ef5dc9-4101-465b-a731-8f9a5a625b92"}"#,
+        ];
+
+        let mut candidates = Vec::new();
+        let mut session_id = None;
+        for line in lines {
+            let event = parse_json_event(line).expect("kimi line parses as JSON");
+            collect_json_candidates_for_provider(ProviderKind::Kimi, &event, &mut candidates);
+            if session_id.is_none() {
+                session_id = extract_session_id(&event);
+            }
+            assert!(extract_token_usage(ProviderKind::Kimi, &event).is_none());
+        }
+
+        // Tool output, the resume hint, and whitespace-only assistant deltas
+        // must not leak into the turn message.
+        assert_eq!(collapse_candidates(&candidates).as_deref(), Some("done"));
+        assert_eq!(
+            session_id.as_deref(),
+            Some("session_b2ef5dc9-4101-465b-a731-8f9a5a625b92")
+        );
     }
 
     #[test]

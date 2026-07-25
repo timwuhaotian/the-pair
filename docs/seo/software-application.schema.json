@@ -29,7 +29,7 @@
     "Mentor and Executor dual-agent workflow",
     "Cross-validated AI code review",
     "Local desktop orchestration",
-    "Multi-provider support for opencode, Claude Code, Codex, and Gemini CLI",
+    "Multi-provider support for opencode, Claude Code, Codex, Gemini CLI, and Kimi Code CLI",
     "Git change tracking with inline diff review",
     "Session recovery after restart",
     "Token usage tracking",

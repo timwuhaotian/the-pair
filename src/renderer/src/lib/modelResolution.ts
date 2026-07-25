@@ -45,6 +45,9 @@ export function getAssignableTaskModels(
 function stripProviderPrefix(qualifiedId: string): string {
   if (qualifiedId.includes('/')) {
     const [prefix, ...rest] = qualifiedId.split('/')
+    // `kimi` is deliberately absent: Kimi aliases are arbitrary user-defined
+    // names, so the `kimi/` qualifier must survive in stored ids for provider
+    // re-inference. The Rust provider strips it at spawn time instead.
     if (['claude', 'codex', 'gemini'].includes(prefix) && rest.length > 0) {
       return rest.join('/')
     }

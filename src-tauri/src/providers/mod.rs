@@ -1,6 +1,7 @@
 pub mod codex;
 pub mod claude;
 pub mod gemini;
+pub mod kimi;
 pub mod opencode;
 
 use crate::provider_adapter::{
@@ -19,9 +20,14 @@ use crate::types::TurnTokenUsage;
 /// Adding a new provider:
 /// 1. Create `providers/new_provider.rs` implementing `Provider`
 /// 2. Add `pub mod new_provider;` to this file
-/// 3. Add `Box::new(new_provider::NewProvider)` to `all_providers()`
-/// 4. Add the variant to `ProviderKind` in `provider_registry.rs`
-/// 5. Add the variant to the TypeScript `ProviderKind` union
+/// 3. Add `Arc::new(new_provider::NewProvider)` to `all_providers()`
+/// 4. Add the variant to `ProviderKind` in `provider_registry.rs`, plus a
+///    `detect_*` fn, and extend `infer_provider_kind` in `provider_adapter.rs`
+/// 5. Add the variant to the TypeScript `ProviderKind` union in `types.ts`
+/// 6. Extend the frontend string lists that enumerate providers:
+///    `providerResolution.ts` (inference), `modelResolution.ts`
+///    (`stripProviderPrefix`), `modelCatalogGrouping.ts` (`PROVIDER_PRIORITY`),
+///    and `providerSetup.ts` (login command + install URL maps)
 pub trait Provider: Send + Sync {
     // ── Identity ──────────────────────────────────────────────────────────
 
@@ -145,6 +151,7 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
         Arc::new(codex::CodexProvider),
         Arc::new(claude::ClaudeProvider),
         Arc::new(gemini::GeminiProvider),
+        Arc::new(kimi::KimiProvider),
     ]
 }
 
@@ -218,6 +225,14 @@ mod tests {
             "Unexpected gemini login command: {}",
             cmd
         );
+    }
+
+    #[test]
+    fn kimi_provider_returns_login_command_and_install_url() {
+        let provider = kimi::KimiProvider;
+        assert_eq!(provider.login_command().as_deref(), Some("kimi login"));
+        assert!(provider.install_url().is_some());
+        assert!(provider.install_url().unwrap().contains("kimi"));
     }
 
     #[test]

@@ -41,6 +41,7 @@ fn normalize_provider_label(slug: &str) -> String {
         "deepseek" => "DeepSeek".to_string(),
         "minimax" => "MiniMax".to_string(),
         "opencode" => "OpenCode".to_string(),
+        "kimi" | "moonshot" => "Kimi".to_string(),
         _ => {
             let mut chars = slug.chars();
             match chars.next() {
@@ -309,6 +310,10 @@ mod tests {
         );
         assert_eq!(
             reasoning_effort_levels_for(ProviderKind::Codex, "gpt-4o"),
+            None
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Kimi, "kimi-code/k3"),
             None
         );
         let levels =

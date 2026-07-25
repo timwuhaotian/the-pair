@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Kimi Code CLI provider (`kimi`).** The Pair now supports Moonshot AI's [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) as a fifth provider. Turns run via `kimi -p --output-format stream-json` with `--session` resume; model aliases are discovered from `~/.kimi-code/config.toml` (including third-party providers configured in Kimi Code, e.g. GLM or MiMo routes). Kimi model ids stay `kimi/`-qualified in stored pair state because aliases are user-defined and not re-inferable; the backend strips the qualifier at spawn time. Note: `kimi -p` rejects `--plan`, so the Mentor's read-only behavior is prompt-enforced (same as OpenCode), and Kimi's stream emits no token usage, so token counts stay hidden for this provider.
+- **`~/.kimi-code/bin` added to PATH fallbacks** so the `kimi` binary is detected when the app is launched from the Dock/Finder.
+- **ModelPicker sign-in hints now use the shared provider login map**, which also fixes the previously missing Antigravity (`agy auth`) hint.
+- **Kimi e2e coverage.** `detect_all_mock()` now seeds a Kimi profile with a KAT model (`wanqing-streamlake/kat-coder-pro-v2.5`), and a new `e2e/specs/kimi-pair.spec.ts` drives a full mock pair lifecycle with the KAT model selected for both roles.
+
+### Fixed
+
+- **The Appium e2e suite could not run at all.** Four launch blockers fixed: `@wdio/appium-service` was missing from devDependencies; the spec glob resolved relative to the config file (wdio v8+ behavior) and matched nothing; wdio's manually-set `Content-Length` header is rejected by Node ≥ 23's undici ("invalid content-length header") — now stripped via `transformRequest`; and mock-mode env vars never reached the app under test — now injected through the mac2 `appium:environment` capability. `E2E_APP_PATH` lets the suite target a freshly built bundle instead of the installed copy.
+
 ## [2.3.2] - 2026-07-13
 
 ### Changed

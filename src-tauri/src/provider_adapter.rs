@@ -105,6 +105,7 @@ impl ProviderAdapter {
                     "codex" => ProviderKind::Codex,
                     "claude" => ProviderKind::Claude,
                     "gemini" => ProviderKind::Gemini,
+                    "kimi" => ProviderKind::Kimi,
                     _ => ProviderKind::Opencode,
                 };
             }
@@ -116,6 +117,8 @@ impl ProviderAdapter {
                 ProviderKind::Claude
             } else if lower.contains("gemini") {
                 ProviderKind::Gemini
+            } else if lower.contains("kimi") {
+                ProviderKind::Kimi
             } else if lower.contains("gpt")
                 || lower
                     .strip_prefix('o')
@@ -335,6 +338,15 @@ mod tests {
         assert_eq!(
             ProviderAdapter::infer_provider_kind("Gemini 3.5 Flash (Low)"),
             ProviderKind::Gemini
+        );
+        // Kimi aliases contain their own slashes; only the leading qualifier routes.
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("kimi/kimi-code/k3"),
+            ProviderKind::Kimi
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("kimi-k2.5"),
+            ProviderKind::Kimi
         );
     }
 

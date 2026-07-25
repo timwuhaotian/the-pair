@@ -21,7 +21,9 @@ function makeModel(
           ? 'Codex'
           : provider === 'gemini'
             ? 'Antigravity'
-            : 'OpenCode',
+            : provider === 'kimi'
+              ? 'Kimi Code'
+              : 'OpenCode',
     sourceProvider: provider,
     sourceProviderLabel: provider,
     billingKind: 'plan',
@@ -110,6 +112,9 @@ test('buildProviderSetupHints includes login commands for known providers', () =
 
   const gemini = hints.find((h) => h.kind === 'gemini')
   assert.equal(gemini!.loginCommand, 'agy auth')
+
+  const kimiHints = buildProviderSetupHints([makeModel('kimi', 'ready')])
+  assert.equal(kimiHints[0]!.loginCommand, 'kimi login')
 })
 
 test('buildProviderSetupHints includes install URLs for known providers', () => {
@@ -129,6 +134,10 @@ test('buildProviderSetupHints includes install URLs for known providers', () => 
   const gemini = hints.find((h) => h.kind === 'gemini')
   assert.ok(gemini!.installUrl)
   assert.ok(gemini!.installUrl!.includes('antigravity'))
+
+  const kimiHints = buildProviderSetupHints([makeModel('kimi', 'cli-missing')])
+  assert.ok(kimiHints[0]!.installUrl)
+  assert.ok(kimiHints[0]!.installUrl!.includes('kimi-code'))
 })
 
 test('buildProviderSetupHints handles empty model list', () => {

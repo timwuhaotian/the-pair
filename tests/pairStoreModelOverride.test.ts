@@ -442,6 +442,32 @@ test('payload: buildUpdateModelsPayload preserves opencode qualified IDs', () =>
   )
 })
 
+test('payload: buildUpdateModelsPayload preserves kimi qualified IDs', () => {
+  const pair: PairLike = {
+    mentorModel: 'default-mentor',
+    executorModel: 'default-executor'
+  }
+
+  // Kimi aliases are arbitrary user-defined names, so the `kimi/` qualifier
+  // must survive for provider re-inference; the backend strips it at spawn time.
+  const effective = {
+    mentorModel: 'kimi/kimi-code/kimi-for-coding',
+    executorModel: 'kimi/ark-coding-plan/glm-5.2'
+  }
+  const payload = buildUpdateModelsPayload(pair, effective)
+
+  assert.equal(
+    payload.pendingMentorModel,
+    'kimi/kimi-code/kimi-for-coding',
+    'kimi qualified ID preserved'
+  )
+  assert.equal(
+    payload.pendingExecutorModel,
+    'kimi/ark-coding-plan/glm-5.2',
+    'kimi qualified ID preserved'
+  )
+})
+
 test('transactional: rollback impossible after updateModels success', () => {
   // When overrides ARE provided, updateModels IS called.
   // If assignTask fails after updateModels succeeds, backend is partially updated.

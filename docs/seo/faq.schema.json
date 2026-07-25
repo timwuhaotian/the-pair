@@ -23,7 +23,7 @@
       "name": "Which AI providers does The Pair support?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "The Pair supports opencode, Claude Code, OpenAI Codex CLI, and Gemini CLI. Developers can mix providers between Mentor and Executor, including local models through Ollama-compatible opencode routes."
+        "text": "The Pair supports opencode, Claude Code, OpenAI Codex CLI, Gemini CLI, and Kimi Code CLI. Developers can mix providers between Mentor and Executor, including local models through Ollama-compatible opencode routes."
       }
     },
     {

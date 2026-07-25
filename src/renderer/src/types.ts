@@ -1,4 +1,4 @@
-export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
+export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini' | 'kimi'
 
 type TokenUsageSource = 'live' | 'final' | 'none'
 

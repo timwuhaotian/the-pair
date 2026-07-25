@@ -45,7 +45,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 
 ## 概述
 
-**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：可任意组合 Claude Code、OpenAI Codex、Gemini CLI 和 opencode（也支持通过 Ollama 使用本地模型）。
+**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：可任意组合 Claude Code、OpenAI Codex、Gemini CLI、Kimi Code 和 opencode（也支持通过 Ollama 使用本地模型）。
 
 **担心 AI 代码幻觉？** The Pair 通过运行两个互相校验的 AI Agent 来解决这个问题：
 
@@ -84,7 +84,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 - **Git 变更追踪** — 自动检测修改、新增或删除的文件
 - **对话历史** — 完整的 Agent 交互记录
 - **本地编排** — 应用和 Agent 协调均在本地运行；模型调用取决于所选 Provider 或本地模型
-- **多 Provider 支持** — 兼容 opencode、Claude Code、Codex 和 Gemini CLI
+- **多 Provider 支持** — 兼容 opencode、Claude Code、Codex、Gemini CLI 和 Kimi Code CLI
 - **推理控制** — 按 Agent 角色调整推理强度（低/中/高）
 - **Token 统计** — 实时显示每次交互的 Token 用量
 - **技能系统** — 附加项目特定的技能文件来引导 Agent 行为
@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## 快速开始
 
 > [!NOTE]
-> The Pair 至少需要一个 AI Provider CLI：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex) 或 [Antigravity](https://github.com/google-gemini/antigravity)。
+> The Pair 至少需要一个 AI Provider CLI：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Antigravity](https://github.com/google-gemini/antigravity) 或 [Kimi Code](https://github.com/MoonshotAI/kimi-code)。
 
 ### 1. 安装 AI Provider
 
@@ -142,6 +142,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **Claude Code** — 参见 [Claude Code 配置指南](https://docs.anthropic.com/en/docs/claude-code/getting-started)，或运行 `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
 - **Antigravity** — `agy install`（参见 [Antigravity](https://github.com/google-gemini/antigravity) 安装说明）
+- **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash`（参见 [Kimi Code](https://github.com/MoonshotAI/kimi-code) 安装说明）
 
 ### 2. 配置 AI 模型（可选）
 
@@ -181,7 +182,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **macOS/Linux**：`~/.config/opencode/opencode.json`
 - **Windows**：`%APPDATA%/opencode/opencode.json`
 
-Codex、Claude Code 和 Gemini CLI 会从本地 CLI 安装和账户状态自动检测。
+Codex、Claude Code、Gemini CLI 和 Kimi Code CLI 会从本地 CLI 安装和账户状态自动检测。
 
 ### Pair 运行时
 
@@ -337,7 +338,7 @@ A: 是的。The Pair 在 Apache 2.0 许可证下完全开源，并且可免费�
 
 **Q: The Pair 是 Cursor、GitHub Copilot 或 Aider 的替代品吗？**
 
-A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可任意组合 Claude Code、Codex、Gemini 或 opencode。
+A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可任意组合 Claude Code、Codex、Gemini、Kimi Code 或 opencode。
 
 **Q: The Pair 支持哪些操作系统？**
 
@@ -353,11 +354,11 @@ A: The Pair 完全在本地运行。只有 AI 模型 API 调用需要网络（�
 
 **Q: 支持哪些 AI Provider？**
 
-A: The Pair 开箱支持四种 Provider：**opencode**（任意兼容模型）、**Claude Code CLI**、**OpenAI Codex CLI** 和 **Gemini CLI**。Codex、Claude 和 Gemini 会从已安装的 CLI 自动检测。你可以混合使用 Provider——例如 Claude 作为 Mentor，Codex 作为 Executor。
+A: The Pair 开箱支持五种 Provider：**opencode**（任意兼容模型）、**Claude Code CLI**、**OpenAI Codex CLI**、**Gemini CLI** 和 **Kimi Code CLI**。Codex、Claude、Gemini 和 Kimi 会从已安装的 CLI 自动检测。你可以混合使用 Provider——例如 Claude 作为 Mentor，Codex 作为 Executor。
 
 **Q: 可以使用自己的 AI 模型吗？**
 
-A: 可以，The Pair 与模型无关。opencode 支持的模型可与任意兼容的 Provider（OpenAI、Anthropic、Ollama 等）配合使用。对于 Claude、Codex 和 Gemini，只需安装其 CLI 并登录。
+A: 可以，The Pair 与模型无关。opencode 支持的模型可与任意兼容的 Provider（OpenAI、Anthropic、Ollama 等）配合使用。对于 Claude、Codex、Gemini 和 Kimi Code，只需安装其 CLI 并登录。
 
 **Q: 能控制 Agent 的"思考深度"吗？**
 
@@ -389,6 +390,6 @@ A: 支持。The Pair 在启动时检查新版本，并通过一键式更新流�
 
 **[⭐ 点个 Star](https://github.com/timwuhaotian/the-pair)** 如果觉得这个项目对你有帮助！
 
-<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持 Claude Code、Codex、Gemini、opencode，适配 macOS、Windows、Linux。</sub>
+<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持 Claude Code、Codex、Gemini、Kimi Code、opencode，适配 macOS、Windows、Linux。</sub>
 
 </div>

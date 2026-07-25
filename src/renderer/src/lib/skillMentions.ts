@@ -4,8 +4,9 @@
  * Skills come from local SKILL.md folders (Claude Code / opencode / agents)
  * and are injected ahead of the user's spec before assignment. Claude Code
  * executors receive a short reference directive — their built-in Skill tool
- * loads the actual body. Other providers (opencode/codex/gemini) get the full
- * SKILL.md body inlined as context since they don't have a Skill primitive.
+ * loads the actual body. Other providers (opencode/codex/gemini/kimi) get the
+ * full SKILL.md body inlined as context since they don't expose a Skill tool
+ * invocable by name from the prompt.
  */
 
 import { selectReferencedFiles, type FileContexts } from './fileMentions'

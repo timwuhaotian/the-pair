@@ -28,10 +28,11 @@ export function buildProviderSetupSummary(models: AvailableModel[]): ProviderSet
  * Gemini defaults to Antigravity (`agy`) since the legacy Gemini CLI stopped
  * serving requests on 2026-06-18. The backend's `DetectedProviderProfile`
  * remains the authoritative source for the onboarding screen. */
-const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
+export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   claude: 'claude login',
   codex: 'codex auth',
   gemini: 'agy auth',
+  kimi: 'kimi login',
   opencode: 'opencode auth login'
 }
 
@@ -39,6 +40,7 @@ const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   claude: 'https://claude.ai/download',
   codex: 'https://github.com/openai/codex',
   gemini: 'https://github.com/google-gemini/antigravity',
+  kimi: 'https://github.com/MoonshotAI/kimi-code',
   opencode: 'https://opencode.ai'
 }
 

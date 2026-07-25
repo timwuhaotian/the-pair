@@ -18,6 +18,7 @@ pub enum ProviderKind {
     Codex,
     Claude,
     Gemini,
+    Kimi,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -739,6 +740,28 @@ impl ProviderRegistry {
                 install_url: None,
                 detected_at: detected_at_now(),
             },
+            // Appended last so the default model selection (first selectable
+            // entry) stays on the opencode mock and existing e2e specs are
+            // unaffected. The alias mirrors a real Kimi Code KAT route.
+            DetectedProviderProfile {
+                kind: ProviderKind::Kimi,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "wanqing-streamlake/kat-coder-pro-v2.5".to_string(),
+                    display_name: "KAT Coder Pro (Mock)".to_string(),
+                    source_provider: Some("kimi".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                login_command: None,
+                install_url: None,
+                detected_at: detected_at_now(),
+            },
         ]
     }
 
@@ -991,6 +1014,31 @@ impl ProviderRegistry {
             detected_at: detected_at_now(),
         }
     }
+
+    pub fn detect_kimi() -> DetectedProviderProfile {
+        let installed = which_binary_exists("kimi");
+        let models = if installed {
+            discover_kimi_models(&homedir())
+        } else {
+            Vec::new()
+        };
+        // Kimi Code only lists model aliases in its config after the user has
+        // logged in or configured a provider, so a non-empty catalog doubles
+        // as the authentication signal (same heuristic as Antigravity).
+        let authenticated = !models.is_empty();
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Kimi,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label: "kimi-code".into(),
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
@@ -1026,6 +1074,64 @@ fn discover_antigravity_model_ids(agy_bin: &Path) -> Vec<DetectedModelOption> {
         .collect()
 }
 
+/// Discover Kimi Code model aliases from `~/.kimi-code/config.toml`. Every
+/// `[models."<alias>"]` section is a runnable `--model` value; `display_name`
+/// keys inside a section provide the human-readable label.
+fn discover_kimi_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
+    let config_path = home.join(".kimi-code/config.toml");
+    match fs::read_to_string(config_path) {
+        Ok(content) => parse_kimi_model_aliases(&content),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn parse_kimi_model_aliases(content: &str) -> Vec<DetectedModelOption> {
+    let mut models: Vec<DetectedModelOption> = Vec::new();
+    let mut current_alias: Option<String> = None;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with('[') {
+            current_alias = line
+                .strip_prefix("[models.")
+                .and_then(|rest| rest.strip_suffix(']'))
+                .map(|key| key.trim().trim_matches('"').to_string())
+                // A leftover quote means a nested sub-table header
+                // (e.g. `[models."x".extras]`), not a model alias.
+                .filter(|alias| !alias.is_empty() && !alias.contains('"'));
+
+            if let Some(alias) = current_alias.as_ref() {
+                if !models.iter().any(|model| &model.model_id == alias) {
+                    models.push(DetectedModelOption {
+                        display_name: alias.clone(),
+                        model_id: alias.clone(),
+                        source_provider: Some("kimi".to_string()),
+                        family: None,
+                        subscription_label: "kimi-code".to_string(),
+                        supports_pair_execution: true,
+                        runnable: true,
+                    });
+                }
+            }
+            continue;
+        }
+
+        if let (Some(alias), true) = (current_alias.as_ref(), line.starts_with("display_name")) {
+            if let Some(display_name) = line.split('"').nth(1).filter(|name| !name.is_empty()) {
+                if let Some(model) = models.iter_mut().find(|model| &model.model_id == alias) {
+                    model.display_name = display_name.to_string();
+                }
+            }
+        }
+    }
+
+    models
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,6 +1140,52 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     use uuid::Uuid;
+
+    #[test]
+    fn parse_kimi_model_aliases_reads_sections_and_display_names() {
+        let config = r#"
+default_permission_mode = "yolo"
+default_model = "ark-coding-plan/glm-5.2"
+
+[providers.ark-coding-plan]
+type = "openai"
+api_key = "secret"
+base_url = "https://example.com/v1"
+
+[models."ark-coding-plan/glm-5.2"]
+provider = "ark-coding-plan"
+model = "glm-5.2"
+display_name = "GLM-5.2 (Ark)"
+
+[models."kimi-code/kimi-for-coding"]
+provider = "managed:kimi-code"
+model = "kimi-for-coding"
+"#;
+
+        let models = parse_kimi_model_aliases(config);
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(ids, vec!["ark-coding-plan/glm-5.2", "kimi-code/kimi-for-coding"]);
+        assert_eq!(models[0].display_name, "GLM-5.2 (Ark)");
+        // No display_name key → the alias itself is the label.
+        assert_eq!(models[1].display_name, "kimi-code/kimi-for-coding");
+        assert!(models.iter().all(|m| m.runnable && m.supports_pair_execution));
+    }
+
+    #[test]
+    fn parse_kimi_model_aliases_ignores_non_model_sections_and_subtables() {
+        let config = r#"
+[providers.zai]
+display_name = "not a model"
+
+[models."kimi-code/k3".extras]
+display_name = "sub-table, not an alias"
+
+[models]
+display_name = "bare table, not an alias"
+"#;
+
+        assert!(parse_kimi_model_aliases(config).is_empty());
+    }
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
