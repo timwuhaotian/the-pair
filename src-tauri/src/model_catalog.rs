@@ -322,6 +322,44 @@ mod tests {
     }
 
     #[test]
+    fn minimax_m3_exposes_adaptive_reasoning_control() {
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Opencode, "minimax/MiniMax-M3"),
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Opencode, "minimax/MiniMax-M2.7"),
+            None
+        );
+    }
+
+    #[test]
+    fn build_catalog_exposes_minimax_m3_reasoning_variants() {
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Opencode,
+            true,
+            true,
+            true,
+            "internal-provider",
+            vec![model(
+                "minimax/MiniMax-M3",
+                "MiniMax-M3",
+                Some("minimax"),
+                None,
+                "internal-provider",
+                true,
+                true,
+            )],
+        )]);
+
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(
+            catalog[0].reasoning_effort_levels,
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
+        );
+    }
+
+    #[test]
     fn build_catalog_marks_supported_opencode_models_ready() {
         let catalog = ModelCatalog::build_catalog(vec![profile(
             ProviderKind::Opencode,

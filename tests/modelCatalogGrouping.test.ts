@@ -168,6 +168,33 @@ test('exposes Codex reasoning levels as a shared-id effort axis and resolves sel
   assert.equal(unset.effort, undefined)
 })
 
+test('exposes OpenCode adaptive reasoning variants and resolves selection', () => {
+  const model = makeModel({
+    provider: 'opencode',
+    modelId: 'minimax/MiniMax-M3',
+    displayName: 'MiniMax-M3',
+    providerLabel: 'OpenCode',
+    accessLabel: 'MiniMax API key',
+    planLabel: 'internal-provider',
+    billingKind: 'byok',
+    canonicalKey: 'minimax::minimax-m3',
+    canonicalDisplayName: 'MiniMax-M3',
+    reasoningEffortLevels: ['adaptive', 'disabled']
+  })
+
+  const models = buildCanonicalModels([model])
+  const route = models[0].routes[0]
+  assert.deepEqual(
+    route.effortOptions.map((option) => option.reasoningEffort),
+    ['adaptive', 'disabled']
+  )
+  assert.deepEqual(defaultLeafForRoute(route), {
+    qualifiedId: 'minimax/MiniMax-M3',
+    reasoningEffort: 'adaptive'
+  })
+  assert.equal(resolveSelection(models, 'minimax/MiniMax-M3', 'disabled').effort?.value, 'disabled')
+})
+
 test('fuzzy search matches on model name and route labels', () => {
   const models = buildCanonicalModels([antigravityFlash('low')])
   assert.equal(modelMatchesQuery(models[0], 'gem35flash'), true)

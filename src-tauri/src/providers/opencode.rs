@@ -7,6 +7,16 @@ use serde_json::Value;
 /// OpenCode — multi-provider gateway. Model ids use `provider/model` format.
 pub struct OpenCodeProvider;
 
+const MINIMAX_M3_MODEL_ID: &str = "MiniMax-M3";
+const MINIMAX_M3_REASONING_VARIANTS: &[&str] = &["adaptive", "disabled"];
+
+fn reasoning_variants_for_model(model_id: &str) -> Option<&'static [&'static str]> {
+    let bare_model_id = model_id.rsplit('/').next().unwrap_or(model_id);
+    bare_model_id
+        .eq_ignore_ascii_case(MINIMAX_M3_MODEL_ID)
+        .then_some(MINIMAX_M3_REASONING_VARIANTS)
+}
+
 impl Provider for OpenCodeProvider {
     fn kind(&self) -> ProviderKind {
         ProviderKind::Opencode
@@ -18,6 +28,15 @@ impl Provider for OpenCodeProvider {
 
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
         let mut args = vec!["run".into(), "--model".into(), request.model.into()];
+        if let (Some(variants), Some(effort)) = (
+            reasoning_variants_for_model(request.model),
+            request.reasoning_effort,
+        ) {
+            if variants.contains(&effort) {
+                args.push("--variant".into());
+                args.push(effort.into());
+            }
+        }
         if let Some(sid) = request.session_id {
             args.push("--session".into());
             args.push(sid.into());
@@ -139,6 +158,15 @@ impl Provider for OpenCodeProvider {
         format!("{} API key", source_provider_label)
     }
 
+    fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
+        reasoning_variants_for_model(model_id).map(|variants| {
+            variants
+                .iter()
+                .map(|variant| (*variant).to_string())
+                .collect()
+        })
+    }
+
     fn should_filter_unavailable_models(&self) -> bool {
         true
     }
@@ -157,11 +185,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opencode_command_does_not_add_reasoning_effort() {
+    fn opencode_command_ignores_unsupported_reasoning_effort() {
         let provider = OpenCodeProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Opencode,
-            model: "openai/gpt-4o-mini",
+            model: "example/model",
             session_id: None,
             role: "executor",
             pair_id: "pair-1",
@@ -171,5 +199,44 @@ mod tests {
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn opencode_command_adds_supported_reasoning_variant() {
+        let provider = OpenCodeProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax-cn/MiniMax-M3",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("disabled"),
+        });
+
+        let variant_index = command
+            .args
+            .iter()
+            .position(|arg| arg == "--variant")
+            .expect("supported reasoning should use the OpenCode variant flag");
+        assert_eq!(command.args[variant_index + 1], "disabled");
+    }
+
+    #[test]
+    fn opencode_exposes_only_supported_model_reasoning_variants() {
+        let provider = OpenCodeProvider;
+
+        assert_eq!(
+            provider.reasoning_effort_levels("minimax/MiniMax-M3"),
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
+        );
+        assert_eq!(
+            provider.reasoning_effort_levels("minimax-cn-coding-plan/MiniMax-M3"),
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
+        );
+        assert_eq!(
+            provider.reasoning_effort_levels("minimax/MiniMax-M2.7"),
+            None
+        );
     }
 }

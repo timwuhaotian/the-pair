@@ -406,10 +406,10 @@ mod tests {
     }
 
     #[test]
-    fn opencode_command_does_not_add_reasoning_effort() {
+    fn opencode_command_omits_unsupported_reasoning_effort() {
         let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
             provider_kind: ProviderKind::Opencode,
-            model: "openai/gpt-4o-mini",
+            model: "example/model",
             session_id: None,
             role: "executor",
             pair_id: "pair-1",
@@ -420,5 +420,22 @@ mod tests {
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn opencode_command_injects_supported_reasoning_variant() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax/MiniMax-M3",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("adaptive"),
+        })
+        .unwrap();
+
+        assert!(command.args.contains(&"--variant".to_string()));
+        assert!(command.args.contains(&"adaptive".to_string()));
     }
 }
