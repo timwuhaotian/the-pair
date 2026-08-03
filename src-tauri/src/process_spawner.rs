@@ -44,6 +44,56 @@ pub struct ProcessContext {
 const MENTOR_FINISH_SIGNAL: &str = "TASK_COMPLETE";
 const EMPTY_OUTPUT_PLACEHOLDER: &str = "(No textual output produced)";
 
+const MAX_STEP_CYCLES_PER_TURN: u32 = 50;
+const MIN_STEP_INTERVAL_MS: u64 = 50;
+
+/// Outcome of recording one `step_start` event within a turn.
+enum StepCycleVerdict {
+    Ok,
+    /// Steps are cycling suspiciously fast — worth a warning log.
+    Rapid { interval_ms: u64, count: u32 },
+    /// The turn exceeded the step budget and must be terminated.
+    Terminate { count: u32 },
+}
+
+/// Counts `step_start` events within a single turn so a runaway agent that
+/// never stops cycling steps trips a kill switch. Must be fed every
+/// `step_start` event in the stream — feeding only the first output line
+/// (a previous bug) leaves the counter stuck at 1 and the guard inert.
+struct StepCycleGuard {
+    count: u32,
+    last_step_timestamp: u64,
+}
+
+impl StepCycleGuard {
+    fn new() -> Self {
+        Self {
+            count: 0,
+            last_step_timestamp: 0,
+        }
+    }
+
+    fn record_step(&mut self, now: u64) -> StepCycleVerdict {
+        self.count += 1;
+        let previous = self.last_step_timestamp;
+        self.last_step_timestamp = now;
+
+        if self.count > MAX_STEP_CYCLES_PER_TURN {
+            return StepCycleVerdict::Terminate { count: self.count };
+        }
+        if previous > 0 {
+            let interval = now.saturating_sub(previous);
+            if interval < MIN_STEP_INTERVAL_MS {
+                return StepCycleVerdict::Rapid {
+                    interval_ms: interval,
+                    count: self.count,
+                };
+            }
+        }
+        StepCycleVerdict::Ok
+    }
+}
+
 fn mock_responses(role: &str, iteration: u32) -> Vec<String> {
     let scenario = std::env::var("THE_PAIR_E2E_MOCK_SCENARIO").unwrap_or_default();
     mock_responses_for_scenario(role, iteration, &scenario)
@@ -162,6 +212,10 @@ fn extract_session_id(event: &serde_json::Value) -> Option<String> {
         .get("sessionID")
         .and_then(|s| s.as_str())
         .or_else(|| event.get("session_id").and_then(|s| s.as_str()))
+        // Codex (`codex exec --json`) exposes its resumable session as
+        // `thread_id` on the `thread.started` event; `codex exec resume <id>`
+        // takes exactly this value.
+        .or_else(|| event.get("thread_id").and_then(|s| s.as_str()))
         .or_else(|| {
             event
                 .get("part")
@@ -1039,10 +1093,7 @@ impl ProcessSpawner {
             let mut provider_turn_error: Option<String> = None;
 
             // Step cycle detection to prevent infinite loops
-            let mut step_cycle_count: u32 = 0;
-            let mut last_step_timestamp: u64 = 0;
-            const MAX_STEP_CYCLES_PER_TURN: u32 = 50;
-            const MIN_STEP_INTERVAL_MS: u64 = 50;
+            let mut step_cycle_guard = StepCycleGuard::new();
 
             // Get current iteration from state
             let current_iteration =
@@ -1122,6 +1173,42 @@ impl ProcessSpawner {
                         }
                     }
 
+                    // Step cycle detection runs on every step_start event in the
+                    // stream — not just the first output line — so a runaway
+                    // agent actually trips the kill switch.
+                    if event_type_lower.contains("step_start") {
+                        match step_cycle_guard.record_step(crate::util::now_millis()) {
+                            StepCycleVerdict::Terminate { count } => {
+                                println!(
+                                    "[ProcessSpawner] [{}] [{}] Step cycle limit exceeded ({} cycles), terminating turn to prevent infinite loop",
+                                    pair_id_clone, role_clone, count
+                                );
+                                if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
+                                    broker.set_pair_status(
+                                        &pair_id_clone,
+                                        crate::types::PairStatus::Error,
+                                        Some(format!("Agent entered infinite step loop ({} cycles). Terminated to prevent CPU exhaustion.", count)),
+                                    );
+                                }
+                                // Kill the process via active_processes map
+                                let process_key = format!("{}-{}", pair_id_clone, role_clone);
+                                if let Some(mut child) = active_processes_for_cleanup.lock().unwrap_or_else(|e| e.into_inner()).remove(&process_key) {
+                                    let _ = child.start_kill();
+                                }
+                                // Break out of the event loop
+                                break;
+                            }
+                            StepCycleVerdict::Rapid { interval_ms, count } => {
+                                println!(
+                                    "[ProcessSpawner] [{}] [{}] WARNING: Rapid step cycling detected ({}ms interval, cycle #{})",
+                                    pair_id_clone, role_clone, interval_ms, count
+                                );
+                            }
+                            StepCycleVerdict::Ok => {}
+                        }
+                    }
+
                     if first_output {
                         if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                             let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
@@ -1187,41 +1274,8 @@ impl ProcessSpawner {
                             );
                             (ActivityPhase::Thinking, "Reasoning...".to_string(), None)
                         } else if event_type_lower.contains("step_start") {
-                            // Step cycle detection
-                            let now = crate::util::now_millis();
-                            step_cycle_count += 1;
-
-                            if step_cycle_count > MAX_STEP_CYCLES_PER_TURN {
-                                println!(
-                                    "[ProcessSpawner] [{}] [{}] Step cycle limit exceeded ({} cycles), terminating turn to prevent infinite loop",
-                                    pair_id_clone, role_clone, step_cycle_count
-                                );
-                                if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                                    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
-                                    broker.set_pair_status(
-                                        &pair_id_clone,
-                                        crate::types::PairStatus::Error,
-                                        Some(format!("Agent entered infinite step loop ({} cycles). Terminated to prevent CPU exhaustion.", step_cycle_count)),
-                                    );
-                                }
-                                // Kill the process via active_processes map
-                                let process_key = format!("{}-{}", pair_id_clone, role_clone);
-                                if let Some(mut child) = active_processes_for_cleanup.lock().unwrap_or_else(|e| e.into_inner()).remove(&process_key) {
-                                    let _ = child.start_kill();
-                                }
-                                // Break out of the event loop
-                                break;
-                            } else if last_step_timestamp > 0 {
-                                let interval = now.saturating_sub(last_step_timestamp);
-                                if interval < MIN_STEP_INTERVAL_MS {
-                                    println!(
-                                        "[ProcessSpawner] [{}] [{}] WARNING: Rapid step cycling detected ({}ms interval, cycle #{})",
-                                        pair_id_clone, role_clone, interval, step_cycle_count
-                                    );
-                                }
-                            }
-                            last_step_timestamp = now;
-
+                            // Cycle counting happens above for every event;
+                            // here we only label the activity phase.
                             (ActivityPhase::Thinking, "Starting step".to_string(), None)
                         } else if event_type_lower.contains("result")
                                 || event_type_lower.contains("complete")
@@ -1557,6 +1611,20 @@ impl ProcessSpawner {
                         Some(format!("{} error: {}", role_clone, detail)),
                     );
                     should_handoff = false;
+                } else if no_text_output {
+                    // Empty-output pause must come before the mentor-review branch:
+                    // a content-free review carries no verdict, so letting it fall
+                    // through hands the executor a placeholder as its next instruction.
+                    println!(
+                        "[ProcessSpawner] [{}] {} returned no textual output, pausing for human review",
+                        pair_id_clone, role_clone
+                    );
+                    broker.set_pair_status(
+                        &pair_id_clone,
+                        crate::types::PairStatus::Paused,
+                        Some(format!("{} returned no textual output", role_clone)),
+                    );
+                    should_handoff = false;
                 } else if is_mentor_review_turn {
                     let smoke_needs_more = broker
                         .get_state(&pair_id_clone)
@@ -1808,17 +1876,6 @@ impl ProcessSpawner {
                             pair_id_clone, MENTOR_FINISH_SIGNAL
                         );
                     }
-                } else if no_text_output {
-                    println!(
-                        "[ProcessSpawner] [{}] {} returned no textual output, pausing for human review",
-                        pair_id_clone, role_clone
-                    );
-                    broker.set_pair_status(
-                        &pair_id_clone,
-                        crate::types::PairStatus::Paused,
-                        Some(format!("{} returned no textual output", role_clone)),
-                    );
-                    should_handoff = false;
                 } else if role_clone == "executor" || role_clone == "mentor" {
                     if let Some(state) = broker.get_state(&pair_id_clone) {
                         let budget = state.max_iterations;
@@ -1882,7 +1939,7 @@ impl ProcessSpawner {
                 // handoff is stale.
                 if let Some(current_gen) = contexts
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .get(&pair_id_clone)
                     .map(|c| c.run_generation)
                 {
@@ -1973,6 +2030,50 @@ mod tests {
         });
 
         assert_eq!(extract_session_id(&event).as_deref(), Some("ses_top_level"));
+    }
+
+    #[test]
+    fn extract_session_id_reads_codex_thread_id() {
+        // Codex (`codex exec --json`) exposes its resumable session only as
+        // `thread_id` on `thread.started`; without this the resume arg is never
+        // populated and every codex turn starts a brand-new session.
+        let event = json!({
+            "type": "thread.started",
+            "thread_id": "019d1c0a-0137-73f3-bf4a-88c90739150c"
+        });
+
+        assert_eq!(
+            extract_session_id(&event).as_deref(),
+            Some("019d1c0a-0137-73f3-bf4a-88c90739150c")
+        );
+    }
+
+    #[test]
+    fn step_cycle_guard_terminates_after_limit() {
+        let mut guard = StepCycleGuard::new();
+        let mut now = 1_000u64;
+        for _ in 0..MAX_STEP_CYCLES_PER_TURN {
+            now += 1_000;
+            assert!(matches!(guard.record_step(now), StepCycleVerdict::Ok));
+        }
+        now += 1_000;
+        assert!(matches!(
+            guard.record_step(now),
+            StepCycleVerdict::Terminate { .. }
+        ));
+    }
+
+    #[test]
+    fn step_cycle_guard_flags_rapid_cycling_without_terminating() {
+        let mut guard = StepCycleGuard::new();
+        assert!(matches!(guard.record_step(1_000), StepCycleVerdict::Ok));
+        assert!(matches!(
+            guard.record_step(1_010),
+            StepCycleVerdict::Rapid {
+                interval_ms: 10,
+                count: 2
+            }
+        ));
     }
 
     #[test]

@@ -658,18 +658,8 @@ async fn resume_pair_core(
 ) -> Result<(String, String), String> {
     let (role_str, prompt) = {
         let manager_guard = manager.lock().unwrap();
-        let pair = manager_guard
-            .pairs
-            .get(pair_id)
-            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-        if !matches!(
-            pair.status,
-            PairStatus::Paused | PairStatus::AwaitingHumanReview | PairStatus::Error
-        ) {
-            return Err(format!(
-                "Pair {} is not in a retryable state (status: {:?})",
-                pair_id, pair.status
-            ));
+        if !manager_guard.pairs.contains_key(pair_id) {
+            return Err(format!("Pair {} not found", pair_id));
         }
 
         let broker_guard = broker.lock().unwrap();
@@ -677,6 +667,20 @@ async fn resume_pair_core(
         let state = broker_guard
             .get_state(pair_id)
             .ok_or_else(|| format!("No broker state found for pair {}", pair_id))?;
+
+        // Gate on the broker's live status, not the manager's Pair.status: the
+        // manager copy is only written on manual pause/resume, so gating on it
+        // rejects resumes after automatic transitions (budget exhausted,
+        // provider turn errors, plan gate, verdict parse failures).
+        if !matches!(
+            state.status,
+            PairStatus::Paused | PairStatus::AwaitingHumanReview | PairStatus::Error
+        ) {
+            return Err(format!(
+                "Pair {} is not in a retryable state (status: {:?})",
+                pair_id, state.status
+            ));
+        }
 
         let role_str = match state.turn {
             crate::types::AgentRole::Mentor => "mentor",
@@ -727,20 +731,25 @@ pub async fn pair_resume(
     spawner: tauri::State<'_, ProcessSpawner>,
     pair_id: String,
 ) -> Result<(), String> {
-    // Validate status strictly for resume (only Paused or AwaitingHumanReview)
+    // Validate status strictly for resume (only Paused or AwaitingHumanReview).
+    // The broker state is authoritative — the manager's Pair.status goes stale
+    // on automatic transitions (see resume_pair_core).
     {
         let manager_guard = state.lock().unwrap();
-        let pair = manager_guard
-            .pairs
-            .get(&pair_id)
-            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+        if !manager_guard.pairs.contains_key(&pair_id) {
+            return Err(format!("Pair {} not found", pair_id));
+        }
+    }
+    {
+        let broker_guard = broker.lock().unwrap();
+        let status = broker_guard.get_state(&pair_id).map(|s| s.status);
         if !matches!(
-            pair.status,
-            PairStatus::Paused | PairStatus::AwaitingHumanReview
+            status,
+            Some(PairStatus::Paused) | Some(PairStatus::AwaitingHumanReview)
         ) {
             return Err(format!(
                 "Pair {} is not in a resumeable state (status: {:?})",
-                pair_id, pair.status
+                pair_id, status
             ));
         }
     }
@@ -1077,6 +1086,53 @@ mod tests {
             state.iteration, 5,
             "iteration should remain 5, not reset or incremented"
         );
+    }
+
+    #[tokio::test]
+    async fn pair_resume_core_gates_on_broker_status_not_stale_manager_status() {
+        // Automatic transitions (budget exhausted, provider turn error, plan
+        // gate) only update the broker state — the manager's Pair.status keeps
+        // its last manual value. Resume/retry must still work in that state.
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-stale-manager";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 2);
+        manager
+            .lock()
+            .unwrap()
+            .pairs
+            .get_mut(pair_id)
+            .unwrap()
+            .status = PairStatus::Idle;
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(
+            result.is_ok(),
+            "resume should gate on broker status, not the stale manager copy: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_resume_core_rejects_pair_that_is_running_in_broker() {
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-running";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 2);
+        broker
+            .lock()
+            .unwrap()
+            .set_pair_status(pair_id, PairStatus::Executing, None);
+        // Even a stale manager status that looks retryable must not allow a
+        // resume while the broker says the pair is mid-run.
+        manager
+            .lock()
+            .unwrap()
+            .pairs
+            .get_mut(pair_id)
+            .unwrap()
+            .status = PairStatus::Paused;
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(result.is_err(), "resume must reject a running pair");
     }
 
     #[test]
