@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-08-03
+
+### Fixed
+
+- **Codex turns now resume their session.** `extract_session_id` ignored the `thread_id` field on Codex's `thread.started` event, so `codex exec resume <id>` was never used and every Codex turn restarted with an empty context. Mentor ↔ Executor handoffs on Codex pairs now keep conversational continuity like the other providers.
+- **Auto-paused pairs can be resumed/retried again.** `pair_resume` and `pair_retry_turn` gated on the manager's `Pair.status`, which is only written on manual pause/resume — automatic transitions (iteration budget exhausted, provider turn errors, plan gate, verdict parse failures) never synced it, so Resume failed with "not in a resumeable state" while the UI showed Paused. Both commands now gate on the broker's live status.
+- **Infinite step-loop protection actually fires.** The `step_start` cycle counter lived inside the first-output branch and could never pass 1, so a runaway agent was never terminated. Step-cycle detection now runs on every `step_start` event and kills the process after 50 cycles.
+- **Empty mentor review no longer hands off a garbage instruction.** A mentor review turn with no textual output fell through the review branch and handed the placeholder text to the executor as its next instruction; it now pauses for human review like other empty turns.
+
 ## [2.4.0] - 2026-07-26
 
 ### Added
