@@ -88,6 +88,7 @@ export function ErrorDetailPanel({
             size="sm"
             onClick={onRetry}
             disabled={isRetrying}
+            data-testid="error-retry-btn"
             icon={
               isRetrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />
             }

@@ -274,6 +274,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             type="button"
             onClick={() => setPlanGate((v) => !v)}
             aria-pressed={planGate}
+            data-testid="plan-gate-toggle"
             className="flex items-start gap-2 text-left"
           >
             <span

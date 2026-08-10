@@ -18,6 +18,10 @@ export class CreatePairModalPage extends BasePage {
     await this.setValue(S.TASK_SPEC_CREATE, spec)
   }
 
+  async togglePlanGate(): Promise<void> {
+    await this.click(S.PLAN_GATE_TOGGLE)
+  }
+
   async selectMentorModel(modelName: string): Promise<void> {
     await this._selectModelInPicker('Mentor', modelName)
   }

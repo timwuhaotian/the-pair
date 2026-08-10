@@ -42,6 +42,7 @@ export function MessageFilterBar({
           <button
             key={key}
             onClick={() => onFilterChange(key)}
+            data-testid={`filter-${key}`}
             className={cn(
               'inline-flex items-baseline gap-1 rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-[0.12em] transition-colors cursor-pointer',
               isActive

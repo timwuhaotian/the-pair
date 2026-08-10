@@ -10,7 +10,7 @@ const pairDetail = new PairDetailPage()
 
 const TEST_DIR = process.env.E2E_TEST_DIR || '/tmp/e2e-the-pair-test'
 
-describe('Error Handling', () => {
+describe('Plan Review - plan gate approval flow', () => {
   before(async () => {
     await browser.call(async () => {
       const { mkdirSync } = await import('node:fs')
@@ -18,7 +18,7 @@ describe('Error Handling', () => {
       mkdirSync(TEST_DIR, { recursive: true })
       execSync(`cd ${TEST_DIR} && git init`, { stdio: 'pipe' })
     })
-    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'error'
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
   })
 
   after(async () => {
@@ -29,13 +29,15 @@ describe('Error Handling', () => {
     })
   })
 
-  it('should show Error status when agent fails', async () => {
-    const name = 'Error Test'
+  it('should pause for human review when plan gate is enabled, then finish after approval', async () => {
+    const name = 'Plan Gate Pair'
     await dashboard.clickNewPair()
     await createModal.waitForOpen()
     await createModal.setName(name)
     await createModal.setDirectory(TEST_DIR)
-    await createModal.setTaskSpec('Trigger an error')
+    await createModal.setTaskSpec('Plan gate review test')
+    // Enable the plan gate — the mentor's first plan will pause for review.
+    await createModal.togglePlanGate()
     await createModal.submit()
     await createModal.waitForClosed()
 
@@ -44,6 +46,19 @@ describe('Error Handling', () => {
     await assignModal.submit()
     await assignModal.waitForClosed()
 
-    await pairDetail.waitForStatus('Error', 20000)
+    // With the plan gate enabled the pair should reach "Awaiting Human Review"
+    // after the mentor delivers the initial plan.
+    await pairDetail.waitForStatus('Awaiting Human Review', 25000)
+
+    // The plan-approve button must be visible.
+    const approveVisible = await pairDetail.isPlanApproveVisible()
+    expect(approveVisible).toBe(true)
+
+    // Approve the plan — the pair continues to execution and finishes.
+    await pairDetail.clickPlanApprove()
+
+    await pairDetail.waitForStatus('Finished', 20000)
+    await pairDetail.waitForConsoleMessage('Plan', 5000)
+    await pairDetail.waitForConsoleMessage('Done', 5000)
   })
 })

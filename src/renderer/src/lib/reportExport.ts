@@ -13,7 +13,7 @@ import {
 
 // ── Markdown Report ────────────────────────────────────
 
-function generateMarkdownReport(timeline: TimelineData): string {
+export function generateMarkdownReport(timeline: TimelineData): string {
   const lines: string[] = []
 
   // Header
@@ -118,7 +118,7 @@ function generateMarkdownReport(timeline: TimelineData): string {
 
 // ── HTML Report ────────────────────────────────────────
 
-function generateHtmlReport(timeline: TimelineData): string {
+export function generateHtmlReport(timeline: TimelineData): string {
   const eventItems = timeline.iterations
     .map(
       (group) => `
@@ -404,7 +404,7 @@ export async function copyMarkdownReport(timeline: TimelineData): Promise<boolea
 
 // ── Internal helpers ───────────────────────────────────
 
-function shortModel(model: string): string {
+export function shortModel(model: string): string {
   return model.split('/').pop() ?? model
 }
 
@@ -425,7 +425,7 @@ function dotColor(event: TimelineEvent): string {
 }
 
 /** Protocols that can execute script when a link/image href is opened. */
-function isUnsafeHref(href: string): boolean {
+export function isUnsafeHref(href: string): boolean {
   const value = href.trim().toLowerCase()
   return (
     value.startsWith('javascript:') ||
@@ -531,7 +531,7 @@ function renderAcceptanceVerdictHtml(verdict: AcceptanceVerdict): string {
   return parts.join('\n')
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

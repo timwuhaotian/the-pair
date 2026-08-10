@@ -37,7 +37,10 @@ export function IterationProgress({
       : 'text-foreground/85'
 
   return (
-    <div className={cn('space-y-1 font-mono text-[11px]', className)}>
+    <div
+      className={cn('space-y-1 font-mono text-[11px]', className)}
+      data-testid="iteration-progress"
+    >
       <div className="flex items-baseline justify-between">
         <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
           {t(

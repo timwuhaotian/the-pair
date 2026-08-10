@@ -7,7 +7,9 @@ import {
   buildMentorAcceptancePrompt,
   isAcceptanceVerdictContent,
   parseAcceptanceVerdict,
-  parseAcceptanceVerdictForDisplay
+  parseAcceptanceVerdictForDisplay,
+  parseAcceptanceRecordForDisplay,
+  isAcceptanceRecordContent
 } from '../src/renderer/src/lib/acceptance.ts'
 import type { AcceptanceRecord } from '../src/renderer/src/types.ts'
 
@@ -265,4 +267,76 @@ test('buildMentorAcceptanceRepairPrompt explains the JSON validation error', () 
   assert.match(prompt, /JSON/i)
   assert.match(prompt, /requires follow-up instructions for continue/)
   assert.doesNotMatch(prompt, /### ROLE:/)
+})
+
+// ── parseAcceptanceRecordForDisplay / isAcceptanceRecordContent ──
+
+const validRecordJson = JSON.stringify({
+  iteration: 2,
+  risk: 'low',
+  summary: 'All checks passed',
+  checks: [
+    {
+      name: 'build',
+      command: 'npm run build',
+      status: 'passed',
+      exitCode: 0,
+      durationMs: 5000,
+      summary: 'Build succeeded'
+    },
+    {
+      name: 'test',
+      command: 'npm test',
+      status: 'passed',
+      exitCode: 0,
+      durationMs: 3000,
+      summary: 'All tests passed'
+    }
+  ]
+})
+
+test('parseAcceptanceRecordForDisplay parses valid record JSON', () => {
+  const record = parseAcceptanceRecordForDisplay(validRecordJson)
+  assert.equal(record.iteration, 2)
+  assert.equal(record.risk, 'low')
+  assert.equal(record.summary, 'All checks passed')
+  assert.equal(record.checks.length, 2)
+  assert.equal(record.checks[0].name, 'build')
+  assert.equal(record.checks[1].name, 'test')
+})
+
+test('isAcceptanceRecordContent returns true for valid record JSON', () => {
+  assert.equal(isAcceptanceRecordContent(validRecordJson), true)
+})
+
+test('isAcceptanceRecordContent returns false for non-JSON text', () => {
+  assert.equal(isAcceptanceRecordContent('not json'), false)
+})
+
+test('parseAcceptanceRecordForDisplay throws on invalid input', () => {
+  assert.throws(() => parseAcceptanceRecordForDisplay('invalid'), /Could not parse/)
+})
+
+test('parseAcceptanceRecordForDisplay throws when checks array is missing', () => {
+  const noChecks = JSON.stringify({ iteration: 1, risk: 'low', summary: 'ok' })
+  assert.throws(() => parseAcceptanceRecordForDisplay(noChecks))
+})
+
+test('parseAcceptanceRecordForDisplay throws on invalid risk', () => {
+  const badRisk = JSON.stringify({
+    iteration: 1,
+    risk: 'critical',
+    summary: 'ok',
+    checks: [
+      {
+        name: 'build',
+        command: 'npm run build',
+        status: 'passed',
+        exitCode: 0,
+        durationMs: 100,
+        summary: 'ok'
+      }
+    ]
+  })
+  assert.throws(() => parseAcceptanceRecordForDisplay(badRisk))
 })

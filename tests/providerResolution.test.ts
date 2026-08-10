@@ -4,6 +4,7 @@ import test from 'node:test'
 import type { AvailableModel } from '../src/renderer/src/types.ts'
 import {
   buildAgentConfig,
+  getModelByQualifiedId,
   inferProviderFromModel
 } from '../src/renderer/src/lib/providerResolution.ts'
 
@@ -83,4 +84,59 @@ test('buildAgentConfig keeps the kimi qualifier in the stored model id', () => {
     provider: 'kimi',
     model: 'kimi/ark-coding-plan/glm-5.2'
   })
+})
+
+// ── getModelByQualifiedId ──────────────────────────────
+
+function makeModel(
+  provider: string,
+  modelId: string,
+  base: AvailableModel = readyOpenCodeModel
+): AvailableModel {
+  return { ...base, provider: provider as AvailableModel['provider'], modelId }
+}
+
+test('getModelByQualifiedId finds opencode model by bare id', () => {
+  const models = [
+    makeModel('opencode', 'glm-5-turbo'),
+    makeModel('claude', 'claude-sonnet-4', readyClaudeModel),
+    makeModel('kimi', 'wanqing/kat-coder-pro', readyClaudeModel)
+  ]
+  const result = getModelByQualifiedId(models, 'glm-5-turbo')
+  assert.ok(result)
+  assert.equal(result.provider, 'opencode')
+  assert.equal(result.modelId, 'glm-5-turbo')
+})
+
+test('getModelByQualifiedId finds claude model by provider/modelId', () => {
+  const models = [
+    makeModel('opencode', 'glm-5-turbo'),
+    makeModel('claude', 'claude-sonnet-4', readyClaudeModel),
+    makeModel('kimi', 'wanqing/kat-coder-pro', readyClaudeModel)
+  ]
+  const result = getModelByQualifiedId(models, 'claude/claude-sonnet-4')
+  assert.ok(result)
+  assert.equal(result.provider, 'claude')
+  assert.equal(result.modelId, 'claude-sonnet-4')
+})
+
+test('getModelByQualifiedId finds kimi model with slashed modelId', () => {
+  const models = [
+    makeModel('opencode', 'glm-5-turbo'),
+    makeModel('claude', 'claude-sonnet-4', readyClaudeModel),
+    makeModel('kimi', 'wanqing/kat-coder-pro', readyClaudeModel)
+  ]
+  const result = getModelByQualifiedId(models, 'kimi/wanqing/kat-coder-pro')
+  assert.ok(result)
+  assert.equal(result.provider, 'kimi')
+  assert.equal(result.modelId, 'wanqing/kat-coder-pro')
+})
+
+test('getModelByQualifiedId returns undefined for nonexistent id', () => {
+  const models = [
+    makeModel('opencode', 'glm-5-turbo'),
+    makeModel('claude', 'claude-sonnet-4', readyClaudeModel)
+  ]
+  const result = getModelByQualifiedId(models, 'nonexistent')
+  assert.equal(result, undefined)
 })

@@ -216,6 +216,7 @@ function PairOperationsPanel({
             icon={<Play size={11} />}
             onClick={() => void onResume()}
             disabled={isStoreBusy}
+            data-testid="ops-resume-btn"
           >
             {t('pair.resumePair')}
             <span className="ml-1 text-[9px] opacity-60">
@@ -231,6 +232,7 @@ function PairOperationsPanel({
             icon={<Pause size={11} />}
             onClick={() => void onPause()}
             disabled={!canPause || isStoreBusy}
+            data-testid="ops-pause-btn"
           >
             {t('pair.pausePair')}
             <span className="ml-1 text-[9px] opacity-60">{modifierLabel}P</span>
@@ -242,6 +244,7 @@ function PairOperationsPanel({
             size="sm"
             icon={<RotateCcw size={11} />}
             onClick={handleRetryTurn}
+            data-testid="ops-retry-btn"
           >
             {t('pair.retryTurn')}
           </GlassButton>

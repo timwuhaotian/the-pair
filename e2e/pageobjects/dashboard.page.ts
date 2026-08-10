@@ -22,16 +22,32 @@ export class DashboardPage extends BasePage {
     await this.click(S.THEME_TOGGLE)
   }
 
-  async clickPairCard(name: string): Promise<void> {
-    await this.click(S.PAIR_CARD(name))
-  }
-
   async clickBack(): Promise<void> {
     await this.click(S.BACK_BTN)
   }
 
+  async clickShortcuts(): Promise<void> {
+    await this.click(S.SHORTCUTS_BTN)
+  }
+
+  async clickMuteToggle(): Promise<void> {
+    await this.click(S.MUTE_TOGGLE)
+  }
+
+  async clickLanguageToggle(): Promise<void> {
+    await this.click(S.LANGUAGE_TOGGLE)
+  }
+
+  async clickPairCard(name: string): Promise<void> {
+    await this.click(S.PAIR_CARD(name))
+  }
+
   async isPairCardVisible(name: string): Promise<boolean> {
     return await this.isDisplayed(S.PAIR_CARD(name))
+  }
+
+  async waitForPairCard(name: string, timeout = 10000): Promise<void> {
+    await this.waitForDisplayed(S.PAIR_CARD(name), timeout)
   }
 
   async getStatusBadgeText(): Promise<string> {
@@ -44,5 +60,22 @@ export class DashboardPage extends BasePage {
 
   async isClearSessionButtonDisabled(): Promise<boolean> {
     return await this.isButtonDisabled(S.CLEAR_SESSION_BTN)
+  }
+
+  async isClearSessionButtonVisible(): Promise<boolean> {
+    return await this.isDisplayed(S.CLEAR_SESSION_BTN)
+  }
+
+  async isBackButtonVisible(): Promise<boolean> {
+    return await this.isDisplayed(S.BACK_BTN)
+  }
+
+  async isModelsButtonVisible(): Promise<boolean> {
+    return await this.isDisplayed(S.MODELS_BTN)
+  }
+
+  async isDarkTheme(): Promise<boolean> {
+    const cls = await browser.execute(() => document.documentElement.classList.contains('dark'))
+    return cls as boolean
   }
 }

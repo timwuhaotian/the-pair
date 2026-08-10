@@ -11,7 +11,7 @@ export class SettingsModalPage extends BasePage {
   }
 
   async cancel(): Promise<void> {
-    await this.click(S.CANCEL_BTN)
+    await this.click(S.CANCEL_BTN_SETTINGS)
   }
 
   async waitForClosed(timeout = 5000): Promise<void> {

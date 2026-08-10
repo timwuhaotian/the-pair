@@ -4,6 +4,7 @@ import {
   matchesShortcut,
   formatShortcutLabel,
   formatShortcutParts,
+  isInputFocused,
   type ShortcutDef
 } from '../src/renderer/src/lib/shortcuts.ts'
 
@@ -143,5 +144,32 @@ describe('formatShortcutLabel', () => {
       description: 'test'
     }
     assert.strictEqual(formatShortcutParts(shortcut).join(''), formatShortcutLabel(shortcut))
+  })
+})
+
+describe('isInputFocused', () => {
+  it('returns true for INPUT element', () => {
+    assert.strictEqual(isInputFocused({ target: { tagName: 'INPUT' } } as KeyboardEvent), true)
+  })
+
+  it('returns true for TEXTAREA element', () => {
+    assert.strictEqual(isInputFocused({ target: { tagName: 'TEXTAREA' } } as KeyboardEvent), true)
+  })
+
+  it('returns true for contenteditable element', () => {
+    assert.strictEqual(
+      isInputFocused({
+        target: { tagName: 'DIV', isContentEditable: true }
+      } as KeyboardEvent),
+      true
+    )
+  })
+
+  it('returns false for non-input element', () => {
+    assert.strictEqual(isInputFocused({ target: { tagName: 'DIV' } } as KeyboardEvent), false)
+  })
+
+  it('returns false when target is null', () => {
+    assert.strictEqual(isInputFocused({ target: null } as KeyboardEvent), false)
   })
 })

@@ -140,10 +140,20 @@ export function ConfirmModal({
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-2 border-t border-border">
-          <GlassButton variant="ghost" size="sm" onClick={onCancel}>
+          <GlassButton
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            data-testid="confirm-modal-cancel"
+          >
             {cancelLabel}
           </GlassButton>
-          <GlassButton variant="destructive" size="sm" onClick={onConfirm}>
+          <GlassButton
+            variant="destructive"
+            size="sm"
+            onClick={onConfirm}
+            data-testid="confirm-modal-confirm"
+          >
             {confirmLabel}
           </GlassButton>
         </div>

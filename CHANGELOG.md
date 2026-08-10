@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-08-10
+
+### Added
+
+- **E2E test coverage expanded to 95%+.** 8 new spec files (navigation, form-validation, pause-resume, error-recovery, plan-review, pair-management, console-features, provider-models) and 2 existing specs fixed (execution pause-visibility assertion, settings modal actually opens from pair detail). Test count grew from ~11 to ~30 e2e tests covering all major user flows: create/delete pairs, assign tasks, full lifecycle, error recovery, plan gate approval, message filters, theme toggle, shortcuts modal, and multi-provider model selection.
+- **Unit test coverage expanded to 95%+.** 7 new test files (timeline, pairStatus, helpers, reportExport, useUpdateStore, useLocaleStore, presetUtils) and 6 existing files extended (utils, acceptance, shortcuts, handoffGuard, snapshotDiff, providerResolution). Test count grew from 205 to 320, covering previously untested modules: timeline builder, report export XSS safety, status predicates, store actions, and more.
+
+### Fixed
+
+- **Settings e2e spec was a no-op.** The test early-returned when the Models button wasn't visible (which is always on the dashboard). Now creates a pair first so the button appears.
+- **Execution pause test never tested pause.** The "Pause Test" describe block ran a pair to Finished without ever asserting the pause button. Now polls for active status and verifies the button is visible.
+- **`execSync` was imported from `node:fs` instead of `node:child_process`** across all e2e specs.
+
 ## [2.5.0] - 2026-08-10
 
 ### Added

@@ -135,6 +135,7 @@ export function PairListGroup({
                     e.stopPropagation()
                     onDeletePair(pair)
                   }}
+                  data-testid={`pair-card-delete-${pair.id}`}
                   className={cn(
                     'p-1 text-muted-foreground hover:text-[var(--state-error)] cursor-pointer',
                     deletingPairId === pair.id && 'opacity-40 pointer-events-none'

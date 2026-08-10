@@ -394,6 +394,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             <button
               onClick={handleClearMessages}
               title={t('console.clearHistory')}
+              data-testid="console-clear-btn"
               className="p-0.5 text-muted-foreground-faint hover:text-state-error transition-colors cursor-pointer"
             >
               <Trash2 size={12} />
@@ -440,6 +441,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                                 void killProcess(pair.id, visibleCurrentTurnCard.role)
                               }}
                               title={t('console.stopTurn')}
+                              data-testid="console-stop-turn-btn"
                             >
                               {visibleCurrentTurnCard.activity.phase === 'stalled' ? (
                                 <>

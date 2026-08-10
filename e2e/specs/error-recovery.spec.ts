@@ -10,7 +10,14 @@ const pairDetail = new PairDetailPage()
 
 const TEST_DIR = process.env.E2E_TEST_DIR || '/tmp/e2e-the-pair-test'
 
-describe('Error Handling', () => {
+/**
+ * Error → retry → success flow.
+ *
+ * The error-scenario mock makes the executor fail with "Permission denied".
+ * After the pair enters Error status we reset the scenario to 'success' so
+ * that clicking retry re-runs the turn against a healthy mock.
+ */
+describe('Error Recovery - error then retry succeeds', () => {
   before(async () => {
     await browser.call(async () => {
       const { mkdirSync } = await import('node:fs')
@@ -29,13 +36,13 @@ describe('Error Handling', () => {
     })
   })
 
-  it('should show Error status when agent fails', async () => {
-    const name = 'Error Test'
+  it('should show Error status, then recover after retry', async () => {
+    const name = 'Error Recovery Pair'
     await dashboard.clickNewPair()
     await createModal.waitForOpen()
     await createModal.setName(name)
     await createModal.setDirectory(TEST_DIR)
-    await createModal.setTaskSpec('Trigger an error')
+    await createModal.setTaskSpec('Trigger an error then recover')
     await createModal.submit()
     await createModal.waitForClosed()
 
@@ -44,6 +51,20 @@ describe('Error Handling', () => {
     await assignModal.submit()
     await assignModal.waitForClosed()
 
+    // The mock executor returns "Error: Permission denied" → Error status.
     await pairDetail.waitForStatus('Error', 20000)
+
+    // The error panel must be visible.
+    const errorVisible = await pairDetail.isErrorPanelVisible()
+    expect(errorVisible).toBe(true)
+
+    // Switch to the success scenario BEFORE retrying so the retried turn
+    // runs against a healthy mock.
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
+
+    await pairDetail.clickErrorRetry()
+
+    // After retry the pair should reach Finished.
+    await pairDetail.waitForStatus('Finished', 20000)
   })
 })

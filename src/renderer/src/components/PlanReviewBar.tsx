@@ -54,6 +54,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
               rows={3}
               autoFocus
               disabled={submitting}
+              data-testid="plan-feedback-input"
               className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/60 focus:outline-none"
             />
             <div className="flex items-center gap-2">
@@ -63,6 +64,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
                 icon={<RotateCcw size={11} />}
                 onClick={() => void run('reject')}
                 disabled={submitting}
+                data-testid="plan-sendback-btn"
               >
                 {t('planReview.sendBack')}
               </GlassButton>
@@ -87,6 +89,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
               icon={<Check size={11} />}
               onClick={() => void run('approve')}
               disabled={submitting}
+              data-testid="plan-approve-btn"
             >
               {t('planReview.approve')}
             </GlassButton>
@@ -96,6 +99,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
               icon={<RotateCcw size={11} />}
               onClick={() => setShowReject(true)}
               disabled={submitting}
+              data-testid="plan-reject-btn"
             >
               {t('planReview.reject')}
             </GlassButton>

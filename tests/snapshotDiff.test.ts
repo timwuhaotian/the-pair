@@ -62,3 +62,76 @@ test('shouldSaveSnapshot persists turn-card content changes', () => {
 
   assert.equal(shouldSaveSnapshot(previous, next), true)
 })
+
+test('shouldSaveSnapshot persists status change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.status = 'Executing'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists turn change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.turn = 'executor'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists iterations change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.iterations = 2
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists currentRunFinishedAt change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.currentRunFinishedAt = 5000
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists runCount change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.runCount = 2
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists pendingMentorModel change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.pendingMentorModel = 'claude/sonnet'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists pendingExecutorModel change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.pendingExecutorModel = 'gpt-4o'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists mentorModel change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.mentorModel = 'claude/opus'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists executorModel change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.executorModel = 'gpt-4o'
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})
+
+test('shouldSaveSnapshot persists turn-card state change', () => {
+  const previous = makePair()
+  const next = makePair()
+  next.currentTurnCard = {
+    ...next.currentTurnCard!,
+    state: 'final'
+  }
+  assert.equal(shouldSaveSnapshot(previous, next), true)
+})

@@ -22,3 +22,63 @@ test('active handoff is allowed when neither state is finished', () => {
     false
   )
 })
+
+test('Paused pairStatus blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Paused',
+      backendStatus: 'Executing'
+    }),
+    true
+  )
+})
+
+test('Paused backendStatus blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Executing',
+      backendStatus: 'Paused'
+    }),
+    true
+  )
+})
+
+test('Error pairStatus blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Error',
+      backendStatus: 'Executing'
+    }),
+    true
+  )
+})
+
+test('Error backendStatus blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Executing',
+      backendStatus: 'Error'
+    }),
+    true
+  )
+})
+
+test('both Paused blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Paused',
+      backendStatus: 'Paused'
+    }),
+    true
+  )
+})
+
+test('both Error blocks handoff', () => {
+  assert.equal(
+    shouldIgnoreHandoffEvent({
+      pairStatus: 'Error',
+      backendStatus: 'Error'
+    }),
+    true
+  )
+})

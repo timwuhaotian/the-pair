@@ -9,9 +9,13 @@ const assignModal = new AssignTaskModalPage()
 const pairDetail = new PairDetailPage()
 
 const TEST_DIR = process.env.E2E_TEST_DIR || '/tmp/e2e-the-pair-test'
-const PAIR_NAME = 'Exec Lifecycle'
 
-describe('Pair Execution - Success', () => {
+/**
+ * Verify that different provider mock models can drive a full pair lifecycle.
+ * The mock spawner is provider-agnostic, so any provider-backed model must
+ * run the same Mentoring → Executing → Reviewing → Finished lifecycle.
+ */
+describe('Provider Models - Claude provider', () => {
   before(async () => {
     await browser.call(async () => {
       const { mkdirSync } = await import('node:fs')
@@ -30,80 +34,75 @@ describe('Pair Execution - Success', () => {
     })
   })
 
-  it('should complete full lifecycle: Idle -> Mentoring -> Executing -> Reviewing -> Finished', async () => {
-    await dashboard.clickNewPair()
-    await createModal.waitForOpen()
-    await createModal.setName(PAIR_NAME)
-    await createModal.setDirectory(TEST_DIR)
-    await createModal.setTaskSpec('Complete the full lifecycle test')
-    await createModal.submit()
-    await createModal.waitForClosed()
+  it('should complete a lifecycle with Claude Sonnet 4 (Mock) on both roles', async () => {
+    const name = 'Claude Provider Pair'
+    const model = 'Claude Sonnet 4 (Mock)'
 
-    await dashboard.clickPairCard(PAIR_NAME)
-    await assignModal.waitForOpen(PAIR_NAME)
-    await assignModal.submit()
-    await assignModal.waitForClosed()
-
-    await pairDetail.waitForStatus('Finished', 20000)
-
-    await pairDetail.waitForConsoleMessage('Plan', 5000)
-    await pairDetail.waitForConsoleMessage('Done', 5000)
-  })
-})
-
-describe('Pair Execution - Pause button visibility', () => {
-  before(async () => {
-    await browser.call(async () => {
-      const { mkdirSync } = await import('node:fs')
-      const { execSync } = await import('node:child_process')
-      mkdirSync(TEST_DIR, { recursive: true })
-      execSync(`cd ${TEST_DIR} && git init`, { stdio: 'pipe' })
-    })
-    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
-  })
-
-  after(async () => {
-    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
-    await browser.call(async () => {
-      const { rmSync } = await import('node:fs')
-      rmSync(TEST_DIR, { recursive: true, force: true })
-    })
-  })
-
-  it('should show Pause button while the pair is actively running', async () => {
-    const name = 'Pause Visibility Test'
     await dashboard.clickNewPair()
     await createModal.waitForOpen()
     await createModal.setName(name)
     await createModal.setDirectory(TEST_DIR)
-    await createModal.setTaskSpec('Pause visibility test task')
+    await createModal.setTaskSpec('Verify claude provider end to end')
+    await createModal.selectMentorModel(model)
+    await createModal.selectExecutorModel(model)
     await createModal.submit()
     await createModal.waitForClosed()
+
+    await dashboard.isPairCardVisible(name)
 
     await dashboard.clickPairCard(name)
     await assignModal.waitForOpen(name)
     await assignModal.submit()
     await assignModal.waitForClosed()
 
-    // Poll for an active status — the mock transitions through
-    // Mentoring → Executing → Reviewing quickly, so we accept any of them.
-    await browser.waitUntil(
-      async () => {
-        const status = await pairDetail.getStatusText()
-        return (
-          status.includes('Mentoring') ||
-          status.includes('Executing') ||
-          status.includes('Reviewing')
-        )
-      },
-      { timeout: 15000, timeoutMsg: 'Pair never reached an active status' }
-    )
-
-    // The pause button must be present while the pair is active.
-    const pauseVisible = await pairDetail.isPauseButtonVisible()
-    expect(pauseVisible).toBe(true)
-
-    // Let the mock finish so the session is clean for subsequent tests.
     await pairDetail.waitForStatus('Finished', 20000)
+    await pairDetail.waitForConsoleMessage('Plan', 5000)
+    await pairDetail.waitForConsoleMessage('Done', 5000)
+  })
+})
+
+describe('Provider Models - Pi provider', () => {
+  before(async () => {
+    await browser.call(async () => {
+      const { mkdirSync } = await import('node:fs')
+      const { execSync } = await import('node:child_process')
+      mkdirSync(TEST_DIR, { recursive: true })
+      execSync(`cd ${TEST_DIR} && git init`, { stdio: 'pipe' })
+    })
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
+  })
+
+  after(async () => {
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
+    await browser.call(async () => {
+      const { rmSync } = await import('node:fs')
+      rmSync(TEST_DIR, { recursive: true, force: true })
+    })
+  })
+
+  it('should complete a lifecycle with Claude Sonnet 4 via Pi (Mock) on both roles', async () => {
+    const name = 'Pi Provider Pair'
+    const model = 'Claude Sonnet 4 via Pi (Mock)'
+
+    await dashboard.clickNewPair()
+    await createModal.waitForOpen()
+    await createModal.setName(name)
+    await createModal.setDirectory(TEST_DIR)
+    await createModal.setTaskSpec('Verify pi provider end to end')
+    await createModal.selectMentorModel(model)
+    await createModal.selectExecutorModel(model)
+    await createModal.submit()
+    await createModal.waitForClosed()
+
+    await dashboard.isPairCardVisible(name)
+
+    await dashboard.clickPairCard(name)
+    await assignModal.waitForOpen(name)
+    await assignModal.submit()
+    await assignModal.waitForClosed()
+
+    await pairDetail.waitForStatus('Finished', 20000)
+    await pairDetail.waitForConsoleMessage('Plan', 5000)
+    await pairDetail.waitForConsoleMessage('Done', 5000)
   })
 })
