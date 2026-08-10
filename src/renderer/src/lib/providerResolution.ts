@@ -16,7 +16,14 @@ export function getModelByQualifiedId(
 export function inferProviderFromModel(modelId: string): ProviderKind {
   if (modelId.startsWith('opencode') || modelId.includes('/')) {
     const prefix = modelId.split('/')[0]
-    if (prefix === 'codex' || prefix === 'claude' || prefix === 'gemini' || prefix === 'kimi') {
+    if (
+      prefix === 'codex' ||
+      prefix === 'claude' ||
+      prefix === 'gemini' ||
+      prefix === 'kimi' ||
+      prefix === 'pi' ||
+      prefix === 'kiro'
+    ) {
       return prefix
     }
     return 'opencode'
@@ -42,14 +49,18 @@ export function buildAgentConfig(
     throw new Error(`Selected ${role} model is not available: ${modelId}`)
   }
 
-  // Kimi model aliases are arbitrary user-defined names (e.g. "ark-plan/glm-5"),
-  // so the stored id keeps its `kimi/` qualifier — provider re-inference on model
-  // updates and snapshot recovery depends on it. The backend strips the qualifier
-  // at spawn time. All other providers store bare ids (OpenCode ids are already
+  // Kimi/Pi/Kiro model aliases are arbitrary user-defined names or multi-provider
+  // paths (e.g. "ark-plan/glm-5", "anthropic/claude-sonnet-4"), so the stored id
+  // keeps its qualifier — provider re-inference on model updates and snapshot
+  // recovery depends on it. The backend strips the qualifier at spawn time.
+  // All other providers store bare ids (OpenCode ids are already
   // provider-qualified by nature).
   return {
     role,
     provider: selected.provider,
-    model: selected.provider === 'kimi' ? `kimi/${selected.modelId}` : selected.modelId
+    model:
+      selected.provider === 'kimi' || selected.provider === 'pi' || selected.provider === 'kiro'
+        ? `${selected.provider}/${selected.modelId}`
+        : selected.modelId
   }
 }

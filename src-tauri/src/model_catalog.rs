@@ -42,6 +42,8 @@ fn normalize_provider_label(slug: &str) -> String {
         "minimax" => "MiniMax".to_string(),
         "opencode" => "OpenCode".to_string(),
         "kimi" | "moonshot" => "Kimi".to_string(),
+        "pi" => "Pi".to_string(),
+        "kiro" => "Kiro".to_string(),
         _ => {
             let mut chars = slug.chars();
             match chars.next() {

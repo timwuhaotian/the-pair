@@ -19,6 +19,8 @@ pub enum ProviderKind {
     Claude,
     Gemini,
     Kimi,
+    Pi,
+    Kiro,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -762,6 +764,44 @@ impl ProviderRegistry {
                 install_url: None,
                 detected_at: detected_at_now(),
             },
+            DetectedProviderProfile {
+                kind: ProviderKind::Pi,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "anthropic/claude-sonnet-4".to_string(),
+                    display_name: "Claude Sonnet 4 via Pi (Mock)".to_string(),
+                    source_provider: Some("pi".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                login_command: None,
+                install_url: None,
+                detected_at: detected_at_now(),
+            },
+            DetectedProviderProfile {
+                kind: ProviderKind::Kiro,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "claude-sonnet-4-5".to_string(),
+                    display_name: "Claude Sonnet 4.5 via Kiro (Mock)".to_string(),
+                    source_provider: Some("kiro".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                login_command: None,
+                install_url: None,
+                detected_at: detected_at_now(),
+            },
         ]
     }
 
@@ -1039,6 +1079,73 @@ impl ProviderRegistry {
             detected_at: detected_at_now(),
         }
     }
+
+    pub fn detect_pi() -> DetectedProviderProfile {
+        let pi_bin = which_binary("pi");
+        let installed = pi_bin.is_some();
+        let models = if let Some(ref bin) = pi_bin {
+            discover_pi_models(bin)
+        } else {
+            Vec::new()
+        };
+        // Pi exposes available models only after at least one provider is
+        // configured, so a non-empty catalog means the user is authenticated.
+        let authenticated = !models.is_empty();
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Pi,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label: "pi".into(),
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
+
+    pub fn detect_kiro() -> DetectedProviderProfile {
+        let kiro_bin = which_binary("kiro-cli");
+        let installed = kiro_bin.is_some();
+        let models = if let Some(ref bin) = kiro_bin {
+            discover_kiro_models(bin)
+        } else {
+            Vec::new()
+        };
+
+        // Auth: check KIRO_API_KEY env var or kiro-cli whoami output.
+        let has_api_key = std::env::var("KIRO_API_KEY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let logged_in = has_api_key
+            || kiro_bin
+                .as_ref()
+                .map(|bin| {
+                    let out = capture_command_output_with_timeout(
+                        bin,
+                        &["whoami"],
+                        &homedir(),
+                        CLI_PROBE_TIMEOUT,
+                    )
+                    .unwrap_or_default();
+                    out.contains("Logged in")
+                })
+                .unwrap_or(false);
+        let authenticated = logged_in;
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Kiro,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label: "kiro".into(),
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
@@ -1130,6 +1237,72 @@ fn parse_kimi_model_aliases(content: &str) -> Vec<DetectedModelOption> {
     }
 
     models
+}
+
+/// Discover Pi models via `pi --list-models`. The CLI prints lines like
+/// "anthropic/claude-sonnet-4" or "openai/gpt-4o". Models from all configured
+/// providers are surfaced.
+fn discover_pi_models(pi_bin: &Path) -> Vec<DetectedModelOption> {
+    // pi --list-models may need to query provider catalogs; give it more
+    // headroom than the default 3s CLI probe.
+    let output = capture_command_output_with_timeout(
+        pi_bin,
+        &["--list-models"],
+        &homedir(),
+        Duration::from_secs(8),
+    )
+    .unwrap_or_default();
+
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("No ") && !line.starts_with("Error"))
+        .filter(|line| line.contains('/') || line.len() >= 4)
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '/').collect();
+            let source_provider = if parts.len() == 2 {
+                Some(parts[0].to_string())
+            } else {
+                Some("pi".to_string())
+            };
+            DetectedModelOption {
+                model_id: line.to_string(),
+                display_name: line.to_string(),
+                source_provider,
+                family: None,
+                subscription_label: "pi".to_string(),
+                supports_pair_execution: true,
+                runnable: true,
+            }
+        })
+        .collect()
+}
+
+/// Discover Kiro models via `kiro-cli chat --list-models`. The CLI prints
+/// one model name per line.
+fn discover_kiro_models(kiro_bin: &Path) -> Vec<DetectedModelOption> {
+    let output = capture_command_output_with_timeout(
+        kiro_bin,
+        &["chat", "--list-models"],
+        &homedir(),
+        Duration::from_secs(8),
+    )
+    .unwrap_or_default();
+
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("No ") && !line.starts_with("Error"))
+        .map(|line| DetectedModelOption {
+            model_id: line.to_string(),
+            display_name: line.to_string(),
+            source_provider: Some("kiro".to_string()),
+            family: None,
+            subscription_label: "kiro".to_string(),
+            supports_pair_execution: true,
+            runnable: true,
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -106,6 +106,8 @@ impl ProviderAdapter {
                     "claude" => ProviderKind::Claude,
                     "gemini" => ProviderKind::Gemini,
                     "kimi" => ProviderKind::Kimi,
+                    "pi" => ProviderKind::Pi,
+                    "kiro" => ProviderKind::Kiro,
                     _ => ProviderKind::Opencode,
                 };
             }

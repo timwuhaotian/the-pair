@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Open-source AI pair programming desktop app with Mentor and Executor agents for cross-validated AI code review",

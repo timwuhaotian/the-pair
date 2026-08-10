@@ -33,7 +33,8 @@ export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   codex: 'codex auth',
   gemini: 'agy auth',
   kimi: 'kimi login',
-  opencode: 'opencode auth login'
+  opencode: 'opencode auth login',
+  kiro: 'kiro-cli login'
 }
 
 const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
@@ -41,7 +42,9 @@ const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   codex: 'https://github.com/openai/codex',
   gemini: 'https://github.com/google-gemini/antigravity',
   kimi: 'https://github.com/MoonshotAI/kimi-code',
-  opencode: 'https://opencode.ai'
+  opencode: 'https://opencode.ai',
+  pi: 'https://pi.dev',
+  kiro: 'https://kiro.dev/downloads'
 }
 
 /**

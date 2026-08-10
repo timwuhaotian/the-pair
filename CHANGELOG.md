@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-08-10
+
+### Added
+
+- **Pi Agent CLI provider (`pi`).** The Pair now supports [Pi](https://pi.dev) (earendil-works/pi) as a sixth provider. Turns run via `pi --mode json` which emits structured JSON events; model IDs use `provider/model` format (e.g. `anthropic/claude-sonnet-4`). The `--thinking` flag maps to reasoning effort levels (`off`/`low`/`medium`/`high`/`xhigh`/`max`). Token usage is not yet surfaced by Pi's event stream. Models are discovered via `pi --list-models`.
+- **Kiro CLI provider (`kiro`).** The Pair now supports [Kiro](https://kiro.dev) (AWS Kiro CLI) as a seventh provider. Turns run via `kiro-cli chat --no-interactive --trust-all-tools` with plain-text stdout output (same transport pattern as Antigravity). The `--effort` flag maps to reasoning levels (`low`/`medium`/`high`/`xhigh`/`max`). Auth detection checks `KIRO_API_KEY` env var or `kiro-cli whoami`. Models are discovered via `kiro-cli chat --list-models`.
+- **Pi session ID extraction.** `extract_session_id` now recognizes Pi's `{"type":"session","id":"..."}` header event so session resume works for Pi pairs.
+- **Mock entries for Pi and Kiro** in `detect_all_mock()` so e2e/mock tests can exercise both new providers.
+
 ## [2.4.1] - 2026-08-03
 
 ### Fixed

@@ -208,6 +208,12 @@ fn parse_json_event(line: &str) -> Option<serde_json::Value> {
 }
 
 fn extract_session_id(event: &serde_json::Value) -> Option<String> {
+    // Pi session header: {"type":"session","version":3,"id":"uuid",...}
+    if event.get("type").and_then(|v| v.as_str()) == Some("session") {
+        if let Some(id) = event.get("id").and_then(|s| s.as_str()) {
+            return Some(id.to_string());
+        }
+    }
     event
         .get("sessionID")
         .and_then(|s| s.as_str())

@@ -2,7 +2,9 @@ pub mod codex;
 pub mod claude;
 pub mod gemini;
 pub mod kimi;
+pub mod kiro;
 pub mod opencode;
+pub mod pi;
 
 use crate::provider_adapter::{
     CwdStrategy, InputTransport, OutputTransport, PermissionStrategy, ProviderRuntimeSpec,
@@ -152,6 +154,8 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
         Arc::new(claude::ClaudeProvider),
         Arc::new(gemini::GeminiProvider),
         Arc::new(kimi::KimiProvider),
+        Arc::new(pi::PiProvider),
+        Arc::new(kiro::KiroProvider),
     ]
 }
 
