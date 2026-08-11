@@ -19,6 +19,8 @@ mod session_snapshot;
 mod skill_discovery;
 mod smart_pause;
 mod stubs;
+#[cfg(test)]
+mod test_env;
 mod types;
 mod util;
 mod worktree_manager;

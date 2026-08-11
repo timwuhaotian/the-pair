@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Reset reasoning button in ModelPicker.** When a model exposes non-standard reasoning options (e.g. `adaptive`/`disabled` instead of `low`/`medium`/`high`), a "reset" link now appears to clear the selection and return to the provider default. Previously, selecting a reasoning option on such models had no path back to unset.
 - **`defaultLeafForRoute` no longer forces the first effort option** when no `medium` level exists. For models with only `adaptive`/`disabled`, the default selection is now the provider default (no effort) rather than auto-selecting `adaptive`.
+- **Racy Rust env tests.** `process_spawner`'s `apply_provider_cli_env` test mutated `HOME`/`APPDATA`/`LOCALAPPDATA` process-wide without holding the env mutex that `provider_registry`'s tests use, so `cargo test`'s thread pool could leak an `APPDATA` value into `binary_exists_at_known_locations_finds_windows_global_npm_bins`, failing it and poisoning the mutex into 11 cascading `PoisonError` failures. Both modules now share one poison-tolerant lock (`src-tauri/src/test_env.rs`), and the Windows npm lookup test clears ambient `APPDATA`/`LOCALAPPDATA` so it also passes on real Windows machines.
 
 ## [2.6.0] - 2026-08-11
 

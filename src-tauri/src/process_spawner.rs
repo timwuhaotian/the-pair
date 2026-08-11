@@ -2728,6 +2728,7 @@ mod tests {
 
     #[test]
     fn apply_provider_cli_env_propagates_home_and_appdata_overrides() {
+        let _guard = crate::test_env::lock_env();
         let temp_home =
             std::env::temp_dir().join(format!("the-pair-test-{}", uuid::Uuid::new_v4()));
         let roaming = temp_home.join("enterprise/Roaming");

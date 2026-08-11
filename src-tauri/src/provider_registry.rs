@@ -1449,7 +1449,6 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
-    use std::sync::Mutex;
     use std::time::{Duration, Instant};
     use uuid::Uuid;
 
@@ -1509,8 +1508,6 @@ display_name = "bare table, not an alias"
         assert!(parse_kimi_model_aliases(config).is_empty());
     }
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
     #[cfg(unix)]
     fn write_executable_script(dir: &Path, name: &str, contents: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -1527,7 +1524,7 @@ display_name = "bare table, not an alias"
 
     #[test]
     fn detect_opencode_does_not_invent_models_without_local_sources() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let opencode_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         fs::create_dir_all(&opencode_dir).expect("failed to create temp opencode dir");
@@ -1578,7 +1575,7 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn detect_claude_lists_models_even_when_auth_status_is_logged_out() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let bin_dir = temp_root.join("bin");
         fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
@@ -1634,7 +1631,7 @@ fi
     #[cfg(unix)]
     #[test]
     fn detect_codex_reads_models_from_config_toml() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let codex_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         let codex_config_dir = temp_home.join(".codex");
@@ -1716,7 +1713,7 @@ model = "gpt-5.4-mini"
     #[cfg(unix)]
     #[test]
     fn detect_codex_reads_models_from_local_cache() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let codex_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         let codex_config_dir = temp_home.join(".codex");
@@ -1810,7 +1807,7 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn which_binary_returns_resolved_path_in_nvm_layout() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let claude_dir = temp_root.join(".nvm/versions/node/v24.14.0/bin");
         fs::create_dir_all(&claude_dir).expect("failed to create temp claude dir");
@@ -1852,14 +1849,30 @@ exit 0
 
     #[test]
     fn binary_exists_at_known_locations_finds_windows_global_npm_bins() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let roaming_npm_dir = temp_root.join("AppData/Roaming/npm");
         fs::create_dir_all(&roaming_npm_dir).expect("failed to create roaming npm dir");
         fs::write(roaming_npm_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd");
 
+        // This covers the home-derived default, so the ambient APPDATA of the
+        // machine running the tests must not take part in the lookup.
+        let original_appdata = std::env::var_os("APPDATA");
+        let original_local_appdata = std::env::var_os("LOCALAPPDATA");
+        std::env::remove_var("APPDATA");
+        std::env::remove_var("LOCALAPPDATA");
+
+        let found = binary_exists_at_known_locations("claude", &temp_root);
+
+        if let Some(value) = original_appdata {
+            std::env::set_var("APPDATA", value);
+        }
+        if let Some(value) = original_local_appdata {
+            std::env::set_var("LOCALAPPDATA", value);
+        }
+
         assert!(
-            binary_exists_at_known_locations("claude", &temp_root),
+            found,
             "claude should be discoverable in the standard Windows global npm directory"
         );
     }
@@ -1881,7 +1894,7 @@ exit 0
 
     #[test]
     fn binary_exists_at_known_locations_uses_custom_appdata_env_paths() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let roaming = temp_root.join("enterprise/roaming");
         let local = temp_root.join("enterprise/local");
@@ -1917,7 +1930,7 @@ exit 0
 
     #[test]
     fn cli_environment_overrides_preserve_custom_appdata_values() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let roaming = temp_home.join("enterprise/Roaming");
         let local = temp_home.join("enterprise/Local");
@@ -1980,7 +1993,7 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn detect_claude_reads_models_from_help_and_recent_history() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let claude_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         let claude_projects_dir = temp_home.join(".claude/projects/example");
@@ -2057,7 +2070,7 @@ fi
     #[cfg(unix)]
     #[test]
     fn detect_claude_uses_credentials_file_when_auth_status_fails() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let claude_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         let credentials_dir = temp_home.join(".claude");
@@ -2164,7 +2177,7 @@ printf '%s\n' 'eventual output'
     #[cfg(unix)]
     #[test]
     fn detect_aider_reads_models_from_config() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let bin_dir = temp_home.join(".local/bin");
         fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
@@ -2243,7 +2256,7 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn detect_aider_not_authenticated_without_env_key() {
-        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let _guard = crate::test_env::lock_env();
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let bin_dir = temp_home.join(".local/bin");
         fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
