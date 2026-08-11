@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-08-11
+
+### Added
+
+- **MiniMax-M3 thinking variants via OpenCode.** Models routed through OpenCode on the `minimax` and `minimax-cn` source providers (e.g. `minimax/MiniMax-M3`, `minimax-cn/MiniMax-M3`) now expose `adaptive` and `disabled` reasoning options in the model picker. The selected option is passed to OpenCode's `--variant` flag (`adaptive`→`thinking`, `disabled`→`none`). The `--variant` flag is gated on CLI support — `opencode run --help` is probed once (cached via `OnceLock`) so older installs without the flag silently skip it instead of hard-failing. Models on other source providers (OpenRouter, Fireworks, etc.) are unaffected and keep their provider defaults.
+
+### Fixed
+
+- **Reset reasoning button in ModelPicker.** When a model exposes non-standard reasoning options (e.g. `adaptive`/`disabled` instead of `low`/`medium`/`high`), a "reset" link now appears to clear the selection and return to the provider default. Previously, selecting a reasoning option on such models had no path back to unset.
+- **`defaultLeafForRoute` no longer forces the first effort option** when no `medium` level exists. For models with only `adaptive`/`disabled`, the default selection is now the provider default (no effort) rather than auto-selecting `adaptive`.
+
 ## [2.6.0] - 2026-08-11
 
 ### Added
