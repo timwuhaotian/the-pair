@@ -23,10 +23,30 @@ import {
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
-const EFFORT_FALLBACK_LABELS: Record<string, string> = {
-  low: 'fast',
-  medium: 'balanced',
-  high: 'deep'
+
+function effortTranslationKey(
+  level: string
+):
+  | 'pickers.reasoning'
+  | 'pickers.reasoningOff'
+  | 'pickers.reasoningFast'
+  | 'pickers.reasoningBalanced'
+  | 'pickers.reasoningDeep'
+  | undefined {
+  switch (level) {
+    case 'disabled':
+      return 'pickers.reasoningOff'
+    case 'low':
+      return 'pickers.reasoningFast'
+    case 'adaptive':
+      return 'pickers.reasoning'
+    case 'medium':
+      return 'pickers.reasoningBalanced'
+    case 'high':
+      return 'pickers.reasoningDeep'
+    default:
+      return undefined
+  }
 }
 
 function getRecentModelIds(role: 'mentor' | 'executor'): string[] {
@@ -239,6 +259,10 @@ export function ModelPicker({
     applyLeaf(option.qualifiedId, option.reasoningEffort, model.canonicalKey, route.key)
   }
 
+  const resetReasoning = (model: CanonicalModel, route: ModelRoute): void => {
+    applyLeaf(route.baseQualifiedId, undefined, model.canonicalKey, route.key)
+  }
+
   const selectRecent = (model: AvailableModel): void => {
     const qualifiedId = getQualifiedModel(model)
     const sel = resolveSelection(canonicalModels, qualifiedId)
@@ -255,11 +279,8 @@ export function ModelPicker({
   }
 
   const effortLabel = (level: string): string => {
-    const key = `pickers.reasoning${level.charAt(0).toUpperCase() + level.slice(1)}` as const
-    const translated = t(key)
-    return translated !== key
-      ? translated.toLowerCase()
-      : (EFFORT_FALLBACK_LABELS[level] ?? level.toLowerCase())
+    const key = effortTranslationKey(level)
+    return key ? t(key).toLowerCase() : level.toLowerCase()
   }
 
   const activeRoute = current.route
@@ -494,6 +515,15 @@ export function ModelPicker({
                 <span className={cn('text-[10px] uppercase tracking-[0.14em]', c.fg)}>
                   · {effortLabel(current.effort.value)}
                 </span>
+              )}
+              {current.effort && (
+                <button
+                  type="button"
+                  onClick={() => resetReasoning(current.model as CanonicalModel, activeRoute)}
+                  className="ml-auto text-[9px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  {t('pickers.resetReasoning')}
+                </button>
               )}
             </div>
             <div className="flex flex-1 border border-border rounded-sm overflow-hidden">

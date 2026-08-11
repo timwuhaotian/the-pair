@@ -162,6 +162,10 @@ test('exposes Codex reasoning levels as a shared-id effort axis and resolves sel
   assert.ok(route.effortOptions.every((option) => option.qualifiedId === 'codex/o3'))
 
   assert.equal(resolveSelection(models, 'codex/o3', 'high').effort?.value, 'high')
+  assert.deepEqual(defaultLeafForRoute(route), {
+    qualifiedId: 'codex/o3',
+    reasoningEffort: 'medium'
+  })
   // value matches but effort flag unset -> route resolves, effort undefined
   const unset = resolveSelection(models, 'codex/o3', undefined)
   assert.equal(unset.route?.provider, 'codex')
@@ -190,7 +194,7 @@ test('exposes OpenCode adaptive reasoning variants and resolves selection', () =
   )
   assert.deepEqual(defaultLeafForRoute(route), {
     qualifiedId: 'minimax/MiniMax-M3',
-    reasoningEffort: 'adaptive'
+    reasoningEffort: undefined
   })
   assert.equal(resolveSelection(models, 'minimax/MiniMax-M3', 'disabled').effort?.value, 'disabled')
 })

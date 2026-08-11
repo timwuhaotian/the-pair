@@ -421,21 +421,4 @@ mod tests {
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
     }
-
-    #[test]
-    fn opencode_command_injects_supported_reasoning_variant() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
-            provider_kind: ProviderKind::Opencode,
-            model: "minimax/MiniMax-M3",
-            session_id: None,
-            role: "executor",
-            pair_id: "pair-1",
-            message: "do the work",
-            reasoning_effort: Some("adaptive"),
-        })
-        .unwrap();
-
-        assert!(command.args.contains(&"--variant".to_string()));
-        assert!(command.args.contains(&"adaptive".to_string()));
-    }
 }

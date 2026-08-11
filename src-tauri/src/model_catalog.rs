@@ -328,6 +328,14 @@ mod tests {
             Some(vec!["adaptive".to_string(), "disabled".to_string()])
         );
         assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Opencode, "minimax-cn/MiniMax-M3"),
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
+        );
+        assert_eq!(
+            reasoning_effort_levels_for(ProviderKind::Opencode, "openrouter/minimax/minimax-m3"),
+            None
+        );
+        assert_eq!(
             reasoning_effort_levels_for(ProviderKind::Opencode, "minimax/MiniMax-M2.7"),
             None
         );
