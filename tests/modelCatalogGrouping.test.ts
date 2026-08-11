@@ -162,10 +162,41 @@ test('exposes Codex reasoning levels as a shared-id effort axis and resolves sel
   assert.ok(route.effortOptions.every((option) => option.qualifiedId === 'codex/o3'))
 
   assert.equal(resolveSelection(models, 'codex/o3', 'high').effort?.value, 'high')
+  assert.deepEqual(defaultLeafForRoute(route), {
+    qualifiedId: 'codex/o3',
+    reasoningEffort: 'medium'
+  })
   // value matches but effort flag unset -> route resolves, effort undefined
   const unset = resolveSelection(models, 'codex/o3', undefined)
   assert.equal(unset.route?.provider, 'codex')
   assert.equal(unset.effort, undefined)
+})
+
+test('exposes OpenCode adaptive reasoning variants and resolves selection', () => {
+  const model = makeModel({
+    provider: 'opencode',
+    modelId: 'minimax/MiniMax-M3',
+    displayName: 'MiniMax-M3',
+    providerLabel: 'OpenCode',
+    accessLabel: 'MiniMax API key',
+    planLabel: 'internal-provider',
+    billingKind: 'byok',
+    canonicalKey: 'minimax::minimax-m3',
+    canonicalDisplayName: 'MiniMax-M3',
+    reasoningEffortLevels: ['adaptive', 'disabled']
+  })
+
+  const models = buildCanonicalModels([model])
+  const route = models[0].routes[0]
+  assert.deepEqual(
+    route.effortOptions.map((option) => option.reasoningEffort),
+    ['adaptive', 'disabled']
+  )
+  assert.deepEqual(defaultLeafForRoute(route), {
+    qualifiedId: 'minimax/MiniMax-M3',
+    reasoningEffort: undefined
+  })
+  assert.equal(resolveSelection(models, 'minimax/MiniMax-M3', 'disabled').effort?.value, 'disabled')
 })
 
 test('fuzzy search matches on model name and route labels', () => {

@@ -179,14 +179,17 @@ export function buildCanonicalModels(models: AvailableModel[]): CanonicalModel[]
   return result
 }
 
-/** The selection a route resolves to by default (medium effort when present). */
+/** The default route selection: medium when present, otherwise the provider default. */
 export function defaultLeafForRoute(route: ModelRoute): {
   qualifiedId: string
   reasoningEffort?: string
 } {
   if (route.effortOptions.length > 0) {
-    const chosen =
-      route.effortOptions.find((option) => option.value === 'medium') ?? route.effortOptions[0]
+    const medium = route.effortOptions.find((option) => option.value === 'medium')
+    if (!medium && route.effortOptions.every((option) => option.reasoningEffort !== undefined)) {
+      return { qualifiedId: route.baseQualifiedId, reasoningEffort: undefined }
+    }
+    const chosen = medium ?? route.effortOptions[0]
     return { qualifiedId: chosen.qualifiedId, reasoningEffort: chosen.reasoningEffort }
   }
   return { qualifiedId: route.baseQualifiedId, reasoningEffort: undefined }

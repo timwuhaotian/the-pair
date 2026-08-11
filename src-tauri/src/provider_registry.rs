@@ -6,10 +6,12 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+static OPENCODE_VARIANT_FLAG_SUPPORT: OnceLock<bool> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -170,6 +172,26 @@ fn capture_command_output_with_timeout(
             }
         }
     }
+}
+
+fn opencode_help_supports_variant_flag(help_text: &str) -> bool {
+    help_text.contains("--variant")
+}
+
+pub(crate) fn opencode_supports_variant_flag() -> bool {
+    let Some(command_path) = which_binary("opencode") else {
+        return false;
+    };
+
+    *OPENCODE_VARIANT_FLAG_SUPPORT.get_or_init(|| {
+        capture_command_output_with_timeout(
+            &command_path,
+            &["run", "--help"],
+            &homedir(),
+            CLI_PROBE_TIMEOUT,
+        )
+        .is_some_and(|help_text| opencode_help_supports_variant_flag(&help_text))
+    })
 }
 
 pub fn which_binary(name: &str) -> Option<PathBuf> {
@@ -1430,6 +1452,16 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     use uuid::Uuid;
+
+    #[test]
+    fn opencode_help_detects_variant_flag_support() {
+        assert!(opencode_help_supports_variant_flag(
+            "Usage: opencode run [message]\n  --variant  model variant"
+        ));
+        assert!(!opencode_help_supports_variant_flag(
+            "Usage: opencode run [message]\n  --model  model id"
+        ));
+    }
 
     #[test]
     fn parse_kimi_model_aliases_reads_sections_and_display_names() {
