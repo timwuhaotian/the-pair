@@ -56,14 +56,32 @@ const blockedOpenCodeModel: AvailableModel = {
   recommendedRoles: ['mentor', 'executor']
 }
 
+const readyAiderModel: AvailableModel = {
+  provider: 'aider',
+  modelId: 'claude-sonnet-4-6',
+  displayName: 'Claude Sonnet 4.6 via Aider',
+  available: true,
+  providerLabel: 'Aider',
+  sourceProvider: 'aider',
+  sourceProviderLabel: 'Aider',
+  billingKind: 'byok',
+  billingLabel: 'Pay as you go',
+  accessLabel: 'API key',
+  planLabel: 'byok',
+  availabilityStatus: 'ready',
+  supportsPairExecution: true,
+  recommendedRoles: ['mentor', 'executor']
+}
+
 test('buildProviderSetupSummary counts ready models from every supported provider', () => {
   const summary = buildProviderSetupSummary([
     blockedOpenCodeModel,
     readyClaudeModel,
-    readyGeminiModel
+    readyGeminiModel,
+    readyAiderModel
   ])
 
   assert.equal(summary.isReady, true)
-  assert.equal(summary.readyModelCount, 2)
-  assert.deepEqual(summary.readyProviderLabels, ['Antigravity', 'Claude Code'])
+  assert.equal(summary.readyModelCount, 3)
+  assert.deepEqual(summary.readyProviderLabels, ['Aider', 'Antigravity', 'Claude Code'])
 })

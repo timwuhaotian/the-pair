@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-08-11
+
+### Added
+
+- **Aider CLI provider (`aider`).** The Pair now supports [Aider](https://aider.chat) as an eighth provider — the most popular open-source CLI coding agent (~44k GitHub stars). Turns run via `aider --message "<prompt>" --model <model> --yes-always --no-auto-commits --no-dirty-commits --json --stream` for headless NDJSON output. Aider is BYOK (bring your own API key) supporting Anthropic, OpenAI, Google, DeepSeek, OpenRouter, Azure, and local models via Ollama. Auth detection checks for known API key env vars. Models are discovered from `~/.aider.conf.yml` with a static fallback list of common models. Aider is stateless per `--message` invocation (git history is the persistence), so `SessionStrategy::NewFirst` is used.
+- **"update agents" command.** AGENTS.md now documents a procedure for auditing all provider CLI interfaces when the user says "update agents" — web search latest docs, optionally install tools in isolated environments to examine CLI surfaces firsthand, and update mismatched `build_turn_command()`, `extract_token_usage()`, `collect_json_candidates()`, and `detect_*` functions.
+- **Mock entry for Aider** in `detect_all_mock()` so e2e/mock tests can exercise the new provider.
+- **E2E test for Aider provider lifecycle** — creates a pair with the Aider mock model and verifies the full Mentoring → Executing → Reviewing → Finished lifecycle.
+- **Unit tests for Aider** — 11 Rust tests (command construction, prefix stripping, leading-dash guarding, JSON event parsing, stateless session handling) and 3 TS test files updated (providerResolution, providerSetup, modelCatalogGrouping).
+
 ## [2.5.1] - 2026-08-10
 
 ### Added

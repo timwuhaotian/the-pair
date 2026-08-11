@@ -59,7 +59,8 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   opencode: 3,
   kimi: 4,
   pi: 5,
-  kiro: 6
+  kiro: 6,
+  aider: 7
 }
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 

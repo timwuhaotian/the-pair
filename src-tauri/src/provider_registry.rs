@@ -21,6 +21,7 @@ pub enum ProviderKind {
     Kimi,
     Pi,
     Kiro,
+    Aider,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -802,6 +803,25 @@ impl ProviderRegistry {
                 install_url: None,
                 detected_at: detected_at_now(),
             },
+            DetectedProviderProfile {
+                kind: ProviderKind::Aider,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "claude-sonnet-4-6".to_string(),
+                    display_name: "Claude Sonnet 4.6 via Aider (Mock)".to_string(),
+                    source_provider: Some("aider".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                login_command: None,
+                install_url: None,
+                detected_at: detected_at_now(),
+            },
         ]
     }
 
@@ -1146,6 +1166,45 @@ impl ProviderRegistry {
             detected_at: detected_at_now(),
         }
     }
+
+    pub fn detect_aider() -> DetectedProviderProfile {
+        let installed = which_binary_exists("aider");
+        let homedir = homedir();
+
+        // Aider is BYOK — auth means having an API key available via env var.
+        // The config file alone may specify a model but without a key the
+        // provider can't run.
+        let has_env_key = [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "OPENROUTER_API_KEY",
+            "AZURE_API_KEY",
+        ]
+        .iter()
+        .any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false));
+
+        let authenticated = has_env_key;
+        let subscription_label = "byok".to_string();
+        let models = if installed && authenticated {
+            discover_aider_models(&homedir)
+        } else {
+            Vec::new()
+        };
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Aider,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label,
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
@@ -1303,6 +1362,64 @@ fn discover_kiro_models(kiro_bin: &Path) -> Vec<DetectedModelOption> {
             runnable: true,
         })
         .collect()
+}
+
+/// Discover Aider models from `~/.aider.conf.yml`. Aider doesn't have a
+/// `--list-models` command, so we parse the config file for a `model:` key
+/// and also surface a small static fallback list of common BYOK models so
+/// the picker is never empty when the user has an API key configured.
+fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
+    let subscription_label = "byok".to_string();
+    let mut models = Vec::new();
+
+    // 1. Parse ~/.aider.conf.yml for a configured model.
+    let config_path = home.join(".aider.conf.yml");
+    if let Ok(content) = fs::read_to_string(&config_path) {
+        for raw_line in content.lines() {
+            let line = raw_line.trim();
+            if line.starts_with("model:") {
+                if let Some(model_id) = line.split(':').nth(1).map(|s| s.trim().trim_matches('"')) {
+                    if !model_id.is_empty() && is_plausible_model_id(model_id) {
+                        models.push(DetectedModelOption {
+                            model_id: model_id.to_string(),
+            display_name: model_id.to_string(),
+            source_provider: Some("aider".to_string()),
+            family: None,
+            subscription_label: subscription_label.clone(),
+            supports_pair_execution: true,
+            runnable: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Static fallback: common models users are likely to have keys for.
+    // Only added if the config didn't already list them.
+    let fallbacks = [
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gemini-2.5-pro",
+        "deepseek-coder-v3",
+    ];
+    for model_id in &fallbacks {
+        if !models.iter().any(|m| &m.model_id == model_id) {
+            models.push(DetectedModelOption {
+                model_id: model_id.to_string(),
+            display_name: model_id.to_string(),
+            source_provider: Some("aider".to_string()),
+            family: None,
+            subscription_label: subscription_label.clone(),
+            supports_pair_execution: true,
+            runnable: true,
+            });
+        }
+    }
+
+    models
 }
 
 #[cfg(test)]
@@ -2008,5 +2125,171 @@ printf '%s\n' 'eventual output'
         );
 
         let _ = fs::remove_dir_all(temp_home);
+    }
+
+    // ── Aider detection tests ──────────────────────────────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_aider_reads_models_from_config() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let bin_dir = temp_home.join(".local/bin");
+        fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
+
+        write_executable_script(
+            &bin_dir,
+            "aider",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        fs::write(
+            temp_home.join(".aider.conf.yml"),
+            "model: claude-sonnet-4-6\n",
+        )
+        .expect("failed to write aider config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let original_api_key = std::env::var_os("ANTHROPIC_API_KEY");
+        let original_openai_key = std::env::var_os("OPENAI_API_KEY");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", bin_dir.display(), existing.to_string_lossy())
+        } else {
+            bin_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+        std::env::set_var("ANTHROPIC_API_KEY", "test-key");
+
+        let profile = ProviderRegistry::detect_aider();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        if let Some(value) = original_api_key {
+            std::env::set_var("ANTHROPIC_API_KEY", value);
+        } else {
+            std::env::remove_var("ANTHROPIC_API_KEY");
+        }
+        if let Some(value) = original_openai_key {
+            std::env::set_var("OPENAI_API_KEY", value);
+        } else {
+            std::env::remove_var("OPENAI_API_KEY");
+        }
+
+        assert!(profile.installed);
+        assert!(profile.authenticated);
+        assert!(profile.runnable);
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|m| m.model_id == "claude-sonnet-4-6"),
+            "Aider should surface the model configured in ~/.aider.conf.yml"
+        );
+        // Fallback models should also be present.
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|m| m.model_id == "gpt-5.4"),
+            "Aider should include static fallback models for BYOK"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_aider_not_authenticated_without_env_key() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let bin_dir = temp_home.join(".local/bin");
+        fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
+
+        write_executable_script(
+            &bin_dir,
+            "aider",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        fs::write(
+            temp_home.join(".aider.conf.yml"),
+            "model: claude-sonnet-4-6\n",
+        )
+        .expect("failed to write aider config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let original_api_key = std::env::var_os("ANTHROPIC_API_KEY");
+        let original_openai_key = std::env::var_os("OPENAI_API_KEY");
+        let original_gemini_key = std::env::var_os("GEMINI_API_KEY");
+        let original_deepseek_key = std::env::var_os("DEEPSEEK_API_KEY");
+        let original_openrouter_key = std::env::var_os("OPENROUTER_API_KEY");
+        let original_azure_key = std::env::var_os("AZURE_API_KEY");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", bin_dir.display(), existing.to_string_lossy())
+        } else {
+            bin_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+        // Remove all known API key env vars.
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("GEMINI_API_KEY");
+        std::env::remove_var("DEEPSEEK_API_KEY");
+        std::env::remove_var("OPENROUTER_API_KEY");
+        std::env::remove_var("AZURE_API_KEY");
+
+        let profile = ProviderRegistry::detect_aider();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        for (key, original) in [
+            ("ANTHROPIC_API_KEY", original_api_key),
+            ("OPENAI_API_KEY", original_openai_key),
+            ("GEMINI_API_KEY", original_gemini_key),
+            ("DEEPSEEK_API_KEY", original_deepseek_key),
+            ("OPENROUTER_API_KEY", original_openrouter_key),
+            ("AZURE_API_KEY", original_azure_key),
+        ] {
+            if let Some(value) = original {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+
+        assert!(profile.installed);
+        assert!(
+            !profile.authenticated,
+            "Aider should not be authenticated without any API key env var"
+        );
+        assert!(!profile.runnable);
+        assert!(
+            profile.current_models.is_empty(),
+            "Aider should not list models when not authenticated"
+        );
     }
 }

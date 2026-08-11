@@ -44,6 +44,7 @@ fn normalize_provider_label(slug: &str) -> String {
         "kimi" | "moonshot" => "Kimi".to_string(),
         "pi" => "Pi".to_string(),
         "kiro" => "Kiro".to_string(),
+        "aider" => "Aider".to_string(),
         _ => {
             let mut chars = slug.chars();
             match chars.next() {

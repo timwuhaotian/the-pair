@@ -22,7 +22,8 @@ export function inferProviderFromModel(modelId: string): ProviderKind {
       prefix === 'gemini' ||
       prefix === 'kimi' ||
       prefix === 'pi' ||
-      prefix === 'kiro'
+      prefix === 'kiro' ||
+      prefix === 'aider'
     ) {
       return prefix
     }
@@ -32,6 +33,7 @@ export function inferProviderFromModel(modelId: string): ProviderKind {
   if (modelId.includes('claude')) return 'claude'
   if (modelId.includes('gemini')) return 'gemini'
   if (modelId.includes('kimi')) return 'kimi'
+  if (modelId.includes('aider')) return 'aider'
   if (modelId.includes('gpt') || /^o\d/.test(modelId)) {
     return 'codex'
   }
@@ -49,7 +51,7 @@ export function buildAgentConfig(
     throw new Error(`Selected ${role} model is not available: ${modelId}`)
   }
 
-  // Kimi/Pi/Kiro model aliases are arbitrary user-defined names or multi-provider
+  // Kimi/Pi/Kiro/Aider model aliases are arbitrary user-defined names or multi-provider
   // paths (e.g. "ark-plan/glm-5", "anthropic/claude-sonnet-4"), so the stored id
   // keeps its qualifier — provider re-inference on model updates and snapshot
   // recovery depends on it. The backend strips the qualifier at spawn time.
@@ -59,7 +61,10 @@ export function buildAgentConfig(
     role,
     provider: selected.provider,
     model:
-      selected.provider === 'kimi' || selected.provider === 'pi' || selected.provider === 'kiro'
+      selected.provider === 'kimi' ||
+      selected.provider === 'pi' ||
+      selected.provider === 'kiro' ||
+      selected.provider === 'aider'
         ? `${selected.provider}/${selected.modelId}`
         : selected.modelId
   }

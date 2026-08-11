@@ -1,3 +1,4 @@
+pub mod aider;
 pub mod codex;
 pub mod claude;
 pub mod gemini;
@@ -156,6 +157,7 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
         Arc::new(kimi::KimiProvider),
         Arc::new(pi::PiProvider),
         Arc::new(kiro::KiroProvider),
+        Arc::new(aider::AiderProvider),
     ]
 }
 
@@ -251,5 +253,16 @@ mod tests {
                 kind
             );
         }
+    }
+
+    #[test]
+    fn aider_provider_returns_install_url_without_login_command() {
+        let provider = aider::AiderProvider;
+        assert_eq!(provider.kind(), ProviderKind::Aider);
+        assert_eq!(provider.executable(), "aider");
+        assert!(provider.login_command().is_none(), "Aider is BYOK — no login");
+        let install = provider.install_url();
+        assert!(install.is_some());
+        assert!(install.unwrap().contains("aider"));
     }
 }

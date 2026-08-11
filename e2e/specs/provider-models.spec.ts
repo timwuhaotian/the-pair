@@ -106,3 +106,49 @@ describe('Provider Models - Pi provider', () => {
     await pairDetail.waitForConsoleMessage('Done', 5000)
   })
 })
+
+describe('Provider Models - Aider provider', () => {
+  before(async () => {
+    await browser.call(async () => {
+      const { mkdirSync } = await import('node:fs')
+      const { execSync } = await import('node:child_process')
+      mkdirSync(TEST_DIR, { recursive: true })
+      execSync(`cd ${TEST_DIR} && git init`, { stdio: 'pipe' })
+    })
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
+  })
+
+  after(async () => {
+    process.env.THE_PAIR_E2E_MOCK_SCENARIO = 'success'
+    await browser.call(async () => {
+      const { rmSync } = await import('node:fs')
+      rmSync(TEST_DIR, { recursive: true, force: true })
+    })
+  })
+
+  it('should complete a lifecycle with Claude Sonnet 4.6 via Aider (Mock) on both roles', async () => {
+    const name = 'Aider Provider Pair'
+    const model = 'Claude Sonnet 4.6 via Aider (Mock)'
+
+    await dashboard.clickNewPair()
+    await createModal.waitForOpen()
+    await createModal.setName(name)
+    await createModal.setDirectory(TEST_DIR)
+    await createModal.setTaskSpec('Verify aider provider end to end')
+    await createModal.selectMentorModel(model)
+    await createModal.selectExecutorModel(model)
+    await createModal.submit()
+    await createModal.waitForClosed()
+
+    await dashboard.isPairCardVisible(name)
+
+    await dashboard.clickPairCard(name)
+    await assignModal.waitForOpen(name)
+    await assignModal.submit()
+    await assignModal.waitForClosed()
+
+    await pairDetail.waitForStatus('Finished', 20000)
+    await pairDetail.waitForConsoleMessage('Plan', 5000)
+    await pairDetail.waitForConsoleMessage('Done', 5000)
+  })
+})

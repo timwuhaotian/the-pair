@@ -44,7 +44,8 @@ const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   kimi: 'https://github.com/MoonshotAI/kimi-code',
   opencode: 'https://opencode.ai',
   pi: 'https://pi.dev',
-  kiro: 'https://kiro.dev/downloads'
+  kiro: 'https://kiro.dev/downloads',
+  aider: 'https://aider.chat'
 }
 
 /**

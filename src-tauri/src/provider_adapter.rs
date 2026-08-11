@@ -108,6 +108,7 @@ impl ProviderAdapter {
                     "kimi" => ProviderKind::Kimi,
                     "pi" => ProviderKind::Pi,
                     "kiro" => ProviderKind::Kiro,
+                    "aider" => ProviderKind::Aider,
                     _ => ProviderKind::Opencode,
                 };
             }
@@ -121,6 +122,8 @@ impl ProviderAdapter {
                 ProviderKind::Gemini
             } else if lower.contains("kimi") {
                 ProviderKind::Kimi
+            } else if lower.contains("aider") {
+                ProviderKind::Aider
             } else if lower.contains("gpt")
                 || lower
                     .strip_prefix('o')
@@ -349,6 +352,22 @@ mod tests {
         assert_eq!(
             ProviderAdapter::infer_provider_kind("kimi-k2.5"),
             ProviderKind::Kimi
+        );
+    }
+
+    #[test]
+    fn inference_recognizes_aider_prefix() {
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("aider/claude-sonnet-4-6"),
+            ProviderKind::Aider
+        );
+    }
+
+    #[test]
+    fn inference_recognizes_aider_keyword_in_bare_id() {
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("aider-sonnet"),
+            ProviderKind::Aider
         );
     }
 

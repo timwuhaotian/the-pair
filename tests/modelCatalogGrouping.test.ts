@@ -182,3 +182,39 @@ test('falls back to a derived canonical key when the backend omits one', () => {
   assert.equal(models[0].routes.length, 1)
   assert.equal(models[0].routes[0].baseQualifiedId, 'deepseek/deepseek-chat')
 })
+
+test('aider route sorts after kiro in provider priority', () => {
+  const kiro = makeModel({
+    provider: 'kiro',
+    modelId: 'claude-sonnet-4-5',
+    displayName: 'Claude Sonnet 4.5',
+    providerLabel: 'Kiro',
+    accessLabel: 'Kiro login',
+    planLabel: 'kiro',
+    canonicalKey: 'anthropic::claude-sonnet-4-5',
+    canonicalDisplayName: 'Claude Sonnet 4.5'
+  })
+  const aider = makeModel({
+    provider: 'aider',
+    modelId: 'claude-sonnet-4-5',
+    displayName: 'Claude Sonnet 4.5',
+    providerLabel: 'Aider',
+    accessLabel: 'API key',
+    planLabel: 'byok',
+    billingKind: 'byok',
+    canonicalKey: 'anthropic::claude-sonnet-4-5',
+    canonicalDisplayName: 'Claude Sonnet 4.5'
+  })
+
+  const models = buildCanonicalModels([aider, kiro])
+  assert.equal(models.length, 1)
+  assert.equal(models[0].routes.length, 2)
+
+  // Both available — kiro (priority 6) should sort before aider (priority 7).
+  const restore = installLocalStorage()
+  try {
+    assert.equal(pickDefaultRoute(models[0], 'mentor')?.provider, 'kiro')
+  } finally {
+    restore()
+  }
+})

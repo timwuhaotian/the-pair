@@ -50,6 +50,9 @@ test('inferProviderFromModel maps provider-aware ids and legacy model names', ()
   // Kimi aliases contain their own slashes; the leading qualifier routes them.
   assert.equal(inferProviderFromModel('kimi/kimi-code/k3'), 'kimi')
   assert.equal(inferProviderFromModel('kimi-k2.5'), 'kimi')
+  // Aider routes via the aider/ qualifier or the keyword heuristic.
+  assert.equal(inferProviderFromModel('aider/claude-sonnet-4-6'), 'aider')
+  assert.equal(inferProviderFromModel('aider-sonnet'), 'aider')
   // Without the qualifier an arbitrary alias falls back to opencode — this is
   // why buildAgentConfig stores kimi ids qualified.
   assert.equal(inferProviderFromModel('ark-coding-plan/glm-5.2'), 'opencode')
@@ -139,4 +142,25 @@ test('getModelByQualifiedId returns undefined for nonexistent id', () => {
   ]
   const result = getModelByQualifiedId(models, 'nonexistent')
   assert.equal(result, undefined)
+})
+
+test('buildAgentConfig keeps the aider qualifier in the stored model id', () => {
+  const readyAiderModel: AvailableModel = {
+    ...readyClaudeModel,
+    provider: 'aider',
+    modelId: 'claude-sonnet-4-6',
+    displayName: 'Claude Sonnet 4.6 via Aider',
+    providerLabel: 'Aider',
+    sourceProvider: 'aider',
+    sourceProviderLabel: 'Aider',
+    accessLabel: 'API key'
+  }
+  const config = buildAgentConfig('mentor', 'aider/claude-sonnet-4-6', [readyAiderModel])
+
+  // The bare model id is not re-inferable as aider, so the qualifier must survive.
+  assert.deepEqual(config, {
+    role: 'mentor',
+    provider: 'aider',
+    model: 'aider/claude-sonnet-4-6'
+  })
 })
