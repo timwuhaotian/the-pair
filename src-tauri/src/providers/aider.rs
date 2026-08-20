@@ -46,7 +46,7 @@ impl Provider for AiderProvider {
             request.message.to_string()
         };
 
-        let args: Vec<String> = vec![
+        let mut args: Vec<String> = vec![
             "--message".into(),
             prompt,
             "--model".into(),
@@ -60,6 +60,12 @@ impl Provider for AiderProvider {
             "--json".into(),
             "--stream".into(),
         ];
+
+        // Aider forwards `--reasoning-effort` to models that accept it.
+        if let Some(effort) = request.reasoning_effort {
+            args.push("--reasoning-effort".into());
+            args.push(effort.into());
+        }
 
         ProviderTurnCommand {
             executable: "aider".into(),
@@ -282,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn aider_command_omits_reasoning_effort_flag() {
+    fn aider_command_forwards_reasoning_effort() {
         let provider = AiderProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Aider,
@@ -294,8 +300,12 @@ mod tests {
             reasoning_effort: Some("high"),
         });
 
-        assert!(!command.args.contains(&"--reasoning-effort".to_string()));
-        assert!(!command.args.contains(&"high".to_string()));
+        let effort_idx = command
+            .args
+            .iter()
+            .position(|a| a == "--reasoning-effort")
+            .expect("should have --reasoning-effort flag");
+        assert_eq!(command.args[effort_idx + 1], "high");
     }
 
     #[test]

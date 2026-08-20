@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-08-20
+
+### Changed
+
+- **Provider CLI interface refresh ("update agents").** Audited all eight provider CLI surfaces against their current releases and fixed the drift:
+  - **Codex:** `codex auth` was removed; the auth entry point is now `codex login`. Updated the login command shown in onboarding (Rust `login_command()` + frontend `PROVIDER_LOGIN_COMMANDS`).
+  - **Pi:** the `--thinking` flag no longer accepts `max`; the current level set is `off`/`minimal`/`low`/`medium`/`high`/`xhigh`. Updated the reasoning-effort picker options.
+  - **Antigravity (`agy`):** `agy models` now prints `slug<TAB>Display Name` pairs (e.g. `gemini-3.7-flash-high	Gemini 3.7 Flash (High)`), and model slugs (not display names) are what `--model` accepts. Model discovery previously filtered on the old display-name format and surfaced nothing; it now parses the slug + display name and stores the slug as the runnable model id. Also fixed the login command — `agy auth` does not exist, so onboarding now points at the interactive `agy` sign-in.
+  - **Kiro:** headless turns now pass `--resume-id <SESSION_ID>` for multi-turn pairs (the session id was previously dropped, so every turn restarted with empty context); runtime session strategy switched to resume-existing.
+  - **Aider:** reasoning effort is now forwarded via `--reasoning-effort` instead of being dropped.
+
+  Claude, Kimi, and OpenCode interfaces were verified against the current CLIs and required no changes.
+
 ## [2.7.0] - 2026-08-11
 
 ### Added

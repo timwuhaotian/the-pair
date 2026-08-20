@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn codex_provider_returns_login_command_and_install_url() {
         let provider = codex::CodexProvider;
-        assert_eq!(provider.login_command().as_deref(), Some("codex auth"));
+        assert_eq!(provider.login_command().as_deref(), Some("codex login"));
         assert!(provider.install_url().is_some());
     }
 
@@ -227,7 +227,7 @@ mod tests {
         assert!(login.is_some(), "Gemini should always have a login command");
         let cmd = login.unwrap();
         assert!(
-            cmd.starts_with("agy") || cmd.starts_with("gemini"),
+            cmd.starts_with("agy"),
             "Unexpected gemini login command: {}",
             cmd
         );

@@ -108,10 +108,10 @@ test('buildProviderSetupHints includes login commands for known providers', () =
   assert.equal(claude!.loginCommand, 'claude login')
 
   const codex = hints.find((h) => h.kind === 'codex')
-  assert.equal(codex!.loginCommand, 'codex auth')
+  assert.equal(codex!.loginCommand, 'codex login')
 
   const gemini = hints.find((h) => h.kind === 'gemini')
-  assert.equal(gemini!.loginCommand, 'agy auth')
+  assert.equal(gemini!.loginCommand, 'agy')
 
   const kimiHints = buildProviderSetupHints([makeModel('kimi', 'ready')])
   assert.equal(kimiHints[0]!.loginCommand, 'kimi login')

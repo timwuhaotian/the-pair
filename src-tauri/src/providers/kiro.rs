@@ -28,7 +28,8 @@ impl Provider for KiroProvider {
             input_transport: InputTransport::Stdio,
             // kiro-cli chat --no-interactive prints plain text to stdout.
             output_transport: OutputTransport::Stdio,
-            session_strategy: SessionStrategy::NewFirst,
+            // Multi-turn pairs resume via `--resume-id <SESSION_ID>`.
+            session_strategy: SessionStrategy::ResumeExisting,
             // --trust-all-tools pre-approves every tool call for unattended operation.
             permission_strategy: PermissionStrategy::PreApproved,
             cwd_strategy: CwdStrategy::Worktree,
@@ -54,6 +55,14 @@ impl Provider for KiroProvider {
             "--no-interactive".into(),
             "--trust-all-tools".into(),
         ];
+
+        // Continue a previous conversation when resuming a pair: the Daytona
+        // integration (and Kiro's own chat docs) use `--resume-id <SESSION_ID>`
+        // to carry context across turns.
+        if let Some(sid) = request.session_id {
+            args.push("--resume-id".into());
+            args.push(sid.into());
+        }
 
         if let Some(effort) = request.reasoning_effort {
             args.push("--effort".into());
@@ -164,6 +173,39 @@ mod tests {
             .position(|a| a == "--effort")
             .expect("should have --effort flag");
         assert_eq!(command.args[effort_idx + 1], "high");
+    }
+
+    #[test]
+    fn kiro_resumes_session_via_resume_id() {
+        let provider = KiroProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Kiro,
+            model: "claude-sonnet-4-5",
+            session_id: Some("session-xyz"),
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+
+        let resume_idx = command
+            .args
+            .iter()
+            .position(|a| a == "--resume-id")
+            .expect("resuming a pair should pass --resume-id");
+        assert_eq!(command.args[resume_idx + 1], "session-xyz");
+
+        // Without a session id there is no --resume-id flag.
+        let fresh = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Kiro,
+            model: "claude-sonnet-4-5",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+        assert!(!fresh.args.contains(&"--resume-id".to_string()));
     }
 
     #[test]

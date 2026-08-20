@@ -1229,11 +1229,12 @@ impl ProviderRegistry {
     }
 }
 
-/// Discover models from Antigravity CLI via `agy models`. The CLI prints one display
-/// name per line (e.g. "Gemini 3.5 Flash (Low)") and those names double as the
-/// `--model` values. We surface only the Gemini-family models here: agy also offers
-/// Claude/GPT models, but those are owned by the native Claude/Codex providers and
-/// would misroute if inferred from the display name.
+/// Discover models from Antigravity CLI via `agy models`. The CLI prints one
+/// `slug<TAB>Display Name` pair per line (e.g. `gemini-3.7-flash-high	Gemini
+/// 3.7 Flash (High)`); the slug is the value `--model` accepts. We surface only
+/// the Gemini-family slugs here: agy also offers Claude/GPT models, but those
+/// are owned by the native Claude/Codex providers and would misroute if
+/// inferred from the display name.
 fn discover_antigravity_model_ids(agy_bin: &Path) -> Vec<DetectedModelOption> {
     // agy models may hit the network on first run; give it more headroom than the
     // default 3s CLI probe.
@@ -1245,14 +1246,21 @@ fn discover_antigravity_model_ids(agy_bin: &Path) -> Vec<DetectedModelOption> {
     )
     .unwrap_or_default();
 
+    parse_antigravity_model_lines(&output)
+}
+
+/// Parse the `agy models` output into model options. The CLI prints one
+/// `slug<TAB>Display Name` pair per line; the slug is what `--model` accepts.
+fn parse_antigravity_model_lines(output: &str) -> Vec<DetectedModelOption> {
     output
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .filter(|line| line.to_ascii_lowercase().starts_with("gemini "))
-        .map(|name| DetectedModelOption {
-            model_id: name.to_string(),
-            display_name: name.to_string(),
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(slug, _display)| slug.to_ascii_lowercase().starts_with("gemini-"))
+        .map(|(slug, display)| DetectedModelOption {
+            model_id: slug.to_string(),
+            display_name: display.trim().to_string(),
             source_provider: Some("google".to_string()),
             family: Some("gemini".to_string()),
             subscription_label: "antigravity-backed".to_string(),
@@ -1460,6 +1468,24 @@ mod tests {
         assert!(!opencode_help_supports_variant_flag(
             "Usage: opencode run [message]\n  --model  model id"
         ));
+    }
+
+    #[test]
+    fn parse_antigravity_model_lines_uses_slug_ids_and_display_names() {
+        let output = "gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n\
+                      gemini-3.5-flash-low\tGemini 3.5 Flash (Low)\n\
+                      claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n\
+                      gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n\
+                      fetching models...\n";
+
+        let models = parse_antigravity_model_lines(output);
+
+        assert_eq!(models.len(), 2, "only Gemini-family slugs should surface");
+        assert_eq!(models[0].model_id, "gemini-3.7-flash-high");
+        assert_eq!(models[0].display_name, "Gemini 3.7 Flash (High)");
+        assert_eq!(models[1].model_id, "gemini-3.5-flash-low");
+        assert_eq!(models[1].display_name, "Gemini 3.5 Flash (Low)");
+        assert!(models.iter().all(|m| m.runnable && m.supports_pair_execution));
     }
 
     #[test]

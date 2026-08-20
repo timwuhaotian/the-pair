@@ -140,7 +140,9 @@ impl Provider for CodexProvider {
     }
 
     fn login_command(&self) -> Option<String> {
-        Some("codex auth".into())
+        // `codex auth` was removed; `codex login` is the current auth entry point
+        // (with `--with-api-key` / `--device-auth` variants).
+        Some("codex login".into())
     }
 
     fn install_url(&self) -> Option<String> {

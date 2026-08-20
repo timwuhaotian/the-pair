@@ -105,7 +105,10 @@ impl Provider for GeminiProvider {
     }
 
     fn login_command(&self) -> Option<String> {
-        Some("agy auth".into())
+        // agy has no `auth` subcommand — sign-in happens when you launch the
+        // interactive TUI (`agy`) and follow the browser flow, or by setting
+        // `modelProvider: "gemini"` + `GEMINI_API_KEY` for headless runs.
+        Some("agy".into())
     }
 
     fn install_url(&self) -> Option<String> {

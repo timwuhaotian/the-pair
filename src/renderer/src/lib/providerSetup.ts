@@ -30,8 +30,8 @@ export function buildProviderSetupSummary(models: AvailableModel[]): ProviderSet
  * remains the authoritative source for the onboarding screen. */
 export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   claude: 'claude login',
-  codex: 'codex auth',
-  gemini: 'agy auth',
+  codex: 'codex login',
+  gemini: 'agy',
   kimi: 'kimi login',
   opencode: 'opencode auth login',
   kiro: 'kiro-cli login'
