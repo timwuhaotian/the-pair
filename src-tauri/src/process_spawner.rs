@@ -1720,21 +1720,23 @@ impl ProcessSpawner {
                                         .map(|m| m.timestamp)
                                         .unwrap_or_else(crate::util::now_millis);
 
+                                    let run_started_at = if state.messages.iter().any(|m| {
+                                        matches!(m.from, crate::types::MessageSender::Human)
+                                    }) {
+                                        started_at
+                                    } else {
+                                        println!(
+                                            "[ProcessSpawner] [{}] No human messages found, using first message timestamp as start time",
+                                            pair_id_clone
+                                        );
+                                        started_at_fallback
+                                    };
+
                                     match generate_session_report(
                                         &pair_id_clone,
                                         &pair_name,
                                         &task_spec,
-                                        if state.messages.iter().any(|m| {
-                                            matches!(m.from, crate::types::MessageSender::Human)
-                                        }) {
-                                            started_at
-                                        } else {
-                                            println!(
-                                                "[ProcessSpawner] [{}] No human messages found, using first message timestamp as start time",
-                                                pair_id_clone
-                                            );
-                                            started_at_fallback
-                                        },
+                                        run_started_at,
                                         &acceptance_records,
                                         &state.modified_files,
                                         &state.messages,
@@ -1781,6 +1783,48 @@ impl ProcessSpawner {
                                                     "pairId": pair_id_clone,
                                                     "error": format!("Failed to generate report: {}", e)
                                                 }),
+                                            );
+                                        }
+                                    }
+
+                                    // Record the completed run for cross-run intelligence.
+                                    // Skipped in mock mode so e2e smoke runs never pollute
+                                    // real stats; failures are logged and swallowed inside
+                                    // the store and never block run completion.
+                                    if !is_mock_mode() {
+                                        let pair_models = match app_clone
+                                            .try_state::<std::sync::Mutex<crate::pair_manager::PairManager>>(
+                                        ) {
+                                            Some(pm) => pm
+                                                .lock()
+                                                .ok()
+                                                .and_then(|pm| pm.get_pair(&pair_id_clone))
+                                                .map(|p| {
+                                                    (
+                                                        p.mentor_model.clone(),
+                                                        p.executor_model.clone(),
+                                                        format!("{:?}", p.mentor_provider)
+                                                            .to_lowercase(),
+                                                    )
+                                                }),
+                                            None => None,
+                                        };
+
+                                        if let Some((mentor_model, executor_model, provider_kind)) =
+                                            pair_models
+                                        {
+                                            let record = crate::intelligence_store::build_run_record(
+                                                &pair_id_clone,
+                                                run_started_at,
+                                                crate::util::now_millis(),
+                                                &mentor_model,
+                                                &executor_model,
+                                                &provider_kind,
+                                                &task_spec,
+                                                &state,
+                                            );
+                                            crate::intelligence_store::record_run_safely(
+                                                &app_clone, &record,
                                             );
                                         }
                                     }

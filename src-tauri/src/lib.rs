@@ -3,6 +3,7 @@ mod config_paths;
 mod context_bridge;
 mod file_cache;
 mod git_tracker;
+mod intelligence_store;
 mod message_broker;
 mod model_catalog;
 mod pair_manager;
@@ -107,6 +108,13 @@ pub fn run() {
             let broker = app.state::<Mutex<MessageBroker>>();
             let mut broker = broker.lock().unwrap_or_else(|e| e.into_inner());
             broker.set_app_handle(app.handle().clone());
+
+            // One-time backfill of historical run outcomes into the
+            // intelligence store. Runs off the main thread and only inserts
+            // when the DB is empty; failures degrade silently.
+            let backfill_handle = app.handle().clone();
+            std::thread::spawn(move || intelligence_store::backfill_if_empty(&backfill_handle));
+
             Ok(())
         })
         .manage(Mutex::new(PairManager::new()))
@@ -142,6 +150,9 @@ pub fn run() {
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
             recent_activity::get_recent_activities,
+            intelligence_store::get_insights_summary,
+            intelligence_store::get_recommendation,
+            intelligence_store::record_intervention,
             skill_discovery::discover_skills,
             skill_discovery::skill_read_content,
             skill_discovery::skill_refresh,

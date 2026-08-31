@@ -34,23 +34,24 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Rust Backend Modules (`src-tauri/src/`)
 
-| Module              | Responsibility                                                                                                                                                                                                         |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pair_manager`      | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                                                        |
-| `message_broker`    | State machine for agent turn coordination and event routing                                                                                                                                                            |
-| `process_spawner`   | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                            |
-| `provider_adapter`  | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                             |
-| `provider_registry` | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                           |
-| `providers`         | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
-| `model_catalog`     | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                            |
-| `session_snapshot`  | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                   |
-| `skill_discovery`   | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                         |
-| `resource_monitor`  | Per-agent CPU/memory polling (1s interval)                                                                                                                                                                             |
-| `git_tracker`       | Detects modified/added/deleted files relative to a baseline commit                                                                                                                                                     |
-| `file_cache`        | Lists files and parses `@mention` references in task specs                                                                                                                                                             |
-| `path_env`          | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                                                       |
-| `config_paths`      | Resolves platform-specific config file locations                                                                                                                                                                       |
-| `stubs`             | Placeholder Tauri commands not yet fully implemented                                                                                                                                                                   |
+| Module               | Responsibility                                                                                                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                                                        |
+| `message_broker`     | State machine for agent turn coordination and event routing                                                                                                                                                            |
+| `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                            |
+| `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                             |
+| `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                           |
+| `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
+| `model_catalog`      | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                            |
+| `session_snapshot`   | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                   |
+| `skill_discovery`    | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                         |
+| `resource_monitor`   | Per-agent CPU/memory polling (1s interval)                                                                                                                                                                             |
+| `git_tracker`        | Detects modified/added/deleted files relative to a baseline commit                                                                                                                                                     |
+| `file_cache`         | Lists files and parses `@mention` references in task specs                                                                                                                                                             |
+| `path_env`           | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                                                       |
+| `config_paths`       | Resolves platform-specific config file locations                                                                                                                                                                       |
+| `intelligence_store` | Cross-run intelligence: local SQLite store (`intelligence.db`) of run outcomes + human interventions, heuristic task tagging, insights/recommendation queries, one-time snapshot backfill                              |
+| `stubs`              | Config/model-cache/provider-login commands                                                                                                                                                                             |
 
 ## Frontend Components (`src/renderer/src/components/`)
 
@@ -71,6 +72,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
 | `IterationProgress.tsx`                         | Visual indicator with warning when approaching iteration limit                                     |
 | `ErrorDetailPanel.tsx`                          | Actionable error display with retry/discard options                                                |
 | `DashboardEmptyState.tsx`                       | Empty state with onboarding explanation                                                            |
+| `InsightsPanel.tsx`                             | Cross-run combo leaderboard on the dashboard (hidden until ≥5 recorded runs)                       |
 | `FileMention.tsx`                               | Renders `@file` mentions in messages                                                               |
 | `StatusBadge.tsx`                               | Pair status pill (Idle/Mentoring/Executing/Reviewing/Paused/Error/Finished)                        |
 | `UpdateNotification.tsx` / `UpdateControls.tsx` | In-app updater UI                                                                                  |

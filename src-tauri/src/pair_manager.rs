@@ -793,6 +793,10 @@ pub async fn pair_retry_turn(
         }
     }
 
+    // Record the human's retry as an intervention (fire-and-forget; failures
+    // are logged and swallowed inside the store).
+    crate::intelligence_store::record_intervention_safely(&app, &pair_id, "retry", None);
+
     let _ = persist_current_pair_snapshot(&app, &pair_id);
 
     spawner.trigger_turn(app, pair_id, role_str, prompt).await?;

@@ -99,6 +99,15 @@
       "changedFiles": "변경 파일",
       "needsAttention": "주의 필요",
       "noAttention": "지금은 사람이 개입해야 하는 페어가 없습니다."
+    },
+    "crossRun": {
+      "title": "실행 간 인사이트",
+      "successRate": "성공률 · {{successes}}/{{total}} 실행",
+      "combo": "조합",
+      "runs": "실행 수",
+      "success": "성공률",
+      "avgIter": "평균 반복",
+      "avgTokens": "평균 토큰"
     }
   },
   "emptyState": {
@@ -155,6 +164,7 @@
     "returnToReview": "검토로 돌아가기"
   },
   "modals": {
+    "recommendationHint": "유사한 작업에서 {{mentor}} + {{executor}} 조합이 {{runs}}회 중 {{successes}}회 성공했습니다",
     "planGateLabel": "실행 전 계획 검토",
     "planGateHint": "멘토의 첫 계획 후 일시 정지하여 실행자가 시작하기 전에 승인하거나 수정할 수 있습니다.",
     "createTitle": "새 페어 만들기",

@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { DashboardInsightPanel } from './DashboardInsightPanel'
+import { InsightsPanel } from './InsightsPanel'
 import { PairListSection } from './PairListSection'
 import { StartupHero } from './StartupHero'
 
@@ -78,7 +79,10 @@ export function Dashboard({
               />
             </Suspense>
           ) : (
-            <DashboardInsightPanel pairs={pairs} />
+            <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto scrollbar-thin">
+              <DashboardInsightPanel pairs={pairs} className="h-auto shrink-0" />
+              <InsightsPanel />
+            </div>
           )}
         </div>
       </div>

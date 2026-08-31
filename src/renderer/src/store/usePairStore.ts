@@ -1718,6 +1718,20 @@ export const usePairStore = create<PairStore>((set) => ({
       iteration: pair.iterations
     })
 
+    // Record the human's plan-gate decision for cross-run intelligence.
+    // Fire-and-forget: a failed write must never block the workflow.
+    if (typeof window !== 'undefined' && window.api?.insights?.recordIntervention) {
+      window.api.insights
+        .recordIntervention({
+          pairId,
+          kind: decision === 'approve' ? 'plan_approved' : 'plan_rejected',
+          outcome: trimmedFeedback || undefined
+        })
+        .catch((error) =>
+          console.warn('[usePairStore] Failed to record plan review intervention', error)
+        )
+    }
+
     const { assignTask } = usePairStore.getState()
     if (decision === 'approve') {
       await assignTask(

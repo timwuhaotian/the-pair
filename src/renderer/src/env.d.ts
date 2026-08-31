@@ -65,6 +65,13 @@ interface Window {
         projectDir?: string
       ) => Promise<Array<{ name: string; description: string; source: string }>>
     }
+    insights: {
+      recordIntervention: (input: {
+        pairId: string
+        kind: string
+        outcome?: string
+      }) => Promise<void>
+    }
   }
 }
 

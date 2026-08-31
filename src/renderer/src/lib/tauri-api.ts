@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { CreatePairInput, RepoState } from '../types'
-import type { BranchInfo } from '../types'
+import type { BranchInfo, ConfigRecommendation, InsightsSummary } from '../types'
 import { mockRepoState } from './mock-data'
 
 export interface TauriPair {
@@ -66,6 +66,14 @@ export const tauriApi = {
     },
     getFileDiff: async (directory: string, filePath: string, status: string): Promise<string> => {
       return await invokeTauri('git_get_file_diff', { directory, filePath, status })
+    }
+  },
+  insights: {
+    getSummary: async (): Promise<InsightsSummary> => {
+      return await invokeTauri('get_insights_summary')
+    },
+    getRecommendation: async (taskText: string): Promise<ConfigRecommendation[]> => {
+      return await invokeTauri('get_recommendation', { taskText })
     }
   }
 }

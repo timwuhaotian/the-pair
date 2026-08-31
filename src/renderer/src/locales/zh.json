@@ -119,6 +119,15 @@
     "activity": {
       "title": "最近活动",
       "empty": "Pair 开始运行后，这里会显示最近的活动"
+    },
+    "crossRun": {
+      "title": "跨运行洞察",
+      "successRate": "成功率 · {{successes}}/{{total}} 次运行",
+      "combo": "组合",
+      "runs": "运行数",
+      "success": "成功率",
+      "avgIter": "平均迭代",
+      "avgTokens": "平均 Token"
     }
   },
   "emptyState": {
@@ -181,6 +190,7 @@
     "returnToReview": "返回审核"
   },
   "modals": {
+    "recommendationHint": "类似任务中,{{mentor}} + {{executor}} 成功了 {{successes}}/{{runs}} 次",
     "planGateLabel": "执行前先审核计划",
     "planGateHint": "在导师给出首个计划后暂停,让你先批准或修改,再让执行者动手。",
     "createTitle": "创建新 Pair",

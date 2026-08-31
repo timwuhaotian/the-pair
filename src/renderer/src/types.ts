@@ -283,3 +283,32 @@ export interface PairPreset {
   pauseOnIteration?: number
   autoAttachGitBaseline?: boolean
 }
+
+/** One mentor+executor combo row in the cross-run insights leaderboard. */
+export interface ConfigStat {
+  mentorModel: string
+  executorModel: string
+  providerKind: string
+  runs: number
+  successes: number
+  successRate: number
+  avgIterations: number
+  avgTokens: number
+}
+
+/** Aggregated cross-run stats returned by `get_insights_summary`. */
+export interface InsightsSummary {
+  totalRuns: number
+  successfulRuns: number
+  successRate: number
+  combos: ConfigStat[]
+}
+
+/** A recommended mentor+executor combo for a draft task spec. */
+export interface ConfigRecommendation {
+  mentorModel: string
+  executorModel: string
+  runs: number
+  successes: number
+  successRate: number
+}

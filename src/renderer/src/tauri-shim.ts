@@ -78,6 +78,10 @@ const api = {
       invoke('skill_refresh', { projectDir: projectDir ?? null }) as Promise<
         Array<{ name: string; description: string; source: string }>
       >
+  },
+  insights: {
+    recordIntervention: (input: { pairId: string; kind: string; outcome?: string }) =>
+      invoke('record_intervention', input) as Promise<void>
   }
 }
 

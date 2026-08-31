@@ -15,8 +15,9 @@ import { PresetPicker } from './PresetPicker'
 import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { usePresets } from '../lib/usePresets'
 import { prependFileContext } from '../lib/fileMentions'
+import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
-import type { PairPreset } from '../types'
+import type { ConfigRecommendation, PairPreset } from '../types'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -41,6 +42,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [branch, setBranch] = useState<string | undefined>()
   const [planGate, setPlanGate] = useState(false)
+  const [recommendation, setRecommendation] = useState<ConfigRecommendation | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
@@ -58,6 +60,23 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       return next
     })
   }, [])
+
+  // Debounced cross-run recommendation for the draft task spec. Stays silent
+  // when there's no matching history or the backend has nothing to recommend.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const text = spec.trim()
+      if (!isTauri || text.length < 8) {
+        setRecommendation(null)
+        return
+      }
+      tauriApi.insights
+        .getRecommendation(text)
+        .then((recommendations) => setRecommendation(recommendations[0] ?? null))
+        .catch(() => setRecommendation(null))
+    }, 500)
+    return () => clearTimeout(handle)
+  }, [spec])
 
   useEffect(() => {
     if (isOpen && availableModels.length === 0) {
@@ -346,6 +365,20 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             <p className="text-[10px] text-muted-foreground-faint">
               · type @ to reference workspace files
             </p>
+            {recommendation && (
+              <p
+                data-testid="recommendation-hint"
+                className="text-[10px] leading-snug state-running"
+              >
+                ▸{' '}
+                {t('modals.recommendationHint', {
+                  mentor: recommendation.mentorModel,
+                  executor: recommendation.executorModel,
+                  successes: recommendation.successes,
+                  runs: recommendation.runs
+                })}
+              </p>
+            )}
           </div>
 
           {error && (

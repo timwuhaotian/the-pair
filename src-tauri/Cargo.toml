@@ -32,3 +32,4 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-fs = "2.4.5"
 dirs = "5.0"
 base64 = "0.22"
+rusqlite = { version = "0.32", features = ["bundled"] }

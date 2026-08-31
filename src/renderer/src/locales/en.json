@@ -119,6 +119,15 @@
     "activity": {
       "title": "Recent Activity",
       "empty": "Activity will appear here when Pairs start running"
+    },
+    "crossRun": {
+      "title": "Cross-Run Intelligence",
+      "successRate": "success · {{successes}}/{{total}} runs",
+      "combo": "combo",
+      "runs": "runs",
+      "success": "success",
+      "avgIter": "avg iter",
+      "avgTokens": "avg tokens"
     }
   },
   "emptyState": {
@@ -181,6 +190,7 @@
     "returnToReview": "Return to review"
   },
   "modals": {
+    "recommendationHint": "{{mentor}} + {{executor}} succeeded {{successes}}/{{runs}} times on similar tasks",
     "planGateLabel": "Review plan before executing",
     "planGateHint": "Pause after the mentor's first plan so you can approve or revise it before the executor starts.",
     "createTitle": "Create New Pair",

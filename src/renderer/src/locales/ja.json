@@ -99,6 +99,15 @@
       "changedFiles": "変更ファイル",
       "needsAttention": "要対応",
       "noAttention": "現在、人の介入が必要なペアはありません。"
+    },
+    "crossRun": {
+      "title": "ラン横断インサイト",
+      "successRate": "成功率 · {{successes}}/{{total}} ラン",
+      "combo": "組み合わせ",
+      "runs": "ラン数",
+      "success": "成功率",
+      "avgIter": "平均反復",
+      "avgTokens": "平均トークン"
     }
   },
   "emptyState": {
@@ -155,6 +164,7 @@
     "returnToReview": "レビューに戻る"
   },
   "modals": {
+    "recommendationHint": "類似タスクで {{mentor}} + {{executor}} は {{runs}} 回中 {{successes}} 回成功しました",
     "planGateLabel": "実行前にプランをレビュー",
     "planGateHint": "メンターの最初のプランの後で一時停止し、実行者が始める前に承認または修正できます。",
     "createTitle": "新しいペアを作成",
