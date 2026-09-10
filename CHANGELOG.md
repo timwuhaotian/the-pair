@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.2] - 2026-09-11
+
+### Fixed
+
+- **Aider:** dropped the non-existent `--json` flag from the turn command. Aider has no JSON output mode (verified against aider-chat 0.86.x); the provider now switches to `OutputTransport::Stdio` and reads the streamed plain Markdown directly instead of trying to parse NDJSON events. The argparse error `unrecognized arguments: --json` previously aborted every aider turn at spawn time.
+- **Claude Code:** reasoning effort is now forwarded via `--effort <level>` (verified against claude-code 2.1.267). Claude Code 2.1.111+ exposes `--effort low|medium|high|xhigh|max`; the picker surfaces those levels and the flag is passed verbatim. The pre-2.1.111 belief that `--reasoning-effort` hard-crashes the turn is replaced with the actual supported flag. The dead `content_block_delta` / `content_block_stop` arms in `extract_token_usage` (Anthropic raw SSE shapes, not Claude Code's stream-json protocol) are removed.
+- **Claude Code model discovery:** `collect_model_ids_from_help_line` now stitches wrapped `--help` continuation lines before extracting candidates, so `claude --help` (which wraps the `--model` description across multiple indented lines) no longer returns an empty model list. Verified against claude-code 2.1.267.
+- **Pi:** `max` is restored to the reasoning-effort picker (`--thinking`). It was re-added to pi in 0.80.6 and is supported on GPT-5.6 / adaptive Claude models; the picker now exposes it again, and the surrounding comment is updated to reflect pi 0.85.x.
+- **Antigravity (`agy`):** corrected the install URL (the old `google-gemini/antigravity` slug returned 404; the real repo is `google-antigravity/antigravity-cli`). Updated in both Rust `install_url()` and the frontend `PROVIDER_INSTALL_URLS` map.
+- **Kimi Code:** refreshed the "verified against kimi-code 0.29.1" comments to 0.42.0 across `src-tauri/src/providers/kimi.rs` and `src-tauri/src/process_spawner.rs`. No interface drift found in 0.29.2 → 0.42.0; the new `system.version` meta event is already filtered by `collect_json_candidates`.
+
+### Added
+
+- **Claude Code reasoning-effort picker:** `reasoning_effort_levels` returns `low`/`medium`/`high`/`xhigh`/`max` so the picker surfaces Claude Code 2.1.111+ effort controls.
+- **Aider static fallback models:** `discover_aider_models` now includes `claude-sonnet-5` and `claude-opus-5` (in addition to the existing `claude-haiku-4-5` / `gpt-5.4` / `gemini-2.5-pro` / `deepseek-coder-v3`) to match the current aider-chat 0.86.x catalog.
+- **Kiro CLI version stamp:** module docstring and `extract_token_usage` now record "verified against kiro-cli 2.21.x (2026-09-01)" so future audits can see what surface was checked. The existing `--resume-id` plumbing is annotated as currently unreachable (plain-text transport never surfaces a session id); switching to `--engine v2 --output-format stream-json` is documented as the way to make resume and token usage work.
+
+### Verified (no changes required)
+
+- **OpenCode 1.18.30** — headless flags (`run`, `--model`, `--session`, `--format json`), reasoning-effort gate (`--variant`), detection (`opencode models`), and login (`opencode auth login`) all match the Pair's integration.
+- **Codex CLI 0.154.0** — `exec` / `exec resume`, `--json`, `--output-last-message`, `-c model_reasoning_effort=`, `--model`, `--sandbox`, and the `turn.completed` JSON event schema are unchanged.
+
 ## [2.7.1] - 2026-08-20
 
 ### Changed

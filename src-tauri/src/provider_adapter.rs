@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_command_omits_reasoning_effort_flag() {
+    fn claude_command_passes_effort_flag_when_reasoning_effort_is_set() {
         let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
             provider_kind: ProviderKind::Claude,
             model: "sonnet",
@@ -384,8 +384,14 @@ mod tests {
         })
         .unwrap();
 
+        let effort_idx = command
+            .args
+            .iter()
+            .position(|a| a == "--effort")
+            .expect("--effort should be present when reasoning_effort is set");
+        assert_eq!(command.args[effort_idx + 1], "high");
+        // The legacy --reasoning-effort flag was never supported by Claude Code.
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
-        assert!(!command.args.contains(&"high".to_string()));
     }
 
     #[test]

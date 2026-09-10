@@ -497,11 +497,41 @@ fn collect_model_ids_from_help_line(
     predicate: &dyn Fn(&str) -> bool,
     model_ids: &mut Vec<String>,
 ) {
-    for line in help_text.lines() {
-        if !line.contains("--model") {
+    // `claude --help` wraps the `--model` description across multiple indented
+    // continuation lines (verified against claude-code 2.1.267). The quoted
+    // model examples live on the wrapped lines, not on the line that contains
+    // `--model` itself, so we stitch the description block back together
+    // before extracting candidates. Other providers whose `--help` is single-
+    // lined still match the original behavior because their stitched block is
+    // just the one line.
+    let mut block: Option<String> = None;
+    for raw_line in help_text.lines() {
+        if raw_line.contains("--model") {
+            block = Some(raw_line.to_string());
             continue;
         }
+        if let Some(buf) = block.as_mut() {
+            if raw_line.is_empty() {
+                block = None;
+                continue;
+            }
+            // Continuation lines are indented with whitespace and don't start
+            // with another flag. Otherwise we've left the description block.
+            let trimmed = raw_line.trim_start();
+            if raw_line.starts_with(char::is_whitespace)
+                && !trimmed.is_empty()
+                && !trimmed.starts_with('-')
+            {
+                buf.push(' ');
+                buf.push_str(trimmed);
+                continue;
+            }
+            block = None;
+        }
+    }
 
+    let scan_text = block.unwrap_or_else(|| help_text.to_string());
+    for line in scan_text.lines() {
         for candidate in extract_single_quoted_segments(line)
             .into_iter()
             .chain(extract_quoted_segments(line))
@@ -1426,9 +1456,11 @@ fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
     }
 
     // 2. Static fallback: common models users are likely to have keys for.
-    // Only added if the config didn't already list them.
+    // Only added if the config didn't already list them. The IDs match the
+    // bare model names accepted by aider-chat 0.86.x (no `provider/` prefix).
     let fallbacks = [
-        "claude-sonnet-4-6",
+        "claude-sonnet-5",
+        "claude-opus-5",
         "claude-haiku-4-5",
         "gpt-5.4",
         "gpt-5.4-mini",

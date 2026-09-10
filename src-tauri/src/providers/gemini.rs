@@ -112,7 +112,7 @@ impl Provider for GeminiProvider {
     }
 
     fn install_url(&self) -> Option<String> {
-        Some("https://github.com/google-gemini/antigravity".into())
+        Some("https://github.com/google-antigravity/antigravity-cli".into())
     }
 }
 

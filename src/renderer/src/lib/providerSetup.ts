@@ -40,7 +40,7 @@ export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
 const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   claude: 'https://claude.ai/download',
   codex: 'https://github.com/openai/codex',
-  gemini: 'https://github.com/google-gemini/antigravity',
+  gemini: 'https://github.com/google-antigravity/antigravity-cli',
   kimi: 'https://github.com/MoonshotAI/kimi-code',
   opencode: 'https://opencode.ai',
   pi: 'https://pi.dev',

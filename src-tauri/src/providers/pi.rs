@@ -115,8 +115,10 @@ impl Provider for PiProvider {
 
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
         // Pi supports --thinking universally across all models/providers.
-        // Current accepted levels (pi 0.79.x): off, minimal, low, medium,
-        // high, xhigh — `max` was removed from the CLI.
+        // Current accepted levels (pi 0.85.x): off, minimal, low, medium,
+        // high, xhigh, max. `max` was re-added in pi 0.80.6 and is supported
+        // on GPT-5.6 and adaptive Claude models; other models fall back to
+        // the highest level they support.
         Some(vec![
             "off".into(),
             "minimal".into(),
@@ -124,6 +126,7 @@ impl Provider for PiProvider {
             "medium".into(),
             "high".into(),
             "xhigh".into(),
+            "max".into(),
         ])
     }
 

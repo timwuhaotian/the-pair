@@ -294,14 +294,21 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_effort_levels_only_offered_for_codex_o_series() {
-        // Claude Code and Gemini CLI have no reasoning-effort CLI flag, so the control
-        // must be hidden (None) to avoid crashing the turn (Claude) or a silent no-op
-        // (Gemini). Opencode delegates to the underlying model. Only Codex o-series
-        // honors reasoning via `-c model_reasoning_effort=`.
+    fn reasoning_effort_levels_offered_for_codex_and_claude() {
+        // Claude Code 2.1.111+ exposes --effort low|medium|high|xhigh|max, so the
+        // control surfaces those values. Antigravity (Gemini) bakes effort into
+        // the model slug and is omitted on purpose. Opencode delegates to the
+        // underlying model. Only Codex o-series honors reasoning via
+        // `-c model_reasoning_effort=`.
         assert_eq!(
             reasoning_effort_levels_for(ProviderKind::Claude, "claude-sonnet-4-6"),
-            None
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "xhigh".to_string(),
+                "max".to_string(),
+            ])
         );
         assert_eq!(
             reasoning_effort_levels_for(ProviderKind::Gemini, "gemini-2.5-pro"),

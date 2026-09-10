@@ -7,7 +7,11 @@ use crate::types::TurnTokenUsage;
 use serde_json::Value;
 
 /// Aider CLI (`aider`) — open-source AI pair programmer in your terminal.
-/// Uses `aider --message "<prompt>" --json --stream` for headless NDJSON output.
+/// Headless invocation: `aider --message "<prompt>" --no-pretty --stream
+/// --yes-always --no-auto-commits --no-dirty-commits`. Aider emits plain
+/// Markdown to stdout (verified against aider-chat 0.86.x); there is no
+/// `--json` flag, so the orchestrator reads the streamed text directly
+/// via `OutputTransport::Stdio`.
 /// Aider is stateless per `--message` invocation (git history is the persistence),
 /// so `SessionStrategy::NewFirst` is the correct choice.
 pub struct AiderProvider;
@@ -25,7 +29,9 @@ impl Provider for AiderProvider {
         ProviderRuntimeSpec {
             executable: "aider".into(),
             input_transport: crate::provider_adapter::InputTransport::Stdio,
-            output_transport: crate::provider_adapter::OutputTransport::JsonEvents,
+            // Aider has no structured output mode; --stream emits plain Markdown
+            // tokens directly to stdout.
+            output_transport: crate::provider_adapter::OutputTransport::Stdio,
             session_strategy: crate::provider_adapter::SessionStrategy::NewFirst,
             permission_strategy: crate::provider_adapter::PermissionStrategy::Auto,
             cwd_strategy: crate::provider_adapter::CwdStrategy::Worktree,
@@ -52,12 +58,12 @@ impl Provider for AiderProvider {
             "--model".into(),
             model.into(),
             // Headless flags: auto-approve all actions, don't dirty the git
-            // history with auto-commits, and emit NDJSON on stdout.
+            // history with auto-commits, and stream plain Markdown to stdout.
+            // Aider has no --json flag (verified against aider-chat 0.86.x).
             "--yes-always".into(),
             "--no-auto-commits".into(),
             "--no-dirty-commits".into(),
             "--no-pretty".into(),
-            "--json".into(),
             "--stream".into(),
         ];
 
@@ -75,23 +81,24 @@ impl Provider for AiderProvider {
     }
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // Aider's --json mode emits events but does not consistently include
-        // token usage in a structured field (verified against aider-chat
-        // 0.86.x). Token counts stay hidden for this provider, matching Kimi.
+        // Aider has no structured token usage field on its streamed output
+        // (verified against aider-chat 0.86.x). Token counts stay hidden for
+        // this provider, matching Kimi.
         None
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
-        // Aider --json emits NDJSON lines. Assistant text appears in events
-        // whose "type" is "content" or "message" with a "content" field.
-        // Tool results and file-diff events must not leak into the turn
-        // message, so bypass the generic text walker.
+        // Legacy: Aider was assumed to expose `--json` NDJSON events, but the
+        // flag does not exist in aider-chat 0.86.x — assistant text arrives as
+        // plain Markdown on stdout. This branch is unreachable for real Aider
+        // output today (the orchestrator uses `OutputTransport::Stdio`); it is
+        // retained so the orchestrator can still harvest text if a future
+        // Aider release reintroduces a structured event format.
         let mut out = Vec::new();
 
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if event_type == "content" || event_type == "message" || event_type == "response" {
             collect_aider_text(event.get("content"), &mut out);
-            // Some Aider events nest text under "text" instead of "content".
             collect_aider_text(event.get("text"), &mut out);
         }
 
@@ -174,7 +181,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn aider_command_uses_message_flag_with_json_stream() {
+    fn aider_command_uses_message_no_pretty_stream() {
         let provider = AiderProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Aider,
@@ -198,10 +205,11 @@ mod tests {
                 "--no-auto-commits".to_string(),
                 "--no-dirty-commits".to_string(),
                 "--no-pretty".to_string(),
-                "--json".to_string(),
                 "--stream".to_string()
             ]
         );
+        // Aider streams plain text; the orchestrator reads it via Stdio, not a
+        // sentinel last-message file.
         assert!(command.last_message_path.is_none());
     }
 

@@ -2345,11 +2345,16 @@ mod tests {
         assert_eq!(usage.input_tokens, Some(100));
         assert!(matches!(usage.source, TokenUsageSource::Final));
 
+        // Claude Code's stream-json protocol emits per-message usage on
+        // `assistant` events (verified against claude-code 2.1.267), not on
+        // `content_block_delta` (which is Anthropic's raw Messages API SSE).
         let streaming_event = json!({
-            "type": "content_block_delta",
-            "usage": {
-                "input_tokens": 50,
-                "output_tokens": 75
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 50,
+                    "output_tokens": 75
+                }
             }
         });
 
@@ -2588,7 +2593,7 @@ mod tests {
     #[test]
     fn kimi_stream_pipeline_extracts_final_message_and_session_id() {
         // Verbatim stream captured from `kimi -p … --output-format stream-json`
-        // (kimi-code 0.29.1, model wanqing-streamlake/kat-coder-pro-v2.5). The
+        // (kimi-code 0.42.0, model wanqing-streamlake/kat-coder-pro-v2.5). The
         // first event carries a whitespace-only `content` alongside `tool_calls`.
         let lines = [
             r#"{"role":"assistant","content":"\n\n","tool_calls":[{"type":"function","id":"call_68cef8bf9e02409aabfa9830","function":{"name":"Write","arguments":"{\"content\":\"verified\",\"path\":\"kat-probe.txt\"}"}}]}"#,
@@ -2620,10 +2625,12 @@ mod tests {
     #[test]
     fn token_usage_live_to_final_transition_preserves_latest_value() {
         let live_event = json!({
-            "type": "content_block_delta",
-            "usage": {
-                "input_tokens": 50,
-                "output_tokens": 120
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 50,
+                    "output_tokens": 120
+                }
             }
         });
 
@@ -2698,23 +2705,23 @@ mod tests {
         let mut last_token_usage: Option<TurnTokenUsage> = None;
 
         let event1 = json!({
-            "type": "content_block_delta",
-            "usage": { "output_tokens": 100, "input_tokens": 50 }
+            "type": "assistant",
+            "message": { "usage": { "output_tokens": 100, "input_tokens": 50 } }
         });
         last_token_usage = update_last_token_usage(last_token_usage, &event1, ProviderKind::Claude);
         assert!(last_token_usage.is_some());
         assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 100);
 
         let event2 = json!({
-            "type": "content_block_delta",
-            "usage": { "output_tokens": 200, "input_tokens": 50 }
+            "type": "assistant",
+            "message": { "usage": { "output_tokens": 200, "input_tokens": 50 } }
         });
         last_token_usage = update_last_token_usage(last_token_usage, &event2, ProviderKind::Claude);
         assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 200);
 
         let event_no_usage = json!({
-            "type": "content_block_delta",
-            "delta": { "text": "some text" }
+            "type": "assistant",
+            "message": { "content": [{"type": "text", "text": "some text"}] }
         });
         let before_no_usage = last_token_usage.clone();
         last_token_usage =

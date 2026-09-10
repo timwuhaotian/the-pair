@@ -56,7 +56,7 @@ impl Provider for KimiProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Kimi's stream-json messages carry no usage data (verified against
-        // kimi-code 0.29.1); token counts stay hidden for this provider.
+        // kimi-code 0.42.0); token counts stay hidden for this provider.
         None
     }
 

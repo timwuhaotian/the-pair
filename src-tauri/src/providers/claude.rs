@@ -53,8 +53,14 @@ impl Provider for ClaudeProvider {
             args.push("--resume".into());
             args.push(sid.into());
         }
-        // NOTE: Claude Code exposes no CLI flag for reasoning/thinking effort.
-        // Injecting `--reasoning-effort` hard-crashes the turn.
+        // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
+        // the session's reasoning effort. The Pair maps its reasoning_effort
+        // picker value through verbatim. Omitted when the caller passes None.
+        // Verified against claude-code 2.1.267 (2026-09-09).
+        if let Some(level) = request.reasoning_effort {
+            args.push("--effort".into());
+            args.push(level.into());
+        }
         args.push(request.message.into());
 
         ProviderTurnCommand {
@@ -73,12 +79,10 @@ impl Provider for ClaudeProvider {
                 (usage, true)
             }
             // stream-json emits per-message usage on `assistant` events (message.usage).
+            // content_block_delta / content_block_stop are Anthropic's raw
+            // Messages API SSE shapes, not Claude Code's CLI stream-json protocol.
             "assistant" => {
                 let usage = event.get("message")?.get("usage")?;
-                (usage, false)
-            }
-            "content_block_delta" | "content_block_stop" => {
-                let usage = event.get("usage")?;
                 (usage, false)
             }
             _ => return None,
@@ -203,6 +207,19 @@ impl Provider for ClaudeProvider {
     fn install_url(&self) -> Option<String> {
         Some("https://claude.ai/download".into())
     }
+
+    fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
+        // Verified against claude-code 2.1.267 (2026-09-09): --effort accepts
+        // {low, medium, high, xhigh, max}. Older installs (pre-2.1.111) reject
+        // the flag outright; callers should hide the picker for those.
+        Some(vec![
+            "low".into(),
+            "medium".into(),
+            "high".into(),
+            "xhigh".into(),
+            "max".into(),
+        ])
+    }
 }
 
 // ── Claude-specific helpers ────────────────────────────────────────────────
@@ -292,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_command_omits_reasoning_effort_flag() {
+    fn claude_command_passes_effort_when_reasoning_effort_is_set() {
         let provider = ClaudeProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Claude,
@@ -304,7 +321,29 @@ mod tests {
             reasoning_effort: Some("high"),
         });
 
+        let effort_idx = command
+            .args
+            .iter()
+            .position(|a| a == "--effort")
+            .expect("--effort should be present when reasoning_effort is set");
+        assert_eq!(command.args[effort_idx + 1], "high");
+        // The legacy --reasoning-effort flag was never supported by Claude Code.
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
-        assert!(!command.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn claude_command_omits_effort_when_reasoning_effort_is_none() {
+        let provider = ClaudeProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Claude,
+            model: "sonnet",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+
+        assert!(!command.args.contains(&"--effort".to_string()));
     }
 }

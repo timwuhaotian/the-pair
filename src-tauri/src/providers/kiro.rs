@@ -9,8 +9,12 @@ use serde_json::Value;
 
 /// Kiro CLI (`kiro-cli`) — AWS's spec-driven terminal coding agent.
 /// Uses `kiro-cli chat --no-interactive` for plain-text stdout output.
-/// Kiro manages models via its own agent config; the model ID is not passed
-/// as a `--model` flag but via agent configuration selection.
+/// Verified against kiro-cli 2.21.x (2026-09-01). The CLI reference documents
+/// no `chat --model` flag, so the selected model id is not forwarded (selection
+/// happens via the agent config). Headless `--engine v2 --output-format
+/// stream-json` is available but the plain-text transport is preserved for
+/// parity with earlier audits; switching to the structured stream would enable
+/// session-id capture and token usage, neither of which surface today.
 pub struct KiroProvider;
 
 impl Provider for KiroProvider {
@@ -28,7 +32,11 @@ impl Provider for KiroProvider {
             input_transport: InputTransport::Stdio,
             // kiro-cli chat --no-interactive prints plain text to stdout.
             output_transport: OutputTransport::Stdio,
-            // Multi-turn pairs resume via `--resume-id <SESSION_ID>`.
+            // Multi-turn pairs *intend* to resume via `--resume-id <SESSION_ID>`,
+            // but the plain-text transport never surfaces a session id, so the
+            // flag is unreachable today (every turn starts fresh). Switching to
+            // `--output-format stream-json` would expose the session id and make
+            // this effective; see the module docstring.
             session_strategy: SessionStrategy::ResumeExisting,
             // --trust-all-tools pre-approves every tool call for unattended operation.
             permission_strategy: PermissionStrategy::PreApproved,
@@ -80,7 +88,9 @@ impl Provider for KiroProvider {
     }
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // Plain-text output carries no token usage data.
+        // Plain-text output carries no token usage data (verified against
+        // kiro-cli 2.21.x). Structured usage would require the headless
+        // `--engine v2 --output-format stream-json` event stream.
         None
     }
 
