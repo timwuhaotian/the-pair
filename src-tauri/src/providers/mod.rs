@@ -2,6 +2,7 @@ pub mod aider;
 pub mod codex;
 pub mod claude;
 pub mod gemini;
+pub mod grok;
 pub mod kimi;
 pub mod kiro;
 pub mod opencode;
@@ -158,6 +159,7 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
         Arc::new(pi::PiProvider),
         Arc::new(kiro::KiroProvider),
         Arc::new(aider::AiderProvider),
+        Arc::new(grok::GrokProvider),
     ]
 }
 
@@ -239,6 +241,17 @@ mod tests {
         assert_eq!(provider.login_command().as_deref(), Some("kimi login"));
         assert!(provider.install_url().is_some());
         assert!(provider.install_url().unwrap().contains("kimi"));
+    }
+
+    #[test]
+    fn grok_provider_returns_login_command_and_install_url() {
+        let provider = grok::GrokProvider;
+        assert_eq!(provider.kind(), ProviderKind::Grok);
+        assert_eq!(provider.executable(), "grok");
+        assert_eq!(provider.login_command().as_deref(), Some("grok login"));
+        let install = provider.install_url();
+        assert!(install.is_some());
+        assert!(install.unwrap().contains("grok"));
     }
 
     #[test]

@@ -109,6 +109,7 @@ impl ProviderAdapter {
                     "pi" => ProviderKind::Pi,
                     "kiro" => ProviderKind::Kiro,
                     "aider" => ProviderKind::Aider,
+                    "grok" => ProviderKind::Grok,
                     _ => ProviderKind::Opencode,
                 };
             }
@@ -122,6 +123,8 @@ impl ProviderAdapter {
                 ProviderKind::Gemini
             } else if lower.contains("kimi") {
                 ProviderKind::Kimi
+            } else if lower.contains("grok") {
+                ProviderKind::Grok
             } else if lower.contains("aider") {
                 ProviderKind::Aider
             } else if lower.contains("gpt")
@@ -368,6 +371,18 @@ mod tests {
         assert_eq!(
             ProviderAdapter::infer_provider_kind("aider-sonnet"),
             ProviderKind::Aider
+        );
+    }
+
+    #[test]
+    fn inference_recognizes_grok_models() {
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("grok-4.6"),
+            ProviderKind::Grok
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("grok/grok-4.6"),
+            ProviderKind::Grok
         );
     }
 

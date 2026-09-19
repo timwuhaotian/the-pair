@@ -218,6 +218,10 @@ fn extract_session_id(event: &serde_json::Value) -> Option<String> {
         .get("sessionID")
         .and_then(|s| s.as_str())
         .or_else(|| event.get("session_id").and_then(|s| s.as_str()))
+        // Grok Build (`grok --output-format streaming-json`) reports the
+        // resumable session as camelCase `sessionId` on the terminal `end`
+        // event; `grok --resume <id>` takes exactly this value.
+        .or_else(|| event.get("sessionId").and_then(|s| s.as_str()))
         // Codex (`codex exec --json`) exposes its resumable session as
         // `thread_id` on the `thread.started` event; `codex exec resume <id>`
         // takes exactly this value.
@@ -2096,6 +2100,19 @@ mod tests {
             extract_session_id(&event).as_deref(),
             Some("019d1c0a-0137-73f3-bf4a-88c90739150c")
         );
+    }
+
+    #[test]
+    fn extract_session_id_reads_grok_camel_case_session_id() {
+        // Grok Build's streaming-json `end` event reports the resumable
+        // session as camelCase `sessionId`.
+        let event = json!({
+            "type": "end",
+            "stopReason": "end_turn",
+            "sessionId": "abc123"
+        });
+
+        assert_eq!(extract_session_id(&event).as_deref(), Some("abc123"));
     }
 
     #[test]

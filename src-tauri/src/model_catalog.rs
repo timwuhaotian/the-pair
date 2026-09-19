@@ -42,6 +42,7 @@ fn normalize_provider_label(slug: &str) -> String {
         "minimax" => "MiniMax".to_string(),
         "opencode" => "OpenCode".to_string(),
         "kimi" | "moonshot" => "Kimi".to_string(),
+        "grok" | "xai" => "xAI".to_string(),
         "pi" => "Pi".to_string(),
         "kiro" => "Kiro".to_string(),
         "aider" => "Aider".to_string(),

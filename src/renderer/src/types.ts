@@ -7,6 +7,7 @@ export type ProviderKind =
   | 'pi'
   | 'kiro'
   | 'aider'
+  | 'grok'
 
 type TokenUsageSource = 'live' | 'final' | 'none'
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Grok Build CLI provider.** xAI's `grok` CLI is now a supported provider. Turns run headlessly via `grok -p <prompt> --output-format streaming-json -m <model>`; executors run with `--yolo`, mentors with a CLI-enforced read-only tool allowlist (`--tools read_file,grep,list_dir`). Sessions resume via `--resume` (the camelCase `sessionId` from the terminal `end` event is now captured), reasoning effort forwards through `--reasoning-effort`, and token usage is read from `usage`/`end` events (cache buckets folded into the input count). Detection covers the `grok` binary, `~/.grok/auth.json` or `XAI_API_KEY` auth, the built-in `grok-4.6` model, and custom `[model.<alias>]` entries from `~/.grok/config.toml`. Setup guidance: `grok login` / `https://github.com/xai-org/grok-build`. Verified against the xai-org/grok-build headless documentation (2026-09-19).
+
 ## [2.7.3] - 2026-09-19
 
 ### Fixed

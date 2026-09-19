@@ -73,15 +73,38 @@ const readyAiderModel: AvailableModel = {
   recommendedRoles: ['mentor', 'executor']
 }
 
+const readyGrokModel: AvailableModel = {
+  provider: 'grok',
+  modelId: 'grok-4.6',
+  displayName: 'Grok 4.6',
+  available: true,
+  providerLabel: 'Grok Build',
+  sourceProvider: 'xai',
+  sourceProviderLabel: 'xAI',
+  billingKind: 'byok',
+  billingLabel: 'Pay as you go',
+  accessLabel: 'Grok Build login',
+  planLabel: 'xai',
+  availabilityStatus: 'ready',
+  supportsPairExecution: true,
+  recommendedRoles: ['mentor', 'executor']
+}
+
 test('buildProviderSetupSummary counts ready models from every supported provider', () => {
   const summary = buildProviderSetupSummary([
     blockedOpenCodeModel,
     readyClaudeModel,
     readyGeminiModel,
-    readyAiderModel
+    readyAiderModel,
+    readyGrokModel
   ])
 
   assert.equal(summary.isReady, true)
-  assert.equal(summary.readyModelCount, 3)
-  assert.deepEqual(summary.readyProviderLabels, ['Aider', 'Antigravity', 'Claude Code'])
+  assert.equal(summary.readyModelCount, 4)
+  assert.deepEqual(summary.readyProviderLabels, [
+    'Aider',
+    'Antigravity',
+    'Claude Code',
+    'Grok Build'
+  ])
 })
