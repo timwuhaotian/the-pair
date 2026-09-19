@@ -34,7 +34,8 @@ export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   gemini: 'agy',
   kimi: 'kimi login',
   opencode: 'opencode auth login',
-  kiro: 'kiro-cli login'
+  kiro: 'kiro-cli login',
+  muse: 'muse login'
 }
 
 const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
@@ -45,7 +46,8 @@ const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   opencode: 'https://opencode.ai',
   pi: 'https://pi.dev',
   kiro: 'https://kiro.dev/downloads',
-  aider: 'https://aider.chat'
+  aider: 'https://aider.chat',
+  muse: 'https://dev.meta.ai/docs/muse-code'
 }
 
 /**

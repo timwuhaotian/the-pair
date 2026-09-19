@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Muse Code CLI support (`muse`).** Meta's terminal coding agent joins The Pair as a ninth provider, driven by `muse exec --json`. Verified against Muse Code 1.0.3 (2026-09-19) — note the published docs still name `muse-spark-1.2` as the default while the shipped binary uses `muse-spark-1.3`.
+  - **Mentor turns are read-only at the CLI, not just by prompt.** Muse is the only supported provider that can enforce the Mentor's role: mentor turns add `--disable-write --disable-shell`, so a Mentor that ignores its role prompt still cannot edit files or run commands.
+  - **Sessions.** `--session-id` is create-or-resume (re-running with a prior id continues that session's stream), so the standard new-first flow applies: the id is captured from the session-kind `stream.id` on turn 1 and passed back thereafter.
+  - **Event parsing.** The turn result is read only from `run.terminal.*` payloads. The generic text walker is bypassed because `turn.input.user` carries the agent's own prompt (which would echo back as its reply) and `run.output.delta` repeats text the terminal payload already holds in full. A `task.lifecycle.failed` subtask is deliberately _not_ treated as a turn error — Muse routinely completes a run while an internal reminder subtask reports failure.
+  - **Models.** Muse ships no `models list` subcommand and accepts unknown `--model` ids silently, so the catalog seeds `muse-spark-1.3` / `muse-spark-1.2` and unions in whatever model the user has configured in `~/.config/muse/settings.json`. Reasoning effort exposes the CLI's full `none…ultra` ladder. No token usage is emitted by `muse exec --json`, so counts stay hidden (as with Kimi).
+
 ## [2.7.3] - 2026-09-19
 
 ### Fixed

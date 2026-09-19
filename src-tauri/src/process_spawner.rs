@@ -208,6 +208,19 @@ fn parse_json_event(line: &str) -> Option<serde_json::Value> {
 }
 
 fn extract_session_id(event: &serde_json::Value) -> Option<String> {
+    // Muse (`muse exec --json`) tags every envelope with the stream it belongs
+    // to; the session-kind stream id is exactly what `--session-id` takes to
+    // resume. No other provider emits a `stream` object, so this cannot
+    // shadow their ids.
+    if let Some(stream) = event.get("stream") {
+        if stream.get("kind").and_then(|k| k.as_str()) == Some("session") {
+            if let Some(id) = stream.get("id").and_then(|s| s.as_str()) {
+                if !id.trim().is_empty() {
+                    return Some(id.to_string());
+                }
+            }
+        }
+    }
     // Pi session header: {"type":"session","version":3,"id":"uuid",...}
     if event.get("type").and_then(|v| v.as_str()) == Some("session") {
         if let Some(id) = event.get("id").and_then(|s| s.as_str()) {
@@ -2588,6 +2601,58 @@ mod tests {
             "usage": { "output_tokens": 500 }
         });
         assert!(extract_token_usage(ProviderKind::Kimi, &kimi_event).is_none());
+    }
+
+    #[test]
+    fn muse_stream_pipeline_extracts_final_text_and_session_id() {
+        // Verbatim stream captured from `muse exec --json` (Muse Code 1.0.3 on
+        // 2026-09-19), trimmed to the payload types that matter. The run below
+        // completed successfully *while* an internal reminder subtask reported
+        // `task.lifecycle.failed` — that must not be read as a turn error.
+        let lines = [
+            r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":1,"record_type":"reconciliation","payload_type":"runtime.command.accepted","payload":{"kind":"command_accepted","command_kind":"turn.submit"}}"#,
+            r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":4,"record_type":"status","payload_type":"turn.input.user","payload":{"kind":"turn_input_user","prompt":"Reply with exactly the word: PONG"}}"#,
+            r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":20,"record_type":"status","payload_type":"run.output.delta","payload":{"kind":"run_output_delta","text":"PONG"}}"#,
+            r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":27,"record_type":"event","payload_type":"task.lifecycle.failed","payload":{"kind":"task_lifecycle","event":{"kind":"failed","reason":"invalid run configuration: provider does not support base instructions"}}}"#,
+            r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":38,"record_type":"event","payload_type":"run.terminal.completed","payload":{"kind":"run_terminal","terminal":"completed","text":"PONG","reason":null}}"#,
+        ];
+
+        let mut candidates = Vec::new();
+        let mut session_id = None;
+        for line in lines {
+            let event = parse_json_event(line).expect("muse line parses as JSON");
+            collect_json_candidates_for_provider(ProviderKind::Muse, &event, &mut candidates);
+            if session_id.is_none() {
+                session_id = extract_session_id(&event);
+            }
+            // Muse emits no usage data on any payload type.
+            assert!(extract_token_usage(ProviderKind::Muse, &event).is_none());
+        }
+
+        // The prompt echo and the streaming delta must not join the terminal
+        // text — otherwise the reply would read "…: PONG\nPONG\nPONG".
+        assert_eq!(collapse_candidates(&candidates).as_deref(), Some("PONG"));
+        assert_eq!(
+            session_id.as_deref(),
+            Some("01a0b758-cd4f-7f32-9ce7-79c437f3e1e7")
+        );
+    }
+
+    #[test]
+    fn muse_session_stream_id_is_read_without_shadowing_other_providers() {
+        let muse = json!({
+            "stream": { "kind": "session", "id": "01a0b758-cd4f-7f32" },
+            "payload_type": "run.lifecycle.started"
+        });
+        assert_eq!(extract_session_id(&muse).as_deref(), Some("01a0b758-cd4f-7f32"));
+
+        // A non-session stream (run/task envelopes) must not be mistaken for one.
+        let run_stream = json!({ "stream": { "kind": "run", "id": "not-a-session" } });
+        assert_eq!(extract_session_id(&run_stream), None);
+
+        // Existing providers keep their own extraction paths.
+        let codex = json!({ "thread_id": "thread_1" });
+        assert_eq!(extract_session_id(&codex).as_deref(), Some("thread_1"));
     }
 
     #[test]
