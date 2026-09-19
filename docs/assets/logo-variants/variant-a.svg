@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="The Pair">
+  <title>The Pair — Evolved Pair</title>
+  <style>
+    .m { color: #2E7DE8; }
+    .e { color: #9B5DE5; }
+    @media (prefers-color-scheme: dark) {
+      .m { color: #56C3F5; }
+      .e { color: #CE9AF4; }
+    }
+  </style>
+
+  <defs>
+    <path id="head"
+      d="M 100 90 L 160 90 A 52 52 0 0 1 212 142
+         L 212 274 A 16 16 0 0 1 196 290
+         L 64 290 A 16 16 0 0 1 48 274
+         L 48 142 A 52 52 0 0 1 100 90 Z"/>
+
+    <mask id="eyeL">
+      <rect width="512" height="512" fill="#fff"/>
+      <polyline points="156,146 112,190 156,234" fill="none" stroke="#000"
+                stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+    <mask id="eyeR">
+      <rect width="512" height="512" fill="#fff"/>
+      <polyline points="356,146 400,190 356,234" fill="none" stroke="#000"
+                stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+
+    <!-- one cup, drawn once and split down the middle so both agents share it -->
+    <g id="cup">
+      <path d="M 198 306 L 314 306 L 298 378 A 15 15 0 0 1 283 392
+               L 229 392 A 15 15 0 0 1 214 378 Z" fill="currentColor"/>
+      <path d="M 306 330 C 350 330 350 374 297 371" fill="none" stroke="currentColor"
+            stroke-width="17" stroke-linecap="round"/>
+      <path d="M 186 402 L 326 402 A 13 13 0 0 1 326 428 L 186 428 A 13 13 0 0 1 186 402 Z"
+            fill="currentColor"/>
+    </g>
+    <clipPath id="rightHalf"><rect x="256" y="0" width="256" height="512"/></clipPath>
+  </defs>
+
+  <!-- the pair: eyes are the angle brackets, the gap between them is the slash -->
+  <g mask="url(#eyeL)"><use href="#head" class="m" color="#2E7DE8" fill="currentColor"/></g>
+  <g mask="url(#eyeR)">
+    <use href="#head" class="e" color="#9B5DE5" fill="currentColor"
+         transform="translate(512,0) scale(-1,1)"/>
+  </g>
+  <path d="M 240 242 L 272 138" class="m" color="#2E7DE8" fill="none" stroke="currentColor"
+        stroke-width="24" stroke-linecap="round"/>
+
+  <!-- the coffee they leave you to -->
+  <use href="#cup" class="m" color="#2E7DE8"/>
+  <g clip-path="url(#rightHalf)"><use href="#cup" class="e" color="#9B5DE5"/></g>
+</svg>

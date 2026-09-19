@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="The Pair">
+  <title>The Pair — Handoff Loop</title>
+  <style>
+    .m { color: #2E7DE8; }
+    .e { color: #9B5DE5; }
+    @media (prefers-color-scheme: dark) {
+      .m { color: #56C3F5; }
+      .e { color: #CE9AF4; }
+    }
+  </style>
+
+  <defs>
+    <!-- One half of the cycle: a 150deg arc that hands off to the other half.
+         Mentor -> Executor -> Review -> Mentor. -->
+    <g id="halfLoop">
+      <path d="M 400.9 217.2 A 150 150 0 0 0 111.1 217.2"
+            fill="none" stroke="currentColor" stroke-width="52" stroke-linecap="butt"
+            stroke-dasharray="84.7 18"/>
+      <path d="M 99.7 259.7 L 74.1 201.0 L 151.3 221.8 Z"
+            fill="currentColor" stroke="currentColor" stroke-width="11" stroke-linejoin="round"/>
+    </g>
+  </defs>
+
+  <use href="#halfLoop" class="m" color="#2E7DE8"/>
+  <use href="#halfLoop" class="e" color="#9B5DE5" transform="rotate(180 256 256)"/>
+</svg>
