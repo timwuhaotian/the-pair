@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Pair — logo candidates</title>
+    <style>
+      :root {
+        --bg: #fafaf7;
+        --fg: #1a2332;
+        --muted: #5a6474;
+        --rule: #d6d5cf;
+        --panel: #f2f1ec;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0a0e14;
+          --fg: #e6edf3;
+          --muted: #8b949e;
+          --rule: #2a3444;
+          --panel: #111820;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 48px 24px 96px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; }
+      h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+      .lede { color: var(--muted); font-size: 13px; margin: 0 0 40px; line-height: 1.6; }
+      .variant { border-top: 1px solid var(--rule); padding: 32px 0; }
+      .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+      .key { font-size: 15px; font-weight: 600; }
+      .note { color: var(--muted); font-size: 12px; }
+      .row { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
+      .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 24px; }
+      .panel.on-light { background: #fafaf7; }
+      .panel.on-dark { background: #0a0e14; }
+      .sizes { display: flex; align-items: flex-end; gap: 22px; }
+      figure { margin: 0; text-align: center; }
+      figcaption { color: var(--muted); font-size: 11px; margin-top: 10px; }
+      .panel.on-light figcaption { color: #5a6474; }
+      .panel.on-dark figcaption { color: #8b949e; }
+      img { display: block; }
+      .files { color: var(--muted); font-size: 12px; margin-top: 18px; }
+      code { background: var(--panel); padding: 1px 5px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>The Pair — logo candidates</h1>
+      <p class="lede">
+        Three directions, mentor blue + executor purple. Each mark is shown on the app's own light
+        and dark backgrounds, at the sizes that actually matter: favicon, menu bar, dock, store.
+        This page follows your system theme — the SVGs carry a dark-mode override, so switching
+        appearance changes the marks.
+      </p>
+
+      <section class="variant">
+        <div class="head">
+          <span class="key">A — Evolved Pair</span>
+          <span class="note">keeps the DNA: two agents, <code>&lt;/&gt;</code>, and the coffee</span>
+        </div>
+        <div class="row">
+          <div class="panel on-light"><div class="sizes">
+            <figure><img src="variant-a.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-a.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-a.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-a.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+          <div class="panel on-dark"><div class="sizes">
+            <figure><img src="variant-a.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-a.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-a.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-a.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+        </div>
+        <p class="files">variant-a.svg · variant-a-128.png · variant-a-512.png · variant-a-1024.png</p>
+      </section>
+
+      <section class="variant">
+        <div class="head">
+          <span class="key">B — Handoff Loop</span>
+          <span class="note">the turn cycle: mentor hands to executor, executor hands back</span>
+        </div>
+        <div class="row">
+          <div class="panel on-light"><div class="sizes">
+            <figure><img src="variant-b.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-b.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-b.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-b.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+          <div class="panel on-dark"><div class="sizes">
+            <figure><img src="variant-b.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-b.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-b.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-b.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+        </div>
+        <p class="files">variant-b.svg · variant-b-128.png · variant-b-512.png · variant-b-1024.png</p>
+      </section>
+
+      <section class="variant">
+        <div class="head">
+          <span class="key">C — Prompt</span>
+          <span class="note">terminal pane, double caret, block cursor</span>
+        </div>
+        <div class="row">
+          <div class="panel on-light"><div class="sizes">
+            <figure><img src="variant-c.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-c.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-c.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-c.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+          <div class="panel on-dark"><div class="sizes">
+            <figure><img src="variant-c.svg" width="128" height="128" alt="" /><figcaption>128</figcaption></figure>
+            <figure><img src="variant-c.svg" width="64" height="64" alt="" /><figcaption>64</figcaption></figure>
+            <figure><img src="variant-c.svg" width="32" height="32" alt="" /><figcaption>32</figcaption></figure>
+            <figure><img src="variant-c.svg" width="16" height="16" alt="" /><figcaption>16</figcaption></figure>
+          </div></div>
+        </div>
+        <p class="files">variant-c.svg · variant-c-128.png · variant-c-512.png · variant-c-1024.png</p>
+      </section>
+    </div>
+  </body>
+</html>
