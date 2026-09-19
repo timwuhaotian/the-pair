@@ -11,7 +11,34 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
-static OPENCODE_VARIANT_FLAG_SUPPORT: OnceLock<bool> = OnceLock::new();
+
+/// How an installed `opencode` CLI expects a reasoning-effort variant to be
+/// communicated on the turn command.
+///
+/// OpenCode has shipped two incompatible spellings across its major versions:
+///
+/// - **1.x** — `--model <id>` plus a separate `--variant <cli>` flag.
+/// - **2.x** — `--variant` was removed; variants are now baked into the model
+///   id as `provider/model#variant`. Verified against opencode 2.0.3
+///   (2026-09-19): `--model, -m string   Model to use in the format
+///   provider/model#variant`.
+///
+/// We probe `opencode run --help` once per process so the call site can pick
+/// the spelling its installed copy understands. Older installs without any
+/// variant support fall through to the bare model id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpencodeVariantSyntax {
+    /// OpenCode 1.x: `--variant <cli>` is a separate flag.
+    Flag,
+    /// OpenCode 2.x: variants are baked into the model id with `#variant`.
+    Suffix,
+    /// The installed CLI exposes neither spelling; reasoning variants cannot
+    /// be requested on this machine.
+    Unsupported,
+}
+
+static OPENCODE_VARIANT_SYNTAX: OnceLock<OpencodeVariantSyntax> = OnceLock::new();
+static PI_MAX_THINKING_LEVEL_SUPPORT: OnceLock<bool> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -174,24 +201,82 @@ fn capture_command_output_with_timeout(
     }
 }
 
-fn opencode_help_supports_variant_flag(help_text: &str) -> bool {
-    help_text.contains("--variant")
+fn opencode_variant_syntax_from_help(help_text: &str) -> OpencodeVariantSyntax {
+    // OpenCode 2.x advertises the variant suffix in the `--model` help text
+    // ("Model to use in the format provider/model#variant"); 1.x has neither
+    // the suffix nor any reference to "#variant" in the help output.
+    if help_text.contains("#variant") {
+        OpencodeVariantSyntax::Suffix
+    } else if help_text.contains("--variant") {
+        OpencodeVariantSyntax::Flag
+    } else {
+        OpencodeVariantSyntax::Unsupported
+    }
 }
 
-pub(crate) fn opencode_supports_variant_flag() -> bool {
+pub(crate) fn opencode_variant_syntax() -> OpencodeVariantSyntax {
     let Some(command_path) = which_binary("opencode") else {
-        return false;
+        return OpencodeVariantSyntax::Unsupported;
     };
 
-    *OPENCODE_VARIANT_FLAG_SUPPORT.get_or_init(|| {
-        capture_command_output_with_timeout(
+    *OPENCODE_VARIANT_SYNTAX.get_or_init(|| {
+        let help_text = capture_command_output_with_timeout(
             &command_path,
             &["run", "--help"],
             &homedir(),
             CLI_PROBE_TIMEOUT,
-        )
-        .is_some_and(|help_text| opencode_help_supports_variant_flag(&help_text))
+        );
+        match help_text.as_deref() {
+            Some(text) => opencode_variant_syntax_from_help(text),
+            None => OpencodeVariantSyntax::Unsupported,
+        }
     })
+}
+
+/// Whether the installed `pi` CLI advertises the `max` thinking level in its
+/// `--thinking` flag. Re-added in pi 0.80.6 (verified against pi 0.79.2 on
+/// 2026-09-19, which lists only `off, minimal, low, medium, high, xhigh`).
+/// We probe `pi --help` once per process so the picker can hide `max` on
+/// older installs where it would otherwise hard-fail at turn time.
+pub(crate) fn pi_supports_max_thinking_level() -> bool {
+    let Some(command_path) = which_binary("pi") else {
+        return false;
+    };
+
+    *PI_MAX_THINKING_LEVEL_SUPPORT.get_or_init(|| {
+        capture_command_output_with_timeout(
+            &command_path,
+            &["--help"],
+            &homedir(),
+            CLI_PROBE_TIMEOUT,
+        )
+        .is_some_and(|help_text| {
+            // The thinking-flag help line enumerates accepted levels; presence
+            // of "max" in that token list is the version's signal.
+            help_text.contains("--thinking <level>")
+                && extract_pi_thinking_levels(&help_text).is_some_and(|levels| {
+                    levels.iter().any(|level| level == "max")
+                })
+        })
+    })
+}
+
+fn extract_pi_thinking_levels(help_text: &str) -> Option<Vec<String>> {
+    // The pi help block looks like:
+    //   --thinking <level>   Set thinking level: off, minimal, low, medium, high, xhigh
+    // We extract the comma-separated levels on the same line.
+    let line = help_text
+        .lines()
+        .find(|line| line.contains("--thinking <level>"))?;
+    let after_colon = line.split(':').nth(1)?;
+    Some(
+        after_colon
+            .trim()
+            .split(',')
+            .map(|level| level.trim().to_string())
+            .filter(|level| !level.is_empty())
+            .collect(),
+    )
 }
 
 pub fn which_binary(name: &str) -> Option<PathBuf> {
@@ -498,7 +583,7 @@ fn collect_model_ids_from_help_line(
     model_ids: &mut Vec<String>,
 ) {
     // `claude --help` wraps the `--model` description across multiple indented
-    // continuation lines (verified against claude-code 2.1.267). The quoted
+    // continuation lines (verified against claude-code 2.1.276). The quoted
     // model examples live on the wrapped lines, not on the line that contains
     // `--model` itself, so we stitch the description block back together
     // before extracting candidates. Other providers whose `--help` is single-
@@ -1493,13 +1578,49 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn opencode_help_detects_variant_flag_support() {
-        assert!(opencode_help_supports_variant_flag(
-            "Usage: opencode run [message]\n  --variant  model variant"
-        ));
-        assert!(!opencode_help_supports_variant_flag(
-            "Usage: opencode run [message]\n  --model  model id"
-        ));
+    fn opencode_help_detects_variant_syntax() {
+        // OpenCode 2.x: variant suffix on --model id.
+        assert_eq!(
+            opencode_variant_syntax_from_help(
+                "Usage: opencode run [flags] [<message>]\n  --model, -m string   Model to use in the format provider/model#variant\n"
+            ),
+            OpencodeVariantSyntax::Suffix
+        );
+        // OpenCode 1.x: separate --variant flag.
+        assert_eq!(
+            opencode_variant_syntax_from_help(
+                "Usage: opencode run [message]\n  --variant  model variant\n"
+            ),
+            OpencodeVariantSyntax::Flag
+        );
+        // No variant support at all.
+        assert_eq!(
+            opencode_variant_syntax_from_help(
+                "Usage: opencode run [message]\n  --model  model id\n"
+            ),
+            OpencodeVariantSyntax::Unsupported
+        );
+    }
+
+    #[test]
+    fn extract_pi_thinking_levels_parses_help_line() {
+        // pi 0.79.2 help (verified 2026-09-19): no `max`.
+        let levels = extract_pi_thinking_levels(
+            "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh\n",
+        )
+        .expect("thinking line should parse");
+        assert_eq!(
+            levels,
+            vec!["off", "minimal", "low", "medium", "high", "xhigh"]
+        );
+        assert!(!levels.iter().any(|level| level == "max"));
+
+        // pi 0.80.6+ re-adds `max` (GPT-5.6 / adaptive Claude models).
+        let levels = extract_pi_thinking_levels(
+            "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max\n",
+        )
+        .expect("thinking line should parse");
+        assert!(levels.iter().any(|level| level == "max"));
     }
 
     #[test]

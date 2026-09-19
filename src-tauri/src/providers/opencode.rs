@@ -34,20 +34,44 @@ fn reasoning_variants_for_model(model_id: &str) -> Option<&'static [ReasoningVar
 
 fn build_opencode_turn_command(
     request: &ProviderTurnRequest,
-    supports_variant_flag: bool,
+    variant_syntax: crate::provider_registry::OpencodeVariantSyntax,
 ) -> ProviderTurnCommand {
-    let mut args = vec!["run".into(), "--model".into(), request.model.into()];
-    if supports_variant_flag {
-        if let (Some(variants), Some(effort)) = (
-            reasoning_variants_for_model(request.model),
-            request.reasoning_effort,
-        ) {
-            if let Some(variant) = variants.iter().find(|variant| variant.effort == effort) {
-                args.push("--variant".into());
-                args.push(variant.cli_variant.into());
-            }
+    let model = request.model.to_string();
+    let mut args = vec!["run".into(), "--model".into(), model];
+
+    // Resolve the variant the selected effort maps to, if any.
+    let variant = reasoning_variants_for_model(request.model)
+        .zip(request.reasoning_effort)
+        .and_then(|(variants, effort)| {
+            variants
+                .iter()
+                .find(|variant| variant.effort == effort)
+                .map(|variant| variant.cli_variant)
+        });
+
+    // OpenCode 1.x: emit `--variant <cli>` as a separate flag.
+    // OpenCode 2.x: bake the variant into the model id (`provider/model#variant`).
+    // Older installs without either form silently skip the variant.
+    match (variant_syntax, variant) {
+        (
+            crate::provider_registry::OpencodeVariantSyntax::Flag,
+            Some(cli_variant),
+        ) => {
+            args.push("--variant".into());
+            args.push(cli_variant.into());
         }
+        (
+            crate::provider_registry::OpencodeVariantSyntax::Suffix,
+            Some(cli_variant),
+        ) => {
+            // Re-stamp the model id with the variant suffix; the bare
+            // `--model <id>` placeholder was inserted above.
+            let model_idx = args.iter().position(|arg| arg == "--model").unwrap() + 1;
+            args[model_idx] = format!("{}#{}", request.model, cli_variant);
+        }
+        _ => {}
     }
+
     if let Some(sid) = request.session_id {
         args.push("--session".into());
         args.push(sid.into());
@@ -75,7 +99,7 @@ impl Provider for OpenCodeProvider {
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
         build_opencode_turn_command(
             request,
-            crate::provider_registry::opencode_supports_variant_flag(),
+            crate::provider_registry::opencode_variant_syntax(),
         )
     }
 
@@ -210,68 +234,139 @@ impl Provider for OpenCodeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_registry::OpencodeVariantSyntax;
+
+    fn base_request<'a>(
+        model: &'a str,
+        reasoning_effort: Option<&'a str>,
+    ) -> ProviderTurnRequest<'a> {
+        ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model,
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort,
+        }
+    }
 
     #[test]
     fn opencode_command_ignores_unsupported_reasoning_effort() {
         let command = build_opencode_turn_command(
-            &ProviderTurnRequest {
-                provider_kind: ProviderKind::Opencode,
-                model: "example/model",
-                session_id: None,
-                role: "executor",
-                pair_id: "pair-1",
-                message: "do the work",
-                reasoning_effort: Some("high"),
-            },
-            true,
+            &base_request("example/model", Some("high")),
+            OpencodeVariantSyntax::Flag,
         );
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
         assert!(!command.args.contains(&"high".to_string()));
+        // The unsupported model id never receives a variant regardless of syntax.
+        let model_idx = command
+            .args
+            .iter()
+            .position(|arg| arg == "--model")
+            .unwrap();
+        assert_eq!(command.args[model_idx + 1], "example/model");
     }
 
     #[test]
-    fn opencode_command_maps_reasoning_effort_to_cli_variant() {
+    fn opencode_command_maps_reasoning_effort_to_cli_variant_for_opencode_1x() {
+        // OpenCode 1.x emits --model <id> plus a separate --variant <cli> flag.
         for (effort, expected_variant) in [("adaptive", "thinking"), ("disabled", "none")] {
             let command = build_opencode_turn_command(
-                &ProviderTurnRequest {
-                    provider_kind: ProviderKind::Opencode,
-                    model: "minimax-cn/MiniMax-M3",
-                    session_id: None,
-                    role: "executor",
-                    pair_id: "pair-1",
-                    message: "do the work",
-                    reasoning_effort: Some(effort),
-                },
-                true,
+                &base_request("minimax-cn/MiniMax-M3", Some(effort)),
+                OpencodeVariantSyntax::Flag,
             );
+
+            let model_idx = command
+                .args
+                .iter()
+                .position(|arg| arg == "--model")
+                .expect("--model flag should be present");
+            assert_eq!(command.args[model_idx + 1], "minimax-cn/MiniMax-M3");
 
             let variant_index = command
                 .args
                 .iter()
                 .position(|arg| arg == "--variant")
-                .expect("supported reasoning should use the OpenCode variant flag");
+                .expect("1.x reasoning should use the OpenCode --variant flag");
             assert_eq!(command.args[variant_index + 1], expected_variant);
         }
     }
 
     #[test]
-    fn opencode_command_omits_variant_for_older_cli() {
+    fn opencode_command_bakes_variant_into_model_id_for_opencode_2x() {
+        // OpenCode 2.x removed --variant; the variant must be appended to the
+        // model id with `#variant`.
+        for (effort, expected_variant) in [("adaptive", "thinking"), ("disabled", "none")] {
+            let command = build_opencode_turn_command(
+                &base_request("minimax/MiniMax-M3", Some(effort)),
+                OpencodeVariantSyntax::Suffix,
+            );
+
+            let model_idx = command
+                .args
+                .iter()
+                .position(|arg| arg == "--model")
+                .expect("--model flag should be present");
+            assert_eq!(
+                command.args[model_idx + 1],
+                format!("minimax/MiniMax-M3#{}", expected_variant)
+            );
+            // --variant must NOT be present on 2.x.
+            assert!(
+                !command.args.contains(&"--variant".to_string()),
+                "OpenCode 2.x does not accept --variant"
+            );
+        }
+    }
+
+    #[test]
+    fn opencode_command_omits_variant_when_installed_cli_has_no_variant_support() {
         let command = build_opencode_turn_command(
-            &ProviderTurnRequest {
-                provider_kind: ProviderKind::Opencode,
-                model: "minimax/MiniMax-M3",
-                session_id: None,
-                role: "executor",
-                pair_id: "pair-1",
-                message: "do the work",
-                reasoning_effort: Some("adaptive"),
-            },
-            false,
+            &base_request("minimax/MiniMax-M3", Some("adaptive")),
+            OpencodeVariantSyntax::Unsupported,
         );
 
         assert!(!command.args.contains(&"--variant".to_string()));
         assert!(!command.args.contains(&"thinking".to_string()));
+        let model_idx = command
+            .args
+            .iter()
+            .position(|arg| arg == "--model")
+            .unwrap();
+        assert_eq!(command.args[model_idx + 1], "minimax/MiniMax-M3");
+    }
+
+    #[test]
+    fn opencode_command_resumes_session_and_emits_json_format() {
+        let command = build_opencode_turn_command(
+            &ProviderTurnRequest {
+                provider_kind: ProviderKind::Opencode,
+                model: "minimax/MiniMax-M3",
+                session_id: Some("session-xyz"),
+                role: "executor",
+                pair_id: "pair-1",
+                message: "do the work",
+                reasoning_effort: None,
+            },
+            OpencodeVariantSyntax::Suffix,
+        );
+
+        assert_eq!(command.executable, "opencode");
+        let session_idx = command
+            .args
+            .iter()
+            .position(|arg| arg == "--session")
+            .expect("--session should be present when session_id is Some");
+        assert_eq!(command.args[session_idx + 1], "session-xyz");
+        let format_idx = command
+            .args
+            .iter()
+            .position(|arg| arg == "--format")
+            .expect("--format should be present");
+        assert_eq!(command.args[format_idx + 1], "json");
+        assert_eq!(command.args.last().unwrap(), "do the work");
     }
 
     #[test]

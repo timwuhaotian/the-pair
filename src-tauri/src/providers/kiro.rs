@@ -9,12 +9,14 @@ use serde_json::Value;
 
 /// Kiro CLI (`kiro-cli`) — AWS's spec-driven terminal coding agent.
 /// Uses `kiro-cli chat --no-interactive` for plain-text stdout output.
-/// Verified against kiro-cli 2.21.x (2026-09-01). The CLI reference documents
-/// no `chat --model` flag, so the selected model id is not forwarded (selection
-/// happens via the agent config). Headless `--engine v2 --output-format
-/// stream-json` is available but the plain-text transport is preserved for
-/// parity with earlier audits; switching to the structured stream would enable
-/// session-id capture and token usage, neither of which surface today.
+/// Verified against kiro-cli 2.21.x (last verified 2026-09-01; surface
+/// re-audited 2026-09-19 with no drift). The CLI reference documents no
+/// `chat --model` flag, so the selected model id is not forwarded
+/// (selection happens via the agent config). Headless `--engine v2
+/// --output-format stream-json` is available but the plain-text transport
+/// is preserved for parity with earlier audits; switching to the structured
+/// stream would enable session-id capture and token usage, neither of which
+/// surface today.
 pub struct KiroProvider;
 
 impl Provider for KiroProvider {
@@ -88,9 +90,10 @@ impl Provider for KiroProvider {
     }
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // Plain-text output carries no token usage data (verified against
-        // kiro-cli 2.21.x). Structured usage would require the headless
-        // `--engine v2 --output-format stream-json` event stream.
+        // Plain-text output carries no token usage data (last verified
+        // against kiro-cli 2.21.x on 2026-09-01; surface re-audited
+        // 2026-09-19 with no change). Structured usage would require the
+        // headless `--engine v2 --output-format stream-json` event stream.
         None
     }
 

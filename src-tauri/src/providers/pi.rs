@@ -115,19 +115,25 @@ impl Provider for PiProvider {
 
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
         // Pi supports --thinking universally across all models/providers.
-        // Current accepted levels (pi 0.85.x): off, minimal, low, medium,
-        // high, xhigh, max. `max` was re-added in pi 0.80.6 and is supported
-        // on GPT-5.6 and adaptive Claude models; other models fall back to
-        // the highest level they support.
-        Some(vec![
-            "off".into(),
-            "minimal".into(),
-            "low".into(),
-            "medium".into(),
-            "high".into(),
-            "xhigh".into(),
-            "max".into(),
-        ])
+        // The base set is `off, minimal, low, medium, high, xhigh` (verified
+        // against pi 0.79.2 on 2026-09-19). `max` was re-added in pi 0.80.6
+        // and is only valid on GPT-5.6 / adaptive Claude models; older
+        // installs reject it outright. We expose it only when the installed
+        // `pi --help` advertises it, so picking "max" never silently breaks
+        // a turn on a too-old CLI.
+        let base = vec![
+            "off".to_string(),
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+        let mut levels = base;
+        if crate::provider_registry::pi_supports_max_thinking_level() {
+            levels.push("max".to_string());
+        }
+        Some(levels)
     }
 
     fn install_url(&self) -> Option<String> {
@@ -297,5 +303,23 @@ mod tests {
         let provider = PiProvider;
         let event = json!({"type": "turn_end", "message": {"role": "assistant"}});
         assert!(provider.extract_token_usage(&event).is_none());
+    }
+
+    #[test]
+    fn pi_base_thinking_levels_omit_max() {
+        // The picker's base set must always include the six core levels (off
+        // through xhigh). `max` is added by the runtime probe only on pi
+        // 0.80.6+; this test pins the deterministic floor regardless of the
+        // installed CLI.
+        let provider = PiProvider;
+        let levels = provider
+            .reasoning_effort_levels("anthropic/claude-sonnet-4")
+            .expect("pi always offers a thinking axis");
+        for level in ["off", "minimal", "low", "medium", "high", "xhigh"] {
+            assert!(
+                levels.iter().any(|entry| entry == level),
+                "pi thinking levels should include {level}; got {levels:?}"
+            );
+        }
     }
 }

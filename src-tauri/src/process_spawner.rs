@@ -2593,8 +2593,10 @@ mod tests {
     #[test]
     fn kimi_stream_pipeline_extracts_final_message_and_session_id() {
         // Verbatim stream captured from `kimi -p … --output-format stream-json`
-        // (kimi-code 0.42.0, model wanqing-streamlake/kat-coder-pro-v2.5). The
-        // first event carries a whitespace-only `content` alongside `tool_calls`.
+        // (kimi-code 2.0.1 on 2026-09-19; previously verified against
+        // 0.42.0 — event schema unchanged across the major version bump).
+        // Model: wanqing-streamlake/kat-coder-pro-v2.5. The first event
+        // carries a whitespace-only `content` alongside `tool_calls`.
         let lines = [
             r#"{"role":"assistant","content":"\n\n","tool_calls":[{"type":"function","id":"call_68cef8bf9e02409aabfa9830","function":{"name":"Write","arguments":"{\"content\":\"verified\",\"path\":\"kat-probe.txt\"}"}}]}"#,
             r#"{"role":"tool","tool_call_id":"call_68cef8bf9e02409aabfa9830","content":"Wrote 8 bytes to kat-probe.txt"}"#,

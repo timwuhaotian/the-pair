@@ -7,6 +7,11 @@ use serde_json::Value;
 /// Kimi Code CLI (`kimi`) — Moonshot AI's terminal coding agent.
 /// Uses `kimi -p` with `--output-format stream-json`: each stdout line is a
 /// chat-style JSON message (`role`: "assistant" | "tool" | "meta").
+/// Verified against kimi-code 2.0.1 (2026-09-19). The 2.x major release
+/// kept the `-p` / `--output-format stream-json` / `--session <id>` /
+/// `--model <alias>` surface used by The Pair; argument order around `-p`
+/// is strict (the prompt value follows `-p` directly), but the Pair's
+/// invocation already follows that order.
 pub struct KimiProvider;
 
 impl Provider for KimiProvider {
@@ -56,7 +61,8 @@ impl Provider for KimiProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Kimi's stream-json messages carry no usage data (verified against
-        // kimi-code 0.42.0); token counts stay hidden for this provider.
+        // kimi-code 2.0.1 on 2026-09-19, and against kimi-code 0.42.0
+        // previously); token counts stay hidden for this provider.
         None
     }
 

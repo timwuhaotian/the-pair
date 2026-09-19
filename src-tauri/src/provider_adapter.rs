@@ -395,7 +395,12 @@ mod tests {
     }
 
     #[test]
-    fn gemini_command_omits_thinking_budget_flag() {
+    fn gemini_command_forwards_effort_and_omits_thinking_budget_flag() {
+        // Antigravity (`agy`) 1.2.0 (2026-09-19) added `--effort low|medium|high`.
+        // The Pair now forwards the picked reasoning effort; the legacy
+        // `--thinking-budget` flag is rejected by agy outright and must
+        // never be emitted. `high` is now expected as the value of the new
+        // `--effort` flag.
         let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "gemini-2.5-pro",
@@ -409,7 +414,12 @@ mod tests {
 
         assert!(!command.args.contains(&"--thinking-budget".to_string()));
         assert!(!command.args.contains(&"32768".to_string()));
-        assert!(!command.args.contains(&"high".to_string()));
+        let effort_idx = command
+            .args
+            .iter()
+            .position(|arg| arg == "--effort")
+            .expect("--effort should be present when reasoning_effort is set");
+        assert_eq!(command.args[effort_idx + 1], "high");
     }
 
     #[test]

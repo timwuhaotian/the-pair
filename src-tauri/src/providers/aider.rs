@@ -9,9 +9,9 @@ use serde_json::Value;
 /// Aider CLI (`aider`) — open-source AI pair programmer in your terminal.
 /// Headless invocation: `aider --message "<prompt>" --no-pretty --stream
 /// --yes-always --no-auto-commits --no-dirty-commits`. Aider emits plain
-/// Markdown to stdout (verified against aider-chat 0.86.x); there is no
-/// `--json` flag, so the orchestrator reads the streamed text directly
-/// via `OutputTransport::Stdio`.
+/// Markdown to stdout (verified against aider-chat 0.86.x; surface
+/// re-checked 2026-09-19); there is no `--json` flag, so the orchestrator
+/// reads the streamed text directly via `OutputTransport::Stdio`.
 /// Aider is stateless per `--message` invocation (git history is the persistence),
 /// so `SessionStrategy::NewFirst` is the correct choice.
 pub struct AiderProvider;
@@ -59,7 +59,8 @@ impl Provider for AiderProvider {
             model.into(),
             // Headless flags: auto-approve all actions, don't dirty the git
             // history with auto-commits, and stream plain Markdown to stdout.
-            // Aider has no --json flag (verified against aider-chat 0.86.x).
+            // Aider has no --json flag (verified against aider-chat 0.86.x;
+            // re-checked 2026-09-19).
             "--yes-always".into(),
             "--no-auto-commits".into(),
             "--no-dirty-commits".into(),
@@ -82,18 +83,19 @@ impl Provider for AiderProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Aider has no structured token usage field on its streamed output
-        // (verified against aider-chat 0.86.x). Token counts stay hidden for
-        // this provider, matching Kimi.
+        // (verified against aider-chat 0.86.x; re-checked 2026-09-19). Token
+        // counts stay hidden for this provider, matching Kimi.
         None
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
         // Legacy: Aider was assumed to expose `--json` NDJSON events, but the
-        // flag does not exist in aider-chat 0.86.x — assistant text arrives as
-        // plain Markdown on stdout. This branch is unreachable for real Aider
-        // output today (the orchestrator uses `OutputTransport::Stdio`); it is
-        // retained so the orchestrator can still harvest text if a future
-        // Aider release reintroduces a structured event format.
+        // flag does not exist in aider-chat 0.86.x (re-checked 2026-09-19) —
+        // assistant text arrives as plain Markdown on stdout. This branch is
+        // unreachable for real Aider output today (the orchestrator uses
+        // `OutputTransport::Stdio`); it is retained so the orchestrator can
+        // still harvest text if a future Aider release reintroduces a
+        // structured event format.
         let mut out = Vec::new();
 
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");

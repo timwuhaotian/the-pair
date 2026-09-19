@@ -56,7 +56,7 @@ impl Provider for ClaudeProvider {
         // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
         // the session's reasoning effort. The Pair maps its reasoning_effort
         // picker value through verbatim. Omitted when the caller passes None.
-        // Verified against claude-code 2.1.267 (2026-09-09).
+        // Verified against claude-code 2.1.276 (2026-09-19).
         if let Some(level) = request.reasoning_effort {
             args.push("--effort".into());
             args.push(level.into());
@@ -209,7 +209,7 @@ impl Provider for ClaudeProvider {
     }
 
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
-        // Verified against claude-code 2.1.267 (2026-09-09): --effort accepts
+        // Verified against claude-code 2.1.276 (2026-09-19): --effort accepts
         // {low, medium, high, xhigh, max}. Older installs (pre-2.1.111) reject
         // the flag outright; callers should hide the picker for those.
         Some(vec![

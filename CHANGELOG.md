@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] - 2026-09-19
+
+### Fixed
+
+- **OpenCode 2.x reasoning variants.** `--variant` was removed in opencode 2.0.3; variants are now baked into the model id (`provider/model#variant`). The previous probe (`opencode_supports_variant_flag`) only looked for the old `--variant` flag, so on 2.x the `--variant` arg was silently dropped and the `adaptive`/`disabled` reasoning picker for `MiniMax-M3` had no effect. Replaced with `OpencodeVariantSyntax` that probes `opencode run --help` and selects one of three encodings: `Flag` (1.x, separate `--variant`), `Suffix` (2.x, `model#variant`), or `Unsupported` (no variant control).
+- **Antigravity (`agy`) reasoning effort passthrough.** agy 1.2.0 (2026-09-19) added a `--effort low|medium|high` flag. The provider now forwards the picked reasoning effort via `--effort` instead of silently dropping it; the legacy `--thinking-budget` flag is still rejected by agy and is never emitted.
+- **Pi `max` thinking level no longer breaks old pi installs.** `max` was re-added to pi in 0.80.6, but on pi 0.79.2 (the installed baseline) `pi --thinking max` hard-fails with `Invalid thinking level "max"`. The picker now exposes `max` only when `pi --help` advertises it (probed once per process via `pi_supports_max_thinking_level`). Older installs get the deterministic `off, minimal, low, medium, high, xhigh` set; newer installs gain `max` automatically.
+
+### Verified (no changes required)
+
+- **Claude Code 2.1.276** — `--effort low|medium|high|xhigh|max`, `--output-format stream-json`, `--permission-mode`, `--resume`, and the `result`/`assistant` event schema all match the Pair's integration. Verified 2026-09-19.
+- **Kimi Code 2.0.1** — `-p <prompt>` / `--output-format stream-json` / `--model <alias>` / `--session <id>` all work; the 2.x major bump did not change the wire protocol used by The Pair (event schema unchanged from 0.42.0). Argument order around `-p` is strict and the Pair already places flags after the prompt value, so no command change needed.
+- **Codex CLI 0.149.1** — `codex exec` / `exec resume`, `--json`, `--output-last-message`, `-c model_reasoning_effort=`, `--model`, `--sandbox`, and the `turn.completed` JSON event schema are unchanged.
+- **Kiro CLI 2.21.x** — `chat --no-interactive --trust-all-tools --resume-id <sid>` and the plain-text output surface are unchanged. `--engine v2 --output-format stream-json` remains the path to session-id / token-usage surfaces.
+- **Aider (aider-chat 0.86.x)** — `--message`, `--model`, `--yes-always`, `--no-auto-commits`, `--no-dirty-commits`, `--no-pretty`, `--stream`, and `--reasoning-effort` are unchanged. No `--json` flag exists.
+
+### Internal
+
+- Added `extract_pi_thinking_levels` helper for parsing `--thinking` help output.
+- `OpencodeVariantSyntax` replaces the bool `opencode_supports_variant_flag` API.
+- Module docstrings / "verified against" stamps refreshed to current dates across `claude.rs`, `kimi.rs`, `kiro.rs`, `aider.rs`, `process_spawner.rs`, and `provider_registry.rs`.
+
 ## [2.7.2] - 2026-09-11
 
 ### Fixed

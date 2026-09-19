@@ -42,7 +42,7 @@ impl Provider for GeminiProvider {
             .unwrap_or(request.model);
         ProviderTurnCommand {
             executable: "agy".into(),
-            args: build_agy_args(model, request.message, request.role),
+            args: build_agy_args(model, request.message, request.role, request.reasoning_effort),
             last_message_path: None,
         }
     }
@@ -124,7 +124,16 @@ impl Provider for GeminiProvider {
 ///   read-only operations.
 /// - **Executor** (code writing): `--mode accept-edits` allows file edits,
 ///   and `--dangerously-skip-permissions` auto-approves tool calls.
-pub fn build_agy_args(model: &str, message: &str, role: &str) -> Vec<String> {
+/// - **Reasoning effort**: `--effort <low|medium|high>` (verified against
+///   agy 1.2.0, 2026-09-19). Omitted when the caller passes `None`; the
+///   legacy `--thinking-budget` flag was never supported on `agy` and is
+///   rejected outright, so we don't fall back to it.
+pub fn build_agy_args(
+    model: &str,
+    message: &str,
+    role: &str,
+    reasoning_effort: Option<&str>,
+) -> Vec<String> {
     // agy uses Go's flag package, which treats an argv element starting with "-"
     // as a flag - prepend a newline to keep the first byte as '\n'.
     let prompt = if message.starts_with('-') {
@@ -147,6 +156,11 @@ pub fn build_agy_args(model: &str, message: &str, role: &str) -> Vec<String> {
         args.push("accept-edits".into());
         // Executor needs auto-approval to run tools without prompting.
         args.push("--dangerously-skip-permissions".into());
+    }
+
+    if let Some(effort) = reasoning_effort {
+        args.push("--effort".into());
+        args.push(effort.into());
     }
 
     args.push("--model".into());
@@ -224,7 +238,12 @@ mod tests {
 
     #[test]
     fn agy_mentor_args_use_plan_mode_without_skip_permissions() {
-        let args = build_agy_args("Gemini 3.5 Flash (Low)", "explain the current diff", "mentor");
+        let args = build_agy_args(
+            "Gemini 3.5 Flash (Low)",
+            "explain the current diff",
+            "mentor",
+            None,
+        );
         assert_eq!(
             args,
             vec![
@@ -240,11 +259,12 @@ mod tests {
         );
         // Mentor should NOT have --dangerously-skip-permissions (plan mode is read-only).
         assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!args.contains(&"--effort".to_string()));
     }
 
     #[test]
     fn agy_executor_args_use_accept_edits_and_skip_permissions() {
-        let args = build_agy_args("Gemini 3.5 Flash (Low)", "do the work", "executor");
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "do the work", "executor", None);
         assert_eq!(
             args,
             vec![
@@ -263,13 +283,13 @@ mod tests {
 
     #[test]
     fn agy_prepends_newline_for_leading_dash_prompt() {
-        let args = build_agy_args("Gemini 3.5 Flash (Low)", "- Do the next step", "executor");
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "- Do the next step", "executor", None);
         assert_eq!(
             args.last().expect("prompt is last"),
             "\n- Do the next step"
         );
 
-        let args = build_agy_args("Gemini 3.5 Flash (Low)", "Plan the refactor", "executor");
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "Plan the refactor", "executor", None);
         assert_eq!(
             args.last().expect("prompt is last"),
             "Plan the refactor"
@@ -277,7 +297,36 @@ mod tests {
     }
 
     #[test]
+    fn agy_forwards_effort_when_reasoning_effort_is_set() {
+        // Verified against agy 1.2.0 (2026-09-19): `--effort` accepts
+        // low|medium|high. The legacy `--thinking-budget` flag is rejected
+        // outright by agy, so we never emit it.
+        let args = build_agy_args(
+            "Gemini 3.5 Flash (Low)",
+            "do the work",
+            "executor",
+            Some("high"),
+        );
+        let effort_idx = args
+            .iter()
+            .position(|arg| arg == "--effort")
+            .expect("--effort should be present when reasoning_effort is set");
+        assert_eq!(args[effort_idx + 1], "high");
+        assert!(!args.contains(&"--thinking-budget".to_string()));
+        assert!(!args.contains(&"32768".to_string()));
+    }
+
+    #[test]
+    fn agy_omits_effort_when_reasoning_effort_is_none() {
+        let args = build_agy_args("Gemini 3.5 Flash (Low)", "do the work", "executor", None);
+        assert!(!args.contains(&"--effort".to_string()));
+    }
+
+    #[test]
     fn gemini_command_omits_thinking_budget_flag() {
+        // Regression guard: `--thinking-budget` was never an agy flag and is
+        // rejected by the CLI. Even with reasoning effort set we use the new
+        // `--effort` flag, never the legacy `--thinking-budget`.
         let provider = GeminiProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
@@ -291,7 +340,6 @@ mod tests {
 
         assert!(!command.args.contains(&"--thinking-budget".to_string()));
         assert!(!command.args.contains(&"32768".to_string()));
-        assert!(!command.args.contains(&"high".to_string()));
     }
 
     #[test]
