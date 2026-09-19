@@ -60,7 +60,8 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   kimi: 4,
   pi: 5,
   kiro: 6,
-  aider: 7
+  aider: 7,
+  grok: 8
 }
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 

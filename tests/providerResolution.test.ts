@@ -53,6 +53,9 @@ test('inferProviderFromModel maps provider-aware ids and legacy model names', ()
   // Aider routes via the aider/ qualifier or the keyword heuristic.
   assert.equal(inferProviderFromModel('aider/claude-sonnet-4-6'), 'aider')
   assert.equal(inferProviderFromModel('aider-sonnet'), 'aider')
+  // Grok routes via the grok/ qualifier or the keyword heuristic.
+  assert.equal(inferProviderFromModel('grok/grok-4.6'), 'grok')
+  assert.equal(inferProviderFromModel('grok-4.6'), 'grok')
   // Without the qualifier an arbitrary alias falls back to opencode — this is
   // why buildAgentConfig stores kimi ids qualified.
   assert.equal(inferProviderFromModel('ark-coding-plan/glm-5.2'), 'opencode')
@@ -163,4 +166,29 @@ test('buildAgentConfig keeps the aider qualifier in the stored model id', () => 
     provider: 'aider',
     model: 'aider/claude-sonnet-4-6'
   })
+})
+
+test('buildAgentConfig stores the bare grok model id', () => {
+  const readyGrokModel: AvailableModel = {
+    ...readyClaudeModel,
+    provider: 'grok',
+    modelId: 'grok-4.6',
+    displayName: 'Grok 4.6',
+    providerLabel: 'Grok Build',
+    sourceProvider: 'xai',
+    sourceProviderLabel: 'xAI',
+    billingKind: 'byok',
+    billingLabel: 'Pay as you go',
+    accessLabel: 'Grok Build login'
+  }
+  const config = buildAgentConfig('executor', 'grok/grok-4.6', [readyGrokModel])
+
+  // Bare grok ids are self-identifying via the grok keyword, so the
+  // qualifier is dropped and re-inferred from the bare id.
+  assert.deepEqual(config, {
+    role: 'executor',
+    provider: 'grok',
+    model: 'grok-4.6'
+  })
+  assert.equal(inferProviderFromModel(config.model), 'grok')
 })
