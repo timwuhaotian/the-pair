@@ -49,6 +49,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "bump": "node scripts/bump-version.mjs",
+    "build:logos": "node scripts/build-logo-variants.mjs",
     "validate:changelog": "node scripts/validate-changelog.mjs",
     "test:js": "node --import tsx --test tests/*.test.ts",
     "test:rust": "cargo test -q --manifest-path src-tauri/Cargo.toml",
