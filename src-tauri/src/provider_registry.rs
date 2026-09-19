@@ -51,6 +51,7 @@ pub enum ProviderKind {
     Pi,
     Kiro,
     Aider,
+    Grok,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1342,6 +1343,36 @@ impl ProviderRegistry {
             detected_at: detected_at_now(),
         }
     }
+
+    pub fn detect_grok() -> DetectedProviderProfile {
+        let installed = which_binary_exists("grok");
+        let homedir = homedir();
+
+        // Grok Build caches OAuth credentials in `~/.grok/auth.json`; headless
+        // environments can instead authenticate with `XAI_API_KEY`.
+        let authenticated = homedir.join(".grok/auth.json").exists()
+            || std::env::var("XAI_API_KEY")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+
+        let models = if installed {
+            grok_model_options(&homedir)
+        } else {
+            Vec::new()
+        };
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Grok,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label: "xai".into(),
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one
@@ -1435,6 +1466,82 @@ fn parse_kimi_model_aliases(content: &str) -> Vec<DetectedModelOption> {
             if let Some(display_name) = line.split('"').nth(1).filter(|name| !name.is_empty()) {
                 if let Some(model) = models.iter_mut().find(|model| &model.model_id == alias) {
                     model.display_name = display_name.to_string();
+                }
+            }
+        }
+    }
+
+    models
+}
+
+/// Build Grok Build's model list: the static built-in model plus any custom
+/// models declared in `~/.grok/config.toml`. Custom `[model.<alias>]` sections
+/// are addressed by alias through `-m`; `name` provides the display label.
+fn grok_model_options(home: &std::path::Path) -> Vec<DetectedModelOption> {
+    let mut models = vec![DetectedModelOption {
+        model_id: "grok-4.6".to_string(),
+        display_name: "Grok 4.6".to_string(),
+        source_provider: Some("xai".to_string()),
+        family: None,
+        subscription_label: "xai".to_string(),
+        supports_pair_execution: true,
+        runnable: true,
+    }];
+
+    if let Ok(content) = fs::read_to_string(home.join(".grok/config.toml")) {
+        for model in parse_grok_config_models(&content) {
+            if !models.iter().any(|m| m.model_id == model.model_id) {
+                models.push(model);
+            }
+        }
+    }
+
+    models
+}
+
+/// Parse `[model.<alias>]` sections from a Grok Build `config.toml`. The alias
+/// is the value `-m` accepts; `name = "…"` (when present) is the display name.
+/// Non-model tables (`[models]`, `[mcp…]`, …) are ignored.
+fn parse_grok_config_models(content: &str) -> Vec<DetectedModelOption> {
+    let mut models: Vec<DetectedModelOption> = Vec::new();
+    let mut current_alias: Option<String> = None;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with('[') {
+            current_alias = line
+                .strip_prefix("[model.")
+                .and_then(|rest| rest.strip_suffix(']'))
+                .map(|key| key.trim().trim_matches('"').to_string())
+                // A leftover quote means a nested sub-table header
+                // (e.g. `[model."x".extra]`), not a model alias.
+                .filter(|alias| !alias.is_empty() && !alias.contains('"'));
+            if let Some(alias) = current_alias.clone() {
+                models.push(DetectedModelOption {
+                    display_name: alias.clone(),
+                    model_id: alias,
+                    source_provider: Some("xai".to_string()),
+                    family: None,
+                    subscription_label: "xai".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                });
+            }
+            continue;
+        }
+
+        if let (Some(alias), true) = (current_alias.as_ref(), line.starts_with("name")) {
+            if let Some(name) = line.split('"').nth(1).filter(|name| !name.is_empty()) {
+                if let Some(model) = models
+                    .iter_mut()
+                    .rev()
+                    .find(|model| model.model_id == *alias)
+                {
+                    model.display_name = name.to_string();
                 }
             }
         }
@@ -1685,6 +1792,47 @@ display_name = "bare table, not an alias"
 "#;
 
         assert!(parse_kimi_model_aliases(config).is_empty());
+    }
+
+    #[test]
+    fn parse_grok_config_models_reads_sections_and_names() {
+        let config = r#"
+[models]
+default = "my-model"
+
+[model.my-model]
+model = "model-id"
+base_url = "https://api.example.com/v1"
+name = "Display Name"
+env_key = "API_KEY"
+
+[model.pi-proxy]
+model = "pi-4.6"
+"#;
+
+        let models = parse_grok_config_models(config);
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(ids, vec!["my-model", "pi-proxy"]);
+        assert_eq!(models[0].display_name, "Display Name");
+        // No `name` key → the alias itself is the label.
+        assert_eq!(models[1].display_name, "pi-proxy");
+        assert!(models.iter().all(|m| m.runnable && m.supports_pair_execution));
+    }
+
+    #[test]
+    fn parse_grok_config_models_ignores_non_model_sections_and_subtables() {
+        let config = r#"
+[mcp.linear]
+name = "not a model"
+
+[model."x".extra]
+name = "sub-table, not an alias"
+
+[personas.reviewer]
+name = "bare table, not an alias"
+"#;
+
+        assert!(parse_grok_config_models(config).is_empty());
     }
 
     #[cfg(unix)]
