@@ -8,6 +8,7 @@ export type ProviderKind =
   | 'kiro'
   | 'aider'
   | 'grok'
+  | 'muse'
 
 type TokenUsageSource = 'live' | 'final' | 'none'
 

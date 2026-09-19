@@ -61,7 +61,8 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   pi: 5,
   kiro: 6,
   aider: 7,
-  grok: 8
+  grok: 8,
+  muse: 9
 }
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 

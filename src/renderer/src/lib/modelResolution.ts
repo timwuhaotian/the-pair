@@ -48,7 +48,7 @@ function stripProviderPrefix(qualifiedId: string): string {
     // `kimi` is deliberately absent: Kimi aliases are arbitrary user-defined
     // names, so the `kimi/` qualifier must survive in stored ids for provider
     // re-inference. The Rust provider strips it at spawn time instead.
-    if (['claude', 'codex', 'gemini', 'grok'].includes(prefix) && rest.length > 0) {
+    if (['claude', 'codex', 'gemini', 'grok', 'muse'].includes(prefix) && rest.length > 0) {
       return rest.join('/')
     }
   }

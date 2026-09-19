@@ -5,6 +5,7 @@ pub mod gemini;
 pub mod grok;
 pub mod kimi;
 pub mod kiro;
+pub mod muse;
 pub mod opencode;
 pub mod pi;
 
@@ -160,6 +161,7 @@ pub fn all_providers() -> Vec<Arc<dyn Provider>> {
         Arc::new(kiro::KiroProvider),
         Arc::new(aider::AiderProvider),
         Arc::new(grok::GrokProvider),
+        Arc::new(muse::MuseProvider),
     ]
 }
 

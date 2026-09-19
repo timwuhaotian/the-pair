@@ -110,6 +110,7 @@ impl ProviderAdapter {
                     "kiro" => ProviderKind::Kiro,
                     "aider" => ProviderKind::Aider,
                     "grok" => ProviderKind::Grok,
+                    "muse" => ProviderKind::Muse,
                     _ => ProviderKind::Opencode,
                 };
             }
@@ -127,6 +128,8 @@ impl ProviderAdapter {
                 ProviderKind::Grok
             } else if lower.contains("aider") {
                 ProviderKind::Aider
+            } else if lower.contains("muse") {
+                ProviderKind::Muse
             } else if lower.contains("gpt")
                 || lower
                     .strip_prefix('o')
@@ -306,6 +309,14 @@ mod tests {
     fn inference_recognizes_future_o_series_models() {
         // o4 and beyond should infer to Codex, matching the frontend /^o\d/ regex
         // and is_codex_model_id() predicate.
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("muse-spark-1.3"),
+            ProviderKind::Muse
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("muse/muse-spark-1.3"),
+            ProviderKind::Muse
+        );
         assert_eq!(
             ProviderAdapter::infer_provider_kind("o4"),
             ProviderKind::Codex

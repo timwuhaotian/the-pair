@@ -52,6 +52,7 @@ pub enum ProviderKind {
     Kiro,
     Aider,
     Grok,
+    Muse,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1238,6 +1239,30 @@ impl ProviderRegistry {
         }
     }
 
+    pub fn detect_muse() -> DetectedProviderProfile {
+        let installed = which_binary_exists("muse");
+        let models = if installed {
+            discover_muse_models(&homedir())
+        } else {
+            Vec::new()
+        };
+        // `muse login --help` states META_API_KEY takes priority over the stored
+        // account login, so either signal counts as authenticated.
+        let authenticated = installed && muse_authenticated(&homedir());
+
+        DetectedProviderProfile {
+            kind: ProviderKind::Muse,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label: "muse".into(),
+            current_models: models,
+            login_command: None,
+            install_url: None,
+            detected_at: detected_at_now(),
+        }
+    }
+
     pub fn detect_pi() -> DetectedProviderProfile {
         let pi_bin = which_binary("pi");
         let installed = pi_bin.is_some();
@@ -1419,6 +1444,75 @@ fn parse_antigravity_model_lines(output: &str) -> Vec<DetectedModelOption> {
 /// Discover Kimi Code model aliases from `~/.kimi-code/config.toml`. Every
 /// `[models."<alias>"]` section is a runnable `--model` value; `display_name`
 /// keys inside a section provide the human-readable label.
+/// Model ids Muse Code is known to serve. Muse ships no `models list`
+/// subcommand and silently accepts unknown `--model` values (a bogus id still
+/// completes a run), so the catalog cannot be probed from the CLI. These two
+/// ids are seeded and then unioned with whatever the user has configured, so a
+/// newer model appears as soon as they select it in Muse itself.
+const MUSE_SEED_MODELS: &[&str] = &["muse-spark-1.3", "muse-spark-1.2"];
+
+fn muse_settings_path(home: &std::path::Path) -> PathBuf {
+    home.join(".config/muse/settings.json")
+}
+
+#[derive(Deserialize)]
+struct MuseSettings {
+    #[serde(default)]
+    model: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MuseAuth {
+    #[serde(default)]
+    providers: HashMap<String, serde_json::Value>,
+}
+
+/// Muse is authenticated when `META_API_KEY` is set (it takes priority over the
+/// account login) or `auth.json` holds a provider credential record.
+fn muse_authenticated(home: &std::path::Path) -> bool {
+    if std::env::var("META_API_KEY")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return true;
+    }
+
+    safe_read_json::<MuseAuth>(home.join(".config/muse/auth.json"))
+        .is_some_and(|auth| !auth.providers.is_empty())
+}
+
+fn muse_model_option(model_id: &str) -> DetectedModelOption {
+    DetectedModelOption {
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        source_provider: Some("meta".to_string()),
+        family: None,
+        subscription_label: "muse".to_string(),
+        supports_pair_execution: true,
+        runnable: true,
+    }
+}
+
+/// Seed catalog unioned with the user's configured model. The configured model
+/// leads so the picker defaults to what Muse itself would use.
+fn discover_muse_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
+    let configured = safe_read_json::<MuseSettings>(muse_settings_path(home))
+        .and_then(|settings| settings.model)
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty());
+
+    let mut models: Vec<DetectedModelOption> = Vec::new();
+    if let Some(configured) = configured {
+        models.push(muse_model_option(&configured));
+    }
+    for seed in MUSE_SEED_MODELS {
+        if !models.iter().any(|model| model.model_id == *seed) {
+            models.push(muse_model_option(seed));
+        }
+    }
+    models
+}
+
 fn discover_kimi_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
     let config_path = home.join(".kimi-code/config.toml");
     match fs::read_to_string(config_path) {
@@ -1847,6 +1941,97 @@ name = "bare table, not an alias"
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms).expect("failed to mark test script executable");
         path
+    }
+
+    fn muse_temp_home(settings: Option<&str>) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let config_dir = home.join(".config/muse");
+        fs::create_dir_all(&config_dir).expect("failed to create temp muse config dir");
+        if let Some(settings) = settings {
+            fs::write(config_dir.join("settings.json"), settings)
+                .expect("failed to write muse settings");
+        }
+        home
+    }
+
+    #[test]
+    fn discover_muse_models_falls_back_to_the_seed_catalog() {
+        // Muse ships no `models list` and accepts unknown ids silently, so the
+        // seed is the only catalog available without user config.
+        let home = muse_temp_home(None);
+        let models = discover_muse_models(&home);
+
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(ids, vec!["muse-spark-1.3", "muse-spark-1.2"]);
+        assert!(models.iter().all(|m| m.supports_pair_execution && m.runnable));
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn discover_muse_models_puts_the_configured_model_first() {
+        // A model the user selected in Muse itself must appear even though it
+        // is not in the seed — that is the whole point of reading settings.
+        let home = muse_temp_home(Some(
+            r#"{"schema_version":1,"provider":"meta","model":"muse-spark-9.9","reasoning_effort":"xhigh"}"#,
+        ));
+        let models = discover_muse_models(&home);
+
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["muse-spark-9.9", "muse-spark-1.3", "muse-spark-1.2"]
+        );
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn discover_muse_models_does_not_duplicate_a_configured_seed_model() {
+        let home = muse_temp_home(Some(r#"{"model":"muse-spark-1.3"}"#));
+        let models = discover_muse_models(&home);
+
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(ids, vec!["muse-spark-1.3", "muse-spark-1.2"]);
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn muse_authentication_accepts_api_key_or_stored_credentials() {
+        let _guard = crate::test_env::lock_env();
+        let home = muse_temp_home(None);
+
+        // Neither signal present.
+        std::env::remove_var("META_API_KEY");
+        assert!(!muse_authenticated(&home));
+
+        // An empty key is not a credential.
+        std::env::set_var("META_API_KEY", "   ");
+        assert!(!muse_authenticated(&home));
+
+        // `muse login --help`: META_API_KEY takes priority over account login.
+        std::env::set_var("META_API_KEY", "sk-test");
+        assert!(muse_authenticated(&home));
+        std::env::remove_var("META_API_KEY");
+
+        // Stored account credentials alone are enough.
+        fs::write(
+            home.join(".config/muse/auth.json"),
+            r#"{"schema_version":1,"providers":{"meta":{"mechanism":"oauth","storage":"keychain"}}}"#,
+        )
+        .expect("failed to write muse auth");
+        assert!(muse_authenticated(&home));
+
+        // An empty provider map is not authentication.
+        fs::write(
+            home.join(".config/muse/auth.json"),
+            r#"{"schema_version":1,"providers":{}}"#,
+        )
+        .expect("failed to rewrite muse auth");
+        assert!(!muse_authenticated(&home));
+
+        fs::remove_dir_all(&home).ok();
     }
 
     #[test]

@@ -24,7 +24,8 @@ export function inferProviderFromModel(modelId: string): ProviderKind {
       prefix === 'pi' ||
       prefix === 'kiro' ||
       prefix === 'aider' ||
-      prefix === 'grok'
+      prefix === 'grok' ||
+      prefix === 'muse'
     ) {
       return prefix
     }
@@ -36,6 +37,7 @@ export function inferProviderFromModel(modelId: string): ProviderKind {
   if (modelId.includes('kimi')) return 'kimi'
   if (modelId.includes('grok')) return 'grok'
   if (modelId.includes('aider')) return 'aider'
+  if (modelId.includes('muse')) return 'muse'
   if (modelId.includes('gpt') || /^o\d/.test(modelId)) {
     return 'codex'
   }

@@ -35,7 +35,8 @@ export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
   kimi: 'kimi login',
   opencode: 'opencode auth login',
   kiro: 'kiro-cli login',
-  grok: 'grok login'
+  grok: 'grok login',
+  muse: 'muse login'
 }
 
 const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
@@ -47,7 +48,8 @@ const PROVIDER_INSTALL_URLS: Partial<Record<ProviderKind, string>> = {
   pi: 'https://pi.dev',
   kiro: 'https://kiro.dev/downloads',
   aider: 'https://aider.chat',
-  grok: 'https://github.com/xai-org/grok-build'
+  grok: 'https://github.com/xai-org/grok-build',
+  muse: 'https://dev.meta.ai/docs/muse-code'
 }
 
 /**

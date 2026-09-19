@@ -41,7 +41,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
 | `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                                       |
 | `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                                        |
 | `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                                      |
-| `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`, `grok.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
+| `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`, `grok.rs`, `muse.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
 | `model_catalog`      | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                                       |
 | `session_snapshot`   | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                              |
 | `skill_discovery`    | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                                    |
@@ -105,7 +105,7 @@ Snapshots are persisted to Tauri's app data directory. Each snapshot includes fu
 
 ## Provider Support
 
-Nine provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Antigravity CLI), `kimi` (Kimi Code CLI), `pi` (Pi Agent CLI), `kiro` (AWS Kiro CLI), `aider` (Aider CLI), `grok` (xAI Grok Build CLI). Each is implemented as a `Provider` trait in its own module under `src-tauri/src/providers/`.
+Ten provider kinds are supported: `opencode`, `codex` (OpenAI Codex CLI), `claude` (Claude Code CLI), `gemini` (Antigravity CLI), `kimi` (Kimi Code CLI), `pi` (Pi Agent CLI), `kiro` (AWS Kiro CLI), `aider` (Aider CLI), `grok` (xAI Grok Build CLI), `muse` (Meta Muse Code CLI). Each is implemented as a `Provider` trait in its own module under `src-tauri/src/providers/`.
 
 ### Adding a New Provider
 
@@ -124,7 +124,7 @@ When the user says **"update agents"**, audit every supported provider's CLI int
 
 **Procedure:**
 
-1. **For each provider** (`opencode`, `codex`, `claude`, `gemini`/`agy`, `kimi`, `pi`, `kiro`, `aider`, `grok`):
+1. **For each provider** (`opencode`, `codex`, `claude`, `gemini`/`agy`, `kimi`, `pi`, `kiro`, `aider`, `grok`, `muse`):
    - **Web search** the latest CLI documentation and changelog/release notes for the tool. Look for changes to:
      - Headless/non-interactive invocation flags (e.g. `-p`, `--message`, `exec`)
      - Output format flags (e.g. `--json`, `--stream`, `--output-format stream-json`, `--output-last-message`)
