@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="The Pair">
+  <title>The Pair — Prompt</title>
+  <style>
+    .m { color: #2E7DE8; }
+    .e { color: #9B5DE5; }
+    .n { color: #7A8695; }
+    @media (prefers-color-scheme: light) { .n { color: #1A2332; } }
+    @media (prefers-color-scheme: dark) {
+      .m { color: #56C3F5; }
+      .e { color: #CE9AF4; }
+      .n { color: #E6EDF3; }
+    }
+  </style>
+
+  <!-- terminal pane, kept quiet so the prompt is the hero -->
+  <g class="n" color="#7A8695">
+    <rect x="57" y="113" width="398" height="286" rx="30" ry="30"
+          fill="none" stroke="currentColor" stroke-width="18"/>
+    <path d="M 57 165 L 455 165" stroke="currentColor" stroke-width="12" fill="none"/>
+    <rect x="305" y="230" width="46" height="104" rx="4" fill="currentColor"/>
+  </g>
+
+  <!-- the two agents, as a double caret prompt -->
+  <polyline points="161,230 209,282 161,334" class="m" color="#2E7DE8" fill="none"
+            stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="233,230 281,282 233,334" class="e" color="#9B5DE5" fill="none"
+            stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
