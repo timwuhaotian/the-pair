@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-09-23
+
+Provider CLI audit against the installed/latest CLIs (Claude Code 2.1.280, Codex 0.149.1, opencode 2.0.3, Antigravity 1.2.7, Kimi Code 2.0.2, pi 0.79.2, Kiro 2.23.0, aider-chat 0.86.2, Grok Build 1.0.40, Muse Code 1.3.0).
+
+### Fixed
+
+- **Codex: every resumed turn failed.** `codex exec resume` rejects `--sandbox`, so every turn after a pair's first aborted at argument parsing. The sandbox is now set with `-c sandbox_mode="…"`, which both `exec` and `exec resume` honor (a resume with no sandbox setting would have fallen back to the user's `config.toml`). `turn.failed` events now surface their error message instead of "No textual output captured", and the reasoning-effort picker appears for gpt-5.x models (`low`–`xhigh`), not only o-series ids.
+- **Codex model list:** `[tui] status_line` entries (e.g. `codex-version`) and models the live catalog marks `"visibility": "hide"` no longer appear as models.
+- **Pi: every turn failed.** `pi --list-models` prints a table, and each whole row (header included) was stored as a model id. Rows are now parsed into `provider/model` ids. Pi turns also now resume their session (`--session-id`), report token usage from `message_end`/`agent_end`, surface failures pi records only as `stopReason: "error"` (it exits 0), return just the final assistant message instead of duplicating it on tool-using turns, guard prompts starting with `@` (read as `@file` attachments), and run the Mentor with pi's documented read-only tool allowlist (`--tools read,grep,find,ls`).
+- **Antigravity (`agy`) now uses structured output.** Turns run with `--output-format stream-json`: the reply comes from the `result` event, token usage (including cache reads) is reported, `status: "ERROR"` results surface their error, and conversations resume across turns via `--conversation <id>` (captured from the `init` event). The hard `--print-timeout 10m` is gone — an expired timeout returned partial output as a success; agy 1.2.6+ waits for the turn to finish by default. Effort variants such as `gemini-3.8-flash-low/medium/high` now merge into one picker entry.
+- **Grok Build replies were garbled.** `streaming-json` `text` lines are ~10 ms stream fragments, which were trimmed and re-joined with newlines. Turns now use `--output-format streaming-messages-json` and read the final text, usage, and errors from the terminal `result` line. `grok-4.5` is listed alongside `grok-4.6`, and `grok-4.6` offers `xhigh` effort.
+- **OpenCode 2.x:**
+  - A handoff message starting with `-` made `opencode run` print its help (exit 0), which was then stored as the agent's reply. Such prompts are now guarded with a leading newline.
+  - Models from the renamed `providers` config key are read again, and on 2.x every route `opencode models` lists is treated as connected (credentials moved from `auth.json` into `opencode.db`). Model listing retries briefly while opencode's background server is still starting.
+  - `error` events now surface their message; a later `text`/`step_finish` clears a transient error the CLI recovered from.
+- **Claude Code:**
+  - Model discovery scanned the entire `--help` text once the `--model` description ended, adding ~28 fake models (permission modes, output formats). Only the `--model` block is read now, and bare aliases are skipped because they were routed to the wrong CLI.
+  - Input token counts now include cache reads and cache writes (previously e.g. 2 instead of 54,226).
+  - When auto mode is unavailable for the selected model (e.g. Haiku), Claude Code silently starts in manual mode and denies every edit while reporting success; this is now surfaced as a turn error.
+  - API errors show their actual reason instead of a generic message, without repeating it as the reply.
+  - The Sign In command is now `claude auth login` (`claude login` started a chat with "login" as the prompt).
+- **Kiro:** the selected model is now passed with `--model` (it was dropped, so turns ran on the account default). `chat --list-models` rows are parsed to their model id, and models are only listed once signed in (the command starts Kiro's browser login when signed out).
+- **Aider:** `--yes-always` also approved aider's own prompts, so runs could open browser tabs, self-upgrade via pip, or opt into analytics. Turns now pass `--no-show-model-warnings --no-check-update --no-show-release-notes --no-analytics`. The unrunnable fallback `deepseek-coder-v3` is replaced with `deepseek/deepseek-chat`, configured model ids containing `:` (Bedrock, Ollama) are no longer truncated, and keys in `~/.aider/oauth-keys.env` or `~/.env` count as signed in.
+- **Muse Code:** removed the `none` reasoning effort, which the Meta provider rejects before any model call (saved pairs using it fall back to the default). Turns pass `--trust-workspace` (this run only) so `AGENTS.md` and project rules are loaded.
+- **Kimi Code:** model discovery honors `KIMI_CODE_HOME`.
+- **Plain-text providers (aider, Kiro):** reply lines that happen to be valid JSON are no longer parsed as events and swapped in for the whole answer.
+- **All providers:** child processes get a null stdin, so CLIs that read piped stdin before starting (pi, `claude -p`, `codex exec`) no longer wait on the app's own stdin.
+
+### Docs
+
+- README (en/zh/ja/ko), `llms.txt`, and the SEO schemas list all ten supported provider CLIs with current install links.
+
 ## [2.8.0] - 2026-09-19
 
 ### Added
