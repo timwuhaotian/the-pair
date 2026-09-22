@@ -45,7 +45,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 
 ## 概要
 
-**The Pairは、2つのAIコーディングエージェント — 計画とレビューを担う読み取り専用の _Mentor_ と、コードを書きコマンドを実行する _Executor_ — を実行する無料・オープンソースのデスクトップアプリです。両エージェントが互いの作業をクロスチェックし、AIの幻覚がコードベースに入り込む前に検出します。** ローカルで動作し、macOS・Windows・Linuxに対応。モデル非依存で、Claude Code、OpenAI Codex、Gemini CLI、Kimi Code、opencodeを自由に組み合わせられます（Ollama経由のローカルモデルも利用可能）。
+**The Pairは、2つのAIコーディングエージェント — 計画とレビューを担う読み取り専用の _Mentor_ と、コードを書きコマンドを実行する _Executor_ — を実行する無料・オープンソースのデスクトップアプリです。両エージェントが互いの作業をクロスチェックし、AIの幻覚がコードベースに入り込む前に検出します。** ローカルで動作し、macOS・Windows・Linuxに対応。モデル非依存で、10種類のプロバイダーCLI — opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code — を自由に組み合わせられます（Ollama経由のローカルモデルも利用可能）。
 
 **AIコードの幻覚が心配ですか？** The Pairは、互いにクロスチェックする2つのAIエージェントを実行することでこの問題を解決します：
 
@@ -84,7 +84,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 - **Git変更追跡** — 変更、追加、削除されたファイルを自動検出
 - **会話履歴** — すべてのエージェントインタラクションの完全なトランスクリプト
 - **ローカルオーケストレーション** — アプリとエージェントの調整はすべてローカルで実行。モデル呼び出しは選択したプロバイダーまたはローカルモデルに依存
-- **マルチプロバイダー** — opencode、Claude Code、Codex、Gemini CLI、Kimi Code CLIに対応
+- **マルチプロバイダー** — 10種類のプロバイダーCLIに対応：opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code
 - **推論コントロール** — エージェントロールごとに思考の努力度を調整（低/中/高）
 - **トークントラッキング** — ターンごとのリアルタイムトークン使用量をインライン表示
 - **スキルシステム** — エージェントの行動をガイドするプロジェクト固有のスキルファイルを添付
@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## クイックスタート
 
 > [!NOTE]
-> The PairにはAIプロバイダーCLIが少なくとも1つ必要です：[opencode](https://opencode.ai)、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Antigravity](https://github.com/google-gemini/antigravity)、または [Kimi Code](https://github.com/MoonshotAI/kimi-code)。
+> The PairにはAIプロバイダーCLIが少なくとも1つ必要です：[opencode](https://opencode.ai)、[Claude Code](https://claude.ai/download)、[Codex](https://github.com/openai/codex)、[Antigravity](https://github.com/google-antigravity/antigravity-cli)、[Kimi Code](https://github.com/MoonshotAI/kimi-code)、[Pi](https://pi.dev)、[Kiro](https://kiro.dev/downloads)、[Aider](https://aider.chat)、[Grok Build](https://github.com/xai-org/grok-build)、または [Muse Code](https://dev.meta.ai/docs/muse-code)。
 
 ### 1. AIプロバイダーをインストール
 
@@ -141,8 +141,13 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` または `npm install -g opencode-ai`
 - **Claude Code** — [Claude Codeセットアップ](https://docs.anthropic.com/en/docs/claude-code/getting-started)を参照、または `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Antigravity** — `agy install`（[Antigravity](https://github.com/google-gemini/antigravity)を参照）
+- **Antigravity** — `agy install`（[Antigravity](https://github.com/google-antigravity/antigravity-cli)を参照）
 - **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash`（[Kimi Code](https://github.com/MoonshotAI/kimi-code)を参照）
+- **Pi** — インストールとサインインは [pi.dev](https://pi.dev) を参照
+- **Kiro** — [kiro.dev/downloads](https://kiro.dev/downloads) からダウンロードし、`kiro-cli login`
+- **Aider** — `python -m pip install -U aider-chat`（[aider.chat](https://aider.chat)を参照）
+- **Grok Build** — [xai-org/grok-build](https://github.com/xai-org/grok-build) を参照し、`grok login`
+- **Muse Code** — [Muse Codeドキュメント](https://dev.meta.ai/docs/muse-code)を参照し、`muse login`
 
 ### 2. AIモデルを設定（オプション）
 
@@ -158,7 +163,7 @@ opencodeベースのモデルの場合、`~/.config/opencode/opencode.json`でAI
 ```
 
 > [!TIP]
-> Codex、Claude Code、Antigravity（`agy`）はインストール済みCLIからログイン状態を自動検出します。[Ollama](https://ollama.com)でローカルモデルを使用してオフライン開発も可能です。
+> Codex、Claude Code、Antigravity（`agy`）、Kimi Code（`kimi`）、Pi、Kiro、Aider、Grok Build、Muse Codeはインストール済みCLIからログイン状態を自動検出します。[Ollama](https://ollama.com)でローカルモデルを使用してオフライン開発も可能です。
 
 ### 3. The Pairを起動
 
@@ -177,12 +182,12 @@ opencodeベースのモデルの場合、`~/.config/opencode/opencode.json`でAI
 
 ### プロバイダー設定
 
-OpenCodeベースのモデルは既存のopencode設定を使用：
+opencodeベースのモデルは既存のopencode設定を使用：
 
 - **macOS/Linux**: `~/.config/opencode/opencode.json`
 - **Windows**: `%APPDATA%/opencode/opencode.json`
 
-Codex、Claude Code、Gemini CLI、Kimi Code CLIはローカルCLIインストールとアカウント状態から自動検出されます。
+Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse CodeはローカルCLIインストールとアカウント状態から自動検出されます。
 
 ### Pairランタイム
 
@@ -236,8 +241,9 @@ Codex、Claude Code、Gemini CLI、Kimi Code CLIはローカルCLIインスト�
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
      │  AIプロバイダーCLI│          │   Gitリポジトリ  │
-     │ opencode/Claude/ │          │  (ワークスペース)│
-     │ Codex/Gemini     │          └─────────────────┘
+     │ Claude, Codex,   │          │  (ワークスペース)│
+     │ Gemini, Kimi…    │          └─────────────────┘
+     │ (10 providers)   │
      └─────────────────┘
 ```
 
@@ -338,7 +344,7 @@ A: はい。The PairはApache 2.0ライセンスの下で完全にオープン�
 
 **Q: The PairはCursor、GitHub Copilot、Aiderの代替になりますか？**
 
-A: はい、ただしアプローチが異なります。Cursor、Copilot、Aiderは単一エージェントで動作します。The Pairは2つの独立したエージェント——Mentor（読み取り専用レビュアー）とExecutor（コード作成者）——を実行し、互いにクロスチェックすることで、ミスが出荷される前に2つ目のモデルが捕捉します。ローカルファーストでオープンソースの代替であり、モデル非依存です：Claude Code、Codex、Gemini、Kimi Code、opencodeを自由に組み合わせられます。
+A: はい、ただしアプローチが異なります。Cursor、Copilot、Aiderは単一エージェントで動作します。The Pairは2つの独立したエージェント——Mentor（読み取り専用レビュアー）とExecutor（コード作成者）——を実行し、互いにクロスチェックすることで、ミスが出荷される前に2つ目のモデルが捕捉します。ローカルファーストでオープンソースの代替であり、モデル非依存です：10種類のプロバイダーCLI — opencode、Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code — から任意の2つを組み合わせられます。
 
 **Q: The Pairはどのオペレーティングシステムに対応していますか？**
 
@@ -354,15 +360,15 @@ A: The Pairは完全にローカルで実行されます。AIモデルAPI呼び�
 
 **Q: どのAIプロバイダーがサポートされていますか？**
 
-A: The Pairは5つのプロバイダーをそのままサポートしています：**opencode**（互換性のある任意のモデル）、**Claude Code CLI**、**OpenAI Codex CLI**、**Gemini CLI**、**Kimi Code CLI**。Codex、Claude、Gemini、Kimiはインストール済みCLIから自動検出されます。プロバイダーをミックスできます — 例えばMentorにClaude、ExecutorにCodex。
+A: The Pairは10種類のプロバイダーCLIをそのままサポートしています：**opencode**（互換性のある任意のモデル）、**Claude Code**、**OpenAI Codex**、**Antigravity**（Gemini）、**Kimi Code**、**Pi**、**Kiro**、**Aider**、**Grok Build**、**Muse Code**。すべてインストール済みCLIから自動検出されます。プロバイダーをミックスできます — 例えばMentorにClaude、ExecutorにCodex。
 
 **Q: 自分のAIモデルを使えますか？**
 
-A: はい、The Pairはモデルに依存しません。opencodeベースのモデルは互換性のある任意のプロバイダー（OpenAI、Anthropic、Ollamaなど）で動作します。Claude、Codex、Gemini、Kimi Codeの場合はCLIをインストールしてサインインするだけです。
+A: はい、The Pairはモデルに依存しません。opencodeベースのモデルは互換性のある任意のプロバイダー（OpenAI、Anthropic、Ollamaなど）で動作します。その他のプロバイダーCLIは、CLIをインストールしてサインインするだけです。
 
 **Q: エージェントの「思考の深さ」を制御できますか？**
 
-A: はい。The Pairはこれを提供するモデルに対して**推論努力制御**をサポートしています（Claude、Codex oシリーズ、Gemini 2.5）。各ロールごとに低/中/高を設定でき、MentorとExecutorは独立して設定可能で、Pair作成時または設定から調整できます。
+A: はい。The Pairはこれを提供するモデルに対して**推論努力制御**をサポートしています（Claude、Codex、Gemini、Grokなど）。各ロールごとに低/中/高を設定でき、MentorとExecutorは独立して設定可能で、Pair作成時または設定から調整できます。
 
 **Q: トークン使用量とコストを追跡するには？**
 
@@ -390,6 +396,6 @@ A: はい。The Pairは起動時に新しいバージョンをチェックし、
 
 **[⭐ スターをつける](https://github.com/timwuhaotian/the-pair)** — 役に立ったら応援してください！
 
-<sub>The Pair — オープンソースのAIペアプログラミング · デュアルエージェントAIコードレビュー · マルチエージェントコーディングアシスタント · Cursor / Copilotの代替 · Claude Code、Codex、Gemini、Kimi Code、opencodeに対応、macOS・Windows・Linuxで動作。</sub>
+<sub>The Pair — オープンソースのAIペアプログラミング · デュアルエージェントAIコードレビュー · マルチエージェントコーディングアシスタント · Cursor / Copilotの代替 · Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code、opencodeに対応、macOS・Windows・Linuxで動作。</sub>
 
 </div>

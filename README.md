@@ -50,7 +50,7 @@ _Watch Mentor and Executor agents collaborate in real-time_
 
 ## Overview
 
-**The Pair is a free, open-source desktop app that runs two AI coding agents — a read-only _Mentor_ that plans and reviews, and an _Executor_ that writes code and runs commands — which cross-check each other's work to catch AI hallucinations before they reach your codebase.** It runs locally on macOS, Windows, and Linux, and is model-agnostic: pair Claude Code, OpenAI Codex, Gemini CLI, Kimi Code, and opencode in any combination (plus local models via Ollama).
+**The Pair is a free, open-source desktop app that runs two AI coding agents — a read-only _Mentor_ that plans and reviews, and an _Executor_ that writes code and runs commands — which cross-check each other's work to catch AI hallucinations before they reach your codebase.** It runs locally on macOS, Windows, and Linux, and is model-agnostic: mix and match ten provider CLIs — opencode, Claude Code, Codex, Antigravity (Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, and Muse Code — in any combination (plus local models via Ollama).
 
 **Worried about AI code hallucinations?** The Pair solves this by running two AI agents that cross-check each other:
 
@@ -69,20 +69,20 @@ For AI crawlers and search systems, see [llms.txt](llms.txt), the reusable [Soft
 >
 > **How is this different from single-agent tools?** — One model writing _and_ reviewing its own code can miss its own mistakes. The Pair's Mentor independently reviews everything the Executor produces.
 >
-> **Which models work?** — Any model reachable through opencode, Claude Code, Codex, Gemini CLI, or Kimi Code CLI — including GPT, Claude, Gemini, GLM, Qwen, Kimi, MiniMax, and DeepSeek, plus local models via Ollama. Mix and match providers freely (e.g., Claude as Mentor + Codex as Executor).
+> **Which models work?** — Any model reachable through opencode, Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, or Muse Code — including GPT, Claude, Gemini, Grok, GLM, Qwen, Kimi, MiniMax, and DeepSeek, plus local models via Ollama. Mix and match providers freely (e.g., Claude as Mentor + Codex as Executor).
 >
 > **Does it need internet?** — The app runs locally. Only model API calls need connectivity (or use Ollama for fully offline sessions).
 
 ### Why The Pair?
 
-| Capability                      | The Pair                                 | Cursor / Copilot    | Claude Code (solo)  |
-| ------------------------------- | ---------------------------------------- | ------------------- | ------------------- |
-| Cross-validation between agents | ✅ Two independent agents                | ❌ Single agent     | ❌ Single agent     |
-| Dedicated review role           | ✅ Mentor (read-only)                    | ❌ Self-review only | ❌ Self-review only |
-| Multi-provider support          | ✅ opencode, Claude, Codex, Gemini, Kimi | ❌ Locked to one    | ❌ Claude only      |
-| Local orchestration             | ✅ Fully local                           | ❌ Cloud-dependent  | ❌ Cloud-dependent  |
-| Session recovery                | ✅ Full snapshot restore                 | ❌                  | ❌                  |
-| Open source                     | ✅ Apache 2.0                            | ❌ Proprietary      | ❌ Proprietary      |
+| Capability                      | The Pair                  | Cursor / Copilot    | Claude Code (solo)  |
+| ------------------------------- | ------------------------- | ------------------- | ------------------- |
+| Cross-validation between agents | ✅ Two independent agents | ❌ Single agent     | ❌ Single agent     |
+| Dedicated review role           | ✅ Mentor (read-only)     | ❌ Self-review only | ❌ Self-review only |
+| Multi-provider support          | ✅ 10 provider CLIs       | ❌ Locked to one    | ❌ Claude only      |
+| Local orchestration             | ✅ Fully local            | ❌ Cloud-dependent  | ❌ Cloud-dependent  |
+| Session recovery                | ✅ Full snapshot restore  | ❌                  | ❌                  |
+| Open source                     | ✅ Apache 2.0             | ❌ Proprietary      | ❌ Proprietary      |
 
 ### Key Benefits
 
@@ -137,7 +137,7 @@ Both use the same Mentor + Executor idea: one agent plans and reviews, the other
 - **Sound Cues** — Contextual finish, pause, and error chimes with global mute toggle
 - **Conversation History** — Full transcript of all agent interactions, exportable as a run report
 - **Local Orchestration** — Runs the app and agent coordination locally; model calls depend on your selected provider or local model
-- **Multi-Provider** — Works with opencode, Claude Code, Codex, Gemini CLI, and Kimi Code CLI
+- **Multi-Provider** — Works with ten provider CLIs: opencode, Claude Code, Codex, Antigravity (Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, and Muse Code
 - **Reasoning Controls** — Adjust thinking effort per agent role (low/medium/high)
 - **Token Tracking** — Real-time per-turn input/output token usage in timeline, turn cards, and run reports
 - **Skill System** — Attach project-specific skill files to guide agent behavior
@@ -186,7 +186,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## Quick Start
 
 > [!NOTE]
-> The Pair requires at least one AI provider CLI: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [Antigravity](https://github.com/google-gemini/antigravity), or [Kimi Code](https://github.com/MoonshotAI/kimi-code).
+> The Pair requires at least one AI provider CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/download), [Codex](https://github.com/openai/codex), [Antigravity](https://github.com/google-antigravity/antigravity-cli), [Kimi Code](https://github.com/MoonshotAI/kimi-code), [Pi](https://pi.dev), [Kiro](https://kiro.dev/downloads), [Aider](https://aider.chat), [Grok Build](https://github.com/xai-org/grok-build), or [Muse Code](https://dev.meta.ai/docs/muse-code).
 
 ### 1. Install an AI Provider
 
@@ -195,8 +195,13 @@ Install one or more of the supported CLIs:
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` or `npm install -g opencode-ai`
 - **Claude Code** — see [Claude Code setup](https://docs.anthropic.com/en/docs/claude-code/getting-started), or use `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Antigravity** — `agy install` (see [Antigravity](https://github.com/google-gemini/antigravity) for setup)
+- **Antigravity** — `agy install` (see [Antigravity](https://github.com/google-antigravity/antigravity-cli) for setup)
 - **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash` (see [Kimi Code](https://github.com/MoonshotAI/kimi-code) for setup)
+- **Pi** — see [pi.dev](https://pi.dev) for installation and sign-in
+- **Kiro** — download from [kiro.dev/downloads](https://kiro.dev/downloads), then `kiro-cli login`
+- **Aider** — `python -m pip install -U aider-chat` (see [aider.chat](https://aider.chat) for setup)
+- **Grok Build** — see [xai-org/grok-build](https://github.com/xai-org/grok-build), then `grok login`
+- **Muse Code** — see [Muse Code docs](https://dev.meta.ai/docs/muse-code), then `muse login`
 
 ### 2. Configure AI Models (Optional)
 
@@ -212,7 +217,7 @@ For opencode-backed models, set up your AI providers in `~/.config/opencode/open
 ```
 
 > [!TIP]
-> Codex, Claude Code, Antigravity (`agy`), and Kimi Code (`kimi`) are detected from their installed CLIs and sign-in state. You can also use local models with [Ollama](https://ollama.com) for offline development.
+> Codex, Claude Code, Antigravity (`agy`), Kimi Code (`kimi`), Pi, Kiro, Aider, Grok Build, and Muse Code are detected from their installed CLIs and sign-in state. You can also use local models with [Ollama](https://ollama.com) for offline development.
 
 ### 3. Launch The Pair
 
@@ -231,12 +236,12 @@ Open from Applications folder or start menu.
 
 ### Provider Configuration
 
-OpenCode-backed models use your existing opencode configuration:
+opencode-backed models use your existing opencode configuration:
 
 - **macOS/Linux**: `~/.config/opencode/opencode.json`
 - **Windows**: `%APPDATA%/opencode/opencode.json`
 
-Codex, Claude Code, Gemini CLI, and Kimi Code CLI are detected from their local CLI install and account state.
+Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, and Muse Code are detected from their local CLI install and account state.
 
 ### Pair Runtime
 
@@ -295,8 +300,9 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
      │  AI Provider CLIs│          │   Git Repo      │
-     │ opencode/Claude/ │          │  (Workspace)    │
-     │ Codex/Gemini     │          └─────────────────┘
+     │ Claude, Codex,   │          │  (Workspace)    │
+     │ Gemini, Kimi…    │          └─────────────────┘
+     │ (10 providers)   │
      └─────────────────┘
 ```
 
@@ -403,7 +409,7 @@ A: Yes. The Pair is fully open source under the Apache 2.0 license and free to d
 
 **Q: Is The Pair an alternative to Cursor, GitHub Copilot, or Aider?**
 
-A: Yes, with a different approach. Cursor, Copilot, and Aider drive a single agent. The Pair runs two independent agents — a Mentor (read-only reviewer) and an Executor (code writer) — that cross-check each other, so mistakes get caught by a second model instead of shipped. It's a local-first, open-source alternative, and it's model-agnostic: pair Claude Code, Codex, Gemini, Kimi Code, or opencode in any combination.
+A: Yes, with a different approach. Cursor, Copilot, and Aider drive a single agent. The Pair runs two independent agents — a Mentor (read-only reviewer) and an Executor (code writer) — that cross-check each other, so mistakes get caught by a second model instead of shipped. It's a local-first, open-source alternative, and it's model-agnostic: pair any two of its ten provider CLIs — opencode, Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, or Muse Code.
 
 **Q: Which operating systems does The Pair support?**
 
@@ -419,15 +425,15 @@ A: The Pair runs entirely locally. Only the AI model API calls require internet 
 
 **Q: Which AI providers are supported?**
 
-A: The Pair supports five providers out of the box: **opencode** (any compatible model), **Claude Code CLI**, **OpenAI Codex CLI**, **Gemini CLI**, and **Kimi Code CLI**. Codex, Claude, Gemini, and Kimi are detected automatically from their installed CLIs. You can mix providers — e.g., Claude as Mentor and Codex as Executor.
+A: The Pair supports ten provider CLIs out of the box: **opencode** (any compatible model), **Claude Code**, **OpenAI Codex**, **Antigravity** (Gemini), **Kimi Code**, **Pi**, **Kiro**, **Aider**, **Grok Build**, and **Muse Code**. All are detected automatically from their installed CLIs. You can mix providers — e.g., Claude as Mentor and Codex as Executor.
 
 **Q: Can I use my own AI models?**
 
-A: Yes, The Pair is model-agnostic. Opencode-backed models work with any compatible provider (OpenAI, Anthropic, Ollama, etc.). For Claude, Codex, Gemini, and Kimi Code, simply install their CLI and sign in.
+A: Yes, The Pair is model-agnostic. Opencode-backed models work with any compatible provider (OpenAI, Anthropic, Ollama, etc.). For the other provider CLIs, simply install the CLI and sign in.
 
 **Q: Can I control how much the agents "think"?**
 
-A: Yes. The Pair supports **reasoning effort controls** for models that offer it (Claude, Codex o-series, Gemini 2.5). You can set low/medium/high effort per role — Mentor and Executor independently — from pair creation or settings.
+A: Yes. The Pair supports **reasoning effort controls** for models that offer it (Claude, Codex, Gemini, Grok, and more). You can set low/medium/high effort per role — Mentor and Executor independently — from pair creation or settings.
 
 **Q: How do I track token usage and costs?**
 
@@ -459,6 +465,6 @@ Built with ❤️ by [timwuhaotian](https://github.com/timwuhaotian)
 
 **[⭐ Star this repo](https://github.com/timwuhaotian/the-pair)** if you find it helpful! &nbsp;|&nbsp; [📢 Share on X](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair) &nbsp;|&nbsp; [💬 Discuss](https://github.com/timwuhaotian/the-pair/discussions)
 
-<sub>The Pair — open-source AI pair programming · dual-agent AI code review · multi-agent coding assistant · Cursor &amp; Copilot alternative · works with Claude Code, Codex, Gemini, Kimi Code, and opencode on macOS, Windows, and Linux.</sub>
+<sub>The Pair — open-source AI pair programming · dual-agent AI code review · multi-agent coding assistant · Cursor &amp; Copilot alternative · works with Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code, and opencode on macOS, Windows, and Linux.</sub>
 
 </div>

@@ -45,7 +45,7 @@ _Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
 
 ## 개요
 
-**The Pair는 두 개의 AI 코딩 에이전트 — 계획과 검토를 담당하는 읽기 전용 _Mentor_ 와 코드를 작성하고 명령을 실행하는 _Executor_ — 를 실행하는 무료 오픈소스 데스크톱 앱으로, 두 에이전트가 서로의 작업을 교차 검증하여 AI 환각이 코드베이스에 도달하기 전에 잡아냅니다.** 로컬에서 실행되며 macOS, Windows, Linux를 지원하고 모델에 구애받지 않습니다: Claude Code, OpenAI Codex, Gemini CLI, Kimi Code, opencode를 자유롭게 조합할 수 있습니다(Ollama를 통한 로컬 모델도 가능).
+**The Pair는 두 개의 AI 코딩 에이전트 — 계획과 검토를 담당하는 읽기 전용 _Mentor_ 와 코드를 작성하고 명령을 실행하는 _Executor_ — 를 실행하는 무료 오픈소스 데스크톱 앱으로, 두 에이전트가 서로의 작업을 교차 검증하여 AI 환각이 코드베이스에 도달하기 전에 잡아냅니다.** 로컬에서 실행되며 macOS, Windows, Linux를 지원하고 모델에 구애받지 않습니다: 10가지 프로바이더 CLI — opencode, Claude Code, Codex, Antigravity(Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code — 를 자유롭게 조합할 수 있습니다(Ollama를 통한 로컬 모델도 가능).
 
 **AI 코드 환각이 걱정되시나요?** The Pair는 서로를 교차 검증하는 두 AI 에이전트를 실행하여 이 문제를 해결합니다:
 
@@ -84,7 +84,7 @@ _Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
 - **Git 변경 추적** — 수정, 추가 또는 삭제된 파일 자동 감지
 - **대화 기록** — 모든 에이전트 상호작용의 전체 기록
 - **로컬 오케스트레이션** — 앱과 에이전트 조정은 모두 로컬에서 실행; 모델 호출은 선택한 프로바이더 또는 로컬 모델에 따름
-- **멀티 프로바이더** — opencode, Claude Code, Codex, Gemini CLI, Kimi Code CLI 호환
+- **멀티 프로바이더** — 10가지 프로바이더 CLI 호환: opencode, Claude Code, Codex, Antigravity(Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code
 - **추론 제어** — 에이전트 역할별 사고 노력 조정 (낮음/중간/높음)
 - **토큰 추적** — 각 턴당 실시간 토큰 사용량 인라인 표시
 - **스킬 시스템** — 에이전트 행동을 가이드하는 프로젝트별 스킬 파일 첨부
@@ -132,7 +132,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## 빠른 시작
 
 > [!NOTE]
-> The Pair에는 최소 하나의 AI 프로바이더 CLI가 필요합니다: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [Antigravity](https://github.com/google-gemini/antigravity) 또는 [Kimi Code](https://github.com/MoonshotAI/kimi-code).
+> The Pair에는 최소 하나의 AI 프로바이더 CLI가 필요합니다: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/download), [Codex](https://github.com/openai/codex), [Antigravity](https://github.com/google-antigravity/antigravity-cli), [Kimi Code](https://github.com/MoonshotAI/kimi-code), [Pi](https://pi.dev), [Kiro](https://kiro.dev/downloads), [Aider](https://aider.chat), [Grok Build](https://github.com/xai-org/grok-build) 또는 [Muse Code](https://dev.meta.ai/docs/muse-code).
 
 ### 1. AI 프로바이더 설치
 
@@ -141,8 +141,13 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 - **opencode** — `curl -fsSL https://opencode.ai/install | bash` 또는 `npm install -g opencode-ai`
 - **Claude Code** — [Claude Code 설정](https://docs.anthropic.com/en/docs/claude-code/getting-started) 참조 또는 `npm install -g @anthropic-ai/claude-code`
 - **Codex** — `npm install -g @openai/codex`
-- **Antigravity** — `agy install` ([Antigravity](https://github.com/google-gemini/antigravity) 설치 참조)
+- **Antigravity** — `agy install` ([Antigravity](https://github.com/google-antigravity/antigravity-cli) 설치 참조)
 - **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash` ([Kimi Code](https://github.com/MoonshotAI/kimi-code) 설치 참조)
+- **Pi** — 설치 및 로그인은 [pi.dev](https://pi.dev) 참조
+- **Kiro** — [kiro.dev/downloads](https://kiro.dev/downloads)에서 다운로드한 후 `kiro-cli login`
+- **Aider** — `python -m pip install -U aider-chat` ([aider.chat](https://aider.chat) 설치 참조)
+- **Grok Build** — [xai-org/grok-build](https://github.com/xai-org/grok-build) 참조 후 `grok login`
+- **Muse Code** — [Muse Code 문서](https://dev.meta.ai/docs/muse-code) 참조 후 `muse login`
 
 ### 2. AI 모델 구성 (선택 사항)
 
@@ -158,7 +163,7 @@ opencode 기반 모델의 경우, `~/.config/opencode/opencode.json`에서 AI �
 ```
 
 > [!TIP]
-> Codex, Claude Code, Antigravity(`agy`)는 설치된 CLI와 로그인 상태에서 자동 감지됩니다. [Ollama](https://ollama.com)와 로컬 모델을 사용하여 오프라인 개발도 가능합니다.
+> Codex, Claude Code, Antigravity(`agy`), Kimi Code(`kimi`), Pi, Kiro, Aider, Grok Build, Muse Code는 설치된 CLI와 로그인 상태에서 자동 감지됩니다. [Ollama](https://ollama.com)와 로컬 모델을 사용하여 오프라인 개발도 가능합니다.
 
 ### 3. The Pair 실행
 
@@ -177,12 +182,12 @@ opencode 기반 모델의 경우, `~/.config/opencode/opencode.json`에서 AI �
 
 ### 프로바이더 구성
 
-OpenCode 기반 모델은 기존 opencode 구성을 사용합니다:
+opencode 기반 모델은 기존 opencode 구성을 사용합니다:
 
 - **macOS/Linux**: `~/.config/opencode/opencode.json`
 - **Windows**: `%APPDATA%/opencode/opencode.json`
 
-Codex, Claude Code, Gemini CLI, Kimi Code CLI는 로컬 CLI 설치 및 계정 상태에서 자동 감지됩니다.
+Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code는 로컬 CLI 설치 및 계정 상태에서 자동 감지됩니다.
 
 ### Pair 런타임
 
@@ -236,8 +241,9 @@ Codex, Claude Code, Gemini CLI, Kimi Code CLI는 로컬 CLI 설치 및 계정 �
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
      │  AI 프로바이더 CLI│          │   Git 저장소     │
-     │ opencode/Claude/ │          │  (작업 공간)     │
-     │ Codex/Gemini     │          └─────────────────┘
+     │ Claude, Codex,   │          │  (작업 공간)     │
+     │ Gemini, Kimi…    │          └─────────────────┘
+     │ (10 providers)   │
      └─────────────────┘
 ```
 
@@ -338,7 +344,7 @@ A: 네. The Pair는 Apache 2.0 라이선스로 완전한 오픈소스이며 macO
 
 **Q: The Pair는 Cursor, GitHub Copilot 또는 Aider의 대안인가요?**
 
-A: 네, 다만 접근 방식이 다릅니다. Cursor, Copilot, Aider는 단일 에이전트로 작동합니다. The Pair는 두 개의 독립 에이전트——Mentor(읽기 전용 리뷰어)와 Executor(코드 작성자)——를 실행하여 서로 교차 검증하므로, 실수가 출시되기 전에 두 번째 모델이 잡아냅니다. 로컬 우선의 오픈소스 대안이며 모델에 구애받지 않습니다: Claude Code, Codex, Gemini, Kimi Code, opencode를 자유롭게 조합할 수 있습니다.
+A: 네, 다만 접근 방식이 다릅니다. Cursor, Copilot, Aider는 단일 에이전트로 작동합니다. The Pair는 두 개의 독립 에이전트——Mentor(읽기 전용 리뷰어)와 Executor(코드 작성자)——를 실행하여 서로 교차 검증하므로, 실수가 출시되기 전에 두 번째 모델이 잡아냅니다. 로컬 우선의 오픈소스 대안이며 모델에 구애받지 않습니다: 10가지 프로바이더 CLI — opencode, Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code — 중 두 가지를 자유롭게 조합할 수 있습니다.
 
 **Q: The Pair는 어떤 운영 체제를 지원하나요?**
 
@@ -354,15 +360,15 @@ A: The Pair는 완전히 로컬에서 실행됩니다. AI 모델 API 호출만 �
 
 **Q: 어떤 AI 프로바이더를 지원하나요?**
 
-A: The Pair는 기본적으로 다섯 가지 프로바이더를 지원합니다: **opencode** (호환 가능한 모든 모델), **Claude Code CLI**, **OpenAI Codex CLI**, **Gemini CLI**, **Kimi Code CLI**. Codex, Claude, Gemini, Kimi는 설치된 CLI에서 자동 감지됩니다. 프로바이더를 혼합할 수 있습니다 — 예를 들어 Claude를 Mentor로, Codex를 Executor로.
+A: The Pair는 기본적으로 10가지 프로바이더 CLI를 지원합니다: **opencode** (호환 가능한 모든 모델), **Claude Code**, **OpenAI Codex**, **Antigravity** (Gemini), **Kimi Code**, **Pi**, **Kiro**, **Aider**, **Grok Build**, **Muse Code**. 모두 설치된 CLI에서 자동 감지됩니다. 프로바이더를 혼합할 수 있습니다 — 예를 들어 Claude를 Mentor로, Codex를 Executor로.
 
 **Q: 자체 AI 모델을 사용할 수 있나요?**
 
-A: 네, The Pair는 모델에 구애받지 않습니다. opencode 기반 모델은 호환 가능한 모든 프로바이더(OpenAI, Anthropic, Ollama 등)와 작동합니다. Claude, Codex, Gemini, Kimi Code의 경우 CLI를 설치하고 로그인하기만 하면 됩니다.
+A: 네, The Pair는 모델에 구애받지 않습니다. opencode 기반 모델은 호환 가능한 모든 프로바이더(OpenAI, Anthropic, Ollama 등)와 작동합니다. 그 밖의 프로바이더 CLI는 CLI를 설치하고 로그인하기만 하면 됩니다.
 
 **Q: 에이전트의 "사고 깊이"를 제어할 수 있나요?**
 
-A: 네. The Pair는 이를 제공하는 모델에 대해 **추론 노력 제어**를 지원합니다 (Claude, Codex o 시리즈, Gemini 2.5). 각 역할별로 낮음/중간/높음 노력을 설정할 수 있으며, Mentor와 Executor는 독립적으로 설정 가능하며 Pair 생성 또는 설정에서 조정할 수 있습니다.
+A: 네. The Pair는 이를 제공하는 모델에 대해 **추론 노력 제어**를 지원합니다 (Claude, Codex, Gemini, Grok 등). 각 역할별로 낮음/중간/높음 노력을 설정할 수 있으며, Mentor와 Executor는 독립적으로 설정 가능하며 Pair 생성 또는 설정에서 조정할 수 있습니다.
 
 **Q: 토큰 사용량과 비용을 어떻게 추적하나요?**
 
@@ -390,6 +396,6 @@ A: 네. The Pair는 실행 시 새 버전을 확인하고 원클릭 업데이트
 
 **[⭐ Star 누르기](https://github.com/timwuhaotian/the-pair)** — 도움이 되셨다면 응원해 주세요!
 
-<sub>The Pair — 오픈소스 AI 페어 프로그래밍 · 듀얼 에이전트 AI 코드 리뷰 · 멀티 에이전트 코딩 어시스턴트 · Cursor / Copilot 대안 · Claude Code, Codex, Gemini, Kimi Code, opencode 지원, macOS, Windows, Linux에서 작동.</sub>
+<sub>The Pair — 오픈소스 AI 페어 프로그래밍 · 듀얼 에이전트 AI 코드 리뷰 · 멀티 에이전트 코딩 어시스턴트 · Cursor / Copilot 대안 · Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code, opencode 지원, macOS, Windows, Linux에서 작동.</sub>
 
 </div>
