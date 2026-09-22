@@ -3,7 +3,7 @@ use crate::acceptance::{
     should_stop_iteration,
 };
 use crate::message_broker::MessageBroker;
-use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
+use crate::provider_adapter::{OutputTransport, ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
 use crate::report_generator::{generate_session_report, save_report_to_file};
 use crate::session_snapshot::persist_current_pair_snapshot;
@@ -218,6 +218,15 @@ fn extract_session_id(event: &serde_json::Value) -> Option<String> {
                 if !id.trim().is_empty() {
                     return Some(id.to_string());
                 }
+            }
+        }
+    }
+    // Antigravity (`agy --output-format stream-json`) opens every turn with
+    // {"event":"init","conversation_id":"…"}; `--conversation <id>` resumes it.
+    if event.get("event").and_then(|v| v.as_str()) == Some("init") {
+        if let Some(id) = event.get("conversation_id").and_then(|s| s.as_str()) {
+            if !id.trim().is_empty() {
+                return Some(id.to_string());
             }
         }
     }
@@ -1031,6 +1040,10 @@ impl ProcessSpawner {
         child_command
             .args(&args)
             .current_dir(&directory)
+            // Nothing is ever written to a provider's stdin. Leaving it inherited
+            // makes CLIs that read piped stdin before starting (pi, `claude -p`)
+            // wait on whatever the app itself was launched with.
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         apply_provider_cli_env(&mut child_command);
@@ -1063,6 +1076,10 @@ impl ProcessSpawner {
         let app_clone = app.clone();
         let active_processes_for_cleanup = self.active_processes.clone();
         let provider_kind_clone = provider_kind;
+        // Plain-text providers (aider, kiro) never emit JSON events, so a reply
+        // line that merely looks like JSON must stay part of the text output
+        // instead of being parsed as an event and overriding the answer.
+        let parses_json_events = spec.output_transport != OutputTransport::Stdio;
         let captured_run_gen = captured_run_generation;
 
         // Stderr watcher
@@ -1133,7 +1150,10 @@ impl ProcessSpawner {
             while let Ok(Some(line)) = reader.next_line().await {
                 let mut is_internal_json = false;
 
-                if let Some(event) = parse_json_event(&line) {
+                if let Some(event) = parses_json_events
+                    .then(|| parse_json_event(&line))
+                    .flatten()
+                {
                     is_internal_json = true;
                     let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     let event_type_lower = event_type.to_lowercase();
@@ -1162,6 +1182,8 @@ impl ProcessSpawner {
                         if let Some(provider) = crate::providers::provider_for_kind(provider_kind_clone) {
                             if let Some(detail) = provider.extract_error_detail(&event) {
                                 provider_turn_error = Some(detail);
+                            } else if provider.clears_turn_error(&event) {
+                                provider_turn_error = None;
                             }
                         }
                     }
@@ -2314,47 +2336,40 @@ mod tests {
     }
 
     #[test]
-    fn gemini_result_events_prefer_structured_candidate_text_over_protocol_message_fields() {
-        let event = json!({
-            "type": "result",
-            "message": "}",
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            { "text": "Structured final answer" }
-                        ]
-                    }
-                }
-            ]
+    fn gemini_result_event_is_the_only_text_source() {
+        // agy stream-json: step_update deltas repeat what `result.response`
+        // holds in full, so only the result envelope contributes text.
+        let delta = json!({
+            "event": "step_update",
+            "step_update": { "step_type": "agent_response", "text_delta": "Cross-provider" }
+        });
+        let result = json!({
+            "event": "result",
+            "result": { "status": "SUCCESS", "response": "Cross-provider handoff is ready.\n" }
         });
 
         let mut candidates = Vec::new();
-        collect_json_candidates_for_provider(ProviderKind::Gemini, &event, &mut candidates);
-
-        assert_eq!(candidates, vec!["Structured final answer".to_string()]);
-    }
-
-    #[test]
-    fn gemini_stream_events_collect_server_content_parts() {
-        let event = json!({
-            "type": "content",
-            "serverContent": {
-                "modelTurn": {
-                    "parts": [
-                        { "text": "Cross-provider handoff is ready." }
-                    ]
-                }
-            }
-        });
-
-        let mut candidates = Vec::new();
-        collect_json_candidates_for_provider(ProviderKind::Gemini, &event, &mut candidates);
+        collect_json_candidates_for_provider(ProviderKind::Gemini, &delta, &mut candidates);
+        collect_json_candidates_for_provider(ProviderKind::Gemini, &result, &mut candidates);
 
         assert_eq!(
             candidates,
             vec!["Cross-provider handoff is ready.".to_string()]
         );
+    }
+
+    #[test]
+    fn extract_session_id_reads_agy_init_conversation_id() {
+        let init = json!({
+            "event": "init",
+            "conversation_id": "235ff5af-1c2d",
+            "init": { "permission_mode": "request-review" }
+        });
+        assert_eq!(extract_session_id(&init).as_deref(), Some("235ff5af-1c2d"));
+
+        // A `conversation_id` outside agy's init envelope is not a session id.
+        let other = json!({"type": "message", "conversation_id": "not-a-session"});
+        assert_eq!(extract_session_id(&other), None);
     }
 
     use crate::types::TokenUsageSource;
@@ -2549,12 +2564,12 @@ mod tests {
     }
 
     #[test]
-    fn extract_token_usage_from_gemini_parses_usage_metadata() {
+    fn extract_token_usage_from_gemini_parses_result_usage() {
         let event = json!({
-            "type": "result",
-            "usageMetadata": {
-                "promptTokenCount": 300,
-                "candidatesTokenCount": 450
+            "event": "result",
+            "result": {
+                "status": "SUCCESS",
+                "usage": { "input_tokens": 300, "output_tokens": 450 }
             }
         });
 
@@ -2603,8 +2618,8 @@ mod tests {
         assert_eq!(usage.output_tokens, 300);
 
         let gemini_event = json!({
-            "type": "result",
-            "usageMetadata": { "candidatesTokenCount": 400 }
+            "event": "result",
+            "result": { "usage": { "output_tokens": 400 } }
         });
         let usage =
             extract_token_usage(ProviderKind::Gemini, &gemini_event).expect("gemini dispatch");
@@ -2763,15 +2778,17 @@ mod tests {
         assert_eq!(codex_usage.input_tokens, Some(150));
         assert_eq!(codex_usage.output_tokens, 250);
 
-        let gemini_with_alternate_fields = json!({
-            "type": "result",
-            "usageMetadata": {
-                "input_tokens": 175,
-                "output_tokens": 275
+        let gemini_step_update = json!({
+            "event": "step_update",
+            "step_update": {
+                "usage": {
+                    "input_tokens": 175,
+                    "output_tokens": 275
+                }
             }
         });
-        let gemini_usage = extract_token_usage(ProviderKind::Gemini, &gemini_with_alternate_fields)
-            .expect("gemini alternate field names");
+        let gemini_usage = extract_token_usage(ProviderKind::Gemini, &gemini_step_update)
+            .expect("gemini step_update usage");
         assert_eq!(gemini_usage.input_tokens, Some(175));
         assert_eq!(gemini_usage.output_tokens, 275);
     }

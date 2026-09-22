@@ -93,10 +93,18 @@ impl Provider for ClaudeProvider {
             .and_then(|v| v.as_u64())
             .or_else(|| usage_obj.get("completion_tokens").and_then(|v| v.as_u64()))?;
 
+        // `input_tokens` counts only the uncached remainder of the prompt; the
+        // cache buckets hold the rest (e.g. 2 + 35,322 created + 18,902 read).
+        let cached = |key: &str| usage_obj.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
         let input_tokens = usage_obj
             .get("input_tokens")
             .and_then(|v| v.as_u64())
-            .or_else(|| usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()));
+            .or_else(|| usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()))
+            .map(|uncached| {
+                uncached
+                    + cached("cache_creation_input_tokens")
+                    + cached("cache_read_input_tokens")
+            });
 
         Some(TurnTokenUsage {
             output_tokens,
@@ -124,8 +132,26 @@ impl Provider for ClaudeProvider {
     }
 
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
+        let event_type = event.get("type").and_then(|v| v.as_str());
+
+        // The Pair always passes `--permission-mode plan` or `auto`. When auto
+        // mode is unavailable for the model/account (e.g. Haiku, Sonnet/Opus
+        // 4.5), Claude Code silently starts in the default (manual) mode, where
+        // every edit is denied while the result still reports success.
+        if event_type == Some("system")
+            && event.get("subtype").and_then(|v| v.as_str()) == Some("init")
+            && event.get("permissionMode").and_then(|v| v.as_str()) == Some("default")
+        {
+            return Some(
+                "Claude Code auto mode is unavailable for this model or account, so it started \
+                 in manual mode and will deny edits. Pick a model that supports auto mode \
+                 (Sonnet 4.6+, Opus 4.6+, or Fable)."
+                    .to_string(),
+            );
+        }
+
         // Detect a Claude Code `result` event that ended in error.
-        if event.get("type").and_then(|v| v.as_str()) != Some("result") {
+        if event_type != Some("result") {
             return None;
         }
 
@@ -134,7 +160,8 @@ impl Provider for ClaudeProvider {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
-        if !is_error && subtype != "error" {
+        // Error subtypes are `error_*` (e.g. `error_max_turns`).
+        if !is_error && !subtype.starts_with("error") {
             return None;
         }
 
@@ -144,6 +171,22 @@ impl Provider for ClaudeProvider {
             .filter(|s| !s.trim().is_empty())
         {
             return Some(err.trim().to_string());
+        }
+
+        if let Some(errors) = event
+            .get("errors")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .filter(|s| !s.is_empty())
+        {
+            return Some(errors);
         }
 
         if let Some(denials) = event
@@ -159,6 +202,18 @@ impl Provider for ClaudeProvider {
                 return Some(format!("Permission denied for tool(s): {}", tools.join(", ")));
             }
             return Some("Claude Code reported permission denials".to_string());
+        }
+
+        // API failures carry the human-readable reason as the result text
+        // (captured: `{"subtype":"success","is_error":true,"result":"There's an
+        // issue with the selected model…","api_error_status":404}`).
+        if let Some(text) = event
+            .get("result")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(text.to_string());
         }
 
         Some("Claude Code reported an error".to_string())
@@ -201,7 +256,10 @@ impl Provider for ClaudeProvider {
     }
 
     fn login_command(&self) -> Option<String> {
-        Some("claude login".into())
+        // `claude login` is not a subcommand: it starts a session with "login"
+        // as the prompt. Sign-in lives under `claude auth` (verified against
+        // claude-code 2.1.280).
+        Some("claude auth login".into())
     }
 
     fn install_url(&self) -> Option<String> {
@@ -238,6 +296,11 @@ fn push_trimmed(out: &mut Vec<String>, s: &str) {
 fn extract_claude_final_output(event: &Value) -> Option<String> {
     let event_type = event.get("type").and_then(|value| value.as_str())?;
     if event_type != "result" {
+        return None;
+    }
+    // An errored result's text is the error message; `extract_error_detail`
+    // surfaces it, so it must not also be handed off as the agent's reply.
+    if event.get("is_error").and_then(|value| value.as_bool()) == Some(true) {
         return None;
     }
     event
@@ -345,5 +408,63 @@ mod tests {
         });
 
         assert!(!command.args.contains(&"--effort".to_string()));
+    }
+
+    #[test]
+    fn claude_input_tokens_include_cache_buckets() {
+        let provider = ClaudeProvider;
+        let result = serde_json::json!({
+            "type": "result",
+            "usage": {
+                "input_tokens": 2,
+                "cache_creation_input_tokens": 35322,
+                "cache_read_input_tokens": 18902,
+                "output_tokens": 12
+            }
+        });
+        let usage = provider.extract_token_usage(&result).expect("result usage");
+        assert_eq!(usage.input_tokens, Some(54226));
+        assert_eq!(usage.output_tokens, 12);
+    }
+
+    #[test]
+    fn claude_flags_silent_downgrade_from_auto_to_manual_mode() {
+        let provider = ClaudeProvider;
+        let downgraded = serde_json::json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": "abc",
+            "permissionMode": "default"
+        });
+        assert!(provider
+            .extract_error_detail(&downgraded)
+            .expect("manual-mode fallback is an error")
+            .contains("auto mode is unavailable"));
+
+        for mode in ["auto", "plan"] {
+            let init = serde_json::json!({"type": "system", "subtype": "init", "permissionMode": mode});
+            assert!(provider.extract_error_detail(&init).is_none());
+        }
+    }
+
+    #[test]
+    fn claude_api_error_result_is_reported_once_as_an_error() {
+        let provider = ClaudeProvider;
+        // Captured from claude-code 2.1.280 with an unknown --model.
+        let result = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": true,
+            "result": "There's an issue with the selected model.",
+            "api_error_status": 404,
+            "terminal_reason": "api_error",
+            "errors": null,
+            "error": null
+        });
+        assert_eq!(
+            provider.extract_error_detail(&result).as_deref(),
+            Some("There's an issue with the selected model.")
+        );
+        assert_eq!(provider.collect_json_candidates(&result), Some(vec![]));
     }
 }

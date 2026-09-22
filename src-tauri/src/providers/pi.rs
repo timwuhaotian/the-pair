@@ -1,7 +1,7 @@
 use super::Provider;
 use crate::provider_adapter::{ProviderTurnCommand, ProviderTurnRequest};
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
-use crate::types::TurnTokenUsage;
+use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde_json::Value;
 
 /// Pi Agent CLI (`pi`) — earendil-works/pi terminal coding agent.
@@ -9,6 +9,11 @@ use serde_json::Value;
 /// Pi is a BYOK multi-provider agent: model ids are `provider/model` format
 /// (e.g. `anthropic/claude-sonnet-4`). The `pi/` qualifier added by The Pair
 /// is stripped at spawn time so Pi receives the inner `provider/model` value.
+///
+/// Event shapes verified against pi 0.79.2 (2026-09-23): the stream opens with
+/// a `{"type":"session","id":…}` header, assistant messages carry
+/// `usage.{input,output}`, and the closing `agent_end` repeats every message
+/// of the turn in `messages`.
 pub struct PiProvider;
 
 impl Provider for PiProvider {
@@ -25,8 +30,9 @@ impl Provider for PiProvider {
         // inner "provider/model" that Pi needs (e.g. "pi/anthropic/claude-sonnet-4"
         // → "anthropic/claude-sonnet-4").
         let model = request.model.strip_prefix("pi/").unwrap_or(request.model);
-        // Guard leading-dash prompts so clap doesn't mistake them for flags.
-        let prompt = if request.message.starts_with('-') {
+        // Guard leading-dash prompts so they aren't parsed as flags, and
+        // leading-`@` prompts so they aren't read as `@file` attachments.
+        let prompt = if request.message.starts_with('-') || request.message.starts_with('@') {
             format!("\n{}", request.message)
         } else {
             request.message.to_string()
@@ -44,6 +50,19 @@ impl Provider for PiProvider {
             args.push(effort.into());
         }
 
+        // `--session-id` resumes the session captured from the header event,
+        // creating it if missing.
+        if let Some(sid) = request.session_id {
+            args.push("--session-id".into());
+            args.push(sid.into());
+        }
+
+        // Pi has no sandbox; its documented read-only mode is a tool allowlist.
+        if request.role == "mentor" {
+            args.push("--tools".into());
+            args.push("read,grep,find,ls".into());
+        }
+
         args.push(prompt);
 
         ProviderTurnCommand {
@@ -53,40 +72,71 @@ impl Provider for PiProvider {
         }
     }
 
-    fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // Pi's JSON event stream does not currently include token usage data.
-        None
+    fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
+        // `message_end` reports one assistant message (live); `agent_end`
+        // repeats the whole turn, so its assistant usages sum to the final count.
+        let (messages, is_final): (Vec<&Value>, bool) =
+            match event.get("type").and_then(|v| v.as_str())? {
+                "message_end" => (event.get("message").into_iter().collect(), false),
+                "agent_end" => (event.get("messages")?.as_array()?.iter().collect(), true),
+                _ => return None,
+            };
+        let usages: Vec<&Value> = messages
+            .into_iter()
+            .filter(|msg| is_assistant(msg))
+            .filter_map(|msg| msg.get("usage"))
+            .collect();
+        if usages.is_empty() {
+            return None;
+        }
+        let sum = |key: &str| {
+            usages
+                .iter()
+                .filter_map(|usage| usage.get(key).and_then(|v| v.as_u64()))
+                .sum::<u64>()
+        };
+
+        Some(TurnTokenUsage {
+            output_tokens: sum("output"),
+            input_tokens: Some(sum("input")),
+            last_updated_at: crate::util::now_millis(),
+            source: if is_final {
+                TokenUsageSource::Final
+            } else {
+                TokenUsageSource::Live
+            },
+            provider: Some("pi".to_string()),
+        })
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
-        // Pi emits typed events: {"type":"turn_end","message":{...}}, etc.
-        // Only collect text from assistant messages on terminal events.
-        let event_type = event.get("type").and_then(|v| v.as_str());
-
-        match event_type {
-            Some("turn_end") | Some("agent_end") | Some("message_end") => {}
-            _ => return Some(Vec::new()), // bypass generic walker for all other events
-        }
-
-        // `turn_end` and `agent_end` nest the message under "message";
-        // `message_end` also nests it under "message".
+        // The reply is the last assistant message of the closing `agent_end`,
+        // which is exactly what `pi -p` prints. Earlier `message_end` /
+        // `turn_end` events hold the same messages again, so reading them too
+        // would duplicate the answer; every other event bypasses the walker.
         let mut out = Vec::new();
-        if let Some(msg) = event.get("message") {
-            if msg.get("role").and_then(|v| v.as_str()) == Some("assistant") {
-                collect_pi_content(msg.get("content"), &mut out);
-            }
-        }
-        // `agent_end` also carries a top-level "messages" array
-        if event_type == Some("agent_end") {
-            if let Some(messages) = event.get("messages").and_then(|v| v.as_array()) {
-                for msg in messages {
-                    if msg.get("role").and_then(|v| v.as_str()) == Some("assistant") {
-                        collect_pi_content(msg.get("content"), &mut out);
-                    }
-                }
-            }
+        if let Some(last) = final_assistant_message(event) {
+            collect_pi_content(last.get("content"), &mut out);
         }
         Some(out)
+    }
+
+    fn extract_error_detail(&self, event: &Value) -> Option<String> {
+        // Pi exits 0 in JSON mode even when the request failed; the failure is
+        // only recorded as `stopReason` on the last assistant message.
+        let last = final_assistant_message(event)?;
+        let reason = last.get("stopReason").and_then(|v| v.as_str())?;
+        if reason != "error" && reason != "aborted" {
+            return None;
+        }
+        let detail = last
+            .get("errorMessage")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .unwrap_or_else(|| format!("pi request {reason}"));
+        Some(detail)
     }
 
     fn detect(&self) -> DetectedProviderProfile {
@@ -116,11 +166,10 @@ impl Provider for PiProvider {
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
         // Pi supports --thinking universally across all models/providers.
         // The base set is `off, minimal, low, medium, high, xhigh` (verified
-        // against pi 0.79.2 on 2026-09-19). `max` was re-added in pi 0.80.6
-        // and is only valid on GPT-5.6 / adaptive Claude models; older
-        // installs reject it outright. We expose it only when the installed
-        // `pi --help` advertises it, so picking "max" never silently breaks
-        // a turn on a too-old CLI.
+        // against pi 0.79.2 on 2026-09-19). `max` is an opt-in level added in
+        // pi 0.80.6 and is only valid on GPT-5.6 / adaptive Claude models. We
+        // expose it only when the installed `pi --help` advertises it, so
+        // picking "max" never silently degrades a turn on a too-old CLI.
         let base = vec![
             "off".to_string(),
             "minimal".to_string(),
@@ -142,6 +191,26 @@ impl Provider for PiProvider {
 }
 
 // ── Pi-specific helpers ───────────────────────────────────────────────────
+
+fn is_assistant(message: &Value) -> bool {
+    message.get("role").and_then(|v| v.as_str()) == Some("assistant")
+}
+
+/// The last assistant message of a terminal `agent_end` event. An `agent_end`
+/// flagged `willRetry` is superseded by the retry's own `agent_end`.
+fn final_assistant_message(event: &Value) -> Option<&Value> {
+    if event.get("type").and_then(|v| v.as_str()) != Some("agent_end")
+        || event.get("willRetry").and_then(|v| v.as_bool()) == Some(true)
+    {
+        return None;
+    }
+    event
+        .get("messages")?
+        .as_array()?
+        .iter()
+        .rev()
+        .find(|message| is_assistant(message))
+}
 
 fn push_trimmed(out: &mut Vec<String>, s: &str) {
     let trimmed = s.trim();
@@ -261,34 +330,30 @@ mod tests {
     }
 
     #[test]
-    fn pi_collects_text_from_turn_end() {
+    fn pi_collects_only_the_final_assistant_message_from_agent_end() {
         let provider = PiProvider;
-        let event = json!({
+        let turn_end = json!({
             "type": "turn_end",
-            "message": {
-                "role": "assistant",
-                "content": [
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "Reading files"}]}
+        });
+        assert_eq!(provider.collect_json_candidates(&turn_end), Some(vec![]));
+
+        let agent_end = json!({
+            "type": "agent_end",
+            "messages": [
+                {"role": "user", "content": "plan it"},
+                {"role": "assistant", "content": [{"type": "text", "text": "Reading files"}]},
+                {"role": "toolResult", "content": [{"type": "text", "text": "tool result"}]},
+                {"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": "hmm"},
                     {"type": "text", "text": "Here is the plan"}
-                ]
-            }
+                ]}
+            ]
         });
         assert_eq!(
-            provider.collect_json_candidates(&event),
+            provider.collect_json_candidates(&agent_end),
             Some(vec!["Here is the plan".to_string()])
         );
-    }
-
-    #[test]
-    fn pi_ignores_non_assistant_messages() {
-        let provider = PiProvider;
-        let event = json!({
-            "type": "turn_end",
-            "message": {
-                "role": "tool",
-                "content": [{"type": "text", "text": "tool result"}]
-            }
-        });
-        assert_eq!(provider.collect_json_candidates(&event), Some(vec![]));
     }
 
     #[test]
@@ -299,10 +364,99 @@ mod tests {
     }
 
     #[test]
-    fn pi_reports_no_token_usage() {
+    fn pi_reads_live_and_final_token_usage() {
         let provider = PiProvider;
-        let event = json!({"type": "turn_end", "message": {"role": "assistant"}});
-        assert!(provider.extract_token_usage(&event).is_none());
+        let usage = |input: u64, output: u64| {
+            json!({"input": input, "output": output, "cacheRead": 0, "cacheWrite": 0})
+        };
+
+        let message_end = json!({
+            "type": "message_end",
+            "message": {"role": "assistant", "usage": usage(46958, 3)}
+        });
+        let live = provider.extract_token_usage(&message_end).expect("live usage");
+        assert_eq!(live.output_tokens, 3);
+        assert_eq!(live.input_tokens, Some(46958));
+        assert!(matches!(live.source, TokenUsageSource::Live));
+
+        let agent_end = json!({
+            "type": "agent_end",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {"role": "assistant", "usage": usage(100, 10)},
+                {"role": "assistant", "usage": usage(200, 20)}
+            ]
+        });
+        let final_usage = provider.extract_token_usage(&agent_end).expect("final usage");
+        assert_eq!(final_usage.output_tokens, 30);
+        assert_eq!(final_usage.input_tokens, Some(300));
+        assert!(matches!(final_usage.source, TokenUsageSource::Final));
+
+        let turn_start = json!({"type": "turn_start"});
+        assert!(provider.extract_token_usage(&turn_start).is_none());
+    }
+
+    #[test]
+    fn pi_surfaces_errors_recorded_on_the_final_message() {
+        let provider = PiProvider;
+        let failed = json!({
+            "type": "agent_end",
+            "willRetry": false,
+            "messages": [{
+                "role": "assistant",
+                "content": [],
+                "stopReason": "error",
+                "errorMessage": "No API key for provider: anthropic"
+            }]
+        });
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("No API key for provider: anthropic")
+        );
+
+        let retrying = json!({
+            "type": "agent_end",
+            "willRetry": true,
+            "messages": [{"role": "assistant", "stopReason": "error", "errorMessage": "rate limited"}]
+        });
+        assert!(provider.extract_error_detail(&retrying).is_none());
+
+        let ok = json!({
+            "type": "agent_end",
+            "messages": [{"role": "assistant", "stopReason": "stop"}]
+        });
+        assert!(provider.extract_error_detail(&ok).is_none());
+    }
+
+    #[test]
+    fn pi_resumes_session_and_restricts_mentor_tools() {
+        let provider = PiProvider;
+        let mentor = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Pi,
+            model: "anthropic/claude-sonnet-4",
+            session_id: Some("0199a1b2-c3d4"),
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "@review the diff",
+            reasoning_effort: None,
+        });
+        let sid = mentor.args.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(mentor.args[sid + 1], "0199a1b2-c3d4");
+        let tools = mentor.args.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(mentor.args[tools + 1], "read,grep,find,ls");
+        assert_eq!(mentor.args.last().unwrap(), "\n@review the diff");
+
+        let executor = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Pi,
+            model: "anthropic/claude-sonnet-4",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do it",
+            reasoning_effort: None,
+        });
+        assert!(!executor.args.contains(&"--tools".to_string()));
+        assert!(!executor.args.contains(&"--session-id".to_string()));
     }
 
     #[test]

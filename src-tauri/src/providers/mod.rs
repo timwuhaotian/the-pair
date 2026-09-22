@@ -80,6 +80,13 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Whether this event proves the turn recovered from an error reported
+    /// earlier in the stream (e.g. a transient transport error the CLI
+    /// retried). Clears the pending turn error when true.
+    fn clears_turn_error(&self, _event: &Value) -> bool {
+        false
+    }
+
     /// Whether to suppress stderr forwarding to the broker log.
     fn suppress_stderr(&self) -> bool {
         false
@@ -134,7 +141,7 @@ pub trait Provider: Send + Sync {
 
     // ── Provider Login / Install Guidance ─────────────────────────────────
 
-    /// The CLI login command for this provider (e.g. `"claude login"`).
+    /// The CLI login command for this provider (e.g. `"claude auth login"`).
     /// Returns `None` if no simple login command exists.
     fn login_command(&self) -> Option<String> {
         None
@@ -201,7 +208,7 @@ mod tests {
     #[test]
     fn claude_provider_returns_login_command_and_install_url() {
         let provider = claude::ClaudeProvider;
-        assert_eq!(provider.login_command().as_deref(), Some("claude login"));
+        assert_eq!(provider.login_command().as_deref(), Some("claude auth login"));
         assert!(provider.install_url().is_some());
         assert!(provider.install_url().unwrap().contains("claude"));
     }

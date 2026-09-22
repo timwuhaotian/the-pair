@@ -50,13 +50,17 @@ impl Provider for CodexProvider {
         args.push("--model".into());
         args.push(model.into());
         // Sandbox is explicit per role: mentor is read-only (the CLI default),
-        // executor needs workspace-write to apply edits in the worktree.
-        args.push("--sandbox".into());
-        if request.role == "mentor" {
-            args.push("read-only".into());
+        // executor needs workspace-write to apply edits in the worktree. It is
+        // set through `-c sandbox_mode=` because `codex exec resume` rejects
+        // `--sandbox` (verified against codex-cli 0.149.1), and a resume without
+        // any sandbox setting would fall back to the user's config.toml.
+        let sandbox = if request.role == "mentor" {
+            "read-only"
         } else {
-            args.push("workspace-write".into());
-        }
+            "workspace-write"
+        };
+        args.push("-c".into());
+        args.push(format!("sandbox_mode=\"{}\"", sandbox));
         // `codex exec` removed the `--reasoning-effort` flag. Reasoning is configured
         // via the `model_reasoning_effort` key, injected through `-c`.
         if let Some(effort) = request.reasoning_effort {
@@ -115,6 +119,27 @@ impl Provider for CodexProvider {
         })
     }
 
+    fn extract_error_detail(&self, event: &Value) -> Option<String> {
+        // Only `turn.failed` is terminal; standalone `error` events are also
+        // emitted for transient reconnects that the CLI recovers from.
+        if event.get("type").and_then(|v| v.as_str()) != Some("turn.failed") {
+            return None;
+        }
+        let raw = event
+            .pointer("/error/message")
+            .and_then(|m| m.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Codex turn failed");
+        // Upstream API failures arrive as a JSON document inside `message`.
+        let nested = serde_json::from_str::<Value>(raw).ok().and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .map(String::from)
+        });
+        Some(nested.unwrap_or_else(|| raw.to_string()))
+    }
+
     fn detect(&self) -> DetectedProviderProfile {
         crate::provider_registry::ProviderRegistry::detect_codex()
     }
@@ -151,8 +176,18 @@ impl Provider for CodexProvider {
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
-        // Matches any o<digit> prefix (o1, o3, o4, o5, …) for future-proofing.
-        if is_o_series_model(model_id) {
+        // Every gpt-5.x model in `codex debug models` supports at least
+        // low/medium/high/xhigh (verified against codex-cli 0.149.1). The
+        // o<digit> prefix (o1, o3, o4, o5, …) keeps the classic three levels.
+        let id = model_id.strip_prefix("codex/").unwrap_or(model_id);
+        if id.starts_with("gpt-5") {
+            Some(vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+            ])
+        } else if is_o_series_model(id) {
             Some(vec!["low".into(), "medium".into(), "high".into()])
         } else {
             None
@@ -186,8 +221,8 @@ mod tests {
                 "session-123".to_string(),
                 "--model".to_string(),
                 "gpt-4o-mini".to_string(),
-                "--sandbox".to_string(),
-                "workspace-write".to_string(),
+                "-c".to_string(),
+                "sandbox_mode=\"workspace-write\"".to_string(),
                 "--json".to_string(),
                 "--output-last-message".to_string(),
                 command
@@ -219,5 +254,65 @@ mod tests {
             .args
             .contains(&"model_reasoning_effort=medium".to_string()));
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));
+    }
+
+    #[test]
+    fn codex_mentor_sandbox_is_read_only_via_config_override() {
+        let provider = CodexProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Codex,
+            model: "gpt-5.5",
+            session_id: Some("thread_1"),
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "review",
+            reasoning_effort: None,
+        });
+        assert!(command
+            .args
+            .contains(&"sandbox_mode=\"read-only\"".to_string()));
+        assert!(!command.args.contains(&"--sandbox".to_string()));
+    }
+
+    #[test]
+    fn codex_turn_failed_surfaces_error_message() {
+        let provider = CodexProvider;
+        let failed = serde_json::json!({
+            "type": "turn.failed",
+            "error": { "message": "You've hit your usage limit." }
+        });
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("You've hit your usage limit.")
+        );
+
+        let nested = serde_json::json!({
+            "type": "turn.failed",
+            "error": {
+                "message": "{\"error\":{\"message\":\"The 'gpt-x' model is not supported.\"}}"
+            }
+        });
+        assert_eq!(
+            provider.extract_error_detail(&nested).as_deref(),
+            Some("The 'gpt-x' model is not supported.")
+        );
+
+        let transient = serde_json::json!({"type": "error", "message": "Reconnecting... 1/5"});
+        assert!(provider.extract_error_detail(&transient).is_none());
+    }
+
+    #[test]
+    fn codex_offers_reasoning_effort_for_gpt5_and_o_series() {
+        let provider = CodexProvider;
+        assert_eq!(
+            provider.reasoning_effort_levels("gpt-5.5").map(|l| l.len()),
+            Some(4)
+        );
+        assert_eq!(
+            provider.reasoning_effort_levels("codex/gpt-5.6-terra").map(|l| l.len()),
+            Some(4)
+        );
+        assert_eq!(provider.reasoning_effort_levels("o3").map(|l| l.len()), Some(3));
+        assert!(provider.reasoning_effort_levels("gpt-4o").is_none());
     }
 }

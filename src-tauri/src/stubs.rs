@@ -289,7 +289,7 @@ pub fn provider_launch_login(provider_kind: ProviderKind) -> Result<(), String> 
     #[cfg(target_os = "linux")]
     {
         // Try common terminal emulators. We invoke `sh -c "<cmd>"` so multi-word
-        // commands (e.g. "claude login") work correctly. After the login command
+        // commands (e.g. "claude auth login") work correctly. After the login command
         // exits, we `exec sh` to keep the terminal window open for the user.
         let shell_cmd = format!("{}; exec sh", login_command);
         let launched = [

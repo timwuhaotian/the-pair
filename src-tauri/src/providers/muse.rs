@@ -11,9 +11,7 @@ use serde_json::Value;
 ///
 /// Uses `muse exec --json`, which emits one JSONL envelope per line:
 /// `{schema_version, id, stream{kind,id}, sequence, payload_type, payload}`.
-/// Verified against Muse Code 1.0.3 (2026-09-19) — note the published docs at
-/// dev.meta.ai/docs/muse-code still name `muse-spark-1.2` as the default while
-/// the shipped binary uses `muse-spark-1.3`.
+/// Verified against Muse Code 1.3.0 (2026-09-23; first integrated on 1.0.3).
 ///
 /// Two behaviours make this provider unusual:
 ///
@@ -26,10 +24,11 @@ use serde_json::Value;
 ///   other provider in The Pair can make that guarantee.
 pub struct MuseProvider;
 
-/// Effort ladder advertised by `muse exec --help` (default `high`).
-const MUSE_REASONING_EFFORTS: &[&str] = &[
-    "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
-];
+/// Effort ladder accepted by the Meta provider (default `high`). `muse exec
+/// --help` also lists `none`, but Muse Code 1.3.0 rejects it before any model
+/// call: "--reasoning-effort none is not supported with --provider meta".
+const MUSE_REASONING_EFFORTS: &[&str] =
+    &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 impl Provider for MuseProvider {
     fn kind(&self) -> ProviderKind {
@@ -65,9 +64,13 @@ impl Provider for MuseProvider {
             // Headless turns must never block on an approval prompt.
             "--approval-mode".into(),
             "never".into(),
+            // An untrusted workspace silently skips AGENTS.md and the
+            // project's skills/rules/hooks. Applies to this run only.
+            "--trust-workspace".into(),
         ];
 
-        if let Some(effort) = request.reasoning_effort {
+        // Pairs saved while `none` was offered keep working on the default.
+        if let Some(effort) = request.reasoning_effort.filter(|effort| *effort != "none") {
             args.push("--reasoning-effort".into());
             args.push(effort.into());
         }
@@ -238,6 +241,7 @@ mod tests {
                 "muse-spark-1.3".to_string(),
                 "--approval-mode".to_string(),
                 "never".to_string(),
+                "--trust-workspace".to_string(),
                 "do the work".to_string(),
             ]
         );
@@ -381,7 +385,15 @@ mod tests {
             .expect("muse supports reasoning effort");
         assert_eq!(
             levels,
-            vec!["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+            vec!["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
         );
+    }
+
+    #[test]
+    fn legacy_none_effort_is_not_forwarded() {
+        let mut req = request("executor", None);
+        req.reasoning_effort = Some("none");
+        let command = MuseProvider.build_turn_command(&req);
+        assert!(!command.args.iter().any(|a| a == "--reasoning-effort"));
     }
 }

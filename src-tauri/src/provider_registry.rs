@@ -402,14 +402,6 @@ fn extract_quoted_segments(line: &str) -> Vec<String> {
         .collect()
 }
 
-fn extract_single_quoted_segments(line: &str) -> Vec<String> {
-    line.split('\'')
-        .enumerate()
-        .filter_map(|(index, segment)| (index % 2 == 1).then_some(segment.trim().to_string()))
-        .filter(|segment| !segment.is_empty())
-        .collect()
-}
-
 fn collect_json_string_values(
     value: &serde_json::Value,
     interesting_keys: &[&str],
@@ -556,9 +548,23 @@ fn collect_model_ids_from_toml_text(
     predicate: &dyn Fn(&str) -> bool,
     model_ids: &mut Vec<String>,
 ) {
+    // Model ids only live at the top level, in `[profiles.*]`, and in
+    // `[notice.model_migrations]`. Other tables hold look-alike strings, e.g.
+    // `[tui] status_line = ["codex-version", …]`.
+    let mut in_model_section = true;
     for raw_line in content.lines() {
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with('[') {
+            let section = line.trim_matches(|c| c == '[' || c == ']').trim();
+            in_model_section =
+                section.starts_with("profiles.") || section == "notice.model_migrations";
+            continue;
+        }
+        if !in_model_section {
             continue;
         }
 
@@ -585,23 +591,13 @@ fn collect_model_ids_from_help_line(
     model_ids: &mut Vec<String>,
 ) {
     // `claude --help` wraps the `--model` description across multiple indented
-    // continuation lines (verified against claude-code 2.1.276). The quoted
-    // model examples live on the wrapped lines, not on the line that contains
-    // `--model` itself, so we stitch the description block back together
-    // before extracting candidates. Other providers whose `--help` is single-
-    // lined still match the original behavior because their stitched block is
-    // just the one line.
+    // continuation lines (verified against claude-code 2.1.280), so the block
+    // is stitched back together first. Only that block is scanned: the rest of
+    // the help mentions look-alike quoted words (permission modes, output
+    // formats) that are not models.
     let mut block: Option<String> = None;
     for raw_line in help_text.lines() {
-        if raw_line.contains("--model") {
-            block = Some(raw_line.to_string());
-            continue;
-        }
         if let Some(buf) = block.as_mut() {
-            if raw_line.is_empty() {
-                block = None;
-                continue;
-            }
             // Continuation lines are indented with whitespace and don't start
             // with another flag. Otherwise we've left the description block.
             let trimmed = raw_line.trim_start();
@@ -613,19 +609,24 @@ fn collect_model_ids_from_help_line(
                 buf.push_str(trimmed);
                 continue;
             }
-            block = None;
+            break;
+        }
+        if raw_line.contains("--model") {
+            block = Some(raw_line.to_string());
         }
     }
+    let Some(block) = block else {
+        return;
+    };
 
-    let scan_text = block.unwrap_or_else(|| help_text.to_string());
-    for line in scan_text.lines() {
-        for candidate in extract_single_quoted_segments(line)
-            .into_iter()
-            .chain(extract_quoted_segments(line))
-        {
-            if !candidate.contains(char::is_whitespace) && predicate(&candidate) {
-                push_unique_model_id(model_ids, &candidate);
-            }
+    // Split on quotes and punctuation rather than pairing quotes: the prose
+    // contains apostrophes ("a model's full name") that break quote pairing.
+    for token in block.split(|c: char| {
+        c.is_whitespace() || matches!(c, '\'' | '"' | '(' | ')' | ',' | '`')
+    }) {
+        let token = token.trim_end_matches(['.', ':', ';']);
+        if predicate(token) {
+            push_unique_model_id(model_ids, token);
         }
     }
 }
@@ -758,7 +759,31 @@ fn discover_codex_model_ids(home: &std::path::Path) -> Vec<String> {
         &mut model_ids,
     );
 
+    // The live catalog marks internal routes (e.g. `codex-auto-review`) as
+    // `"visibility": "hide"`; they must not surface even when a recent session
+    // file mentions them.
+    let hidden = codex_hidden_model_slugs(&models_cache_path);
+    model_ids.retain(|id| !hidden.contains(id));
+
     model_ids
+}
+
+fn codex_hidden_model_slugs(models_cache_path: &Path) -> std::collections::HashSet<String> {
+    let Ok(content) = fs::read_to_string(models_cache_path) else {
+        return Default::default();
+    };
+    let Ok(cache) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Default::default();
+    };
+    cache
+        .get("models")
+        .and_then(|models| models.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|model| model.get("visibility").and_then(|v| v.as_str()) == Some("hide"))
+        .filter_map(|model| model.get("slug").and_then(|v| v.as_str()))
+        .map(String::from)
+        .collect()
 }
 
 fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>) -> Vec<String> {
@@ -766,8 +791,11 @@ fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>
 
     if let Some(command_path) = command_path {
         if let Some(help_text) = capture_claude_help_text(home, command_path) {
+            // Bare aliases ('opus', 'sonnet') are skipped: provider inference
+            // routes model ids by their `claude-` prefix, so an alias would be
+            // spawned through the wrong CLI.
             let help_predicate =
-                |value: &str| is_plausible_model_id(value) && !value.starts_with("--");
+                |value: &str| is_claude_model_id(value) && is_plausible_model_id(value);
             collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
         }
     }
@@ -810,9 +838,56 @@ fn has_claude_credentials(home: &std::path::Path) -> bool {
         .any(|path| path.exists() && safe_read_json::<serde_json::Value>(&path).is_some())
 }
 
+/// Major version from `opencode --version` (`opencode v2.0.3` → 2).
+fn opencode_major_version(bin_path: &Path) -> Option<u32> {
+    let output =
+        capture_command_output_with_timeout(bin_path, &["--version"], &homedir(), CLI_PROBE_TIMEOUT)?;
+    parse_opencode_major_version(&output)
+}
+
+fn parse_opencode_major_version(output: &str) -> Option<u32> {
+    output.split_whitespace().find_map(|token| {
+        let (major, rest) = token.trim_start_matches('v').split_once('.')?;
+        if rest.is_empty() || !major.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        major.parse().ok()
+    })
+}
+
+/// Run `opencode models`. On 2.x the command talks to a shared background
+/// server that returns an empty or partial list while it is still starting
+/// (observed on 2.0.3: 0 → 59 → 87 routes over ~5s), so poll briefly until the
+/// list stops growing.
+fn capture_opencode_models(bin_path: &Path, retry_while_warming: bool) -> Option<String> {
+    let line_count = |output: &Option<String>| {
+        output.as_deref().map_or(0, |text| {
+            text.lines().filter(|line| !line.trim().is_empty()).count()
+        })
+    };
+    let attempts = if retry_while_warming { 4 } else { 1 };
+    let mut best: Option<String> = None;
+    for attempt in 0..attempts {
+        let output =
+            capture_command_output_with_timeout(bin_path, &["models"], &homedir(), CLI_PROBE_TIMEOUT);
+        if line_count(&output) > line_count(&best) {
+            best = output;
+        } else if line_count(&best) > 0 {
+            break;
+        }
+        if attempt + 1 < attempts {
+            thread::sleep(Duration::from_millis(1500));
+        }
+    }
+    best
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OpenCodeConfig {
+    /// opencode 1.x key.
     pub provider: Option<HashMap<String, ProviderConfig>>,
+    /// opencode 2.x renamed `provider` to `providers`.
+    pub providers: Option<HashMap<String, ProviderConfig>>,
     pub model: Option<String>,
 }
 
@@ -977,7 +1052,7 @@ impl ProviderRegistry {
         if config_path.exists() {
             authenticated = true;
             if let Some(config) = safe_read_json::<OpenCodeConfig>(config_path) {
-                if let Some(providers) = config.provider {
+                for providers in [config.provider, config.providers].into_iter().flatten() {
                     for (provider_id, provider_data) in providers {
                         if let Some(model_list) = provider_data.models {
                             for (model_id, model_config) in model_list {
@@ -1017,12 +1092,13 @@ impl ProviderRegistry {
         // 3. Detect from 'opencode models' command output
         if installed {
             let bin_path = opencode_path.expect("opencode path should be resolved");
-            if let Some(content) = capture_command_output_with_timeout(
-                &bin_path,
-                &["models"],
-                &homedir(),
-                CLI_PROBE_TIMEOUT,
-            ) {
+            // opencode 2.x keeps credentials in its SQLite store (auth.json is no
+            // longer written) and `opencode models` lists only connected or
+            // configured providers, so every listed route is runnable. 1.x
+            // listed the whole models.dev catalog and still needs the filter.
+            let lists_only_connected = opencode_major_version(&bin_path)
+                .is_some_and(|major| major >= 2);
+            if let Some(content) = capture_opencode_models(&bin_path, lists_only_connected) {
                 for line in content.lines() {
                     let line = line.trim();
                     if line.is_empty() {
@@ -1042,13 +1118,17 @@ impl ProviderRegistry {
                         // Check if this model belongs to an authenticated provider (either internal or custom).
                         // The "opencode" provider_id represents zen-backed models that are available
                         // whenever opencode is installed — they don't appear in auth.json.
-                        let is_authenticated = provider_id == "opencode"
+                        let is_authenticated = lists_only_connected
+                            || provider_id == "opencode"
                             || internal_providers.contains(&provider_id.to_string())
                             || models
                                 .iter()
                                 .any(|m| m.source_provider.as_deref() == Some(provider_id));
 
                         if is_authenticated {
+                            if lists_only_connected {
+                                authenticated = true;
+                            }
                             // Derive family from model name for OpenCode models
                             // e.g., "minimax-m2.5" -> "minimax", "claude-3-5-sonnet" -> "claude"
                             let family = if provider_id == "opencode" {
@@ -1291,11 +1371,6 @@ impl ProviderRegistry {
     pub fn detect_kiro() -> DetectedProviderProfile {
         let kiro_bin = which_binary("kiro-cli");
         let installed = kiro_bin.is_some();
-        let models = if let Some(ref bin) = kiro_bin {
-            discover_kiro_models(bin)
-        } else {
-            Vec::new()
-        };
 
         // Auth: check KIRO_API_KEY env var or kiro-cli whoami output.
         let has_api_key = std::env::var("KIRO_API_KEY")
@@ -1316,6 +1391,12 @@ impl ProviderRegistry {
                 })
                 .unwrap_or(false);
         let authenticated = logged_in;
+        // `chat --list-models` starts Kiro's browser login flow when signed out
+        // (kiro-cli 2.23.0), so only list models once auth is confirmed.
+        let models = match kiro_bin.as_ref() {
+            Some(bin) if authenticated => discover_kiro_models(bin),
+            _ => Vec::new(),
+        };
 
         DetectedProviderProfile {
             kind: ProviderKind::Kiro,
@@ -1334,21 +1415,31 @@ impl ProviderRegistry {
         let installed = which_binary_exists("aider");
         let homedir = homedir();
 
-        // Aider is BYOK — auth means having an API key available via env var.
-        // The config file alone may specify a model but without a key the
-        // provider can't run.
-        let has_env_key = [
+        // Aider is BYOK — auth means having an API key available. The config
+        // file alone may specify a model but without a key the provider can't
+        // run. Besides the environment, aider loads keys from
+        // `~/.aider/oauth-keys.env` (written by its OpenRouter sign-in) and
+        // `~/.env` (aider-chat 0.86.2 `main.py`).
+        const AIDER_KEY_VARS: [&str; 6] = [
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GEMINI_API_KEY",
             "DEEPSEEK_API_KEY",
             "OPENROUTER_API_KEY",
             "AZURE_API_KEY",
-        ]
-        .iter()
-        .any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false));
+        ];
+        let has_env_key = AIDER_KEY_VARS
+            .iter()
+            .any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false));
+        let file_has_key = |path: PathBuf| {
+            fs::read_to_string(path)
+                .map(|content| dotenv_defines_any(&content, &AIDER_KEY_VARS))
+                .unwrap_or(false)
+        };
 
-        let authenticated = has_env_key;
+        let authenticated = has_env_key
+            || file_has_key(homedir.join(".aider/oauth-keys.env"))
+            || file_has_key(homedir.join(".env"));
         let subscription_label = "byok".to_string();
         let models = if installed && authenticated {
             discover_aider_models(&homedir)
@@ -1441,7 +1532,8 @@ fn parse_antigravity_model_lines(output: &str) -> Vec<DetectedModelOption> {
         .collect()
 }
 
-/// Discover Kimi Code model aliases from `~/.kimi-code/config.toml`. Every
+/// Discover Kimi Code model aliases from `$KIMI_CODE_HOME/config.toml`
+/// (default `~/.kimi-code/config.toml`). Every
 /// `[models."<alias>"]` section is a runnable `--model` value; `display_name`
 /// keys inside a section provide the human-readable label.
 /// Model ids Muse Code is known to serve. Muse ships no `models list`
@@ -1514,7 +1606,13 @@ fn discover_muse_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
 }
 
 fn discover_kimi_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
-    let config_path = home.join(".kimi-code/config.toml");
+    // Kimi Code keeps its config under `KIMI_CODE_HOME`, falling back to
+    // `~/.kimi-code` when the variable is unset (kimi-code 2.0.2 docs).
+    let kimi_home = std::env::var_os("KIMI_CODE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".kimi-code"));
+    let config_path = kimi_home.join("config.toml");
     match fs::read_to_string(config_path) {
         Ok(content) => parse_kimi_model_aliases(&content),
         Err(_) => Vec::new(),
@@ -1568,19 +1666,23 @@ fn parse_kimi_model_aliases(content: &str) -> Vec<DetectedModelOption> {
     models
 }
 
-/// Build Grok Build's model list: the static built-in model plus any custom
-/// models declared in `~/.grok/config.toml`. Custom `[model.<alias>]` sections
-/// are addressed by alias through `-m`; `name` provides the display label.
+/// Build Grok Build's model list: the built-in models (Grok Build 1.0.40's
+/// bundled `default_models.json`, default `grok-4.6`) plus any custom models
+/// declared in `~/.grok/config.toml`. Custom `[model.<alias>]` sections are
+/// addressed by alias through `-m`; `name` provides the display label.
 fn grok_model_options(home: &std::path::Path) -> Vec<DetectedModelOption> {
-    let mut models = vec![DetectedModelOption {
-        model_id: "grok-4.6".to_string(),
-        display_name: "Grok 4.6".to_string(),
-        source_provider: Some("xai".to_string()),
-        family: None,
-        subscription_label: "xai".to_string(),
-        supports_pair_execution: true,
-        runnable: true,
-    }];
+    let mut models: Vec<DetectedModelOption> = [("grok-4.6", "Grok 4.6"), ("grok-4.5", "Grok 4.5")]
+        .into_iter()
+        .map(|(model_id, display_name)| DetectedModelOption {
+            model_id: model_id.to_string(),
+            display_name: display_name.to_string(),
+            source_provider: Some("xai".to_string()),
+            family: None,
+            subscription_label: "xai".to_string(),
+            supports_pair_execution: true,
+            runnable: true,
+        })
+        .collect();
 
     if let Ok(content) = fs::read_to_string(home.join(".grok/config.toml")) {
         for model in parse_grok_config_models(&content) {
@@ -1644,9 +1746,16 @@ fn parse_grok_config_models(content: &str) -> Vec<DetectedModelOption> {
     models
 }
 
-/// Discover Pi models via `pi --list-models`. The CLI prints lines like
-/// "anthropic/claude-sonnet-4" or "openai/gpt-4o". Models from all configured
-/// providers are surfaced.
+/// Discover Pi models via `pi --list-models`. The CLI prints a padded table
+/// (verified against pi 0.79.2, 2026-09-23):
+///
+/// ```text
+/// provider   model                      context  max-out  thinking  images
+/// anthropic  claude-3-5-haiku-20241022  200K     8.2K     no        yes
+/// ```
+///
+/// `--model` takes `provider/model`, so each row maps to that id. Models from
+/// all configured providers are surfaced.
 fn discover_pi_models(pi_bin: &Path) -> Vec<DetectedModelOption> {
     // pi --list-models may need to query provider catalogs; give it more
     // headroom than the default 3s CLI probe.
@@ -1658,33 +1767,45 @@ fn discover_pi_models(pi_bin: &Path) -> Vec<DetectedModelOption> {
     )
     .unwrap_or_default();
 
+    parse_pi_list_models(&output)
+}
+
+/// Parse the `pi --list-models` table. Rows are only trusted after the
+/// `provider  model …` header, so notices like "No models available" and any
+/// banner text above the table never become model ids.
+fn parse_pi_list_models(output: &str) -> Vec<DetectedModelOption> {
+    let mut seen_header = false;
     output
         .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("No ") && !line.starts_with("Error"))
-        .filter(|line| line.contains('/') || line.len() >= 4)
-        .map(|line| {
-            let parts: Vec<&str> = line.splitn(2, '/').collect();
-            let source_provider = if parts.len() == 2 {
-                Some(parts[0].to_string())
-            } else {
-                Some("pi".to_string())
-            };
-            DetectedModelOption {
-                model_id: line.to_string(),
-                display_name: line.to_string(),
-                source_provider,
+        .filter_map(|line| {
+            let mut columns = line.split_whitespace();
+            let (provider, model) = (columns.next()?, columns.next()?);
+            if !seen_header {
+                seen_header = provider == "provider" && model == "model";
+                return None;
+            }
+            let model_id = format!("{provider}/{model}");
+            Some(DetectedModelOption {
+                model_id: model_id.clone(),
+                display_name: model_id,
+                source_provider: Some(provider.to_string()),
                 family: None,
                 subscription_label: "pi".to_string(),
                 supports_pair_execution: true,
                 runnable: true,
-            }
+            })
         })
         .collect()
 }
 
-/// Discover Kiro models via `kiro-cli chat --list-models`. The CLI prints
-/// one model name per line.
+/// Discover Kiro models via `kiro-cli chat --list-models`. The CLI prints a
+/// header plus one row per model (kiro-cli 2.23.0), the default marked `*`:
+///
+/// ```text
+/// Available models (* = default):
+/// * auto                1.00x credits   Models chosen by task
+///   claude-sonnet-4.5   1.30x credits   The Claude Sonnet 4.5 model
+/// ```
 fn discover_kiro_models(kiro_bin: &Path) -> Vec<DetectedModelOption> {
     let output = capture_command_output_with_timeout(
         kiro_bin,
@@ -1694,26 +1815,62 @@ fn discover_kiro_models(kiro_bin: &Path) -> Vec<DetectedModelOption> {
     )
     .unwrap_or_default();
 
-    output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("No ") && !line.starts_with("Error"))
-        .map(|line| DetectedModelOption {
-            model_id: line.to_string(),
-            display_name: line.to_string(),
+    parse_kiro_model_list(&output)
+}
+
+fn parse_kiro_model_list(output: &str) -> Vec<DetectedModelOption> {
+    let mut models: Vec<DetectedModelOption> = Vec::new();
+    for line in output.lines().map(str::trim) {
+        if line.is_empty()
+            || line.ends_with(':')
+            || line.starts_with("No ")
+            || line.starts_with("Error")
+        {
+            continue;
+        }
+        let Some(model_id) = line
+            .trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace())
+            .split_whitespace()
+            .next()
+            .filter(|id| is_plausible_model_id(id))
+        else {
+            continue;
+        };
+        if models.iter().any(|model| model.model_id == model_id) {
+            continue;
+        }
+        models.push(DetectedModelOption {
+            model_id: model_id.to_string(),
+            display_name: model_id.to_string(),
             source_provider: Some("kiro".to_string()),
             family: None,
             subscription_label: "kiro".to_string(),
             supports_pair_execution: true,
             runnable: true,
-        })
-        .collect()
+        });
+    }
+    models
 }
 
-/// Discover Aider models from `~/.aider.conf.yml`. Aider doesn't have a
-/// `--list-models` command, so we parse the config file for a `model:` key
-/// and also surface a small static fallback list of common BYOK models so
-/// the picker is never empty when the user has an API key configured.
+/// Whether a dotenv file assigns a non-empty value to any of `keys`
+/// (`KEY=value`, optionally prefixed with `export`).
+fn dotenv_defines_any(content: &str, keys: &[&str]) -> bool {
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        let line = line.strip_prefix("export ").unwrap_or(line).trim_start();
+        keys.iter().any(|key| {
+            line.strip_prefix(key)
+                .and_then(|rest| rest.strip_prefix('='))
+                .is_some_and(|value| !value.trim().trim_matches(['"', '\'']).is_empty())
+        })
+    })
+}
+
+/// Discover Aider models from `~/.aider.conf.yml`. Aider's `--list-models`
+/// only searches its built-in catalog of known models, not what the user can
+/// run, so we parse the config file for a `model:` key and also surface a
+/// small static fallback list of common BYOK models so the picker is never
+/// empty when the user has an API key configured.
 fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
     let subscription_label = "byok".to_string();
     let mut models = Vec::new();
@@ -1723,27 +1880,28 @@ fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
     if let Ok(content) = fs::read_to_string(&config_path) {
         for raw_line in content.lines() {
             let line = raw_line.trim();
-            if line.starts_with("model:") {
-                if let Some(model_id) = line.split(':').nth(1).map(|s| s.trim().trim_matches('"')) {
-                    if !model_id.is_empty() && is_plausible_model_id(model_id) {
-                        models.push(DetectedModelOption {
-                            model_id: model_id.to_string(),
-            display_name: model_id.to_string(),
-            source_provider: Some("aider".to_string()),
-            family: None,
-            subscription_label: subscription_label.clone(),
-            supports_pair_execution: true,
-            runnable: true,
-                        });
-                    }
+            // Model ids may themselves contain `:` (Bedrock `…-v1:0`, Ollama
+            // `qwen:7b`), so only the key prefix is stripped.
+            if let Some(rest) = line.strip_prefix("model:") {
+                let model_id = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+                if !model_id.is_empty() && is_plausible_model_id(&model_id.replace(':', "-")) {
+                    models.push(DetectedModelOption {
+                        model_id: model_id.to_string(),
+                        display_name: model_id.to_string(),
+                        source_provider: Some("aider".to_string()),
+                        family: None,
+                        subscription_label: subscription_label.clone(),
+                        supports_pair_execution: true,
+                        runnable: true,
+                    });
                 }
             }
         }
     }
 
     // 2. Static fallback: common models users are likely to have keys for.
-    // Only added if the config didn't already list them. The IDs match the
-    // bare model names accepted by aider-chat 0.86.x (no `provider/` prefix).
+    // Only added if the config didn't already list them. The IDs resolve in
+    // aider-chat 0.86.2's model metadata.
     let fallbacks = [
         "claude-sonnet-5",
         "claude-opus-5",
@@ -1751,7 +1909,9 @@ fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
         "gpt-5.4",
         "gpt-5.4-mini",
         "gemini-2.5-pro",
-        "deepseek-coder-v3",
+        // litellm has no provider for the bare `deepseek-coder-v3`; this is
+        // the DeepSeek id aider-chat 0.86.2 knows.
+        "deepseek/deepseek-chat",
     ];
     for model_id in &fallbacks {
         if !models.iter().any(|m| &m.model_id == model_id) {
@@ -1840,6 +2000,111 @@ mod tests {
         assert_eq!(models[1].model_id, "gemini-3.5-flash-low");
         assert_eq!(models[1].display_name, "Gemini 3.5 Flash (Low)");
         assert!(models.iter().all(|m| m.runnable && m.supports_pair_execution));
+    }
+
+    #[test]
+    fn parse_opencode_major_version_reads_semver_major() {
+        assert_eq!(parse_opencode_major_version("opencode v2.0.3\n"), Some(2));
+        assert_eq!(parse_opencode_major_version("1.18.30"), Some(1));
+        assert_eq!(parse_opencode_major_version("opencode dev build"), None);
+        assert_eq!(parse_opencode_major_version(""), None);
+    }
+
+    #[test]
+    fn opencode_config_accepts_v1_and_v2_provider_keys() {
+        let v1: OpenCodeConfig =
+            serde_json::from_str(r#"{"provider": {"ollama": {"models": {"qwen": {}}}}}"#)
+                .expect("1.x config parses");
+        assert!(v1.provider.is_some() && v1.providers.is_none());
+
+        let v2: OpenCodeConfig =
+            serde_json::from_str(r#"{"providers": {"ollama": {"models": {"qwen": {}}}}}"#)
+                .expect("2.x config parses");
+        assert!(v2.providers.is_some() && v2.provider.is_none());
+    }
+
+    #[test]
+    fn claude_help_parser_reads_only_the_model_block() {
+        // Layout of `claude --help` 2.1.280: the `--model` description wraps,
+        // contains an apostrophe, and is followed by flags quoting other words.
+        let help = "\
+  --permission-mode <mode>              Permission mode ('acceptEdits', 'auto',
+                                        'plan')
+  --model <model>                       Model for the current session. Provide
+                                        an alias for the latest model (e.g.
+                                        'fable', 'opus', or 'sonnet') or a
+                                        model's full name (e.g.
+                                        'claude-fable-5').
+  -n, --name <name>                     Set a display name ('reviewer')
+  --output-format <format>              'text', 'json', or 'stream-json'
+";
+        let predicate = |value: &str| is_claude_model_id(value) && is_plausible_model_id(value);
+        let mut ids = Vec::new();
+        collect_model_ids_from_help_line(help, &predicate, &mut ids);
+        assert_eq!(ids, vec!["claude-fable-5".to_string()]);
+
+        let mut none = Vec::new();
+        collect_model_ids_from_help_line("  --verbose  'claude-x-1'\n", &predicate, &mut none);
+        assert!(none.is_empty(), "no --model block means no help-derived models");
+    }
+
+    #[test]
+    fn discover_aider_models_keeps_colons_in_configured_model_ids() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp_home).expect("failed to create temp home");
+        fs::write(
+            temp_home.join(".aider.conf.yml"),
+            "model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0\n",
+        )
+        .expect("failed to write aider config");
+
+        let models = discover_aider_models(&temp_home);
+        let _ = fs::remove_dir_all(&temp_home);
+
+        assert_eq!(
+            models[0].model_id,
+            "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+        );
+        assert!(models.iter().any(|m| m.model_id == "deepseek/deepseek-chat"));
+        assert!(!models.iter().any(|m| m.model_id == "deepseek-coder-v3"));
+    }
+
+    #[test]
+    fn dotenv_defines_any_matches_assigned_keys_only() {
+        let keys = ["OPENROUTER_API_KEY", "OPENAI_API_KEY"];
+        assert!(dotenv_defines_any("OPENROUTER_API_KEY=sk-or-1\n", &keys));
+        assert!(dotenv_defines_any("# keys\nexport OPENAI_API_KEY=\"sk-1\"\n", &keys));
+        assert!(!dotenv_defines_any("OPENAI_API_KEY=\nOTHER=1\n", &keys));
+        assert!(!dotenv_defines_any("OPENAI_API_KEY_OLD=sk-1\n", &keys));
+    }
+
+    #[test]
+    fn parse_kiro_model_list_reads_first_column() {
+        let output = "Available models (* = default):\n\
+                      * auto                1.00x credits   Models chosen by task\n\
+                      \x20 claude-sonnet-4.5   1.30x credits   The Claude Sonnet 4.5 model\n\
+                      \x20 claude-haiku-4.5    0.40x credits   The Claude Haiku 4.5 model\n";
+        let ids: Vec<String> = parse_kiro_model_list(output)
+            .into_iter()
+            .map(|model| model.model_id)
+            .collect();
+        assert_eq!(ids, vec!["auto", "claude-sonnet-4.5", "claude-haiku-4.5"]);
+    }
+
+    #[test]
+    fn parse_pi_list_models_reads_table_rows_as_provider_model_ids() {
+        // Verbatim `pi --list-models` layout (pi 0.79.2), incl. trailing padding.
+        let output = "provider              model                       context  max-out  thinking  images\n\
+                      anthropic             claude-3-5-haiku-20241022   200K     8.2K     no        yes   \n\
+                      zai                   glm-4.5-air                 128K     96K      yes       no    \n";
+
+        let models = parse_pi_list_models(output);
+
+        let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
+        assert_eq!(ids, vec!["anthropic/claude-3-5-haiku-20241022", "zai/glm-4.5-air"]);
+        assert_eq!(models[1].source_provider.as_deref(), Some("zai"));
+
+        assert!(parse_pi_list_models("No models available. Configure a provider.\n").is_empty());
     }
 
     #[test]
@@ -2166,6 +2431,9 @@ model = "gpt-5.4"
 [profiles.fast]
 model = "gpt-5.4-mini"
 
+[tui]
+status_line = ["codex-version", "model"]
+
 [notice.model_migrations]
 "gpt-5.1-codex-mini" = "gpt-5.4"
 "#,
@@ -2220,6 +2488,13 @@ model = "gpt-5.4-mini"
                 .any(|model| model.model_id == "gpt-5.1-codex-mini"),
             "Codex should preserve migration-linked model ids seen in config"
         );
+        assert!(
+            !profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "codex-version"),
+            "[tui] status_line items are not models"
+        );
     }
 
     #[cfg(unix)]
@@ -2248,7 +2523,8 @@ exit 0
             r#"{
   "models": [
     { "slug": "gpt-9-coder-preview" },
-    { "slug": "codex-ultra-latest" }
+    { "slug": "codex-ultra-latest" },
+    { "slug": "codex-auto-review", "visibility": "hide" }
   ]
 }"#,
         )
@@ -2292,6 +2568,13 @@ exit 0
                 .iter()
                 .any(|model| model.model_id == "codex-ultra-latest"),
             "Codex should preserve additional cache-backed model ids"
+        );
+        assert!(
+            !profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "codex-auto-review"),
+            "models the cache marks hidden must not surface"
         );
     }
 

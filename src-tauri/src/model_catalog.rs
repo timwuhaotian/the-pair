@@ -88,6 +88,20 @@ fn split_effort_suffix(name: &str) -> (String, Option<String>) {
     (trimmed.to_string(), None)
 }
 
+/// Drop a trailing `-low` / `-medium` / `-high` / `-thinking` effort tier from a
+/// model slug, so `gemini-3.8-flash-high` keys onto `gemini-3.8-flash`. Only
+/// applied when the display name already carries an effort suffix.
+fn strip_effort_slug_suffix(slug: &str) -> String {
+    for suffix in ["-low", "-medium", "-high", "-thinking"] {
+        if let Some(base) = slug.strip_suffix(suffix) {
+            if !base.is_empty() {
+                return base.to_string();
+            }
+        }
+    }
+    slug.to_string()
+}
+
 /// The brand a model belongs to, used as the high-order part of the canonical key.
 /// Native providers map to their fixed brand; OpenCode rides on the resolved source
 /// label so an OpenCode "openai/*" model keys to the same brand as native Codex.
@@ -198,11 +212,17 @@ impl ModelCatalog {
                 let access_label = provider.access_label(&source_provider_label);
 
                 // Identity for cross-route merging. Antigravity bakes the reasoning effort
-                // into the model name ("Gemini 3.5 Flash (Low)"); strip it so every effort
-                // variant collapses onto one canonical model, and tag the effort so the UI
-                // can offer it as a sub-control.
+                // into both the display name ("Gemini 3.8 Flash (Low)") and the slug
+                // (`gemini-3.8-flash-low`); strip it so every effort variant collapses onto
+                // one canonical model, and tag the effort so the UI can offer it as a
+                // sub-control.
                 let (id_base, effort_from_id) = split_effort_suffix(&model.model_id);
                 let (display_base, effort_from_display) = split_effort_suffix(&model.display_name);
+                let id_base = if effort_from_display.is_some() {
+                    strip_effort_slug_suffix(&id_base)
+                } else {
+                    id_base
+                };
                 let effort_tag = effort_from_display.or(effort_from_id);
                 let canonical_key =
                     compute_canonical_key(profile.kind, &source_provider_label, &id_base);
@@ -572,6 +592,49 @@ mod tests {
             .collect();
         efforts.sort_unstable();
         assert_eq!(efforts, vec!["high", "low", "medium"]);
+    }
+
+    #[test]
+    fn build_catalog_collapses_antigravity_effort_slugs() {
+        // Real `agy models` rows: the slug carries the effort tier too
+        // (`gemini-3.8-flash-high\tGemini 3.8 Flash (High)`).
+        let rows = [
+            ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
+            ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+            ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+            ("gemini-3.1-pro-high", "Gemini 3.1 Pro (High)"),
+        ];
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Gemini,
+            true,
+            true,
+            true,
+            "antigravity-backed",
+            rows.iter()
+                .map(|(id, name)| {
+                    model(
+                        id,
+                        name,
+                        Some("google"),
+                        Some("gemini"),
+                        "antigravity-backed",
+                        true,
+                        true,
+                    )
+                })
+                .collect(),
+        )]);
+
+        let flash_keys: std::collections::HashSet<&str> = catalog[..3]
+            .iter()
+            .map(|m| m.canonical_key.as_str())
+            .collect();
+        assert_eq!(flash_keys.len(), 1, "flash effort tiers share one key");
+        assert_ne!(catalog[0].canonical_key, catalog[3].canonical_key);
+        assert_eq!(catalog[0].canonical_display_name, "Gemini 3.8 Flash");
+        assert_eq!(catalog[3].effort_tag.as_deref(), Some("high"));
+        // The runnable slug itself is left untouched.
+        assert_eq!(catalog[2].model_id, "gemini-3.8-flash-high");
     }
 
     #[test]

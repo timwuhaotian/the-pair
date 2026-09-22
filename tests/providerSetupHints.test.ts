@@ -105,7 +105,7 @@ test('buildProviderSetupHints includes login commands for known providers', () =
   ])
 
   const claude = hints.find((h) => h.kind === 'claude')
-  assert.equal(claude!.loginCommand, 'claude login')
+  assert.equal(claude!.loginCommand, 'claude auth login')
 
   const codex = hints.find((h) => h.kind === 'codex')
   assert.equal(codex!.loginCommand, 'codex login')

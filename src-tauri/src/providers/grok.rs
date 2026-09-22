@@ -7,10 +7,14 @@ use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde_json::Value;
 
 /// Grok Build CLI (`grok`) — xAI's terminal coding agent.
-/// Uses `grok -p` with `--output-format streaming-json`: each stdout line is a
-/// `type`-tagged JSON object (`text`, `thought`, `tool_call`, `usage`, `end`,
-/// `error`). Verified against the xai-org/grok-build headless documentation
-/// (2026-09-19): `-p <prompt>`, `-m <model>`, `--resume <id>`,
+/// Uses `grok -p` with `--output-format streaming-messages-json` (Messages API
+/// stream-json): a `system`/`init` line, one whole `assistant` message per
+/// model response, and a terminal `result` carrying the final text,
+/// `session_id`, `is_error`/`errors[]`, and the turn's `usage`. The plain
+/// `streaming-json` format was dropped because its `text` lines are raw
+/// ~10 ms stream fragments that cannot be trimmed and re-joined safely.
+/// Verified against Grok Build 1.0.40 and the xai-org/grok-build headless
+/// documentation (2026-09-23): `-p <prompt>`, `-m <model>`, `--resume <id>`,
 /// `--reasoning-effort <level>`, `--yolo`, and the read-only `--tools` allowlist.
 pub struct GrokProvider;
 
@@ -49,7 +53,7 @@ impl Provider for GrokProvider {
             "-p".into(),
             prompt,
             "--output-format".into(),
-            "streaming-json".into(),
+            "streaming-messages-json".into(),
             "-m".into(),
             model.into(),
             // Headless turns must never block on interactive permission
@@ -84,10 +88,10 @@ impl Provider for GrokProvider {
         let event_type = event.get("type").and_then(|v| v.as_str())?;
 
         let (usage_obj, is_final) = match event_type {
-            // `end` is the terminal event and carries the turn's full spend.
-            "end" => (event.get("usage")?, true),
-            // One `usage` event per model response, before the final `end`.
-            "usage" => (event.get("usage")?, false),
+            // `result` is the terminal line and carries the turn's full spend.
+            "result" => (event.get("usage")?, true),
+            // One `assistant` message per model response, before the `result`.
+            "assistant" => (event.get("message")?.get("usage")?, false),
             _ => return None,
         };
 
@@ -126,30 +130,53 @@ impl Provider for GrokProvider {
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
-        // Only `text` events carry the turn result. `thought` (reasoning),
-        // `tool_call`/`tool_call_update`, `plan`, and the terminal `end`/`error`
-        // events must not leak into the message, so the generic text walker is
-        // always bypassed.
+        // `result.result` is the final assistant message text. Intermediate
+        // `assistant` messages (narration between tool calls), `thinking`
+        // blocks, and tool traffic must not leak into the handoff, so the
+        // generic text walker is always bypassed.
         let mut out = Vec::new();
-        if event.get("type").and_then(|v| v.as_str()) == Some("text") {
-            if let Some(data) = event.get("data").and_then(|v| v.as_str()) {
-                push_trimmed(&mut out, data);
+        if event.get("type").and_then(|v| v.as_str()) == Some("result")
+            && event.get("is_error").and_then(|v| v.as_bool()) != Some(true)
+        {
+            if let Some(text) = event.get("result").and_then(|v| v.as_str()) {
+                push_trimmed(&mut out, text);
             }
         }
         Some(out)
     }
 
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
-        if event.get("type").and_then(|v| v.as_str()) != Some("error") {
-            return None;
+        const FALLBACK: &str = "Grok Build reported an error";
+        match event.get("type").and_then(|v| v.as_str()) {
+            // Error subtypes: `error_max_turns`, `error_during_execution`, …
+            Some("result") if event.get("is_error").and_then(|v| v.as_bool()) == Some(true) => {
+                let errors = event
+                    .get("errors")
+                    .and_then(|v| v.as_array())
+                    .map(|errors| {
+                        errors
+                            .iter()
+                            .filter_map(|e| e.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .filter(|s| !s.is_empty());
+                Some(errors.unwrap_or_else(|| FALLBACK.to_string()))
+            }
+            // Session-level failures (e.g. auth) arrive as a bare error object.
+            Some("error") => Some(
+                event
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(FALLBACK)
+                    .to_string(),
+            ),
+            _ => None,
         }
-
-        event
-            .get("message")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| s.trim().to_string())
-            .or_else(|| Some("Grok Build reported an error".to_string()))
     }
 
     fn suppress_stderr(&self) -> bool {
@@ -185,11 +212,15 @@ impl Provider for GrokProvider {
         "Grok Build login".into()
     }
 
-    fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
-        // Grok accepts none/minimal/low/medium/high/xhigh/max canonically, but
-        // each model only honors the levels its menu advertises; expose the
-        // universally safe low/medium/high trio (verified 2026-09-19).
-        Some(vec!["low".into(), "medium".into(), "high".into()])
+    fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
+        // Each model only honors the levels its menu advertises. Grok Build
+        // 1.0.40's bundled catalog gives grok-4.6 xhigh/high/medium/low and
+        // grok-4.5 high/medium/low; custom aliases get the safe trio.
+        let mut levels: Vec<String> = vec!["low".into(), "medium".into(), "high".into()];
+        if model_id.strip_prefix("grok/").unwrap_or(model_id) == "grok-4.6" {
+            levels.push("xhigh".into());
+        }
+        Some(levels)
     }
 
     fn login_command(&self) -> Option<String> {
@@ -239,7 +270,7 @@ mod tests {
                 "-p".to_string(),
                 "do the work".to_string(),
                 "--output-format".to_string(),
-                "streaming-json".to_string(),
+                "streaming-messages-json".to_string(),
                 "-m".to_string(),
                 "grok-4.6".to_string(),
                 "--yolo".to_string(),
@@ -350,30 +381,41 @@ mod tests {
         assert_eq!(command.args[1], "\n- Do the next step");
     }
 
+    // Line shapes follow the streaming-messages-json examples in the
+    // xai-org/grok-build headless documentation (2026-09-23).
+
     #[test]
-    fn grok_collects_only_text_event_data() {
+    fn grok_collects_only_the_final_result_text() {
         let provider = GrokProvider;
 
-        let text = json!({"type": "text", "data": "done"});
-        assert_eq!(
-            provider.collect_json_candidates(&text),
-            Some(vec!["done".to_string()])
-        );
-
-        let thought = json!({"type": "thought", "data": "thinking aloud"});
-        assert_eq!(provider.collect_json_candidates(&thought), Some(vec![]));
-
-        let tool_call = json!({
-            "type": "tool_call",
-            "toolCallId": "call_1",
-            "toolName": "read_file",
-            "rawInput": {"path": "src/main.rs"},
-            "content": []
+        let assistant = json!({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Let me read the file."},
+                    {"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "src/main.rs"}}
+                ],
+                "usage": {"input_tokens": 812, "output_tokens": 45}
+            },
+            "session_id": "abc123"
         });
-        assert_eq!(provider.collect_json_candidates(&tool_call), Some(vec![]));
+        assert_eq!(provider.collect_json_candidates(&assistant), Some(vec![]));
 
-        let end = json!({"type": "end", "stopReason": "end_turn", "sessionId": "abc123"});
-        assert_eq!(provider.collect_json_candidates(&end), Some(vec![]));
+        let init = json!({"type": "system", "subtype": "init", "session_id": "abc123"});
+        assert_eq!(provider.collect_json_candidates(&init), Some(vec![]));
+
+        let result = json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "I've updated `src/main.rs`.\n\nAll tests pass.",
+            "session_id": "abc123"
+        });
+        assert_eq!(
+            provider.collect_json_candidates(&result),
+            Some(vec!["I've updated `src/main.rs`.\n\nAll tests pass.".to_string()])
+        );
     }
 
     #[test]
@@ -381,39 +423,52 @@ mod tests {
         let provider = GrokProvider;
 
         let live = json!({
-            "type": "usage",
-            "usage": {
-                "input_tokens": 812,
-                "output_tokens": 45,
-                "cache_read_input_tokens": 1000,
-                "cache_creation_input_tokens": 8,
-                "reasoning_tokens": 0
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [],
+                "usage": {
+                    "input_tokens": 812,
+                    "output_tokens": 45,
+                    "cache_read_input_tokens": 1000,
+                    "cache_creation_input_tokens": 8
+                }
             }
         });
-        let usage = provider.extract_token_usage(&live).expect("usage event");
+        let usage = provider.extract_token_usage(&live).expect("assistant usage");
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.input_tokens, Some(812 + 1000 + 8));
         assert_eq!(usage.source, TokenUsageSource::Live);
 
-        let end = json!({
-            "type": "end",
-            "stopReason": "end_turn",
-            "sessionId": "abc123",
-            "usage": {"input_tokens": 7210, "output_tokens": 1893}
+        let result = json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "session_id": "abc123",
+            "usage": {"input_tokens": 7210, "output_tokens": 1893, "cache_read_input_tokens": 0}
         });
-        let usage = provider.extract_token_usage(&end).expect("end event");
+        let usage = provider.extract_token_usage(&result).expect("result usage");
         assert_eq!(usage.output_tokens, 1893);
         assert_eq!(usage.input_tokens, Some(7210));
         assert_eq!(usage.source, TokenUsageSource::Final);
 
-        // Non-usage events carry no token data.
-        let text = json!({"type": "text", "data": "done"});
-        assert!(provider.extract_token_usage(&text).is_none());
+        let init = json!({"type": "system", "subtype": "init"});
+        assert!(provider.extract_token_usage(&init).is_none());
     }
 
     #[test]
-    fn grok_extracts_error_detail_from_error_events() {
+    fn grok_extracts_error_detail_from_error_results_and_events() {
         let provider = GrokProvider;
+
+        let failed = json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "errors": ["tool crashed", " "],
+            "result": "partial"
+        });
+        assert_eq!(provider.extract_error_detail(&failed).as_deref(), Some("tool crashed"));
+        assert_eq!(provider.collect_json_candidates(&failed), Some(vec![]));
 
         let error = json!({"type": "error", "message": "Couldn't start session: bad auth"});
         assert_eq!(
@@ -427,8 +482,8 @@ mod tests {
             Some("Grok Build reported an error")
         );
 
-        let text = json!({"type": "text", "data": "done"});
-        assert!(provider.extract_error_detail(&text).is_none());
+        let ok = json!({"type": "result", "is_error": false, "result": "done"});
+        assert!(provider.extract_error_detail(&ok).is_none());
     }
 
     #[test]
@@ -444,8 +499,13 @@ mod tests {
             Some(vec![
                 "low".to_string(),
                 "medium".to_string(),
-                "high".to_string()
+                "high".to_string(),
+                "xhigh".to_string()
             ])
+        );
+        assert_eq!(
+            provider.reasoning_effort_levels("grok-4.5").map(|l| l.len()),
+            Some(3)
         );
     }
 }

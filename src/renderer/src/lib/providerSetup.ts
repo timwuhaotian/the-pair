@@ -29,7 +29,7 @@ export function buildProviderSetupSummary(models: AvailableModel[]): ProviderSet
  * serving requests on 2026-06-18. The backend's `DetectedProviderProfile`
  * remains the authoritative source for the onboarding screen. */
 export const PROVIDER_LOGIN_COMMANDS: Partial<Record<ProviderKind, string>> = {
-  claude: 'claude login',
+  claude: 'claude auth login',
   codex: 'codex login',
   gemini: 'agy',
   kimi: 'kimi login',

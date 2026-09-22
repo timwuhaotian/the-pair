@@ -78,7 +78,14 @@ fn build_opencode_turn_command(
     }
     args.push("--format".into());
     args.push("json".into());
-    args.push(request.message.into());
+    // opencode 2.x prints the `run` help (exit 0) for a message starting with
+    // `-`, and `--` duplicates the message; a leading newline is safe.
+    let prompt = if request.message.starts_with('-') {
+        format!("\n{}", request.message)
+    } else {
+        request.message.to_string()
+    };
+    args.push(prompt);
 
     ProviderTurnCommand {
         executable: "opencode".into(),
@@ -183,6 +190,40 @@ impl Provider for OpenCodeProvider {
             },
             provider: Some("opencode".to_string()),
         })
+    }
+
+    fn extract_error_detail(&self, event: &Value) -> Option<String> {
+        // 2.x: {"type":"error","error":{"type":"provider.no-route","message":"…"}}
+        // 1.x: {"type":"error","error":{"name":"…","data":{"message":"…"}}}
+        if event.get("type").and_then(|v| v.as_str()) != Some("error") {
+            return None;
+        }
+        let error = event.get("error")?;
+        let message = error
+            .get("message")
+            .and_then(|v| v.as_str())
+            .or_else(|| error.pointer("/data/message").and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let kind = error
+            .get("type")
+            .or_else(|| error.get("name"))
+            .and_then(|v| v.as_str());
+        Some(match (kind, message) {
+            (Some(kind), Some(message)) => format!("{kind}: {message}"),
+            (None, Some(message)) => message.to_string(),
+            (Some(kind), None) => kind.to_string(),
+            (None, None) => error.to_string(),
+        })
+    }
+
+    fn clears_turn_error(&self, event: &Value) -> bool {
+        // 2.x also emits `error` for transient transport failures it retries;
+        // further output means the turn recovered.
+        matches!(
+            event.get("type").and_then(|v| v.as_str()),
+            Some("text") | Some("step_finish")
+        )
     }
 
     fn detect(&self) -> DetectedProviderProfile {
@@ -393,5 +434,51 @@ mod tests {
             provider.reasoning_effort_levels("minimax/MiniMax-M2.7"),
             None
         );
+    }
+
+    #[test]
+    fn opencode_guards_leading_dash_prompt() {
+        let command = build_opencode_turn_command(
+            &ProviderTurnRequest {
+                provider_kind: ProviderKind::Opencode,
+                model: "opencode/mimo-v2.6-flash-free",
+                session_id: None,
+                role: "executor",
+                pair_id: "pair-1",
+                message: "- Do the next step",
+                reasoning_effort: None,
+            },
+            crate::provider_registry::OpencodeVariantSyntax::Suffix,
+        );
+        assert_eq!(command.args.last().unwrap(), "\n- Do the next step");
+        assert!(!command.args.contains(&"--".to_string()));
+    }
+
+    #[test]
+    fn opencode_error_events_surface_detail_and_recover() {
+        let provider = OpenCodeProvider;
+        let v2 = serde_json::json!({
+            "type": "error",
+            "sessionID": "ses_1",
+            "error": {"type": "provider.no-route", "message": "Model unavailable: opencode/nope"}
+        });
+        assert_eq!(
+            provider.extract_error_detail(&v2).as_deref(),
+            Some("provider.no-route: Model unavailable: opencode/nope")
+        );
+
+        let v1 = serde_json::json!({
+            "type": "error",
+            "error": {"name": "ProviderAuthError", "data": {"message": "missing key"}}
+        });
+        assert_eq!(
+            provider.extract_error_detail(&v1).as_deref(),
+            Some("ProviderAuthError: missing key")
+        );
+
+        let text = serde_json::json!({"type": "text", "part": {"text": "done"}});
+        assert!(provider.extract_error_detail(&text).is_none());
+        assert!(provider.clears_turn_error(&text));
+        assert!(!provider.clears_turn_error(&v2));
     }
 }

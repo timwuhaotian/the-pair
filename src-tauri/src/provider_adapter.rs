@@ -180,8 +180,8 @@ mod tests {
                 "session-123".to_string(),
                 "--model".to_string(),
                 "gpt-4o-mini".to_string(),
-                "--sandbox".to_string(),
-                "workspace-write".to_string(),
+                "-c".to_string(),
+                "sandbox_mode=\"workspace-write\"".to_string(),
                 "--json".to_string(),
                 "--output-last-message".to_string(),
                 command

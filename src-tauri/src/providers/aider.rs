@@ -59,13 +59,20 @@ impl Provider for AiderProvider {
             model.into(),
             // Headless flags: auto-approve all actions, don't dirty the git
             // history with auto-commits, and stream plain Markdown to stdout.
-            // Aider has no --json flag (verified against aider-chat 0.86.x;
-            // re-checked 2026-09-19).
+            // Aider has no --json flag (verified against aider-chat 0.86.2 on
+            // 2026-09-23).
             "--yes-always".into(),
             "--no-auto-commits".into(),
             "--no-dirty-commits".into(),
             "--no-pretty".into(),
             "--stream".into(),
+            // `--yes-always` also answers yes to aider's own prompts: opening
+            // browser tabs (model warnings, release notes), pip self-upgrades
+            // (`--check-update` defaults on), and the analytics opt-in.
+            "--no-show-model-warnings".into(),
+            "--no-check-update".into(),
+            "--no-show-release-notes".into(),
+            "--no-analytics".into(),
         ];
 
         // Aider forwards `--reasoning-effort` to models that accept it.
@@ -207,7 +214,11 @@ mod tests {
                 "--no-auto-commits".to_string(),
                 "--no-dirty-commits".to_string(),
                 "--no-pretty".to_string(),
-                "--stream".to_string()
+                "--stream".to_string(),
+                "--no-show-model-warnings".to_string(),
+                "--no-check-update".to_string(),
+                "--no-show-release-notes".to_string(),
+                "--no-analytics".to_string()
             ]
         );
         // Aider streams plain text; the orchestrator reads it via Stdio, not a

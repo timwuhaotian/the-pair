@@ -9,14 +9,12 @@ use serde_json::Value;
 
 /// Kiro CLI (`kiro-cli`) — AWS's spec-driven terminal coding agent.
 /// Uses `kiro-cli chat --no-interactive` for plain-text stdout output.
-/// Verified against kiro-cli 2.21.x (last verified 2026-09-01; surface
-/// re-audited 2026-09-19 with no drift). The CLI reference documents no
-/// `chat --model` flag, so the selected model id is not forwarded
-/// (selection happens via the agent config). Headless `--engine v2
-/// --output-format stream-json` is available but the plain-text transport
-/// is preserved for parity with earlier audits; switching to the structured
-/// stream would enable session-id capture and token usage, neither of which
-/// surface today.
+/// Verified against kiro-cli 2.23.0 (2026-09-23): `chat --model <MODEL>`
+/// selects the model (unknown ids are rejected). Headless
+/// `--agent-engine v2 --output-format stream-json` (v2 is now the default
+/// engine) is available but its event format is undocumented, so the
+/// plain-text transport is kept; switching to the structured stream would
+/// enable session-id capture and token usage, neither of which surface today.
 pub struct KiroProvider;
 
 impl Provider for KiroProvider {
@@ -48,7 +46,7 @@ impl Provider for KiroProvider {
 
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
         // Strip "kiro/" qualifier if present.
-        let _model = request
+        let model = request
             .model
             .strip_prefix("kiro/")
             .unwrap_or(request.model);
@@ -65,6 +63,14 @@ impl Provider for KiroProvider {
             "--no-interactive".into(),
             "--trust-all-tools".into(),
         ];
+
+        // Pairs saved before 2.8.1 may hold a whole `--list-models` table row
+        // as their model id; Kiro rejects unknown ids, so only a real model
+        // token is forwarded and anything else keeps the account default.
+        if !model.is_empty() && !model.contains(char::is_whitespace) {
+            args.push("--model".into());
+            args.push(model.into());
+        }
 
         // Continue a previous conversation when resuming a pair: the Daytona
         // integration (and Kiro's own chat docs) use `--resume-id <SESSION_ID>`
@@ -90,10 +96,9 @@ impl Provider for KiroProvider {
     }
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // Plain-text output carries no token usage data (last verified
-        // against kiro-cli 2.21.x on 2026-09-01; surface re-audited
-        // 2026-09-19 with no change). Structured usage would require the
-        // headless `--engine v2 --output-format stream-json` event stream.
+        // Plain-text output carries no token usage data (verified against
+        // kiro-cli 2.23.0 on 2026-09-23). Structured usage would require the
+        // headless `--agent-engine v2 --output-format stream-json` stream.
         None
     }
 
@@ -149,7 +154,7 @@ mod tests {
         let provider = KiroProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Kiro,
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4.5",
             session_id: None,
             role: "executor",
             pair_id: "pair-1",
@@ -172,7 +177,7 @@ mod tests {
         let provider = KiroProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Kiro,
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4.5",
             session_id: None,
             role: "mentor",
             pair_id: "pair-1",
@@ -193,7 +198,7 @@ mod tests {
         let provider = KiroProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Kiro,
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4.5",
             session_id: Some("session-xyz"),
             role: "executor",
             pair_id: "pair-1",
@@ -211,7 +216,7 @@ mod tests {
         // Without a session id there is no --resume-id flag.
         let fresh = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Kiro,
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4.5",
             session_id: None,
             role: "executor",
             pair_id: "pair-1",
@@ -226,7 +231,7 @@ mod tests {
         let provider = KiroProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Kiro,
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4.5",
             session_id: None,
             role: "executor",
             pair_id: "pair-1",
@@ -244,7 +249,7 @@ mod tests {
         for role in ["mentor", "executor"] {
             let command = provider.build_turn_command(&ProviderTurnRequest {
                 provider_kind: ProviderKind::Kiro,
-                model: "claude-sonnet-4-5",
+                model: "claude-sonnet-4.5",
                 session_id: None,
                 role,
                 pair_id: "pair-1",
@@ -265,5 +270,33 @@ mod tests {
         assert!(provider
             .extract_token_usage(&serde_json::json!({}))
             .is_none());
+    }
+
+    #[test]
+    fn kiro_forwards_model_flag() {
+        let provider = KiroProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Kiro,
+            model: "kiro/claude-sonnet-4.5",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+        let idx = command.args.iter().position(|a| a == "--model").unwrap();
+        assert_eq!(command.args[idx + 1], "claude-sonnet-4.5");
+
+        // A legacy table-row id is not a model token and is not forwarded.
+        let legacy = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Kiro,
+            model: "* auto   1.00x credits   Models chosen by task",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+        assert!(!legacy.args.contains(&"--model".to_string()));
     }
 }
