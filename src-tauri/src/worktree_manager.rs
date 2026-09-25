@@ -476,22 +476,35 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Absolute path of the repository's common git dir (the main repo's `.git`,
-/// shared by all linked worktrees). A path that no longer exists is resolved
-/// through its nearest existing ancestor.
+/// Runs `git rev-parse <args>` in `directory` and returns its output lines as
+/// paths, resolving relative ones against `directory`. (`--path-format=absolute`
+/// is avoided on purpose: git < 2.31 echoes it back instead of honoring it.)
+fn rev_parse_paths(directory: &Path, args: &[&str], expected: usize) -> Option<Vec<PathBuf>> {
+    let mut command = vec!["rev-parse"];
+    command.extend_from_slice(args);
+    let output = run_git_command(directory, &command).ok()?;
+    let paths: Vec<PathBuf> = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let path = PathBuf::from(line);
+            if path.is_relative() {
+                directory.join(path)
+            } else {
+                path
+            }
+        })
+        .collect();
+    (paths.len() == expected).then_some(paths)
+}
+
+/// Path of the repository's common git dir (the main repo's `.git`, shared by
+/// all linked worktrees). A path that no longer exists is resolved through its
+/// nearest existing ancestor.
 fn find_common_git_dir(path: &Path) -> Option<PathBuf> {
     let probe = path.ancestors().find(|candidate| candidate.is_dir())?;
-    let output = run_git_command(
-        probe,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )
-    .ok()?;
-    let line = output.lines().next()?.trim();
-    if line.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(line))
-    }
+    rev_parse_paths(probe, &["--git-common-dir"], 1)?.pop()
 }
 
 struct WorktreeLayout {
@@ -501,22 +514,16 @@ struct WorktreeLayout {
 }
 
 fn worktree_layout(path: &Path) -> Option<WorktreeLayout> {
-    let output = run_git_command(
+    let mut paths = rev_parse_paths(
         path,
-        &[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-            "--show-toplevel",
-        ],
-    )
-    .ok()?;
-    let mut lines = output.lines().map(str::trim);
+        &["--git-dir", "--git-common-dir", "--show-toplevel"],
+        3,
+    )?
+    .into_iter();
     Some(WorktreeLayout {
-        git_dir: PathBuf::from(lines.next()?),
-        common_dir: PathBuf::from(lines.next()?),
-        toplevel: PathBuf::from(lines.next()?),
+        git_dir: paths.next()?,
+        common_dir: paths.next()?,
+        toplevel: paths.next()?,
     })
 }
 
@@ -931,25 +938,9 @@ fn write_text_atomic(path: &Path, content: &str) -> Result<(), String> {
 /// Path of `info/exclude` as git resolves it — correct when `repo_path` is a
 /// subdirectory, a linked worktree (`.git` is a file) or a submodule.
 fn resolve_exclude_path(repo_path: &str) -> Result<PathBuf, String> {
-    let output = run_git_command(
-        repo_path,
-        &[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-path",
-            "info/exclude",
-        ],
-    )
-    .map_err(|e| format!("Failed to locate info/exclude: {}", e))?;
-    let path = PathBuf::from(output.lines().next().unwrap_or("").trim());
-    if path.as_os_str().is_empty() {
-        return Err("Failed to locate info/exclude".to_string());
-    }
-    Ok(if path.is_relative() {
-        Path::new(repo_path).join(path)
-    } else {
-        path
-    })
+    rev_parse_paths(Path::new(repo_path), &["--git-path", "info/exclude"], 1)
+        .and_then(|mut paths| paths.pop())
+        .ok_or_else(|| "Failed to locate info/exclude".to_string())
 }
 
 /// Makes sure `.worktrees/` is ignored via the repository's `info/exclude`.
@@ -1269,8 +1260,7 @@ mod tests {
         fs::write(path.join("README.md"), "unsaved edit\n").unwrap();
 
         // A stale index.lock makes `git stash` fail.
-        let git_dir =
-            PathBuf::from(temp.git(&path, &["rev-parse", "--path-format=absolute", "--git-dir"]));
+        let git_dir = path.join(temp.git(&path, &["rev-parse", "--git-dir"]));
         fs::write(git_dir.join("index.lock"), "").unwrap();
 
         let error = delete_worktree(path.to_str().unwrap()).expect_err("must refuse");
