@@ -1,16 +1,24 @@
 use crate::config_paths::{opencode_auth_path, opencode_config_path};
-use crate::path_env::fallback_path_dirs;
+use crate::path_env::{fallback_path_dirs, merge_path_entries, run_with_timeout};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::process::Command;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// Total time `opencode models` may spend waiting for the 2.x server to warm
+/// up. Detection joins every provider thread, so this bounds the slowest one.
+const OPENCODE_MODELS_BUDGET: Duration = Duration::from_secs(8);
+const OPENCODE_WARMUP_RETRY_DELAY: Duration = Duration::from_millis(1500);
+/// Extensions Windows can launch directly, in order of preference. Rust's
+/// `Command` runs `.cmd`/`.bat` through `cmd.exe` by itself; the
+/// extensionless npm shim next to them is a shell script it cannot run.
+const WINDOWS_LAUNCHER_EXTENSIONS: [&str; 3] = [".exe", ".cmd", ".bat"];
 
 /// How an installed `opencode` CLI expects a reasoning-effort variant to be
 /// communicated on the turn command.
@@ -37,8 +45,58 @@ pub enum OpencodeVariantSyntax {
     Unsupported,
 }
 
-static OPENCODE_VARIANT_SYNTAX: OnceLock<OpencodeVariantSyntax> = OnceLock::new();
-static PI_MAX_THINKING_LEVEL_SUPPORT: OnceLock<bool> = OnceLock::new();
+/// How long a failed capability probe is remembered before it is retried.
+/// Long enough that a catalog build asking once per model doesn't re-run a
+/// hanging probe for every row, short enough that one slow start doesn't hide
+/// a capability for the rest of the session.
+const FAILED_PROBE_RETRY_AFTER: Duration = Duration::from_secs(30);
+
+static OPENCODE_VARIANT_SYNTAX: ProbeCache<OpencodeVariantSyntax> =
+    ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
+static PI_MAX_THINKING_LEVEL_SUPPORT: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
+
+/// The last result of a capability probe for one resolved CLI binary. A
+/// successful probe is kept for the session; a failed one (timeout, crash)
+/// only for `retry_after`, and resolving a different binary re-probes.
+struct ProbeCache<T> {
+    retry_after: Duration,
+    entry: Mutex<Option<ProbeEntry<T>>>,
+}
+
+struct ProbeEntry<T> {
+    binary: PathBuf,
+    value: Option<T>,
+    probed_at: Instant,
+}
+
+impl<T: Copy> ProbeCache<T> {
+    const fn new(retry_after: Duration) -> Self {
+        Self {
+            retry_after,
+            entry: Mutex::new(None),
+        }
+    }
+
+    fn get_or_probe(&self, binary: &Path, probe: impl FnOnce() -> Option<T>) -> Option<T> {
+        {
+            let entry = self.entry.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(entry) = entry.as_ref().filter(|entry| entry.binary == binary) {
+                if entry.value.is_some() || entry.probed_at.elapsed() < self.retry_after {
+                    return entry.value;
+                }
+            }
+        }
+
+        // Probe without holding the lock: it can take seconds.
+        let value = probe();
+        *self.entry.lock().unwrap_or_else(|e| e.into_inner()) = Some(ProbeEntry {
+            binary: binary.to_path_buf(),
+            value,
+            probed_at: Instant::now(),
+        });
+        value
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -81,29 +139,35 @@ pub struct DetectedProviderProfile {
     pub detected_at: u64,
 }
 
+fn non_empty_env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|value| !value.to_string_lossy().trim().is_empty())
+        .map(PathBuf::from)
+}
+
 pub(crate) fn homedir() -> PathBuf {
     #[cfg(target_os = "windows")]
-    let home = std::env::var("USERPROFILE")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    let home = non_empty_env_path("USERPROFILE")
         .or_else(|| {
-            std::env::var("APPDATA").ok().and_then(|value| {
-                std::path::Path::new(&value)
-                    .parent()
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
+            ["APPDATA", "LOCALAPPDATA"]
+                .into_iter()
+                .find_map(|key| home_from_appdata(&non_empty_env_path(key)?))
         })
-        .or_else(|| {
-            std::env::var("LOCALAPPDATA").ok().and_then(|value| {
-                std::path::Path::new(&value)
-                    .parent()
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
-        })
-        .unwrap_or_default();
+        .or_else(dirs::home_dir);
     #[cfg(not(target_os = "windows"))]
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
+    let home = non_empty_env_path("HOME").or_else(dirs::home_dir);
+    home.unwrap_or_default()
+}
+
+/// `%APPDATA%` is `<home>\AppData\Roaming` and `%LOCALAPPDATA%` is
+/// `<home>\AppData\Local`, so the profile dir is their grandparent.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn home_from_appdata(appdata: &Path) -> Option<PathBuf> {
+    appdata
+        .parent()?
+        .parent()
+        .filter(|home| !home.as_os_str().is_empty())
+        .map(Path::to_path_buf)
 }
 
 pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString, OsString)> {
@@ -145,13 +209,7 @@ pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString
         cfg!(target_os = "windows"),
     );
     let base_path = std::env::var_os("PATH").unwrap_or_default();
-    let mut path_entries: Vec<PathBuf> = std::env::split_paths(&base_path).collect();
-    for dir in fallback_dirs {
-        if !path_entries.iter().any(|entry| entry == &dir) {
-            path_entries.push(dir);
-        }
-    }
-    if let Ok(path) = std::env::join_paths(path_entries) {
+    if let Ok(path) = merge_path_entries(&base_path, &fallback_dirs) {
         overrides.push((OsString::from("PATH"), path));
     }
 
@@ -164,6 +222,9 @@ fn prepare_cli_command(command: &mut Command, home: &std::path::Path) {
     }
 }
 
+/// Run a CLI probe and return its stdout, or `None` when it can't start, exits
+/// non-zero or outlives `timeout`. stdout is drained while the probe runs, so
+/// output larger than the pipe buffer can't stall it into the timeout.
 fn capture_command_output_with_timeout(
     command_path: &Path,
     args: &[&str],
@@ -172,35 +233,13 @@ fn capture_command_output_with_timeout(
 ) -> Option<String> {
     let mut command = Command::new(command_path);
     command.args(args);
-    command.stdout(Stdio::piped());
-    command.stderr(Stdio::null());
     prepare_cli_command(&mut command, home);
 
-    let mut child = command.spawn().ok()?;
-    let started = Instant::now();
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let output = child.wait_with_output().ok()?;
-                if !status.success() {
-                    return None;
-                }
-                return String::from_utf8(output.stdout).ok();
-            }
-            Ok(None) if started.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
+    let output = run_with_timeout(command, timeout)?;
+    if !output.status?.success() {
+        return None;
     }
+    String::from_utf8(output.stdout).ok()
 }
 
 fn opencode_variant_syntax_from_help(help_text: &str) -> OpencodeVariantSyntax {
@@ -221,46 +260,48 @@ pub(crate) fn opencode_variant_syntax() -> OpencodeVariantSyntax {
         return OpencodeVariantSyntax::Unsupported;
     };
 
-    *OPENCODE_VARIANT_SYNTAX.get_or_init(|| {
-        let help_text = capture_command_output_with_timeout(
-            &command_path,
-            &["run", "--help"],
-            &homedir(),
-            CLI_PROBE_TIMEOUT,
-        );
-        match help_text.as_deref() {
-            Some(text) => opencode_variant_syntax_from_help(text),
-            None => OpencodeVariantSyntax::Unsupported,
-        }
-    })
+    OPENCODE_VARIANT_SYNTAX
+        .get_or_probe(&command_path, || {
+            capture_command_output_with_timeout(
+                &command_path,
+                &["run", "--help"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            )
+            .map(|help_text| opencode_variant_syntax_from_help(&help_text))
+        })
+        .unwrap_or(OpencodeVariantSyntax::Unsupported)
 }
 
 /// Whether the installed `pi` CLI advertises the `max` thinking level in its
 /// `--thinking` flag. Re-added in pi 0.80.6 (verified against pi 0.79.2 on
 /// 2026-09-19, which lists only `off, minimal, low, medium, high, xhigh`).
-/// We probe `pi --help` once per process so the picker can hide `max` on
-/// older installs where it would otherwise hard-fail at turn time.
+/// We probe `pi --help` (once per binary, see `ProbeCache`) so the picker can
+/// hide `max` on older installs where it would otherwise hard-fail at turn time.
 pub(crate) fn pi_supports_max_thinking_level() -> bool {
     let Some(command_path) = which_binary("pi") else {
         return false;
     };
 
-    *PI_MAX_THINKING_LEVEL_SUPPORT.get_or_init(|| {
-        capture_command_output_with_timeout(
-            &command_path,
-            &["--help"],
-            &homedir(),
-            CLI_PROBE_TIMEOUT,
-        )
-        .is_some_and(|help_text| {
-            // The thinking-flag help line enumerates accepted levels; presence
-            // of "max" in that token list is the version's signal.
-            help_text.contains("--thinking <level>")
-                && extract_pi_thinking_levels(&help_text).is_some_and(|levels| {
-                    levels.iter().any(|level| level == "max")
-                })
+    PI_MAX_THINKING_LEVEL_SUPPORT
+        .get_or_probe(&command_path, || {
+            capture_command_output_with_timeout(
+                &command_path,
+                &["--help"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            )
+            .map(|help_text| pi_help_lists_max_thinking_level(&help_text))
         })
-    })
+        .unwrap_or(false)
+}
+
+fn pi_help_lists_max_thinking_level(help_text: &str) -> bool {
+    // The thinking-flag help line enumerates accepted levels; presence of
+    // "max" in that token list is the version's signal.
+    help_text.contains("--thinking <level>")
+        && extract_pi_thinking_levels(help_text)
+            .is_some_and(|levels| levels.iter().any(|level| level == "max"))
 }
 
 fn extract_pi_thinking_levels(help_text: &str) -> Option<Vec<String>> {
@@ -281,9 +322,16 @@ fn extract_pi_thinking_levels(help_text: &str) -> Option<Vec<String>> {
     )
 }
 
+/// Resolve `name` to a file this platform can launch: PATH first, then the
+/// known install locations. On Windows that is `name.exe` / `.cmd` / `.bat`,
+/// never npm's extensionless shell-script shim; on Unix an executable file.
 pub fn which_binary(name: &str) -> Option<PathBuf> {
+    let is_windows = cfg!(target_os = "windows");
     if let Some(path) = std::env::var_os("PATH").and_then(|value| {
-        std::env::split_paths(&value).find_map(|dir| resolve_binary_in_dir(&dir, name))
+        std::env::split_paths(&value)
+            // A relative entry would resolve against the app's cwd.
+            .filter(|dir| dir.is_absolute())
+            .find_map(|dir| resolve_binary_in_dir(&dir, name, is_windows))
     }) {
         return Some(path);
     }
@@ -297,22 +345,19 @@ pub fn which_binary(name: &str) -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     let cmd = "which";
 
-    // Try `which`/`where` first — the first line of output is the resolved path.
-    if let Ok(output) = Command::new(cmd).arg(name).output() {
-        if output.status.success() {
-            if let Some(path) = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .map(|line| line.trim())
-                .filter(|line| !line.is_empty())
-                .map(PathBuf::from)
-            {
-                return Some(path);
-            }
-        }
+    // Last resort: the platform's own lookup. `where` also lists the
+    // extensionless npm shim, so keep only a path that can be launched.
+    let mut command = Command::new(cmd);
+    command.arg(name);
+    let output = run_with_timeout(command, CLI_PROBE_TIMEOUT)?;
+    if !output.status?.success() {
+        return None;
     }
-
-    None
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .map(PathBuf::from)
+        .find(|path| path.is_absolute() && is_launchable_file(path, is_windows))
 }
 
 fn which_binary_exists(name: &str) -> bool {
@@ -337,29 +382,27 @@ fn detected_at_now() -> u64 {
 }
 
 fn resolve_binary_at_known_locations(name: &str, home: &std::path::Path) -> Option<PathBuf> {
-    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
-    let local_appdata = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
-    let fallback_dirs = fallback_path_dirs(
-        Some(home.to_path_buf()),
-        appdata.clone(),
-        local_appdata.clone(),
-        false,
-    );
-    for dir in &fallback_dirs {
-        if let Some(path) = resolve_binary_in_dir(dir, name) {
-            return Some(path);
-        }
-    }
+    resolve_binary_in_fallback_dirs(
+        name,
+        home,
+        std::env::var_os("APPDATA").map(PathBuf::from),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        cfg!(target_os = "windows"),
+    )
+}
 
-    let windows_fallback_dirs =
-        fallback_path_dirs(Some(home.to_path_buf()), appdata, local_appdata, true);
-    for dir in &windows_fallback_dirs {
-        if let Some(path) = resolve_binary_in_dir(dir, name) {
-            return Some(path);
-        }
-    }
-
-    None
+/// Search the fallback install dirs in the same order `path_env` appends
+/// them to PATH, so detection and spawning pick the same copy.
+fn resolve_binary_in_fallback_dirs(
+    name: &str,
+    home: &Path,
+    appdata: Option<PathBuf>,
+    local_appdata: Option<PathBuf>,
+    is_windows: bool,
+) -> Option<PathBuf> {
+    fallback_path_dirs(Some(home.to_path_buf()), appdata, local_appdata, is_windows)
+        .iter()
+        .find_map(|dir| resolve_binary_in_dir(dir, name, is_windows))
 }
 
 #[allow(dead_code)]
@@ -367,20 +410,53 @@ fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool 
     resolve_binary_at_known_locations(name, home).is_some()
 }
 
-fn resolve_binary_in_dir(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
-    let candidate = dir.join(name);
-    if candidate.exists() {
-        return Some(candidate);
+fn has_windows_launcher_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            WINDOWS_LAUNCHER_EXTENSIONS
+                .iter()
+                .any(|launcher| launcher[1..].eq_ignore_ascii_case(extension))
+        })
+}
+
+/// Whether `path` is a file the OS can start: a launcher extension on
+/// Windows, an executable bit on Unix. Directories never qualify.
+fn is_launchable_file(path: &Path, is_windows: bool) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    if is_windows {
+        return has_windows_launcher_extension(path);
+    }
+    #[cfg(unix)]
+    let executable = {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    };
+    #[cfg(not(unix))]
+    let executable = true;
+    executable
+}
+
+fn resolve_binary_in_dir(dir: &std::path::Path, name: &str, is_windows: bool) -> Option<PathBuf> {
+    if !is_windows {
+        let candidate = dir.join(name);
+        return is_launchable_file(&candidate, false).then_some(candidate);
     }
 
-    for suffix in [".cmd", ".exe", ".bat"] {
-        let full = dir.join(format!("{name}{suffix}"));
-        if full.exists() {
-            return Some(full);
-        }
+    let explicit = Path::new(name);
+    if has_windows_launcher_extension(explicit) {
+        let candidate = dir.join(explicit);
+        return is_launchable_file(&candidate, true).then_some(candidate);
     }
-
-    None
+    WINDOWS_LAUNCHER_EXTENSIONS
+        .iter()
+        .map(|extension| dir.join(format!("{name}{extension}")))
+        .find(|candidate| is_launchable_file(candidate, true))
 }
 
 fn push_unique_model_id(model_ids: &mut Vec<String>, model_id: &str) {
@@ -451,9 +527,15 @@ fn collect_model_ids_from_jsonl_file(
         return;
     };
 
+    // Transcripts run to tens of MB; only lines that mention one of the keys
+    // can yield a value, so skip JSON-parsing the rest.
+    let quoted_keys: Vec<String> = interesting_keys
+        .iter()
+        .map(|key| format!("\"{key}\""))
+        .collect();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || !quoted_keys.iter().any(|key| trimmed.contains(key.as_str())) {
             continue;
         }
 
@@ -858,7 +940,8 @@ fn parse_opencode_major_version(output: &str) -> Option<u32> {
 /// Run `opencode models`. On 2.x the command talks to a shared background
 /// server that returns an empty or partial list while it is still starting
 /// (observed on 2.0.3: 0 → 59 → 87 routes over ~5s), so poll briefly until the
-/// list stops growing.
+/// list stops growing. All attempts share `OPENCODE_MODELS_BUDGET`, so a CLI
+/// that keeps timing out can't hold up detection for 4 × 3s plus the sleeps.
 fn capture_opencode_models(bin_path: &Path, retry_while_warming: bool) -> Option<String> {
     let line_count = |output: &Option<String>| {
         output.as_deref().map_or(0, |text| {
@@ -866,18 +949,28 @@ fn capture_opencode_models(bin_path: &Path, retry_while_warming: bool) -> Option
         })
     };
     let attempts = if retry_while_warming { 4 } else { 1 };
+    let deadline = Instant::now() + OPENCODE_MODELS_BUDGET;
     let mut best: Option<String> = None;
     for attempt in 0..attempts {
-        let output =
-            capture_command_output_with_timeout(bin_path, &["models"], &homedir(), CLI_PROBE_TIMEOUT);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let output = capture_command_output_with_timeout(
+            bin_path,
+            &["models"],
+            &homedir(),
+            CLI_PROBE_TIMEOUT.min(remaining),
+        );
         if line_count(&output) > line_count(&best) {
             best = output;
         } else if line_count(&best) > 0 {
             break;
         }
-        if attempt + 1 < attempts {
-            thread::sleep(Duration::from_millis(1500));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if attempt + 1 == attempts
+            || remaining <= OPENCODE_WARMUP_RETRY_DELAY + Duration::from_secs(1)
+        {
+            break;
         }
+        thread::sleep(OPENCODE_WARMUP_RETRY_DELAY);
     }
     best
 }
@@ -1047,9 +1140,7 @@ impl ProviderRegistry {
         let mut authenticated = false;
 
         // 1. Detect from ~/.config/opencode/opencode.json (user custom models)
-        let config_path = opencode_config_path()
-            .unwrap_or_else(|| homedir().join(".config/opencode/opencode.json"));
-        if config_path.exists() {
+        if let Some(config_path) = opencode_config_path().filter(|path| path.exists()) {
             authenticated = true;
             if let Some(config) = safe_read_json::<OpenCodeConfig>(config_path) {
                 for providers in [config.provider, config.providers].into_iter().flatten() {
@@ -1075,10 +1166,8 @@ impl ProviderRegistry {
         }
 
         // 2. Detect from ~/.local/share/opencode/auth.json (internal providers via /connect)
-        let auth_path = opencode_auth_path()
-            .unwrap_or_else(|| homedir().join(".local/share/opencode/auth.json"));
         let mut internal_providers = Vec::new();
-        if auth_path.exists() {
+        if let Some(auth_path) = opencode_auth_path().filter(|path| path.exists()) {
             authenticated = true;
             if let Some(auth_data) = safe_read_json::<serde_json::Value>(auth_path) {
                 if let Some(obj) = auth_data.as_object() {
@@ -1492,7 +1581,7 @@ impl ProviderRegistry {
 }
 
 /// Discover models from Antigravity CLI via `agy models`. The CLI prints one
-/// `slug<TAB>Display Name` pair per line (e.g. `gemini-3.7-flash-high	Gemini
+/// `slug<TAB>Display Name` pair per line (e.g. `gemini-3.7-flash-high<TAB>Gemini
 /// 3.7 Flash (High)`); the slug is the value `--model` accepts. We surface only
 /// the Gemini-family slugs here: agy also offers Claude/GPT models, but those
 /// are owned by the native Claude/Codex providers and would misroute if
@@ -1935,7 +2024,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use uuid::Uuid;
 
     #[test]
@@ -2299,9 +2388,19 @@ name = "bare table, not an alias"
         fs::remove_dir_all(&home).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn detect_opencode_does_not_invent_models_without_local_sources() {
         let _guard = crate::test_env::lock_env();
+        // Config/auth locations must come from the temp HOME only.
+        let original_xdg: Vec<(&str, Option<OsString>)> =
+            ["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"]
+                .into_iter()
+                .map(|key| (key, std::env::var_os(key)))
+                .collect();
+        for (key, _) in &original_xdg {
+            std::env::remove_var(key);
+        }
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let opencode_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
         fs::create_dir_all(&opencode_dir).expect("failed to create temp opencode dir");
@@ -2340,6 +2439,11 @@ exit 0
             std::env::set_var("PATH", path);
         } else {
             std::env::remove_var("PATH");
+        }
+        for (key, value) in original_xdg {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            }
         }
 
         assert!(profile.installed);
@@ -2606,10 +2710,13 @@ exit 0
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let claude_dir = temp_root.join(".nvm/versions/node/v24.14.0/bin");
         fs::create_dir_all(&claude_dir).expect("failed to create temp claude dir");
+        // A name no real install provides: Homebrew/`/usr/local` rank ahead of
+        // nvm, so a real `opencode` on the test machine would win.
+        let cli_name = format!("the-pair-test-cli-{}", Uuid::new_v4().simple());
 
         write_executable_script(
             &claude_dir,
-            "opencode",
+            &cli_name,
             r#"#!/bin/sh
 exit 0
 "#,
@@ -2621,7 +2728,7 @@ exit 0
         std::env::set_var("HOME", &temp_root);
         std::env::set_var("PATH", "/usr/bin:/bin");
 
-        let resolved = which_binary("opencode");
+        let resolved = which_binary(&cli_name);
 
         if let Some(value) = original_home {
             std::env::set_var("HOME", value);
@@ -2637,56 +2744,172 @@ exit 0
 
         assert_eq!(
             resolved,
-            Some(claude_dir.join("opencode")),
+            Some(claude_dir.join(&cli_name)),
             "which_binary should return resolved binary path, not bool"
         );
+        fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn binary_exists_at_known_locations_finds_windows_global_npm_bins() {
-        let _guard = crate::test_env::lock_env();
+    fn windows_fallback_lookup_finds_global_npm_bins() {
+        // The home-derived default (no APPDATA/LOCALAPPDATA values given).
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let roaming_npm_dir = temp_root.join("AppData/Roaming/npm");
         fs::create_dir_all(&roaming_npm_dir).expect("failed to create roaming npm dir");
         fs::write(roaming_npm_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd");
 
-        // This covers the home-derived default, so the ambient APPDATA of the
-        // machine running the tests must not take part in the lookup.
-        let original_appdata = std::env::var_os("APPDATA");
-        let original_local_appdata = std::env::var_os("LOCALAPPDATA");
-        std::env::remove_var("APPDATA");
-        std::env::remove_var("LOCALAPPDATA");
-
-        let found = binary_exists_at_known_locations("claude", &temp_root);
-
-        if let Some(value) = original_appdata {
-            std::env::set_var("APPDATA", value);
-        }
-        if let Some(value) = original_local_appdata {
-            std::env::set_var("LOCALAPPDATA", value);
-        }
-
-        assert!(
-            found,
+        assert_eq!(
+            resolve_binary_in_fallback_dirs("claude", &temp_root, None, None, true),
+            Some(roaming_npm_dir.join("claude.cmd")),
             "claude should be discoverable in the standard Windows global npm directory"
         );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn windows_fallback_lookup_uses_custom_appdata_paths() {
+        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let roaming = temp_root.join("enterprise/roaming");
+        let local = temp_root.join("enterprise/local");
+        fs::create_dir_all(roaming.join("npm")).expect("failed to create roaming npm dir");
+        fs::create_dir_all(local.join("npm")).expect("failed to create local npm dir");
+        fs::write(local.join("npm/opencode.cmd"), "@echo off\r\n")
+            .expect("failed to seed local binary");
+
+        assert_eq!(
+            resolve_binary_in_fallback_dirs(
+                "opencode",
+                &temp_root.join("home"),
+                Some(roaming),
+                Some(local.clone()),
+                true,
+            ),
+            Some(local.join("npm/opencode.cmd"))
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn windows_lookup_prefers_launchers_over_the_extensionless_npm_shim() {
+        // npm writes `claude` (a sh script), `claude.cmd` and `claude.ps1`.
+        // Windows can't execute the bare script, so it must never be picked.
+        let bin_dir = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&bin_dir).expect("failed to create temp windows bin dir");
+        fs::write(bin_dir.join("claude"), "#!/bin/sh\n").expect("failed to seed bare shim");
+        fs::write(bin_dir.join("claude.ps1"), "# ps1\n").expect("failed to seed ps1 shim");
+        assert_eq!(resolve_binary_in_dir(&bin_dir, "claude", true), None);
+
+        fs::write(bin_dir.join("claude.bat"), "@echo off\r\n").expect("failed to seed bat");
+        assert_eq!(
+            resolve_binary_in_dir(&bin_dir, "claude", true),
+            Some(bin_dir.join("claude.bat"))
+        );
+
+        fs::write(bin_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd");
+        assert_eq!(
+            resolve_binary_in_dir(&bin_dir, "claude", true),
+            Some(bin_dir.join("claude.cmd"))
+        );
+
+        fs::write(bin_dir.join("claude.exe"), "MZ").expect("failed to seed exe");
+        assert_eq!(
+            resolve_binary_in_dir(&bin_dir, "claude", true),
+            Some(bin_dir.join("claude.exe"))
+        );
+
+        // A name that already carries a launcher extension is taken as is.
+        assert_eq!(
+            resolve_binary_in_dir(&bin_dir, "claude.cmd", true),
+            Some(bin_dir.join("claude.cmd"))
+        );
+
+        fs::remove_dir_all(&bin_dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_lookup_skips_non_executable_files_and_directories() {
+        let bin_dir = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(bin_dir.join("codex")).expect("failed to create dir named like a CLI");
+        fs::write(bin_dir.join("claude"), "#!/bin/sh\n").expect("failed to seed plain file");
+        assert_eq!(resolve_binary_in_dir(&bin_dir, "claude", false), None);
+        assert_eq!(resolve_binary_in_dir(&bin_dir, "codex", false), None);
+
+        let script = write_executable_script(&bin_dir, "claude", "#!/bin/sh\nexit 0\n");
+        assert_eq!(
+            resolve_binary_in_dir(&bin_dir, "claude", false),
+            Some(script)
+        );
+
+        fs::remove_dir_all(&bin_dir).ok();
+    }
+
+    #[test]
+    fn home_from_appdata_is_the_grandparent_of_appdata() {
+        assert_eq!(
+            home_from_appdata(Path::new("/Users/alex/AppData/Roaming")),
+            Some(PathBuf::from("/Users/alex"))
+        );
+        assert_eq!(
+            home_from_appdata(Path::new("/Users/alex/AppData/Local")),
+            Some(PathBuf::from("/Users/alex"))
+        );
+        assert_eq!(home_from_appdata(Path::new("Roaming")), None);
+    }
+
+    #[test]
+    fn probe_cache_keeps_successes_and_retries_failures() {
+        let calls = std::cell::Cell::new(0);
+        let binary = Path::new("/usr/local/bin/pi");
+
+        // A failure is retried once `retry_after` has passed ...
+        let retrying = ProbeCache::<bool>::new(Duration::ZERO);
+        let fail = || {
+            calls.set(calls.get() + 1);
+            None
+        };
+        assert_eq!(retrying.get_or_probe(binary, fail), None);
+        assert_eq!(retrying.get_or_probe(binary, fail), None);
+        assert_eq!(calls.get(), 2, "a failed probe must not stick");
+
+        // ... and a success is kept for good, even with a zero retry window.
+        let succeed = || {
+            calls.set(calls.get() + 1);
+            Some(true)
+        };
+        assert_eq!(retrying.get_or_probe(binary, succeed), Some(true));
+        assert_eq!(retrying.get_or_probe(binary, succeed), Some(true));
+        assert_eq!(calls.get(), 3);
+
+        // A different binary (e.g. after the PATH refresh) is probed afresh.
+        assert_eq!(
+            retrying.get_or_probe(Path::new("/opt/homebrew/bin/pi"), || Some(false)),
+            Some(false)
+        );
+
+        // Within the retry window a failure is remembered, so a catalog build
+        // asking once per model doesn't re-run a hanging probe for every row.
+        let remembering = ProbeCache::<bool>::new(Duration::from_secs(60));
+        calls.set(0);
+        assert_eq!(remembering.get_or_probe(binary, fail), None);
+        assert_eq!(remembering.get_or_probe(binary, succeed), None);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn pi_help_parser_detects_the_max_thinking_level() {
+        assert!(pi_help_lists_max_thinking_level(
+            "  --thinking <level>   Set thinking level: off, minimal, low, medium, high, xhigh, max\n"
+        ));
+        assert!(!pi_help_lists_max_thinking_level(
+            "  --thinking <level>   Set thinking level: off, minimal, low, medium, high, xhigh\n"
+        ));
+        assert!(!pi_help_lists_max_thinking_level("pi [options]\n"));
     }
 
     #[cfg(target_os = "windows")]
-    #[test]
-    fn binary_path_in_dir_prefers_windows_cmd_launcher() {
-        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
-        let bin_dir = temp_root.join("windows-bin");
-        fs::create_dir_all(&bin_dir).expect("failed to create temp windows bin dir");
-        fs::write(bin_dir.join("claude"), "sh wrapper").expect("failed to seed bare shim");
-        fs::write(bin_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd shim");
-
-        assert_eq!(
-            binary_path_in_dir(&bin_dir, "claude"),
-            Some(bin_dir.join("claude.cmd"))
-        );
-    }
-
     #[test]
     fn binary_exists_at_known_locations_uses_custom_appdata_env_paths() {
         let _guard = crate::test_env::lock_env();
@@ -2950,7 +3173,7 @@ printf '%s\n' 'eventual output'
 "#,
         );
 
-        let started = Instant::now();
+        let started = std::time::Instant::now();
         let output = capture_command_output_with_timeout(
             &script,
             &["--help"],
@@ -2962,6 +3185,68 @@ printf '%s\n' 'eventual output'
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "slow provider command should be bounded by timeout"
+        );
+
+        let _ = fs::remove_dir_all(temp_home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_keeps_probe_output_larger_than_the_pipe_buffer() {
+        // `opencode models` (1.x) and `pi --list-models` can print more than
+        // the 64 KiB pipe buffer; reading only after exit used to stall the
+        // probe into its timeout and lose every model.
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp_home).expect("failed to create temp home");
+        let script = write_executable_script(
+            &temp_home,
+            "chatty-provider",
+            r#"#!/bin/sh
+i=0
+while [ $i -lt 3000 ]; do
+  printf 'provider-%s/model-with-a-fairly-long-identifier-%s\n' "$i" "$i"
+  i=$((i + 1))
+done
+"#,
+        );
+
+        let output = capture_command_output_with_timeout(
+            &script,
+            &["models"],
+            &temp_home,
+            Duration::from_secs(10),
+        )
+        .expect("large probe output should be captured, not time out");
+
+        assert!(output.len() > 64 * 1024, "only {} bytes", output.len());
+        assert_eq!(output.lines().count(), 3000);
+        assert_eq!(
+            output.lines().last(),
+            Some("provider-2999/model-with-a-fairly-long-identifier-2999")
+        );
+
+        let _ = fs::remove_dir_all(temp_home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_is_none_for_a_failing_probe() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp_home).expect("failed to create temp home");
+        let script = write_executable_script(
+            &temp_home,
+            "broken-provider",
+            "#!/bin/sh\necho partial\nexit 3\n",
+        );
+
+        assert_eq!(
+            capture_command_output_with_timeout(
+                &script,
+                &["--help"],
+                &temp_home,
+                Duration::from_secs(5),
+            ),
+            None
         );
 
         let _ = fs::remove_dir_all(temp_home);
