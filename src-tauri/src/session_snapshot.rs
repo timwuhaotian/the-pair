@@ -20,7 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Manager, State};
 
-const SNAPSHOT_VERSION: u32 = 2;
+// v3 (2.8.2): snapshots are persisted on every status change and turn end, so an
+// active status on disk really means "interrupted mid-run". Older files froze at
+// their first session-id registration and must not be offered for resume.
+const SNAPSHOT_VERSION: u32 = 3;
 const SNAPSHOT_DIR_NAME: &str = "pair-snapshots";
 pub(crate) const INDEX_FILE_NAME: &str = "index.json";
 
@@ -653,24 +656,13 @@ impl SessionSnapshotRecord {
 }
 
 fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
-    let directory = match snapshot.worktree_path.as_ref() {
-        Some(wt_path) if Path::new(wt_path).exists() => wt_path.clone(),
-        Some(wt_path) => {
-            // For worktree pairs `directory` *is* the worktree path, so the
-            // only meaningful fallback is the repository it came from.
-            let fallback = snapshot
-                .repo_path
-                .clone()
-                .filter(|repo| Path::new(repo).exists())
-                .unwrap_or_else(|| snapshot.directory.clone());
-            println!(
-                "[session_snapshot] Worktree path '{}' no longer exists, falling back to '{}'",
-                wt_path, fallback
-            );
-            fallback
-        }
-        None => snapshot.directory.clone(),
-    };
+    // A worktree pair always runs in its worktree. If the worktree is gone the
+    // next turn fails with a clear error instead of silently running the agents
+    // in the user's main checkout.
+    let directory = snapshot
+        .worktree_path
+        .clone()
+        .unwrap_or_else(|| snapshot.directory.clone());
     ProcessContext {
         directory,
         mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
@@ -988,6 +980,7 @@ fn merge_state_into_snapshot(
     context: Option<&ProcessContext>,
 ) {
     let now = now_millis();
+    snapshot.snapshot_version = SNAPSHOT_VERSION;
     snapshot.saved_at = now;
     snapshot.name = pair.name.clone();
     snapshot.directory = pair.directory.clone();
@@ -1123,9 +1116,21 @@ pub fn persist_current_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(
     upsert_snapshot_record(app, &snapshot)
 }
 
+/// Renderer snapshot saves fire on every turn-card/message update and each one
+/// fsyncs the snapshot and index, so the work runs off the UI thread (sync
+/// commands run on the main thread in Tauri 2).
 #[tauri::command]
-pub fn session_save_snapshot(
+pub async fn session_save_snapshot(
     app: AppHandle,
+    input: SessionSnapshotDraft,
+) -> Result<SessionSnapshotRecord, String> {
+    tauri::async_runtime::spawn_blocking(move || save_snapshot_blocking(&app, input))
+        .await
+        .map_err(|e| format!("Snapshot save task failed: {}", e))?
+}
+
+fn save_snapshot_blocking(
+    app: &AppHandle,
     input: SessionSnapshotDraft,
 ) -> Result<SessionSnapshotRecord, String> {
     validate_pair_id(&input.pair_id)?;
@@ -1165,7 +1170,7 @@ pub fn session_save_snapshot(
 
     let mut snapshot = build_snapshot_from_draft(input, context);
     snapshot.acceptance_history = acceptance_history;
-    upsert_snapshot_record(&app, &snapshot)?;
+    upsert_snapshot_record(app, &snapshot)?;
 
     Ok(snapshot)
 }
@@ -1209,9 +1214,19 @@ fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, Sessi
     const INTERRUPTED_DETAIL: &str = "Interrupted when the app closed. Resume to continue.";
 
     let was_running = snapshot.status.is_active();
+    // Only a snapshot this version wrote (kept current through the run) with a
+    // task to resume is offered as a paused run. Pre-v3 files froze at the first
+    // session-id registration — resuming one would replay a long-dead turn with
+    // an empty task — so those still come back Idle.
+    let resumable =
+        was_running && snapshot.snapshot_version >= 3 && !snapshot.spec.trim().is_empty();
+    let mut snapshot = snapshot;
+    if was_running && !resumable {
+        snapshot.status = PairStatus::Idle;
+    }
     let mut state = build_pair_state(&snapshot);
     let mut idle = idle_activity();
-    if was_running {
+    if resumable {
         idle.label = "Paused".to_string();
         idle.detail = Some(INTERRUPTED_DETAIL.to_string());
     }
@@ -1220,7 +1235,7 @@ fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, Sessi
     state.mentor.activity = idle.clone();
     state.executor.activity = idle.clone();
 
-    if was_running {
+    if resumable {
         state.status = PairStatus::Paused;
         state.mentor.status = PairStatus::Paused;
         state.executor.status = PairStatus::Paused;
@@ -1229,7 +1244,7 @@ fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, Sessi
     let mut snapshot_with_idle = snapshot;
     snapshot_with_idle.mentor_activity = idle.clone();
     snapshot_with_idle.executor_activity = idle;
-    if was_running {
+    if resumable {
         snapshot_with_idle.status = PairStatus::Paused;
     }
     if was_running
@@ -1732,6 +1747,25 @@ mod tests {
     }
 
     #[test]
+    fn prepare_loaded_snapshot_keeps_pre_v3_running_snapshots_idle() {
+        // Pre-2.8.2 files froze at the first session-id registration; offering
+        // them for resume would replay a long-dead turn.
+        let mut snap = snapshot(AgentRole::Executor, PairStatus::Executing, vec![]);
+        snap.snapshot_version = 2;
+        let (state, returned) = prepare_loaded_snapshot(snap);
+        assert!(matches!(state.status, PairStatus::Idle));
+        assert!(matches!(returned.status, PairStatus::Idle));
+        assert!(state.mentor_activity.detail.is_none());
+
+        // Same for a current-version snapshot that has no task to resume.
+        let mut snap = snapshot(AgentRole::Executor, PairStatus::Executing, vec![]);
+        snap.spec = "  ".to_string();
+        let (state, returned) = prepare_loaded_snapshot(snap);
+        assert!(matches!(state.status, PairStatus::Idle));
+        assert!(matches!(returned.status, PairStatus::Idle));
+    }
+
+    #[test]
     fn prepare_loaded_snapshot_keeps_stopped_statuses() {
         for status in [
             PairStatus::Idle,
@@ -2075,7 +2109,7 @@ mod tests {
     }
 
     #[test]
-    fn build_process_context_falls_back_to_the_repo_when_the_worktree_is_gone() {
+    fn build_process_context_never_falls_back_to_the_main_checkout() {
         let repo = std::env::temp_dir();
         let mut snap = snapshot(AgentRole::Executor, PairStatus::Paused, vec![]);
         snap.worktree_path = Some("/definitely/missing/worktree".to_string());
@@ -2083,7 +2117,7 @@ mod tests {
         snap.repo_path = Some(repo.to_string_lossy().to_string());
 
         let context = build_process_context(&snap);
-        assert_eq!(context.directory, repo.to_string_lossy());
+        assert_eq!(context.directory, "/definitely/missing/worktree");
     }
 
     #[test]

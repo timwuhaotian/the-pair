@@ -801,16 +801,48 @@ impl TurnOutputCollector {
         if let Some(text) = last_message_file.filter(|text| !text.trim().is_empty()) {
             return (text, true);
         }
-        if let Some(text) = self.authoritative_final.clone() {
-            return (text, true);
-        }
-        if let Some(text) = self.opencode_steps.final_answer() {
-            return (text, true);
+        if let Some(text) = self
+            .authoritative_final
+            .clone()
+            .or_else(|| self.opencode_steps.final_answer())
+        {
+            return (self.expand_short_final(text), true);
         }
         let text = collapse_candidates(&self.json_candidates)
             .filter(|text| !text.trim().is_empty())
             .unwrap_or_else(|| self.plain_output.trim().to_string());
         (text, false)
+    }
+
+    /// The final message is normally the whole answer, but a model sometimes
+    /// writes the substance (a plan, a JSON verdict), makes one more tool call,
+    /// and ends the turn with a one-line wrap-up ("Verdict recorded above.").
+    /// When the final text is that short and an earlier fragment is a
+    /// substantial block several times longer, return the turn's full text so
+    /// the substance reaches the next agent. Short narration ("Let me check the
+    /// tests.") never triggers this, so it still stays out of the reply.
+    fn expand_short_final(&self, final_text: String) -> String {
+        const SHORT_FINAL_CHARS: usize = 160;
+        const SUBSTANTIAL_FRAGMENT_CHARS: usize = 200;
+
+        let final_len = final_text.chars().count();
+        if final_len > SHORT_FINAL_CHARS {
+            return final_text;
+        }
+        let longest_earlier = self
+            .json_candidates
+            .iter()
+            .map(|candidate| candidate.trim())
+            .filter(|candidate| *candidate != final_text.trim())
+            .map(|candidate| candidate.chars().count())
+            .max()
+            .unwrap_or(0);
+        if longest_earlier < SUBSTANTIAL_FRAGMENT_CHARS || longest_earlier < final_len * 3 {
+            return final_text;
+        }
+        collapse_candidates(&self.json_candidates)
+            .filter(|joined| joined.contains(final_text.trim()))
+            .unwrap_or(final_text)
     }
 }
 
@@ -2211,6 +2243,15 @@ impl ProcessSpawner {
             env_bytes,
         ) {
             return Err(error);
+        }
+
+        if !std::path::Path::new(&ctx.directory).is_dir() {
+            // Never fall back to another directory (e.g. the user's main
+            // checkout): an agent must only ever run where the pair was created.
+            return Err(format!(
+                "The pair's working directory no longer exists: {}. If it was a worktree, its commits are kept on its the-pair/… branch; start a new pair to continue.",
+                ctx.directory
+            ));
         }
 
         println!(
@@ -3643,6 +3684,35 @@ mod tests {
             "message": {"content": [{"type": "text", "text": "Partial"}]}
         }));
         assert_eq!(no_result.finish(None), ("Partial".to_string(), false));
+    }
+
+    #[test]
+    fn short_wrap_up_after_a_tool_call_keeps_the_earlier_substance() {
+        let verdict = format!(
+            "{{\"verdict\":\"pass\",\"action\":\"finish\",\"confidence\":0.95,\"summary\":\"{}\"}}",
+            "All acceptance checks pass and the change matches the plan. ".repeat(4)
+        );
+        let mut collector = TurnOutputCollector::new(ProviderKind::Claude, true);
+        collector.observe_json(&json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": verdict}]}
+        }));
+        collector.observe_json(&json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {}}]}
+        }));
+        collector.observe_json(&json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Verdict recorded above."}]}
+        }));
+        collector.observe_json(
+            &json!({"type": "result", "subtype": "success", "result": "Verdict recorded above."}),
+        );
+
+        let (text, terminal) = collector.finish(None);
+        assert!(terminal);
+        assert!(text.contains("\"verdict\":\"pass\""), "{text}");
+        assert!(text.ends_with("Verdict recorded above."), "{text}");
     }
 
     #[test]
