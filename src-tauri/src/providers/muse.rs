@@ -13,15 +13,16 @@ use serde_json::Value;
 /// `{schema_version, id, stream{kind,id}, sequence, payload_type, payload}`.
 /// Verified against Muse Code 1.3.0 (2026-09-23; first integrated on 1.0.3).
 ///
-/// Two behaviours make this provider unusual:
+/// Two behaviours to know:
 ///
 /// - `--session-id` is *create-or-resume*, not merely a label. Re-running with
 ///   a previously used id continues that session's stream rather than starting
 ///   a new one, so `SessionStrategy::NewFirst` works: omit the flag on the
 ///   first turn, capture the id, pass it thereafter.
-/// - Mentor turns get `--disable-write --disable-shell`, so the read-only role
-///   is enforced by the CLI itself instead of by prompt convention alone. No
-///   other provider in The Pair can make that guarantee.
+/// - Mentor turns get `--disable-write --disable-shell`, so the CLI itself
+///   keeps the mentor read-only; it does not depend on the prompt. Compare
+///   Kimi, whose mentor relies on the prompt alone, and OpenCode, whose plan
+///   agent still allows bash.
 pub struct MuseProvider;
 
 /// Effort ladder accepted by the Meta provider (default `high`). `muse exec

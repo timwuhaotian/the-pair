@@ -72,6 +72,25 @@ fn build_opencode_turn_command(
         _ => {}
     }
 
+    // The mentor runs as OpenCode's built-in `plan` agent. It denies the
+    // edit/write/patch tools and adds a read-only plan-mode reminder. `bash`
+    // stays allowed (the agent inherits `"*": "allow"`), so shell writes are
+    // blocked only by that reminder and the mentor prompt.
+    //
+    // This is safe for non-interactive `run`: `deny` rules never prompt, and
+    // the plan agent adds no `ask` rules beyond the build agent's defaults.
+    // Verified against v1.1.1–v1.18.32 and 2.0.14. Early 1.0.x releases had
+    // a plan agent with `bash: {"*": "ask"}` and a `run` that answered
+    // permission requests through an interactive terminal prompt, which could
+    // stall a headless turn. No 1.0.x release supports variants (`--variant`
+    // arrived in 1.1.x), so those installs keep the default agent.
+    if request.role == "mentor"
+        && variant_syntax != crate::provider_registry::OpencodeVariantSyntax::Unsupported
+    {
+        args.push("--agent".into());
+        args.push("plan".into());
+    }
+
     if let Some(sid) = request.session_id {
         args.push("--session".into());
         args.push(sid.into());
@@ -469,6 +488,42 @@ mod tests {
         );
         assert_eq!(command.args.last().unwrap(), "\n- Do the next step");
         assert!(!command.args.contains(&"--".to_string()));
+    }
+
+    #[test]
+    fn opencode_mentor_runs_as_the_read_only_plan_agent() {
+        let mentor_request = ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax/MiniMax-M3",
+            session_id: Some("ses_1"),
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "review the diff",
+            reasoning_effort: None,
+        };
+        for syntax in [OpencodeVariantSyntax::Flag, OpencodeVariantSyntax::Suffix] {
+            let command = build_opencode_turn_command(&mentor_request, syntax);
+            let agent_idx = command
+                .args
+                .iter()
+                .position(|arg| arg == "--agent")
+                .expect("mentor should run as the plan agent");
+            assert_eq!(command.args[agent_idx + 1], "plan");
+            assert_eq!(command.args.last().unwrap(), "review the diff");
+        }
+
+        // OpenCode 1.0.x (no variant support) answered permission requests with
+        // an interactive prompt, and early 1.0.x plan agents asked before most
+        // bash commands, so these installs keep the default agent.
+        let legacy =
+            build_opencode_turn_command(&mentor_request, OpencodeVariantSyntax::Unsupported);
+        assert!(!legacy.args.contains(&"--agent".to_string()));
+
+        let executor = build_opencode_turn_command(
+            &base_request("minimax/MiniMax-M3", None),
+            OpencodeVariantSyntax::Suffix,
+        );
+        assert!(!executor.args.contains(&"--agent".to_string()));
     }
 
     #[test]
