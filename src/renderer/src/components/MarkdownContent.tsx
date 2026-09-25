@@ -2,6 +2,7 @@ import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { openExternalUrl } from '../lib/externalLinks'
 
 /**
  * Hoisted to module scope so the object identity stays stable across renders.
@@ -57,6 +58,12 @@ const MARKDOWN_COMPONENTS: Components = {
       href={href}
       target="_blank"
       rel="noreferrer"
+      onClick={(event) => {
+        event.preventDefault()
+        void openExternalUrl(href).catch((error: unknown) => {
+          console.error('[MarkdownContent] Failed to open link:', error)
+        })
+      }}
       className="role-mentor underline underline-offset-2 hover:text-foreground"
     >
       {children}

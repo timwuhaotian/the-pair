@@ -20,6 +20,7 @@ import { LanguageSwitcher } from './LanguageSwitcher'
 import { isPairBusy } from '../lib/pairStatus'
 import { setMuted, isMuted } from '../lib/sound'
 import { modifierLabel } from '../lib/shortcuts'
+import { openExternalUrl } from '../lib/externalLinks'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -126,6 +127,12 @@ export function AppChrome({
               href="https://timwuhaotian.github.io/"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(event) => {
+                event.preventDefault()
+                void openExternalUrl(event.currentTarget.href).catch((error: unknown) => {
+                  console.error('[AppChrome] Failed to open link:', error)
+                })
+              }}
               className="app-no-drag text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint hover:text-foreground/80 transition-colors"
               title="timwuhaotian"
             >

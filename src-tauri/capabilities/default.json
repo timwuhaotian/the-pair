@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "fs:allow-write-text-file", "updater:default"]
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:allow-write-text-file",
+    "opener:default",
+    "updater:default"
+  ]
 }

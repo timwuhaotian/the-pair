@@ -88,6 +88,7 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-opener": "2.5.3",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
