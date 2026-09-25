@@ -160,11 +160,76 @@ fn scan_entries(entries: fs::ReadDir, base_dir: &Path, depth: usize, results: &m
     }
 }
 
-/// Lists files with `git ls-files` (tracked plus untracked, honoring
-/// `.gitignore` and the other exclude sources) when `directory` is inside a
-/// git work tree. Returns `None` when git can't answer, so the caller falls
-/// back to walking the filesystem.
-fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
+/// Entries collected from `git ls-files`, with the parent directories of each
+/// path listed before it.
+#[derive(Default)]
+struct GitListing {
+    results: Vec<FileEntry>,
+    seen: HashSet<String>,
+    files: usize,
+}
+
+impl GitListing {
+    /// Adds one `ls-files` record; false once `MAX_SCAN_ENTRIES` files are in.
+    fn add(&mut self, raw_path: &str) -> bool {
+        // Untracked nested repositories are reported as `dir/`.
+        let is_dir_entry = raw_path.ends_with('/');
+        let path = raw_path.trim_end_matches('/');
+        if path.is_empty() {
+            return true;
+        }
+
+        let components: Vec<&str> = path.split('/').collect();
+        let (parents, name) = components.split_at(components.len() - 1);
+        let name = name[0];
+        if parents.len() >= MAX_SCAN_DEPTH || parents.iter().any(|dir| should_exclude_dir(dir)) {
+            return true;
+        }
+        let excluded = if is_dir_entry {
+            should_exclude_dir(name)
+        } else {
+            should_exclude_file(name)
+        };
+        if excluded {
+            return true;
+        }
+
+        let mut prefix = String::new();
+        for dir in parents {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(dir);
+            if self.seen.insert(format!("{}/", prefix)) {
+                self.results.push(FileEntry {
+                    path: prefix.clone(),
+                    file_type: "directory".to_string(),
+                });
+            }
+        }
+
+        let key = if is_dir_entry {
+            format!("{}/", path)
+        } else {
+            path.to_string()
+        };
+        if self.seen.insert(key) {
+            self.results.push(FileEntry {
+                path: path.to_string(),
+                file_type: if is_dir_entry { "directory" } else { "file" }.to_string(),
+            });
+            if !is_dir_entry {
+                self.files += 1;
+            }
+        }
+
+        self.files < MAX_SCAN_ENTRIES
+    }
+}
+
+/// Streams `git ls-files -z <args>` into `listing`. `Some(false)` when the
+/// file cap was reached (git is stopped early), `None` when git failed.
+fn read_ls_files(directory: &Path, args: &[&str], listing: &mut GitListing) -> Option<bool> {
     let mut command = Command::new("git");
     #[cfg(windows)]
     {
@@ -172,14 +237,8 @@ fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
     let mut child = command
-        .args([
-            "--no-optional-locks",
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-        ])
+        .args(["--no-optional-locks", "ls-files", "-z"])
+        .args(args)
         .current_dir(directory)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -189,8 +248,6 @@ fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
     let stdout = child.stdout.take()?;
 
     let mut reader = BufReader::new(stdout);
-    let mut results = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
     let mut record = Vec::new();
     let mut truncated = false;
 
@@ -211,55 +268,7 @@ fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
         let Ok(raw_path) = std::str::from_utf8(&record) else {
             continue;
         };
-        // Untracked nested repositories are reported as `dir/`.
-        let is_dir_entry = raw_path.ends_with('/');
-        let path = raw_path.trim_end_matches('/');
-        if path.is_empty() {
-            continue;
-        }
-
-        let components: Vec<&str> = path.split('/').collect();
-        let (parents, name) = components.split_at(components.len() - 1);
-        let name = name[0];
-        if parents.len() >= MAX_SCAN_DEPTH || parents.iter().any(|dir| should_exclude_dir(dir)) {
-            continue;
-        }
-        let excluded = if is_dir_entry {
-            should_exclude_dir(name)
-        } else {
-            should_exclude_file(name)
-        };
-        if excluded {
-            continue;
-        }
-
-        let mut prefix = String::new();
-        for dir in parents {
-            if !prefix.is_empty() {
-                prefix.push('/');
-            }
-            prefix.push_str(dir);
-            if seen.insert(format!("{}/", prefix)) {
-                results.push(FileEntry {
-                    path: prefix.clone(),
-                    file_type: "directory".to_string(),
-                });
-            }
-        }
-
-        let key = if is_dir_entry {
-            format!("{}/", path)
-        } else {
-            path.to_string()
-        };
-        if seen.insert(key) {
-            results.push(FileEntry {
-                path: path.to_string(),
-                file_type: if is_dir_entry { "directory" } else { "file" }.to_string(),
-            });
-        }
-
-        if results.len() >= MAX_SCAN_ENTRIES {
+        if !listing.add(raw_path) {
             truncated = true;
             break;
         }
@@ -272,7 +281,25 @@ fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
     if !truncated && !status.success() {
         return None;
     }
-    Some(results)
+    Some(!truncated)
+}
+
+/// Lists files with `git ls-files` (tracked, then untracked honoring
+/// `.gitignore` and the other exclude sources) when `directory` is inside a
+/// git work tree. Returns `None` when git can't answer, so the caller falls
+/// back to walking the filesystem.
+///
+/// Tracked files come first because one combined `--cached --others` call
+/// prints the untracked paths first, and in a large repo the cap then cut
+/// tracked files. The cap counts files only, not their parent directories.
+fn list_with_git(directory: &Path) -> Option<Vec<FileEntry>> {
+    let mut listing = GitListing::default();
+    for args in [&["--cached"][..], &["--others", "--exclude-standard"][..]] {
+        if !read_ls_files(directory, args, &mut listing)? {
+            break;
+        }
+    }
+    Some(listing.results)
 }
 
 /// Blocking: prefers the git-aware listing, falls back to a bounded walk.
@@ -404,7 +431,7 @@ pub async fn file_read_content(
 mod tests {
     use super::{
         list_with_git, resolve_workspace_file_path, scan_directory, FileEntry, FileListOptions,
-        FileReadOptions, MAX_SCAN_DEPTH,
+        FileReadOptions, MAX_SCAN_DEPTH, MAX_SCAN_ENTRIES,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -518,6 +545,53 @@ mod tests {
         let outside = unique_dir("not-a-repo");
         assert!(list_with_git(&outside).is_none());
         fs::remove_dir_all(&outside).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn list_with_git_keeps_tracked_files_when_untracked_ones_hit_the_cap() {
+        let root = unique_dir("git-cap");
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+        };
+        git(&["init", "-q"]);
+        fs::create_dir_all(root.join("zz/src")).unwrap();
+        fs::write(root.join("zz/src/main.rs"), "").unwrap();
+        fs::write(root.join("zz/readme.md"), "").unwrap();
+        git(&["add", "zz"]);
+        // `ls-files --cached --others` prints these untracked paths first.
+        for dir in 0..100 {
+            let dir_path = root.join(format!("aa/d{dir:03}"));
+            fs::create_dir_all(&dir_path).unwrap();
+            for file in 0..(MAX_SCAN_ENTRIES / 100 + 1) {
+                fs::write(dir_path.join(format!("f{file}.txt")), "").unwrap();
+            }
+        }
+
+        let entries = list_with_git(&root).expect("git listing");
+        let files: Vec<&str> = entries
+            .iter()
+            .filter(|entry| entry.file_type == "file")
+            .map(|entry| entry.path.as_str())
+            .collect();
+        assert_eq!(files.len(), MAX_SCAN_ENTRIES);
+        assert_eq!(&files[..2], &["zz/readme.md", "zz/src/main.rs"]);
+        // Directories don't count against the cap.
+        assert!(entries.len() > MAX_SCAN_ENTRIES);
+        assert_eq!(entries[0].path, "zz");
+        assert_eq!(
+            list_with_git(&root).map(|again| paths(&again)),
+            Some(paths(&entries))
+        );
+
         fs::remove_dir_all(&root).unwrap();
     }
 

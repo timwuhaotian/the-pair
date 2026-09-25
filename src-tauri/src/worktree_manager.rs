@@ -1,6 +1,8 @@
+use crate::git_tracker::{exclude_pathspec, is_regenerable_dir, regenerable_ancestor};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Namespace for the branch each pair worktree is created on
 /// (`the-pair/<worktree-dir-name>`), so executor commits are never orphaned.
@@ -20,6 +22,21 @@ const FALLBACK_IDENTITY: [&str; 4] = [
 /// so a `|` (or anything else) in a commit subject can't shift the other fields.
 const REF_FORMAT: &str =
     "--format=%(refname)%00%(symref)%00%(objectname:short)%00%(committerdate:unix)%00%(subject)";
+/// Exclude pathspecs one stash command may carry (command-line length).
+const MAX_STASH_EXCLUDES: usize = 256;
+
+/// Past these, auto-saving untracked files into the stash would take minutes
+/// and grow `.git` for good, so deleting the pair is refused instead.
+#[derive(Clone, Copy)]
+struct StashLimits {
+    files: usize,
+    bytes: u64,
+}
+
+const STASH_LIMITS: StashLimits = StashLimits {
+    files: 20_000,
+    bytes: 200 * 1024 * 1024,
+};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -63,19 +80,25 @@ fn git_command() -> Command {
     command
 }
 
-fn run_git_command(directory: impl AsRef<Path>, args: &[&str]) -> Result<String, String> {
+/// Runs git and returns its raw stdout (for `-z` output, where trimming would
+/// eat a record's leading status column).
+fn run_git_bytes(directory: impl AsRef<Path>, args: &[&str]) -> Result<Vec<u8>, String> {
     let directory = directory.as_ref();
     println!(
         "[worktree_manager] run_git_command: dir={}, args={:?}",
         directory.display(),
         args
     );
-    let output = git_command().args(args).current_dir(directory).output();
+    let output = git_command()
+        .args(args)
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output();
 
     match output {
         Ok(o) => {
             if o.status.success() {
-                Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                Ok(o.stdout)
             } else {
                 let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
                 println!("[worktree_manager] git command failed: {}", stderr);
@@ -87,6 +110,10 @@ fn run_git_command(directory: impl AsRef<Path>, args: &[&str]) -> Result<String,
             Err(format!("Failed to run git: {}", e))
         }
     }
+}
+
+fn run_git_command(directory: impl AsRef<Path>, args: &[&str]) -> Result<String, String> {
+    run_git_bytes(directory, args).map(|stdout| String::from_utf8_lossy(&stdout).trim().to_string())
 }
 
 pub fn check_is_git_repo(directory: &str) -> bool {
@@ -401,14 +428,27 @@ pub fn create_worktree(
 
 /// Deletes a pair worktree without losing work (contract C1):
 ///
-/// - Directory already gone: stale worktree metadata is pruned from the main
-///   repository (after rescuing any detached HEAD commit) and `Ok(())` returned.
+/// - Directory already gone: the worktree's own stale entry is removed from
+///   the main repository (after rescuing a detached HEAD commit) and `Ok(())`
+///   returned. Other worktrees are never pruned: one on an unmounted volume
+///   would lose its registration.
 /// - Otherwise, before anything is removed, a detached HEAD whose commits are
 ///   reachable from no branch/tag gets a `the-pair/rescued-<short-sha>` branch,
 ///   and uncommitted changes (tracked and untracked, not ignored) are saved with
 ///   `git stash push --include-untracked -m "the-pair: auto-saved from pair worktree <dir>"`.
-///   The worktree is then removed and pruned from the main repository.
-/// - If anything can't be preserved, nothing is removed and `Err` is returned.
+///   Wholly untracked dependency/build directories (`node_modules`, `.venv`,
+///   `target`, ... see `git_tracker::REGENERABLE_DIRS`) are left out of the
+///   stash and deleted: they are recreated by the tools that made them.
+///   The worktree is then removed.
+/// - What the stash can't hold (a nested repository, submodule changes, an
+///   untracked set too large to hash) is refused up front: nothing is stashed
+///   and nothing removed. If the stash still misses something, it is popped
+///   back before `Err` is returned.
+/// - A `pair-<uuid>` directory under `.worktrees/` that git no longer lists
+///   is what a part-failed removal leaves behind (git drops its entry even when
+///   a locked file stops the directory removal). Its work was preserved by
+///   that first attempt, so the rest of it is removed.
+/// - Anything else that can't be preserved is refused with `Err`.
 ///
 /// The pair's own `the-pair/<dir>` branch is kept whenever it holds commits no
 /// other branch/tag has; it is only deleted when it adds nothing.
@@ -422,8 +462,7 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
 
     if !path.exists() {
         if let Some(common_dir) = &common_dir {
-            let pruned = prune_missing_worktrees(common_dir);
-            if let Some(entry) = pruned.iter().find(|entry| same_path(&entry.path, path)) {
+            if let Some(entry) = forget_missing_worktree(common_dir, path) {
                 if let (Some(branch), Some(head)) = (&entry.branch, &entry.head) {
                     delete_pair_branch_if_redundant(common_dir, branch, head, &dir_name);
                 }
@@ -441,12 +480,29 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
         }
         _ => {
             // Not the root of a linked worktree, so git can't preserve its
-            // contents. Only an empty leftover directory is safe to drop.
+            // contents. Only an empty directory or the leftover of a removal
+            // that already preserved everything is safe to drop.
             if dir_is_empty(path) {
                 std::fs::remove_dir(path)
                     .map_err(|e| format!("Failed to remove empty worktree directory: {}", e))?;
                 if let Some(common_dir) = &common_dir {
-                    prune_missing_worktrees(common_dir);
+                    forget_missing_worktree(common_dir, path);
+                }
+                return Ok(());
+            }
+            if let Some(common_dir) = leftover_pair_worktree(path) {
+                std::fs::remove_dir_all(path).map_err(|e| {
+                    format!(
+                        "Could not remove what is left of {} (its work was already saved): {}",
+                        worktree_path, e
+                    )
+                })?;
+                let pair_ref = format!("refs/heads/{}", pair_branch_name(&dir_name));
+                if let Ok(head) = run_git_command(
+                    &common_dir,
+                    &["rev-parse", "--verify", "--quiet", &pair_ref],
+                ) {
+                    delete_pair_branch_if_redundant(&common_dir, &pair_ref, &head, &dir_name);
                 }
                 return Ok(());
             }
@@ -458,14 +514,61 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
     };
 
     let preserved = preserve_worktree(path, &dir_name)?;
-    remove_linked_worktree(&layout.common_dir, path)?;
-    prune_missing_worktrees(&layout.common_dir);
+    remove_linked_worktree(&layout.common_dir, path, &preserved.excludes)?;
+    // Only needed when git refused and the directory was removed directly.
+    forget_missing_worktree(&layout.common_dir, path);
 
     if let (Some(branch), Some(head)) = (&preserved.branch_ref, &preserved.head) {
         delete_pair_branch_if_redundant(&layout.common_dir, branch, head, &dir_name);
     }
 
     Ok(())
+}
+
+/// For a directory that is no longer a git worktree: `Some(common git dir)`
+/// when it is a pair worktree (`.worktrees/pair-<uuid>`) whose registration
+/// git already removed, i.e. what a part-failed `git worktree remove` leaves.
+fn leftover_pair_worktree(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let pair_id = name.strip_prefix("pair-")?;
+    uuid::Uuid::parse_str(pair_id).ok()?;
+    let parent = path.parent()?;
+    if parent.file_name()? != ".worktrees" {
+        return None;
+    }
+
+    let common_dir = find_common_git_dir(parent)?;
+    let entries = list_worktree_entries(&common_dir)?;
+    // Still registered, here or under an older path (a moved repository).
+    let registered = entries.iter().any(|entry| {
+        same_path(&entry.path, path) || entry.path.file_name().is_some_and(|n| n == name)
+    });
+    let admin_dir = common_dir.join("worktrees");
+    if registered || admin_dir.join(name).exists() {
+        return None;
+    }
+
+    // A `.git` link that survived must point at this repository's (now
+    // removed) entry; a `.git` directory is a repository of its own.
+    let dot_git = path.join(".git");
+    match std::fs::symlink_metadata(&dot_git) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(common_dir),
+        Ok(metadata) if metadata.is_file() => {
+            let content = std::fs::read_to_string(&dot_git).ok()?;
+            let target = PathBuf::from(content.trim().strip_prefix("gitdir:")?.trim());
+            let target = if target.is_relative() {
+                path.join(target)
+            } else {
+                target
+            };
+            let points_here = !target.exists()
+                && target
+                    .parent()
+                    .is_some_and(|parent| same_path(parent, &admin_dir));
+            points_here.then_some(common_dir)
+        }
+        _ => None,
+    }
 }
 
 /// Runs `git rev-parse <args>` in `directory` and returns its output lines as
@@ -544,6 +647,8 @@ fn dir_is_empty(path: &Path) -> bool {
 struct PreservedWorktree {
     head: Option<String>,
     branch_ref: Option<String>,
+    /// Exclude pathspecs for the regenerable directories left out of the stash.
+    excludes: Vec<String>,
 }
 
 fn preserve_worktree(worktree: &Path, dir_name: &str) -> Result<PreservedWorktree, String> {
@@ -565,25 +670,91 @@ fn preserve_worktree(worktree: &Path, dir_name: &str) -> Result<PreservedWorktre
         }
     }
 
-    if !worktree_status(worktree)?.is_empty() {
-        stash_worktree_changes(worktree, dir_name)?;
+    let status = read_worktree_status(worktree)?;
+    let mut excludes = Vec::new();
+    if !status.clean {
+        // Submodule changes can't go into the stash (and a submodule's own
+        // repository is deleted with the worktree). Refuse before stashing.
+        if let Some(submodule) = status.changed_submodules.first() {
+            return Err(format!(
+                "Could not delete {}: the submodule '{}' has changes (or commits) that git stash can't save. Commit and push them inside the submodule, or discard them, then delete the pair again (nothing was deleted or stashed).",
+                worktree.display(),
+                submodule
+            ));
+        }
+        excludes = plan_untracked_stash(worktree, &status.untracked_dirs, STASH_LIMITS)?;
+        let pending = changed_paths(worktree, &excludes)?;
+        if !pending.is_empty() {
+            stash_worktree_changes(worktree, dir_name, &excludes, &pending)?;
+        }
     }
 
-    Ok(PreservedWorktree { head, branch_ref })
+    Ok(PreservedWorktree {
+        head,
+        branch_ref,
+        excludes,
+    })
 }
 
-fn worktree_status(worktree: &Path) -> Result<String, String> {
-    // Explicit `--untracked-files=normal` so a `status.showUntrackedFiles=no`
-    // config can't hide untracked work from the preservation check.
-    run_git_command(
+/// What `git status --porcelain=v2` reports that matters before stashing.
+#[derive(Debug, Default)]
+struct WorktreeStatus {
+    clean: bool,
+    /// Wholly untracked directories (`? dir/`), without the trailing `/`.
+    untracked_dirs: Vec<String>,
+    changed_submodules: Vec<String>,
+}
+
+fn parse_worktree_status_v2(output: &[u8]) -> WorktreeStatus {
+    let mut status = WorktreeStatus {
+        clean: true,
+        ..WorktreeStatus::default()
+    };
+    let mut records = output.split(|&byte| byte == 0);
+    while let Some(record) = records.next() {
+        let record = String::from_utf8_lossy(record);
+        // `1 XY sub mH mI mW hH hI path`, `2 ... Xscore path\0orig`,
+        // `u XY sub m1 m2 m3 mW h1 h2 h3 path`, `? path`.
+        let (fields, has_orig) = match record.as_bytes().first() {
+            Some(b'1') => (9, false),
+            Some(b'2') => (10, true),
+            Some(b'u') => (11, false),
+            Some(b'?') => {
+                status.clean = false;
+                if let Some(dir) = record.strip_prefix("? ").and_then(|p| p.strip_suffix('/')) {
+                    status.untracked_dirs.push(dir.to_string());
+                }
+                continue;
+            }
+            _ => continue,
+        };
+        if has_orig {
+            let _original_path = records.next();
+        }
+        status.clean = false;
+        let parts: Vec<&str> = record.splitn(fields, ' ').collect();
+        if parts.len() == fields && parts[2].starts_with('S') {
+            status
+                .changed_submodules
+                .push(parts[fields - 1].to_string());
+        }
+    }
+    status
+}
+
+fn read_worktree_status(worktree: &Path) -> Result<WorktreeStatus, String> {
+    run_git_bytes(
         worktree,
         &[
             "--no-optional-locks",
             "status",
-            "--porcelain",
+            "--porcelain=v2",
+            "-z",
             "--untracked-files=normal",
+            "--ignore-submodules=none",
         ],
     )
+    .map(|output| parse_worktree_status_v2(&output))
     .map_err(|e| {
         format!(
             "Could not read the status of {} (nothing was deleted): {}",
@@ -591,6 +762,164 @@ fn worktree_status(worktree: &Path) -> Result<String, String> {
             e
         )
     })
+}
+
+/// One entry of `git status --porcelain=v1 -z --untracked-files=all`.
+#[derive(Debug)]
+struct ChangedPath {
+    path: String,
+    untracked: bool,
+}
+
+/// Every change the auto-save has to capture, untracked files one by one.
+fn changed_paths(worktree: &Path, excludes: &[String]) -> Result<Vec<ChangedPath>, String> {
+    let mut args = vec![
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    ];
+    if !excludes.is_empty() {
+        args.push("--");
+        args.extend(excludes.iter().map(String::as_str));
+    }
+    let output = run_git_bytes(worktree, &args).map_err(|e| {
+        format!(
+            "Could not read the status of {} (nothing was deleted): {}",
+            worktree.display(),
+            e
+        )
+    })?;
+
+    let mut changes = Vec::new();
+    let mut records = output.split(|&byte| byte == 0);
+    while let Some(record) = records.next() {
+        if record.len() < 4 || record[2] != b' ' {
+            continue;
+        }
+        if matches!(record[0], b'R' | b'C') || matches!(record[1], b'R' | b'C') {
+            let _original_path = records.next();
+        }
+        changes.push(ChangedPath {
+            path: String::from_utf8_lossy(&record[3..]).into_owned(),
+            untracked: record.starts_with(b"?? "),
+        });
+    }
+    Ok(changes)
+}
+
+fn worktree_status(worktree: &Path, excludes: &[String]) -> Result<String, String> {
+    // Explicit `--untracked-files=normal` so a `status.showUntrackedFiles=no`
+    // config can't hide untracked work from the preservation check, and
+    // `--ignore-submodules=none` so a submodule's `ignore` setting can't.
+    let mut args = vec![
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--untracked-files=normal",
+        "--ignore-submodules=none",
+    ];
+    if !excludes.is_empty() {
+        args.push("--");
+        args.extend(excludes.iter().map(String::as_str));
+    }
+    run_git_command(worktree, &args).map_err(|e| {
+        format!(
+            "Could not read the status of {} (nothing was deleted): {}",
+            worktree.display(),
+            e
+        )
+    })
+}
+
+/// A directory that is a git repository of its own (`.git` file or dir).
+fn is_nested_repository(worktree: &Path, dir: &str) -> bool {
+    worktree.join(dir).join(".git").exists()
+}
+
+/// Decides which untracked files the auto-save stash takes and returns the
+/// exclude pathspecs for the rest: regenerable directories (see
+/// `git_tracker::REGENERABLE_DIRS`) inside wholly untracked directories.
+/// Refuses, before anything is stashed, what the stash can't hold: nested
+/// repositories (stash skips them) and an untracked set too large to hash.
+fn plan_untracked_stash(
+    worktree: &Path,
+    untracked_dirs: &[String],
+    limits: StashLimits,
+) -> Result<Vec<String>, String> {
+    let mut excluded: BTreeSet<String> = untracked_dirs
+        .iter()
+        .filter(|dir| is_regenerable_dir(dir) && !is_nested_repository(worktree, dir))
+        .cloned()
+        .collect();
+
+    // What `stash --include-untracked` would take once the top-level
+    // regenerable directories are out (git doesn't walk those).
+    let top_level: Vec<String> = excluded.iter().map(|dir| exclude_pathspec(dir)).collect();
+    let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z"];
+    if !top_level.is_empty() {
+        args.push("--");
+        args.extend(top_level.iter().map(String::as_str));
+    }
+    let listing = run_git_bytes(worktree, &args).map_err(|e| {
+        format!(
+            "Could not list the untracked files of {} (nothing was deleted): {}",
+            worktree.display(),
+            e
+        )
+    })?;
+
+    let mut nested_repositories = Vec::new();
+    let mut files = 0usize;
+    let mut bytes = 0u64;
+    for record in listing.split(|&byte| byte == 0) {
+        if record.is_empty() {
+            continue;
+        }
+        let path = String::from_utf8_lossy(record);
+        if let Some(dir) = regenerable_ancestor(&path, untracked_dirs) {
+            if !is_nested_repository(worktree, dir) {
+                excluded.insert(dir.to_string());
+                continue;
+            }
+        }
+        // `ls-files` lists a nested repository as `dir/`; stash skips it.
+        if path.ends_with('/') {
+            nested_repositories.push(path.trim_end_matches('/').to_string());
+            continue;
+        }
+        files += 1;
+        bytes += std::fs::symlink_metadata(worktree.join(path.as_ref()))
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if files > limits.files || bytes > limits.bytes {
+            return Err(format!(
+                "Could not delete {}: it has more untracked files than can be auto-saved (over {} files or {} MB). Commit what you need, add generated files to .gitignore or remove them, then delete the pair again (nothing was deleted or stashed).",
+                worktree.display(),
+                limits.files,
+                limits.bytes / (1024 * 1024)
+            ));
+        }
+    }
+
+    if !nested_repositories.is_empty() {
+        return Err(format!(
+            "Could not delete {}: it contains a nested git repository ({}) that git stash can't save. Move it out of the worktree or remove it, then delete the pair again (nothing was deleted or stashed).",
+            worktree.display(),
+            nested_repositories.join(", ")
+        ));
+    }
+    if excluded.len() > MAX_STASH_EXCLUDES {
+        return Err(format!(
+            "Could not delete {}: it has {} untracked dependency or build directories (such as node_modules). Add them to .gitignore or remove them, then delete the pair again (nothing was deleted or stashed).",
+            worktree.display(),
+            excluded.len()
+        ));
+    }
+
+    Ok(excluded.iter().map(|dir| exclude_pathspec(dir)).collect())
 }
 
 fn stash_tip(directory: &Path) -> Option<String> {
@@ -607,7 +936,24 @@ fn has_git_identity(directory: &Path) -> bool {
         && run_git_command(directory, &["var", "GIT_AUTHOR_IDENT"]).is_ok()
 }
 
-fn stash_worktree_changes(worktree: &Path, dir_name: &str) -> Result<(), String> {
+/// Puts the auto-save stash just made back into the worktree, so a failed
+/// delete leaves no stash entry behind to pile up on every retry.
+fn undo_auto_save(worktree: &Path, message: &str) -> String {
+    match run_git_command(worktree, &["stash", "pop", "--index", "--quiet"]) {
+        Ok(_) => "The auto-save was undone (nothing was deleted).".to_string(),
+        Err(error) => format!(
+            "Undoing the auto-save failed too ({}); the changes are kept in the stash entry \"{}\" (nothing was deleted).",
+            error, message
+        ),
+    }
+}
+
+fn stash_worktree_changes(
+    worktree: &Path,
+    dir_name: &str,
+    excludes: &[String],
+    pending: &[ChangedPath],
+) -> Result<(), String> {
     let message = format!("the-pair: auto-saved from pair worktree {}", dir_name);
     let before = stash_tip(worktree);
 
@@ -622,32 +968,57 @@ fn stash_worktree_changes(worktree: &Path, dir_name: &str) -> Result<(), String>
         "-m",
         message.as_str(),
     ]);
+    if !excludes.is_empty() {
+        args.push("--");
+        args.extend(excludes.iter().map(String::as_str));
+    }
 
-    run_git_command(worktree, &args).map_err(|e| {
-        format!(
+    let result = run_git_command(worktree, &args);
+    let after = stash_tip(worktree);
+    let recorded = after.is_some() && after != before;
+
+    if let Err(error) = result {
+        // stash can fail after storing its entry (e.g. while cleaning).
+        if recorded {
+            return Err(format!(
+                "Could not save the uncommitted changes in {}: {}. {}",
+                worktree.display(),
+                error,
+                undo_auto_save(worktree, &message)
+            ));
+        }
+        return Err(format!(
             "Could not save the uncommitted changes in {} (nothing was deleted): {}",
             worktree.display(),
-            e
-        )
-    })?;
-
-    let after = stash_tip(worktree);
-    if after.is_none() || after == before {
+            error
+        ));
+    }
+    if !recorded {
         return Err(format!(
             "git stash did not record the uncommitted changes in {}; nothing was deleted",
             worktree.display()
         ));
     }
 
-    // Anything stash can't capture (e.g. changes inside a submodule) must not
-    // be deleted with the directory.
-    let remaining = worktree_status(worktree)?;
-    if !remaining.is_empty() {
+    // Anything stash didn't capture must not be deleted with the directory.
+    // Untracked files that only show up now were ignored before the stash
+    // reverted a `.gitignore` edit; ignored files are never preserved.
+    let was_untracked: HashSet<&str> = pending
+        .iter()
+        .filter(|change| change.untracked)
+        .map(|change| change.path.as_str())
+        .collect();
+    let unsaved: Vec<String> = changed_paths(worktree, excludes)?
+        .into_iter()
+        .filter(|change| !change.untracked || was_untracked.contains(change.path.as_str()))
+        .map(|change| change.path)
+        .collect();
+    if !unsaved.is_empty() {
         return Err(format!(
-            "Some changes in {} could not be stashed (the rest were saved as \"{}\"); nothing was deleted. Remaining:\n{}",
+            "Some changes in {} could not be stashed ({}). {}",
             worktree.display(),
-            message,
-            remaining
+            unsaved.join(", "),
+            undo_auto_save(worktree, &message)
         ));
     }
 
@@ -738,7 +1109,11 @@ fn rescue_commit_if_unreachable(directory: &Path, sha: &str) -> Result<Option<St
     Ok(Some(branch))
 }
 
-fn remove_linked_worktree(common_dir: &Path, path: &Path) -> Result<(), String> {
+fn remove_linked_worktree(
+    common_dir: &Path,
+    path: &Path,
+    excludes: &[String],
+) -> Result<(), String> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -763,7 +1138,7 @@ fn remove_linked_worktree(common_dir: &Path, path: &Path) -> Result<(), String> 
     // deleting the directory only while git still reports it clean, so nothing
     // that wasn't preserved is lost.
     let git_error = result.err().unwrap_or_default();
-    match worktree_status(path) {
+    match worktree_status(path, excludes) {
         Ok(status) if status.is_empty() => std::fs::remove_dir_all(path).map_err(|e| {
             format!(
                 "git worktree remove failed ({}) and directory cleanup also failed ({})",
@@ -783,10 +1158,9 @@ struct WorktreeEntry {
     branch: Option<String>,
 }
 
-fn list_worktree_entries(common_dir: &Path) -> Vec<WorktreeEntry> {
-    let Ok(output) = run_git_command(common_dir, &["worktree", "list", "--porcelain"]) else {
-        return Vec::new();
-    };
+/// Every worktree git knows (the main one first), or `None` when git fails.
+fn list_worktree_entries(common_dir: &Path) -> Option<Vec<WorktreeEntry>> {
+    let output = run_git_command(common_dir, &["worktree", "list", "--porcelain"]).ok()?;
     let mut entries = Vec::new();
     let mut current: Option<WorktreeEntry> = None;
     for line in output.lines() {
@@ -810,37 +1184,43 @@ fn list_worktree_entries(common_dir: &Path) -> Vec<WorktreeEntry> {
     if let Some(entry) = current {
         entries.push(entry);
     }
-    entries
+    Some(entries)
 }
 
-/// Runs `git worktree prune` from the main repository, first rescuing the
-/// detached HEAD of every worktree whose directory is gone (prune would drop
-/// the only reference to those commits). Returns the entries that were pruned;
-/// if a rescue fails nothing is pruned.
-fn prune_missing_worktrees(common_dir: &Path) -> Vec<WorktreeEntry> {
-    let missing: Vec<WorktreeEntry> = list_worktree_entries(common_dir)
+/// Drops git's entry for the worktree at `path` once its directory is gone,
+/// first rescuing a detached HEAD (the entry is the only reference to those
+/// commits). Returns the removed entry. Only this one entry is touched: a
+/// repository-wide `git worktree prune` would also unregister the user's own
+/// worktrees whose directories are merely unavailable (an unmounted volume).
+fn forget_missing_worktree(common_dir: &Path, path: &Path) -> Option<WorktreeEntry> {
+    let entry = list_worktree_entries(common_dir)?
         .into_iter()
         .skip(1) // the main worktree
-        .filter(|entry| !entry.path.exists())
-        .collect();
+        .find(|entry| same_path(&entry.path, path) && !entry.path.exists())?;
 
-    for entry in &missing {
-        if entry.branch.is_some() {
-            continue;
-        }
+    if entry.branch.is_none() {
         if let Some(head) = &entry.head {
             if let Err(error) = rescue_commit_if_unreachable(common_dir, head) {
                 println!(
-                    "[worktree_manager] Not pruning stale worktrees so commit {} stays reachable: {}",
-                    head, error
+                    "[worktree_manager] Keeping the entry of {} so commit {} stays reachable: {}",
+                    path.display(),
+                    head,
+                    error
                 );
-                return Vec::new();
+                return None;
             }
         }
     }
 
-    let _ = run_git_command(common_dir, &["worktree", "prune"]);
-    missing
+    // `remove` accepts a missing directory. The path is passed exactly as git
+    // recorded it, which git matches even when it can no longer resolve it.
+    let registered = entry.path.to_string_lossy().to_string();
+    run_git_command(
+        common_dir,
+        &["worktree", "remove", "--force", "--force", &registered],
+    )
+    .ok()?;
+    Some(entry)
 }
 
 /// Deletes the pair's own `the-pair/<dir>` branch once its worktree is gone,
@@ -1283,6 +1663,364 @@ mod tests {
         fs::create_dir_all(&empty).unwrap();
         delete_worktree(empty.to_str().unwrap()).expect("empty dir removed");
         assert!(!empty.exists());
+    }
+
+    fn pair_dir() -> String {
+        format!(".worktrees/pair-{}", uuid::Uuid::new_v4())
+    }
+
+    fn write(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    fn stash_list(temp: &TempRepo) -> String {
+        temp.git(&temp.repo, &["stash", "list"])
+    }
+
+    #[test]
+    fn delete_worktree_leaves_dependency_directories_out_of_the_stash() {
+        let temp = TempRepo::new("delete-deps");
+        write(&temp.repo.join("build/tracked.sh"), "echo\n");
+        temp.git(&temp.repo, &["add", "build"]);
+        temp.commit(&temp.repo, "build scripts");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+
+        for index in 0..300 {
+            write(
+                &path.join(format!("node_modules/pkg{}/f{index}.js", index % 10)),
+                "module.exports = 1\n",
+            );
+        }
+        write(&path.join("newpkg/src/index.js"), "export {}\n");
+        write(&path.join("newpkg/node_modules/dep/index.js"), "x\n");
+        write(&path.join("newpkg/.venv/lib/site.py"), "x\n");
+        write(&path.join("notes.txt"), "notes\n");
+        // `build/` holds tracked files: new files there are real work.
+        write(&path.join("build/new.sh"), "echo new\n");
+        write(&path.join("build/tracked.sh"), "echo changed\n");
+
+        delete_worktree(path.to_str().unwrap()).expect("delete succeeds");
+        assert!(!path.exists());
+
+        let untracked = temp.git(&temp.repo, &["ls-tree", "-r", "--name-only", "stash@{0}^3"]);
+        let mut saved: Vec<&str> = untracked.lines().collect();
+        saved.sort();
+        assert_eq!(
+            saved,
+            vec!["build/new.sh", "newpkg/src/index.js", "notes.txt"]
+        );
+        let tracked = temp.git(
+            &temp.repo,
+            &["diff", "--name-only", "stash@{0}^1", "stash@{0}"],
+        );
+        assert_eq!(tracked, "build/tracked.sh");
+    }
+
+    #[test]
+    fn delete_worktree_without_changes_beyond_dependencies_needs_no_stash() {
+        let temp = TempRepo::new("delete-deps-only");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        write(&path.join(".venv/bin/python"), "#!/bin/sh\n");
+
+        delete_worktree(path.to_str().unwrap()).expect("delete succeeds");
+        assert!(!path.exists());
+        assert!(stash_list(&temp).is_empty());
+    }
+
+    #[test]
+    fn status_v2_parsing_finds_untracked_dirs_and_changed_submodules() {
+        let raw = [
+            "1 .M N... 100644 100644 100644 aaa aaa src/a b.rs",
+            "2 R. N... 100644 100644 100644 aaa aaa R100 new name.rs",
+            "old name.rs",
+            "1 .M S.M. 160000 160000 160000 bbb bbb vendor/sub",
+            "? newpkg/",
+            "? notes.txt",
+            "",
+        ]
+        .join("\0");
+        let status = parse_worktree_status_v2(raw.as_bytes());
+        assert!(!status.clean);
+        assert_eq!(status.untracked_dirs, vec!["newpkg".to_string()]);
+        assert_eq!(status.changed_submodules, vec!["vendor/sub".to_string()]);
+        assert!(parse_worktree_status_v2(b"").clean);
+    }
+
+    #[test]
+    fn untracked_stash_plan_refuses_sets_too_large_to_hash() {
+        let temp = TempRepo::new("stash-limits");
+        for index in 0..6 {
+            write(&temp.repo.join(format!("data/f{index}.bin")), "0123456789");
+        }
+        write(&temp.repo.join("node_modules/a/big.js"), &"x".repeat(1000));
+        let untracked = vec!["data".to_string(), "node_modules".to_string()];
+
+        let roomy = StashLimits {
+            files: 6,
+            bytes: 60,
+        };
+        let excludes = plan_untracked_stash(&temp.repo, &untracked, roomy).expect("fits");
+        assert_eq!(excludes, vec![exclude_pathspec("node_modules")]);
+
+        let few_files = StashLimits {
+            files: 5,
+            bytes: 1 << 20,
+        };
+        let error = plan_untracked_stash(&temp.repo, &untracked, few_files).unwrap_err();
+        assert!(error.contains("more untracked files"), "{}", error);
+        assert!(error.contains("nothing was deleted"), "{}", error);
+
+        let few_bytes = StashLimits {
+            files: 100,
+            bytes: 59,
+        };
+        assert!(plan_untracked_stash(&temp.repo, &untracked, few_bytes).is_err());
+    }
+
+    #[test]
+    fn delete_worktree_refuses_nested_repositories_before_stashing() {
+        let temp = TempRepo::new("delete-nested");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        write(&path.join("README.md"), "edited\n");
+        write(&path.join("newdir/file.txt"), "new\n");
+        write(&path.join("newdir/inner/lib.rs"), "fn f() {}\n");
+        temp.git(&path.join("newdir/inner"), &["init", "-q"]);
+
+        let error = delete_worktree(path.to_str().unwrap()).expect_err("must refuse");
+        assert!(error.contains("nested git repository"), "{}", error);
+        assert!(error.contains("newdir/inner"), "{}", error);
+        assert!(error.contains("nothing was deleted"), "{}", error);
+
+        // Nothing stashed, nothing removed: a retry doesn't pile up entries.
+        assert!(stash_list(&temp).is_empty());
+        assert_eq!(
+            fs::read_to_string(path.join("README.md")).unwrap(),
+            "edited\n"
+        );
+        assert!(path.join("newdir/file.txt").exists());
+        let worktrees = temp.git(&temp.repo, &["worktree", "list", "--porcelain"]);
+        assert!(worktrees.contains(path.file_name().unwrap().to_str().unwrap()));
+    }
+
+    #[test]
+    fn delete_worktree_refuses_submodule_changes_before_stashing() {
+        let temp = TempRepo::new("delete-submodule");
+        let source = temp.root.join("subsrc");
+        fs::create_dir_all(&source).unwrap();
+        temp.git(&source, &["init", "-q"]);
+        write(&source.join("lib.txt"), "lib\n");
+        temp.git(&source, &["add", "lib.txt"]);
+        temp.commit(&source, "lib");
+        temp.git(
+            &temp.repo,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                source.to_str().unwrap(),
+                "sub",
+            ],
+        );
+        temp.commit(&temp.repo, "add submodule");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        temp.git(
+            &path,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "update",
+                "--init",
+                "-q",
+            ],
+        );
+        write(&path.join("sub/lib.txt"), "changed inside the submodule\n");
+        write(&path.join("notes.txt"), "notes\n");
+
+        let error = delete_worktree(path.to_str().unwrap()).expect_err("must refuse");
+        assert!(error.contains("submodule 'sub'"), "{}", error);
+        assert!(stash_list(&temp).is_empty());
+        assert_eq!(
+            fs::read_to_string(path.join("sub/lib.txt")).unwrap(),
+            "changed inside the submodule\n"
+        );
+        assert!(path.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn delete_worktree_tolerates_ignored_files_a_gitignore_edit_reveals() {
+        let temp = TempRepo::new("delete-gitignore");
+        write(&temp.repo.join(".gitignore"), "*.log\n");
+        temp.git(&temp.repo, &["add", ".gitignore"]);
+        temp.commit(&temp.repo, "ignore logs");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        // Stashing reverts `.gitignore`, which makes `.env` show up untracked.
+        write(&path.join(".gitignore"), "*.log\n.env\n");
+        write(&path.join(".env"), "SECRET=1\n");
+
+        delete_worktree(path.to_str().unwrap()).expect("delete succeeds");
+        assert!(!path.exists());
+        let tracked = temp.git(
+            &temp.repo,
+            &["diff", "--name-only", "stash@{0}^1", "stash@{0}"],
+        );
+        assert_eq!(tracked, ".gitignore");
+    }
+
+    #[test]
+    fn undo_auto_save_puts_the_changes_back() {
+        let temp = TempRepo::new("undo-stash");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        write(&path.join("README.md"), "staged\n");
+        temp.git(&path, &["add", "README.md"]);
+        write(&path.join("README.md"), "staged\nand unstaged\n");
+        write(&path.join("new.txt"), "untracked\n");
+        temp.git(
+            &path,
+            &[
+                "stash",
+                "push",
+                "-q",
+                "--include-untracked",
+                "-m",
+                "the-pair: t",
+            ],
+        );
+
+        let outcome = undo_auto_save(&path, "the-pair: t");
+        assert!(outcome.contains("undone"), "{}", outcome);
+        assert!(stash_list(&temp).is_empty());
+        assert_eq!(
+            temp.git(&path, &["diff", "--cached", "--name-only"]),
+            "README.md"
+        );
+        assert_eq!(
+            fs::read_to_string(path.join("README.md")).unwrap(),
+            "staged\nand unstaged\n"
+        );
+        assert!(path.join("new.txt").exists());
+    }
+
+    #[test]
+    fn delete_worktree_finishes_a_removal_git_left_half_done() {
+        let temp = TempRepo::new("delete-leftover");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+
+        // What a part-failed `git worktree remove` leaves: git's entry is gone,
+        // the directory (with its `.git` link) is not.
+        fs::remove_dir_all(temp.repo.join(".git/worktrees").join(&name)).unwrap();
+        write(&path.join("locked.bin"), "x");
+        assert!(!temp
+            .git(&temp.repo, &["worktree", "list", "--porcelain"])
+            .contains(&name));
+
+        delete_worktree(path.to_str().unwrap()).expect("leftover removed");
+        assert!(!path.exists());
+        // The pair branch added nothing, so it went too.
+        let branches = temp.git(&temp.repo, &["for-each-ref", "--format=%(refname)"]);
+        assert!(!branches.contains(&name), "{}", branches);
+
+        // A `.git` link into another repository is not ours to remove.
+        let foreign = temp.repo.join(pair_dir());
+        write(
+            &foreign.join(".git"),
+            "gitdir: /elsewhere/repo/.git/worktrees/pair-x\n",
+        );
+        write(&foreign.join("work.txt"), "keep\n");
+        assert!(delete_worktree(foreign.to_str().unwrap()).is_err());
+        assert!(foreign.join("work.txt").exists());
+
+        // Nor is a leftover-looking directory git still lists.
+        let listed =
+            PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        fs::remove_file(listed.join(".git")).unwrap();
+        assert!(delete_worktree(listed.to_str().unwrap()).is_err());
+        assert!(listed.join("README.md").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_worktree_can_be_retried_after_git_removed_part_of_the_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempRepo::new("delete-partial");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        write(&path.join("locked/file.txt"), "work\n");
+        temp.git(&path, &["add", "locked"]);
+        let commit = temp.commit(&path, "work");
+
+        // A directory whose entries can't be unlinked stops `worktree remove`
+        // part-way (like a file another program holds open on Windows).
+        let locked = path.join("locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        let first = delete_worktree(path.to_str().unwrap());
+        if locked.exists() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        if first.is_ok() {
+            // Running as root: nothing could stop the removal.
+            return;
+        }
+        assert!(path.exists());
+        assert!(!temp
+            .git(&temp.repo, &["worktree", "list", "--porcelain"])
+            .contains(&name));
+
+        delete_worktree(path.to_str().unwrap()).expect("retry succeeds");
+        assert!(!path.exists());
+        let containing = temp.git(&temp.repo, &["branch", "--contains", &commit]);
+        assert!(containing.contains(&name), "{}", containing);
+    }
+
+    #[test]
+    fn delete_worktree_leaves_other_missing_worktrees_registered() {
+        let temp = TempRepo::new("delete-no-prune");
+        // The user's own worktree, on a volume that is not mounted right now.
+        let offline = temp.root.join("offline-worktree");
+        temp.git(
+            &temp.repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                offline.to_str().unwrap(),
+                "main",
+            ],
+        );
+        fs::remove_dir_all(&offline).unwrap();
+
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let present =
+            PathBuf::from(create_worktree(temp.repo_str(), "feature", &pair_dir()).unwrap());
+        delete_worktree(present.to_str().unwrap()).expect("delete succeeds");
+
+        // A pair worktree whose directory is gone loses only its own entry.
+        temp.git(&temp.repo, &["branch", "feature2"]);
+        let missing =
+            PathBuf::from(create_worktree(temp.repo_str(), "feature2", &pair_dir()).unwrap());
+        fs::remove_dir_all(&missing).unwrap();
+        delete_worktree(missing.to_str().unwrap()).expect("missing worktree is Ok");
+
+        let worktrees = temp.git(&temp.repo, &["worktree", "list", "--porcelain"]);
+        assert!(worktrees.contains("offline-worktree"), "{}", worktrees);
+        for gone in [&present, &missing] {
+            let name = gone.file_name().unwrap().to_str().unwrap();
+            assert!(!worktrees.contains(name), "{}", worktrees);
+        }
     }
 
     #[test]

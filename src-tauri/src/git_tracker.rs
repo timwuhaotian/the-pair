@@ -10,6 +10,110 @@ const MAX_MODIFIED_FILES: usize = 5_000;
 /// Untracked files are shown in full up to this many bytes.
 const MAX_UNTRACKED_READ_BYTES: u64 = 512 * 1024;
 const MAX_DIFF_LINES: usize = 500;
+/// Exclude pathspecs passed to one `git status` poll. They only save git the
+/// walk; `parse_porcelain_z` drops the same entries anyway.
+const MAX_STATUS_EXCLUDES: usize = 100;
+
+/// Dependency and build-output directories that tools recreate on demand
+/// (`npm install`, `pip install`, `cargo build`, `pod install`, ...). An entry
+/// with a `/` names a directory by its trailing path components.
+///
+/// Only *wholly untracked* instances count: git reports such a directory as a
+/// single `?? dir/` entry with `--untracked-files=normal`, which guarantees
+/// nothing inside it is tracked. A `build/` directory holding tracked sources
+/// is left alone. Such directories are kept out of the modified-file list and
+/// out of the auto-save stash of a deleted pair worktree, so one unignored
+/// `node_modules` can neither flood the list nor bloat the repository.
+pub(crate) const REGENERABLE_DIRS: &[&str] = &[
+    "node_modules",
+    "bower_components",
+    ".pnpm-store",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    "target",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".turbo",
+    ".parcel-cache",
+    ".gradle",
+    "Pods",
+    "DerivedData",
+    ".dart_tool",
+    "vendor/bundle",
+];
+
+/// True when the repo-relative directory `dir` (`/`-separated, an optional
+/// trailing `/` is ignored) is named like a regenerable directory.
+pub(crate) fn is_regenerable_dir(dir: &str) -> bool {
+    let dir = dir.trim_end_matches('/');
+    REGENERABLE_DIRS.iter().any(|name| {
+        dir == *name
+            || dir
+                .strip_suffix(name)
+                .is_some_and(|parent| parent.ends_with('/'))
+    })
+}
+
+/// `path` equals `dir` or lies below it.
+fn is_within(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The shallowest regenerable directory containing `path` (or equal to it,
+/// for a `dir/` entry) that lies inside one of `untracked_dirs` — directories
+/// git reported as wholly untracked, given without the trailing `/`.
+pub(crate) fn regenerable_ancestor<'a>(
+    path: &'a str,
+    untracked_dirs: &[String],
+) -> Option<&'a str> {
+    let trimmed = path.trim_end_matches('/');
+    let own_end = (path.len() != trimmed.len()).then_some(trimmed.len());
+    trimmed
+        .match_indices('/')
+        .map(|(index, _)| index)
+        .chain(own_end)
+        .map(|end| &trimmed[..end])
+        .find(|prefix| {
+            is_regenerable_dir(prefix) && untracked_dirs.iter().any(|dir| is_within(prefix, dir))
+        })
+}
+
+/// Pathspec that leaves `dir` (repo-relative) out of a git command, whatever
+/// subdirectory it runs in and whatever characters the name contains.
+pub(crate) fn exclude_pathspec(dir: &str) -> String {
+    format!(":(top,exclude,literal){}", dir)
+}
+
+/// Wholly untracked directories (`?? dir/` records, trailing `/` removed) in
+/// `git status --porcelain=v1 -z --untracked-files=normal` output.
+fn untracked_dirs_in_porcelain_z(output: &[u8]) -> Vec<String> {
+    let mut dirs = Vec::new();
+    let mut records = output.split(|&byte| byte == 0);
+    while let Some(record) = records.next() {
+        if record.len() < 4 || record[2] != b' ' {
+            continue;
+        }
+        if matches!(record[0], b'R' | b'C') || matches!(record[1], b'R' | b'C') {
+            let _original_path = records.next();
+            continue;
+        }
+        if record.starts_with(b"?? ") && record.ends_with(b"/") {
+            let path = String::from_utf8_lossy(&record[3..]);
+            dirs.push(path.trim_end_matches('/').to_string());
+        }
+    }
+    dirs
+}
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -49,7 +153,10 @@ fn classify_status(x: u8, y: u8) -> Option<FileStatus> {
 /// and paths are raw (no quoting), so spaces and non-ASCII names survive.
 /// Renames and copies are followed by an extra NUL-terminated field holding
 /// the original path; the live destination path is the one recorded.
-fn parse_porcelain_z(output: &[u8]) -> Vec<ModifiedFile> {
+///
+/// Untracked entries inside a regenerable directory that lies in one of
+/// `untracked_dirs` (see `regenerable_ancestor`) are dropped before the cap.
+fn parse_porcelain_z(output: &[u8], untracked_dirs: &[String]) -> Vec<ModifiedFile> {
     let mut files = Vec::new();
     let mut records = output.split(|&byte| byte == 0);
     while let Some(record) = records.next() {
@@ -64,6 +171,11 @@ fn parse_porcelain_z(output: &[u8]) -> Vec<ModifiedFile> {
             continue;
         };
         let path = String::from_utf8_lossy(&record[3..]).into_owned();
+        if matches!(status, FileStatus::Untracked)
+            && regenerable_ancestor(&path, untracked_dirs).is_some()
+        {
+            continue;
+        }
         files.push(ModifiedFile {
             display_path: path.clone(),
             path,
@@ -170,16 +282,41 @@ impl GitTracker {
     /// Lists the working-tree changes of `directory`, or `None` when git isn't
     /// available there. Safe to call without holding any pair-state lock.
     pub fn collect_modified_files(directory: &str) -> Option<Vec<ModifiedFile>> {
-        let output = git_command()
-            .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
-            .current_dir(directory)
-            .stdin(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+        let status = |untracked: &str, pathspecs: &[String]| {
+            let output = git_command()
+                .args(["status", "--porcelain=v1", "-z", untracked])
+                .args(if pathspecs.is_empty() {
+                    &[][..]
+                } else {
+                    &["--"][..]
+                })
+                .args(pathspecs)
+                .current_dir(directory)
+                .stdin(Stdio::null())
+                .output()
+                .ok()?;
+            output.status.success().then_some(output.stdout)
+        };
+
+        // `normal` lists a wholly untracked directory as one `dir/` entry and
+        // never walks it. Without such entries it matches `all` exactly.
+        let collapsed = status("--untracked-files=normal", &[])?;
+        let untracked_dirs = untracked_dirs_in_porcelain_z(&collapsed);
+        if untracked_dirs.is_empty() {
+            return Some(parse_porcelain_z(&collapsed, &[]));
         }
-        Some(parse_porcelain_z(&output.stdout))
+
+        // `all` lists new files in new directories one by one. Top-level
+        // regenerable directories are excluded so git doesn't walk them;
+        // nested ones are filtered while parsing.
+        let excludes: Vec<String> = untracked_dirs
+            .iter()
+            .filter(|dir| is_regenerable_dir(dir))
+            .take(MAX_STATUS_EXCLUDES)
+            .map(|dir| exclude_pathspec(dir))
+            .collect();
+        let expanded = status("--untracked-files=all", &excludes)?;
+        Some(parse_porcelain_z(&expanded, &untracked_dirs))
     }
 
     pub fn update_state(state: &mut PairState) {
@@ -265,13 +402,82 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn parse(records: &[&str]) -> Vec<ModifiedFile> {
+    fn raw_records(records: &[&str]) -> Vec<u8> {
         let mut raw = Vec::new();
         for record in records {
             raw.extend_from_slice(record.as_bytes());
             raw.push(0);
         }
-        parse_porcelain_z(&raw)
+        raw
+    }
+
+    fn parse(records: &[&str]) -> Vec<ModifiedFile> {
+        parse_porcelain_z(&raw_records(records), &[])
+    }
+
+    #[test]
+    fn regenerable_dirs_match_by_trailing_components() {
+        for dir in [
+            "node_modules",
+            "packages/app/node_modules/",
+            ".venv",
+            "crates/x/target",
+            "vendor/bundle",
+            "app/vendor/bundle",
+        ] {
+            assert!(is_regenerable_dir(dir), "{dir}");
+        }
+        for dir in [
+            "src",
+            "my_node_modules",
+            "vendor",
+            "bundle",
+            "xvendor/bundle",
+            "build.rs",
+        ] {
+            assert!(!is_regenerable_dir(dir), "{dir}");
+        }
+    }
+
+    #[test]
+    fn regenerable_ancestor_requires_a_wholly_untracked_directory() {
+        let untracked = vec!["newpkg".to_string(), "node_modules".to_string()];
+        assert_eq!(
+            regenerable_ancestor("newpkg/node_modules/x/index.js", &untracked),
+            Some("newpkg/node_modules")
+        );
+        assert_eq!(
+            regenerable_ancestor("node_modules/x/index.js", &untracked),
+            Some("node_modules")
+        );
+        assert_eq!(
+            regenerable_ancestor("newpkg/lib/build/", &untracked),
+            Some("newpkg/lib/build")
+        );
+        // A `build/` holding tracked files was not reported as untracked.
+        assert_eq!(
+            regenerable_ancestor("build/new-script.sh", &untracked),
+            None
+        );
+        assert_eq!(regenerable_ancestor("newpkg/src/main.js", &untracked), None);
+        // A file (not a directory) named like one is kept.
+        assert_eq!(regenerable_ancestor("newpkg/build", &untracked), None);
+    }
+
+    #[test]
+    fn untracked_dirs_are_read_from_collapsed_status_records() {
+        let raw = raw_records(&[
+            "R  new.rs",
+            "old/dir/",
+            "?? newpkg/",
+            "?? file.txt",
+            " M src/lib.rs",
+            "?? node_modules/",
+        ]);
+        assert_eq!(
+            untracked_dirs_in_porcelain_z(&raw),
+            vec!["newpkg".to_string(), "node_modules".to_string()]
+        );
     }
 
     #[test]
@@ -360,7 +566,7 @@ mod tests {
     fn skips_records_too_short_to_hold_a_path() {
         assert!(parse(&[""]).is_empty());
         assert!(parse(&[" M "]).is_empty());
-        assert!(parse_porcelain_z(b"").is_empty());
+        assert!(parse_porcelain_z(b"", &[]).is_empty());
     }
 
     #[test]
@@ -468,6 +674,42 @@ mod tests {
                 .unwrap_or_else(|e| panic!("diff for {} failed: {}", file.path, e));
             assert!(!diff.is_empty());
         }
+    }
+
+    #[test]
+    fn collect_modified_files_skips_untracked_dependency_directories() {
+        let temp = TempRepo::new("regenerable");
+        fs::create_dir_all(temp.root.join("build")).unwrap();
+        fs::write(temp.root.join("build/tracked.sh"), "echo\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        for index in 0..(MAX_MODIFIED_FILES + 10) {
+            let dir = temp.root.join(format!("node_modules/pkg{}", index % 50));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join(format!("f{index}.js")), "x").unwrap();
+        }
+        fs::create_dir_all(temp.root.join("newpkg/.venv/lib")).unwrap();
+        fs::write(temp.root.join("newpkg/.venv/lib/site.py"), "x").unwrap();
+        fs::create_dir_all(temp.root.join("newpkg/src")).unwrap();
+        fs::write(temp.root.join("newpkg/src/main.py"), "print()\n").unwrap();
+        // `build/` holds tracked files, so new files in it are real work.
+        fs::write(temp.root.join("build/tracked.sh"), "echo changed\n").unwrap();
+        fs::write(temp.root.join("build/new.sh"), "echo new\n").unwrap();
+
+        let files = GitTracker::collect_modified_files(temp.dir()).expect("git status runs");
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec!["build/new.sh", "build/tracked.sh", "newpkg/src/main.py"]
+        );
+
+        // Without untracked directories a single `normal` status is enough.
+        fs::remove_dir_all(temp.root.join("node_modules")).unwrap();
+        fs::remove_dir_all(temp.root.join("newpkg")).unwrap();
+        let files = GitTracker::collect_modified_files(temp.dir()).expect("git status runs");
+        assert_eq!(files.len(), 2);
     }
 
     #[test]
