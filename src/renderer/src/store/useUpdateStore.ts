@@ -44,6 +44,16 @@ const initialState: UpdateState = {
   toastType: null
 }
 
+const INSTALL_FAILED = 'Update installation failed'
+
+/** Human-readable install failure: a fixed lead-in plus the underlying reason, if any. */
+export function describeInstallError(error: unknown): string {
+  const detail = extractErrorMessage(error, '').trim()
+  if (!detail) return `${INSTALL_FAILED}.`
+  if (detail.toLowerCase().startsWith(INSTALL_FAILED.toLowerCase())) return detail
+  return `${INSTALL_FAILED}: ${detail}`
+}
+
 export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
   ...initialState,
 
@@ -72,10 +82,11 @@ export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
   reset: () => set(initialState),
 
   installUpdate: async () => {
-    const currentUpdate = useUpdateStore.getState().update
-    if (!currentUpdate) return
+    const { update: currentUpdate, phase } = useUpdateStore.getState()
+    if (!currentUpdate || phase === 'installing') return
 
-    set({ phase: 'installing', progress: 0 })
+    // Keep the modal up while installing so progress stays visible.
+    set({ phase: 'installing', progress: 0, message: null, showModal: true })
 
     let totalBytes: number | null = null
     let downloadedBytes = 0
@@ -106,8 +117,9 @@ export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
       await currentUpdate.close().catch(() => {})
       await window.api.app.restart()
     } catch (error) {
-      const message = extractErrorMessage(error, 'Update installation failed')
-      set({ message, phase: 'error', showModal: false })
+      console.error('[Updater] Install failed:', error)
+      // Leave the modal open in the error phase so the failure is visible.
+      set({ message: describeInstallError(error), phase: 'error', showModal: true })
     }
   }
 }))
