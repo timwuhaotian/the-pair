@@ -61,17 +61,22 @@ export function Dashboard({
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           {selectedPair ? (
             <Suspense fallback={<ColumnFallback />}>
-              <PairConsole pair={selectedPair} />
+              {/* Keyed by pair: drafts, attached file contents, filters and popovers
+                  are per-pair local state and must not carry over to another pair. */}
+              <PairConsole key={selectedPair.id} pair={selectedPair} />
             </Suspense>
           ) : (
             <EmptyPairConsole pairCount={pairs.length} onCreatePair={onCreatePair} />
           )}
         </div>
 
-        <div className="hidden w-[320px] shrink-0 xl:flex xl:flex-col">
+        {/* Visible from lg up — the window's minWidth is 1200px, and this panel holds
+            Retry, run history and the way back from an archived run. */}
+        <div className="hidden w-[280px] shrink-0 lg:flex lg:flex-col xl:w-[320px]">
           {selectedPair ? (
             <Suspense fallback={<ColumnFallback />}>
               <PairOperationsPanel
+                key={selectedPair.id}
                 pair={selectedPair}
                 onPause={onPauseSelectedPair}
                 onResume={onResumeSelectedPair}

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, RotateCcw } from 'lucide-react'
 import { usePairStore, type Pair } from '../store/usePairStore'
+import { extractErrorMessage } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
 
 /**
@@ -16,21 +17,26 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
   const [showReject, setShowReject] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const run = async (decision: 'approve' | 'reject'): Promise<void> => {
+    if (submitting) return
     setSubmitting(true)
+    setError(null)
     try {
       await resolvePlanReview(
         pair.id,
         decision,
         decision === 'reject' ? feedback.trim() : undefined
       )
-    } catch {
-      // Store surfaces the error in its `error` field.
-    } finally {
-      setSubmitting(false)
+      // Only reset the draft once the decision went through — on failure the
+      // typed feedback stays so the user can retry without retyping it.
       setShowReject(false)
       setFeedback('')
+    } catch (err) {
+      setError(extractErrorMessage(err, t('planReview.failed')))
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -74,6 +80,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
                 onClick={() => {
                   setShowReject(false)
                   setFeedback('')
+                  setError(null)
                 }}
                 disabled={submitting}
               >
@@ -104,6 +111,16 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
               {t('planReview.reject')}
             </GlassButton>
           </div>
+        )}
+
+        {error && (
+          <p
+            role="alert"
+            data-testid="plan-review-error"
+            className="mt-2 text-[11px] leading-relaxed state-error [overflow-wrap:anywhere]"
+          >
+            ✗ {error}
+          </p>
         )}
       </div>
     </div>

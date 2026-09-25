@@ -13,6 +13,8 @@ interface TaskHistoryPanelProps {
   onSelectTask: (runId: string) => void
   onBackToCurrent: () => void
   onRestoreTask: (run: PairRunSummary) => void
+  /** Disables restore while the pair is busy — restoring would kill the running run. */
+  restoreDisabled?: boolean
   timeline?: TimelineData | null
 }
 
@@ -37,6 +39,7 @@ export function TaskHistoryPanel({
   onSelectTask,
   onBackToCurrent,
   onRestoreTask,
+  restoreDisabled = false,
   timeline
 }: TaskHistoryPanelProps): React.ReactNode {
   const { t } = useTranslation()
@@ -158,13 +161,23 @@ export function TaskHistoryPanel({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
+                    if (restoreDisabled) return
                     onRestoreTask(run)
                   }}
-                  aria-label="restore this task"
-                  title="restore this task"
+                  disabled={restoreDisabled}
+                  aria-label={t('history.restoreTask')}
+                  title={
+                    restoreDisabled ? t('history.restoreDisabledBusy') : t('history.restoreTask')
+                  }
+                  data-testid="history-restore-btn"
                   className={cn(
-                    'absolute right-1.5 top-1.5 p-1 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] rounded-sm transition-colors cursor-pointer',
-                    isViewing ? 'opacity-100' : 'opacity-50 group-hover:opacity-100'
+                    'absolute right-1.5 top-1.5 p-1 text-muted-foreground rounded-sm transition-colors',
+                    restoreDisabled
+                      ? 'cursor-not-allowed opacity-30'
+                      : cn(
+                          'cursor-pointer hover:text-foreground hover:bg-foreground/[0.06]',
+                          isViewing ? 'opacity-100' : 'opacity-50 group-hover:opacity-100'
+                        )
                   )}
                 >
                   <RotateCcw size={10} />

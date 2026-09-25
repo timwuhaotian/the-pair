@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Loader2, Pause, Play, RotateCcw, SlidersHorizontal, Zap } from 'lucide-react'
-import { cn } from '../lib/utils'
+import { cn, extractErrorMessage } from '../lib/utils'
 import { usePairStore, type Pair } from '../store/usePairStore'
 import { TaskHistoryPanel } from './TaskHistoryPanel'
 import { TimelinePanel } from './TimelinePanel'
@@ -10,12 +10,13 @@ import { IterationProgress } from './IterationProgress'
 import { GlassButton } from './ui/GlassButton'
 import { ResourceMeter } from './ui/ResourceMeter'
 import { buildTimeline } from '../lib/timeline'
-import { isPairActive } from '../lib/pairStatus'
+import { isPairActive, isPairBusy } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { TerminalDivider } from './terminal/TerminalDivider'
 import { modifierLabel, shiftLabel } from '../lib/shortcuts'
 import { FileDiffModal } from './FileDiffModal'
 import { ModelPicker } from './ModelPicker'
+import { buildTimelineSource, resolveViewingRun } from './consoleView'
 
 interface PairOperationsPanelProps {
   pair: Pair
@@ -48,6 +49,10 @@ function PairOperationsPanel({
   const [diffContent, setDiffContent] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
+  // Monotonic token so a slow diff for an earlier file can't render under a later file.
+  const diffRequestRef = useRef(0)
+  const [isRetrying, setIsRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
 
   const effectiveMentorModel = pair.pendingMentorModel ?? pair.mentorModel
   const effectiveExecutorModel = pair.pendingExecutorModel ?? pair.executorModel
@@ -109,23 +114,12 @@ function PairOperationsPanel({
     }
   }, [saveStatus])
 
-  const viewingRun = viewingRunId
-    ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
-    : null
+  // An id that isn't in this pair's history is treated as "live".
+  const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
 
   const timelineData = React.useMemo(() => {
-    const source = viewingRun ?? {
-      name: pair.name,
-      spec: pair.spec,
-      mentorModel: pair.mentorModel,
-      executorModel: pair.executorModel,
-      status: pair.status,
-      messages: pair.messages,
-      latestAcceptance: pair.latestAcceptance,
-      modifiedFiles: pair.modifiedFiles,
-      currentRunStartedAt: pair.currentRunStartedAt,
-      currentRunFinishedAt: pair.currentRunFinishedAt
-    }
+    // Archived runs map their own dates/status explicitly — never the live run's.
+    const source = buildTimelineSource(pair, viewingRun)
     const messages = source.messages
     if (messages.length === 0) return null
     return buildTimeline(
@@ -139,20 +133,7 @@ function PairOperationsPanel({
         iteration: m.iteration,
         tokenUsage: m.tokenUsage
       })),
-      {
-        name: 'name' in source ? source.name : pair.name,
-        spec: source.spec,
-        mentorModel: source.mentorModel,
-        executorModel: source.executorModel,
-        status: source.status,
-        messages,
-        latestAcceptance: source.latestAcceptance,
-        modifiedFiles: 'modifiedFiles' in source ? source.modifiedFiles : pair.modifiedFiles,
-        currentRunStartedAt:
-          'currentRunStartedAt' in source ? source.currentRunStartedAt : pair.currentRunStartedAt,
-        currentRunFinishedAt:
-          'currentRunFinishedAt' in source ? source.currentRunFinishedAt : pair.currentRunFinishedAt
-      }
+      source
     )
   }, [pair, viewingRun])
 
@@ -166,23 +147,41 @@ function PairOperationsPanel({
       : null
 
   const canPause = isPairActive(pair.status)
-  const handleRetryTurn = (): void => {
-    void retryTurn(pair.id)
+  const handleRetryTurn = async (): Promise<void> => {
+    if (isRetrying) return
+    setIsRetrying(true)
+    setRetryError(null)
+    try {
+      await retryTurn(pair.id)
+    } catch (error) {
+      setRetryError(extractErrorMessage(error, t('pair.retryFailed')))
+    } finally {
+      setIsRetrying(false)
+    }
   }
 
   const handleFileClick = async (file: { path: string; status: string }): Promise<void> => {
+    const requestId = ++diffRequestRef.current
     setDiffModalFile(file)
     setDiffContent(null)
     setDiffLoading(true)
     setDiffError(null)
     try {
       const diff = await window.api.repo.getFileDiff(pair.directory, file.path, file.status)
+      if (requestId !== diffRequestRef.current) return
       setDiffContent(diff)
     } catch (err) {
+      if (requestId !== diffRequestRef.current) return
       setDiffError(err instanceof Error ? err.message : t('pair.failedToLoadDiff'))
     } finally {
-      setDiffLoading(false)
+      if (requestId === diffRequestRef.current) setDiffLoading(false)
     }
+  }
+
+  const handleCloseDiff = (): void => {
+    diffRequestRef.current += 1
+    setDiffModalFile(null)
+    setDiffLoading(false)
   }
 
   const formatRunStamp = (ts?: number): string => {
@@ -242,8 +241,11 @@ function PairOperationsPanel({
           <GlassButton
             variant="primary"
             size="sm"
-            icon={<RotateCcw size={11} />}
-            onClick={handleRetryTurn}
+            icon={
+              isRetrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />
+            }
+            onClick={() => void handleRetryTurn()}
+            disabled={isRetrying}
             data-testid="ops-retry-btn"
           >
             {t('pair.retryTurn')}
@@ -275,8 +277,19 @@ function PairOperationsPanel({
             (pair.executorActivity.phase === 'error' ? pair.executorActivity.detail : null) ??
             t('errors.agentError')
           }
-          onRetry={handleRetryTurn}
+          onRetry={() => void handleRetryTurn()}
+          isRetrying={isRetrying}
         />
+      )}
+
+      {retryError && pair.status === 'Error' && (
+        <div
+          role="alert"
+          data-testid="ops-retry-error"
+          className="border-l-2 border-state-error pl-2 text-[11px] leading-relaxed state-error [overflow-wrap:anywhere]"
+        >
+          ✗ {retryError}
+        </div>
       )}
 
       {pair.latestAcceptance && (
@@ -465,9 +478,9 @@ function PairOperationsPanel({
           </div>
         ) : (
           <div className="space-y-px">
-            {pair.modifiedFiles.map((file, index) => (
+            {pair.modifiedFiles.map((file) => (
               <button
-                key={index}
+                key={file.path}
                 onClick={() => handleFileClick(file)}
                 title={file.path}
                 className="flex w-full items-baseline gap-2 truncate text-left text-[10px] text-muted-foreground hover:bg-foreground/[0.05] px-1 -mx-1 rounded-sm transition-colors"
@@ -491,20 +504,22 @@ function PairOperationsPanel({
         )}
       </div>
 
+      {/* Restoring starts a new run, which would kill the one in progress. */}
       <TaskHistoryPanel
         runHistory={pair.runHistory}
-        viewingRunId={viewingRunId}
+        viewingRunId={viewingRun?.id ?? null}
         onSelectTask={(runId) => setViewingRunId(runId)}
         onBackToCurrent={() => setViewingRunId(null)}
         onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
-        timeline={viewingRunId ? timelineData : null}
+        restoreDisabled={isPairBusy(pair.status)}
+        timeline={viewingRun ? timelineData : null}
       />
 
       <TimelinePanel timeline={timelineData} />
 
       <FileDiffModal
         isOpen={diffModalFile !== null}
-        onClose={() => setDiffModalFile(null)}
+        onClose={handleCloseDiff}
         filePath={diffModalFile?.path ?? ''}
         status={diffModalFile?.status ?? ''}
         diff={diffContent}
