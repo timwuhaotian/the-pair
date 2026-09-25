@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.2] - 2026-09-26
+
+A codebase-wide bug sweep: every module was reviewed, and the fixes below were re-reviewed for regressions before release.
+
+### Fixed
+
+#### Your work and your repo
+
+- **Deleting a pair no longer destroys the executor's work.** Worktrees were created on a detached HEAD and force-removed on delete, so anything not copied out by hand was lost. Each pair now works on its own `the-pair/pair-<id>` branch. On delete, uncommitted changes are saved to `git stash` in the main repo and commits stay on that branch (or a `the-pair/rescued-<sha>` branch). Regenerable dependency folders (`node_modules`, `.venv`, `target`, …) are not stashed. If the work can't be saved (e.g. a nested repo or a very large untracked set), nothing is deleted and the error is shown. A half-finished removal can be retried, and deleting a pair no longer unregisters your other worktrees.
+- **Mentors are read-only for more providers.** A Kiro mentor ran with `--trust-all-tools`, and an Aider mentor ran in edit mode with `--yes-always`, so both could edit the repo. Kiro mentors now trust only read-only tools. Aider mentors use ask mode without shell-command suggestions. OpenCode mentors use the `plan` agent (on OpenCode 1.1+; skipped when your global OpenCode config disables it). Kimi can't be restricted from its CLI; its mentor is read-only by prompt only.
+- **`git status` polling no longer breaks the executor's own git commands.** The 5-second poll took `.git/index.lock`, so concurrent `git add`/`git commit` calls failed intermittently. Status parsing now handles spaces, CJK names, renames and new folders, and an unignored `node_modules` no longer floods the changed-files list. Diffs work for deleted files and in repos with no commits yet.
+- **Branch names are validated.** A remote branch whose name started with `-` was passed to `git` as an option; selecting `origin/-M` could rename your current branch. The phantom `origin` entry is gone from the branch picker, and `|` in commit subjects no longer garbles the list.
+- **Session reports no longer land in your repo.** They are written to the app's data folder, one file per run, instead of `<repo>/.pair/reports`.
+
+#### Running pairs
+
+- **Pause, Stop and Delete actually stop a pair.** The end of a turn could undo a pause (status flipped back to Reviewing and the mentor review started anyway). The whole CLI process tree is now killed, not just the launcher (the npm `codex` wrapper used to leave the real binary running). A stopped turn can no longer change a newer run's state.
+- **Fixed an app-wide hang** when one pair finished its review while another pair was being created or resumed (the two backend locks were taken in opposite orders).
+- **Acceptance checks can't hang a pair.** `npm run test` in watch-mode projects (Create React App, Karma) ran forever. Checks now run with `CI=true`, time out, and are cancelled on pause. A check that times out is reported as skipped, not failed.
+- **Plans and verdicts reach the other agent intact.** Claude's intermediate narration no longer leaks into the handoff, the final answer is no longer dropped in favour of the longest fragment, and a verdict written before a trailing tool call is kept. Aider and Kiro replies keep their `{` / `}` lines, so their JSON verdicts parse.
+- **A finish needs the verdict to agree.** `TASK_COMPLETE` only finishes a run when the verdict agrees (or there is none), and low-confidence finish verdicts are sent back for repair.
+- **Resume works as expected.** Resuming a pair paused during its first plan gives the mentor the planning prompt, not the reviewer prompt. Reaching the iteration limit hands the next turn to the mentor for review instead of looping on pause. Double-clicking Resume or Retry no longer starts two turns.
+- **Runs interrupted by quitting the app can be resumed.** Snapshots are now saved on every status change and turn end, so an interrupted run comes back Paused with its task. Snapshots from older versions still load as Idle.
+- **Snapshots actually save.** Renderer saves were rejected over status capitalization, so task specs, run history and model overrides were lost on restart. Snapshot writes are now atomic, per-pair locked and merged rather than overwritten, and older snapshot files load again.
+- **The task description is kept by the backend**, so resume/retry prompts, reports and insights no longer see an empty task.
+- **Models run through the right CLI.** Codex `codex-*` models and Grok/Muse custom aliases were re-guessed as OpenCode at every handoff. Changing a model no longer wipes the other role's reasoning effort, and a changed model starts at its default effort.
+- **No more false "stalled" warnings** on turns longer than 10 minutes for JSON-streaming providers.
+- **A turn that fails to start** shows an error instead of leaving the pair looking busy, and a failed pair creation cleans up after itself.
+- **Oversized prompts** fail with a clear message instead of "Failed to spawn process".
+
+#### Providers and detection
+
+- **The app runs the same CLI copy as your terminal.** Launched from Finder, it picked old nvm copies (e.g. opencode 1.x over Homebrew 2.x). PATH is now captured from an interactive login shell (so `.zshrc`/`.bashrc` additions such as `~/.local/bin` and nvm count) and follows your shell's order. The capture is bounded, so a slow or prompting profile can't hang startup.
+- **Model lists no longer vanish** when a CLI prints more than 64 KB while listing models.
+- **OpenCode** config and auth paths follow `OPENCODE_CONFIG_DIR` / XDG like opencode does. Zen and your own API-key route for the same model stay separate (the Zen route is labelled "OpenCode Zen"). Token counts include cache and reasoning tokens and cover the whole turn (Pi too).
+- **Windows:** npm-installed CLIs (`.cmd` shims) are found and launched, console windows no longer flash on every probe or turn, and acceptance checks find `npm.cmd`.
+
+#### App
+
+- **The app no longer freezes** during model detection, pair deletion, branch listing, file diffs, snapshot saves or recent-activity refreshes. These now run off the UI thread.
+- **Links in agent output open in your browser.** On macOS they did nothing.
+- **Insights, recommendations and the real branch list load.** A broken Tauri-runtime check made the app think it wasn't running in Tauri.
+- **Input:** Enter used to confirm a Chinese/Japanese/Korean IME candidate no longer submits the task, and composing text is no longer shown twice. Enter in a picker's search box no longer submits the whole dialog, and Escape closes only the dropdown.
+- **Per-pair state stays per pair.** Drafts, attached files and unsaved model edits no longer carry over when you switch pairs, and viewing an archived run no longer locks every other pair's console.
+- **Dialogs:** "Restore task" restores the task text and is disabled while the pair is busy. Presets no longer wrap the task twice. The branch resets when you change the directory, and typing a path no longer scans the disk on every keystroke.
+- **Errors are visible:** failed submits, Stop/Retry failures, background handoff failures and failed model loads are shown where they happen instead of disappearing.
+- **The operations panel (with Retry)** is visible at every allowed window width.
+- The console no longer jumps to the bottom while you're reading, the message filter no longer hides the live turn, "Clear Session" sticks, a new run no longer shows the previous run's finish time, and the update dialog shows install progress and errors.
+- **Exported HTML reports** block entity-encoded `javascript:` links; raster images are kept. `$` in a task is no longer mangled by preset templates, and `@file.` mentions before a period are recognized.
+- Missing translations (`common.thinking` and several ja/ko keys) added.
+
+#### Release and build
+
+- Releases are serialized, tag the built commit, and never overwrite an existing release's assets (v2.6.0 was published twice).
+- Signing material is written to the runner's temp dir and removed afterwards, third-party actions are pinned to commit SHAs, and write permission is limited to the publish job.
+- `npm run bump` also updates `package-lock.json`, `Cargo.toml` and `Cargo.lock`. The changelog gate and release-notes extraction share one parser, and the release notes' Contributors list works again.
+- Removed a leftover Electron CSP `<meta>` tag and unneeded hardened-runtime exceptions (JIT, unsigned executable memory, library-validation bypass).
+- `npm run dev:mock`, `dev:smoke` and `e2e` work on Windows.
+
+### Notes
+
+- CLIs installed only under a non-default nvm Node version are no longer picked up; set that version as your nvm default or install the CLI globally.
+- Acceptance checks run with `CI=true` (e.g. snapshot tests won't write new snapshots).
+- An OpenCode `plan` agent disabled only in a project-level `opencode.json` isn't detected yet; disable it globally, or re-enable it, if an OpenCode mentor fails with `Agent not found: "plan"`.
+
 ## [2.8.1] - 2026-09-23
 
 Provider CLI audit against the installed/latest CLIs (Claude Code 2.1.280, Codex 0.149.1, opencode 2.0.3, Antigravity 1.2.7, Kimi Code 2.0.2, pi 0.79.2, Kiro 2.23.0, aider-chat 0.86.2, Grok Build 1.0.40, Muse Code 1.3.0).

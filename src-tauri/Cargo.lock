@@ -89,7 +89,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "2.8.1"
+version = "2.8.2"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
