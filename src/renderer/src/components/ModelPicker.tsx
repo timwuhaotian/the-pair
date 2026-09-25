@@ -9,6 +9,7 @@ import {
   savePreferredModelId
 } from '../lib/modelPreferences'
 import { PROVIDER_LOGIN_COMMANDS } from '../lib/providerSetup'
+import { modelMatchesId } from '../lib/providerResolution'
 import {
   buildCanonicalModels,
   defaultLeafForRoute,
@@ -325,7 +326,7 @@ export function ModelPicker({
               <QuickPickRow
                 key={getQualifiedModel(model)}
                 model={model}
-                selected={getQualifiedModel(model) === value}
+                selected={modelMatchesId(model, value)}
                 role={role}
                 onSelect={selectRecent}
               />

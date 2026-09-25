@@ -420,6 +420,18 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           <span>{submitError}</span>
         </div>
       )}
+      {pair.handoffError && (
+        <div
+          role="alert"
+          data-testid="pair-handoff-error"
+          className="mt-1.5 flex items-baseline gap-1.5 pl-[2ch] font-mono text-[11px] state-error [overflow-wrap:anywhere]"
+        >
+          <span aria-hidden className="select-none">
+            ✗
+          </span>
+          <span>{pair.handoffError}</span>
+        </div>
+      )}
     </form>
   ) : null
 

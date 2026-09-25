@@ -37,6 +37,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const createPair = usePairStore((s) => s.createPair)
   const isLoading = usePairStore((s) => s.isLoading)
   const error = usePairStore((s) => s.error)
+  const modelsError = usePairStore((s) => s.modelsError)
 
   const [name, setName] = useState('')
   const [directory, setDirectory] = useState('')
@@ -369,6 +370,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               onReasoningEffortChange={setExecutorReasoningEffort}
             />
           </div>
+          {modelsError && (
+            <div
+              role="alert"
+              className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
+            >
+              ✗ {modelsError}
+            </div>
+          )}
 
           <div className="relative flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
