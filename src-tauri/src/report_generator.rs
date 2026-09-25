@@ -1,20 +1,24 @@
 use crate::types::{
-    AcceptanceRecord, AcceptanceVerdictDecision, IterationMetric, Message, ModifiedFile,
-    SessionReport,
+    AcceptanceRecord, AcceptanceVerdict, AcceptanceVerdictDecision, IterationMetric, Message,
+    ModifiedFile, SessionReport,
 };
 use crate::util::now_millis;
 use std::fs;
 use std::path::Path;
 
-const REPORTS_DIR: &str = ".pair/reports";
+/// Reports live under the app data dir (`<app_data_dir>/reports`), never in
+/// the user's repository: a `.pair/` folder there showed up in `git status`,
+/// fed back into acceptance risk and got swept up by `git add -A`.
+const REPORTS_DIR: &str = "reports";
 
-pub fn ensure_reports_dir(workspace_root: &Path) -> Result<std::path::PathBuf, String> {
-    let reports_path = workspace_root.join(REPORTS_DIR);
+pub fn ensure_reports_dir(app_data_dir: &Path) -> Result<std::path::PathBuf, String> {
+    let reports_path = app_data_dir.join(REPORTS_DIR);
     fs::create_dir_all(&reports_path)
         .map_err(|e| format!("Failed to create reports directory: {}", e))?;
     Ok(reports_path)
 }
 
+#[cfg(test)]
 pub fn generate_session_report(
     session_id: &str,
     pair_name: &str,
@@ -24,12 +28,39 @@ pub fn generate_session_report(
     git_changes: &[ModifiedFile],
     messages: &[Message],
 ) -> Result<SessionReport, String> {
+    generate_session_report_with_fallback(
+        session_id,
+        pair_name,
+        task_spec,
+        started_at,
+        acceptance_records,
+        git_changes,
+        messages,
+        None,
+    )
+}
+
+/// Build a session report. The final verdict is the last acceptance
+/// record's, or `fallback_verdict` when the history carries none (e.g. a run
+/// the mentor finished without any executor checks being recorded).
+#[allow(clippy::too_many_arguments)]
+pub fn generate_session_report_with_fallback(
+    session_id: &str,
+    pair_name: &str,
+    task_spec: &str,
+    started_at: u64,
+    acceptance_records: &[AcceptanceRecord],
+    git_changes: &[ModifiedFile],
+    messages: &[Message],
+    fallback_verdict: Option<AcceptanceVerdict>,
+) -> Result<SessionReport, String> {
     let finished_at = now_millis();
 
     // Get the final verdict from the last acceptance record
     let final_verdict = acceptance_records
         .last()
         .and_then(|record| record.verdict.clone())
+        .or(fallback_verdict)
         .ok_or("No final verdict found")?;
 
     // Calculate token usage from messages
@@ -124,7 +155,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
     md.push_str(&format!("- **Iterations:** {}\n", report.iterations));
     md.push_str(&format!(
         "- **Duration:** {:.1} minutes\n",
-        (report.finished_at - report.started_at) as f64 / 1000.0 / 60.0
+        report.finished_at.saturating_sub(report.started_at) as f64 / 1000.0 / 60.0
     ));
     md.push_str(&format!(
         "- **Confidence:** {:.0}%\n",
@@ -219,7 +250,7 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
         md.push_str(&format!("- **Summary:** {}\n", record.summary));
         md.push_str(&format!(
             "- **Duration:** {:.1}s\n",
-            (record.finished_at - record.started_at) as f64 / 1000.0
+            record.finished_at.saturating_sub(record.started_at) as f64 / 1000.0
         ));
 
         if !record.checks.is_empty() {
@@ -239,29 +270,36 @@ pub fn format_report_markdown(report: &SessionReport) -> String {
     md
 }
 
+/// Save the report as `<app_data_dir>/reports/<pair_id>-<finished_at>.md`,
+/// one file per run (a pair's later runs no longer overwrite earlier ones).
 pub fn save_report_to_file(
     report: &SessionReport,
-    workspace_root: &Path,
+    app_data_dir: &Path,
 ) -> Result<std::path::PathBuf, String> {
-    let reports_dir = ensure_reports_dir(workspace_root)?;
+    let reports_dir = ensure_reports_dir(app_data_dir)?;
     let safe_id: String = report
         .session_id
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .take(64)
         .collect();
-    let filename = format!("{}.md", safe_id);
-    let filepath = reports_dir.join(&filename);
+    let mut filepath = reports_dir.join(format!("{}-{}.md", safe_id, report.finished_at));
+    let mut suffix = 1;
+    while filepath.exists() {
+        filepath = reports_dir.join(format!("{}-{}-{}.md", safe_id, report.finished_at, suffix));
+        suffix += 1;
+    }
 
     let markdown = format_report_markdown(report);
 
-    // Atomic write: write to a temp sibling then rename so a crash mid-write
-    // never leaves a partial report file behind.
-    let tmp_path = filepath.with_extension("md.tmp");
-    fs::write(&tmp_path, markdown)
-        .map_err(|e| format!("Failed to write report file: {}", e))?;
-    fs::rename(&tmp_path, &filepath)
-        .map_err(|e| format!("Failed to move report file into place: {}", e))?;
+    // Atomic write: write to a unique temp sibling then rename so a crash
+    // mid-write never leaves a partial report file behind.
+    let tmp_path = reports_dir.join(format!(".{}.{}.tmp", safe_id, uuid::Uuid::new_v4()));
+    fs::write(&tmp_path, markdown).map_err(|e| format!("Failed to write report file: {}", e))?;
+    fs::rename(&tmp_path, &filepath).map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("Failed to move report file into place: {}", e)
+    })?;
 
     Ok(filepath)
 }
@@ -348,6 +386,52 @@ mod tests {
             AcceptanceVerdictDecision::Pass
         ));
         assert!((report.final_verdict.confidence - 0.95).abs() < 0.001);
+    }
+
+    #[test]
+    fn generate_session_report_uses_fallback_verdict_when_history_has_none() {
+        let report = generate_session_report_with_fallback(
+            "pair-1",
+            "Pair",
+            "Task",
+            1000,
+            &[],
+            &[],
+            &[],
+            Some(create_test_verdict()),
+        )
+        .expect("fallback verdict should be used");
+        assert_eq!(report.iterations, 0);
+        assert!(matches!(
+            report.final_verdict.verdict,
+            AcceptanceVerdictDecision::Pass
+        ));
+        assert!(generate_session_report("pair-1", "Pair", "Task", 1000, &[], &[], &[]).is_err());
+    }
+
+    #[test]
+    fn save_report_to_file_writes_one_file_per_run_under_app_data_reports() {
+        let base =
+            std::env::temp_dir().join(format!("the-pair-report-test-{}", uuid::Uuid::new_v4()));
+        let records = vec![create_test_acceptance_record(1)];
+        let mut report =
+            generate_session_report("pair-1", "Pair", "Task", 1000, &records, &[], &[]).unwrap();
+        report.finished_at = 42;
+
+        let first = save_report_to_file(&report, &base).expect("first save");
+        let second = save_report_to_file(&report, &base).expect("second save");
+
+        assert_eq!(first, base.join("reports").join("pair-1-42.md"));
+        assert_ne!(first, second, "a second run must not overwrite the first");
+        assert!(first.exists() && second.exists());
+        let leftovers: Vec<_> = std::fs::read_dir(base.join("reports"))
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
