@@ -119,8 +119,22 @@ pub fn config_read() -> Result<Option<serde_json::Value>, String> {
     Ok(Some(config))
 }
 
+/// Run blocking detection work off the main thread (sync Tauri commands run
+/// on the UI thread, so CLI probes used to freeze the window).
+async fn run_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("Background task failed: {}", e))?
+}
+
 #[tauri::command]
-pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
+pub async fn config_get_models() -> Result<Vec<AvailableModel>, String> {
+    run_blocking(config_get_models_blocking).await
+}
+
+fn config_get_models_blocking() -> Result<Vec<AvailableModel>, String> {
     let cache = MODEL_CACHE.get_or_init(|| Mutex::new(None));
     let mut guard = cache.lock().unwrap();
     if let Some((ts, ref models)) = *guard {
@@ -153,9 +167,13 @@ pub fn config_get_cached_models(app: tauri::AppHandle) -> Result<Vec<AvailableMo
 }
 
 #[tauri::command]
-pub fn config_refresh_models(app: tauri::AppHandle) -> Result<Vec<AvailableModel>, String> {
+pub async fn config_refresh_models(app: tauri::AppHandle) -> Result<Vec<AvailableModel>, String> {
+    run_blocking(move || config_refresh_models_blocking(&app)).await
+}
+
+fn config_refresh_models_blocking(app: &tauri::AppHandle) -> Result<Vec<AvailableModel>, String> {
     let catalog = detect_model_catalog();
-    let path = model_cache_path(&app)?;
+    let path = model_cache_path(app)?;
     if let Some(dir) = path.parent() {
         let _record = write_model_cache_in_dir(dir, &catalog)?;
     }
@@ -168,7 +186,11 @@ pub fn config_refresh_models(app: tauri::AppHandle) -> Result<Vec<AvailableModel
 }
 
 #[tauri::command]
-pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
+pub async fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
+    run_blocking(config_get_providers_blocking).await
+}
+
+fn config_get_providers_blocking() -> Result<Vec<DetectedProviderProfile>, String> {
     let cache = PROVIDER_CACHE.get_or_init(|| Mutex::new(None));
     let mut guard = cache.lock().unwrap();
     if let Some((ts, ref profiles)) = *guard {
