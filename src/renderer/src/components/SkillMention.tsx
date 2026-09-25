@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { createCompositionTracker, isImeKeyEvent } from './keyboard'
+import { shouldAcceptSkillOnEnter } from './mentionText'
 
 interface SkillEntry {
   name: string
@@ -50,14 +52,22 @@ export function SkillMention({
   const resultsRef = useRef<SkillEntry[]>([])
   const selectedIndexRef = useRef(0)
   const isOpenRef = useRef(false)
+  const queryRef = useRef('')
+  // True once the user moved the highlight with the arrow keys.
+  const navigatedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
-    window.api.skill.discover(projectDir).then((list) => {
-      if (cancelled) return
-      setSkills(list)
-      skillsRef.current = list
-    })
+    window.api.skill
+      .discover(projectDir)
+      .then((list) => {
+        if (cancelled) return
+        setSkills(list)
+        skillsRef.current = list
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) console.warn('[SkillMention] Failed to discover skills:', err)
+      })
     return () => {
       cancelled = true
     }
@@ -191,6 +201,8 @@ export function SkillMention({
       }
 
       setQuery(match[1])
+      queryRef.current = match[1]
+      navigatedRef.current = false
       setPosition(getCursorPosition() ?? { top: 0, left: 0 })
       setIsOpen(true)
       isOpenRef.current = true
@@ -198,8 +210,12 @@ export function SkillMention({
       selectedIndexRef.current = 0
     }
 
+    const composition = createCompositionTracker()
+
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (!isOpenRef.current) return
+      // Keys used to drive an IME belong to the IME, not to the popover.
+      if (composition.isComposing() || isImeKeyEvent(e)) return
 
       const hasModifier = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey
 
@@ -220,6 +236,7 @@ export function SkillMention({
         const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
+        navigatedRef.current = true
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         e.stopPropagation()
@@ -228,10 +245,23 @@ export function SkillMention({
           (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
-      } else if ((e.key === 'Enter' || e.key === 'Tab') && resultsRef.current.length > 0) {
+        navigatedRef.current = true
+      } else if (e.key === 'Tab' && resultsRef.current.length > 0) {
         e.preventDefault()
         e.stopPropagation()
         void insertMention(resultsRef.current[selectedIndexRef.current])
+      } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
+        const skill = resultsRef.current[selectedIndexRef.current]
+        if (!shouldAcceptSkillOnEnter(queryRef.current, skill.name, navigatedRef.current)) {
+          // Not an unambiguous pick (e.g. a path like ` /tmp`): let Enter keep
+          // its normal meaning instead of swapping the text for a fuzzy match.
+          setIsOpen(false)
+          isOpenRef.current = false
+          return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        void insertMention(skill)
       }
     }
 
@@ -241,14 +271,28 @@ export function SkillMention({
       }
     }
 
+    // Popover interactions keep focus in the textarea (mousedown is prevented),
+    // so a blur means the user left the input — close the popover.
+    const handleBlur = (): void => {
+      setIsOpen(false)
+      isOpenRef.current = false
+    }
+
     textarea.addEventListener('input', handleInput)
     textarea.addEventListener('keydown', handleKeyDown)
     textarea.addEventListener('scroll', handleScroll)
+    textarea.addEventListener('blur', handleBlur)
+    textarea.addEventListener('compositionstart', composition.onCompositionStart)
+    textarea.addEventListener('compositionend', composition.onCompositionEnd)
 
     return () => {
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
       textarea.removeEventListener('scroll', handleScroll)
+      textarea.removeEventListener('blur', handleBlur)
+      textarea.removeEventListener('compositionstart', composition.onCompositionStart)
+      textarea.removeEventListener('compositionend', composition.onCompositionEnd)
+      composition.dispose()
     }
   }, [textareaRef, getCursorPosition, insertMention])
 
@@ -279,6 +323,7 @@ export function SkillMention({
       ref={popoverRef}
       className="fixed z-[9999] flex max-h-72 w-96 flex-col overflow-hidden rounded-sm border border-border bg-popover font-mono"
       style={{ top: position.top, left: position.left }}
+      onMouseDown={(e) => e.preventDefault()}
     >
       <div className="flex items-center justify-between border-b border-border px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
         <span className="flex items-baseline gap-1.5">

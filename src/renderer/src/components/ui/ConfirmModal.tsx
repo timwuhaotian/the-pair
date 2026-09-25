@@ -5,6 +5,7 @@ import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { GlassButton } from './GlassButton'
 import { modalVariants, overlayVariants } from '../../lib/animations'
+import { shouldCloseOnEscape } from '../keyboard'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -37,7 +38,9 @@ export function ConfirmModal({
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && isOpen) onCancel()
+      // Ignore Escape already handled by a nested dropdown/popover (defaultPrevented)
+      // or used to cancel an IME composition — closing would discard the draft.
+      if (isOpen && shouldCloseOnEscape(e)) onCancel()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)

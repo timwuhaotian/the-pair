@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { File, Folder } from 'lucide-react'
+import { createCompositionTracker, isImeKeyEvent } from './keyboard'
+import { replaceFileMentionToken } from './mentionText'
 
 interface FileEntry {
   path: string
@@ -41,11 +43,19 @@ export function FileMention({
     if (!directory) return
 
     let cancelled = false
-    window.api.file.listFiles({ pairId, directory }).then((fileList) => {
-      if (cancelled) return
-      setFiles(fileList)
-      filesRef.current = fileList
-    })
+    window.api.file
+      .listFiles({ pairId, directory })
+      .then((fileList) => {
+        if (cancelled) return
+        setFiles(fileList)
+        filesRef.current = fileList
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        console.warn('[FileMention] Failed to list files:', err)
+        setFiles([])
+        filesRef.current = []
+      })
     return () => {
       cancelled = true
     }
@@ -123,23 +133,18 @@ export function FileMention({
         }
       }
 
-      const text = textarea.value
-      const pos = textarea.selectionStart
-      const textBeforeCursor = text.slice(0, pos)
-      const lastAtPos = textBeforeCursor.lastIndexOf('@')
-
-      const textBefore = text.slice(0, lastAtPos)
-      const textAfter = text.slice(pos)
-
-      const newValue = `${textBefore}@${path}${textAfter}`
-      onChange(newValue)
       setIsOpen(false)
       isOpenRef.current = false
 
+      // The text may have changed while the file was read; only replace the
+      // `@query` token that is still in front of the cursor.
+      const replacement = replaceFileMentionToken(textarea.value, textarea.selectionStart, path)
+      if (!replacement) return
+      onChange(replacement.value)
+
       setTimeout(() => {
-        const newPos = lastAtPos + path.length + 1
         textarea.focus()
-        textarea.setSelectionRange(newPos, newPos)
+        textarea.setSelectionRange(replacement.cursor, replacement.cursor)
       }, 0)
     },
     [textareaRef, onChange, onFileSelect, pairId, directory]
@@ -178,8 +183,13 @@ export function FileMention({
       selectedIndexRef.current = 0
     }
 
+    const composition = createCompositionTracker()
+
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (!isOpenRef.current) return
+      // Keys used to drive an IME (Enter to confirm, arrows to pick a candidate)
+      // belong to the IME, not to the popover.
+      if (composition.isComposing() || isImeKeyEvent(e)) return
 
       const hasModifier = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey
 
@@ -213,22 +223,36 @@ export function FileMention({
       } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
         e.preventDefault()
         e.stopPropagation()
-        insertMention(resultsRef.current[selectedIndexRef.current].path)
+        void insertMention(resultsRef.current[selectedIndexRef.current].path)
       } else if (e.key === 'Tab' && resultsRef.current.length > 0) {
         e.preventDefault()
         e.stopPropagation()
-        insertMention(resultsRef.current[selectedIndexRef.current].path)
+        void insertMention(resultsRef.current[selectedIndexRef.current].path)
       }
+    }
+
+    // Popover items keep focus in the textarea (mousedown is prevented), so a
+    // blur means the user left the input — don't leave the popover hanging.
+    const handleBlur = (): void => {
+      setIsOpen(false)
+      isOpenRef.current = false
     }
 
     textarea.addEventListener('input', handleInput)
     textarea.addEventListener('keydown', handleKeyDown)
     textarea.addEventListener('scroll', handleScroll)
+    textarea.addEventListener('blur', handleBlur)
+    textarea.addEventListener('compositionstart', composition.onCompositionStart)
+    textarea.addEventListener('compositionend', composition.onCompositionEnd)
 
     return () => {
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
       textarea.removeEventListener('scroll', handleScroll)
+      textarea.removeEventListener('blur', handleBlur)
+      textarea.removeEventListener('compositionstart', composition.onCompositionStart)
+      textarea.removeEventListener('compositionend', composition.onCompositionEnd)
+      composition.dispose()
     }
 
     function handleScroll(): void {
@@ -264,11 +288,14 @@ export function FileMention({
 
   if (!isOpen || results.length === 0) return null
 
+  // mousedown is prevented on the popover so focus stays in the textarea: its
+  // blur handler would otherwise close the popover before an item click lands.
   return createPortal(
     <div
       ref={popoverRef}
       className="fixed z-[9999] max-h-64 w-80 overflow-y-auto rounded-sm border border-border bg-popover font-mono scrollbar-thin"
       style={{ top: position.top, left: position.left }}
+      onMouseDown={(e) => e.preventDefault()}
     >
       {results.map((file, index) => (
         <div
@@ -276,7 +303,7 @@ export function FileMention({
           className={`flex cursor-pointer items-baseline gap-2 px-2 py-1 text-[11px] ${
             index === selectedIndex ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.04]'
           }`}
-          onClick={() => insertMention(file.path)}
+          onClick={() => void insertMention(file.path)}
         >
           {file.type === 'directory' ? (
             <Folder size={11} className="state-running translate-y-px shrink-0" />

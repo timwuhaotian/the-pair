@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { isImeKeyEvent } from './keyboard'
 
 interface SkillInfo {
   name: string
@@ -72,22 +73,37 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (isImeKeyEvent(e)) {
+      // WebKit reports the IME-confirming Enter as Enter: keep it from submitting the form.
+      if (e.key === 'Enter') e.preventDefault()
+      return
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setSelectedIndex((i) => Math.min(i + 1, filteredSkills.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setSelectedIndex((i) => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && filteredSkills[selectedIndex]) {
+    } else if (e.key === 'Enter') {
+      // Enter selects the highlighted skill; with no match it must still not
+      // submit the enclosing modal form.
       e.preventDefault()
-      handleSelect(filteredSkills[selectedIndex])
-    } else if (e.key === 'Escape') {
-      setIsOpen(false)
+      e.stopPropagation()
+      if (filteredSkills[selectedIndex]) handleSelect(filteredSkills[selectedIndex])
     }
   }
 
+  // Escape inside the open dropdown closes only the dropdown, never the enclosing modal.
+  const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!isOpen || e.key !== 'Escape' || isImeKeyEvent(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsOpen(false)
+    buttonRef.current?.focus()
+  }
+
   return (
-    <div className="relative">
+    <div className="relative" onKeyDown={handleContainerKeyDown}>
       <button
         ref={buttonRef}
         type="button"

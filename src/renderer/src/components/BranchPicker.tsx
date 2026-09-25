@@ -4,6 +4,7 @@ import Fuse from 'fuse.js'
 import { tauriApi } from '../lib/tauri-api'
 import type { RepoState } from '../types'
 import { cn } from '../lib/utils'
+import { isImeKeyEvent } from './keyboard'
 
 interface BranchPickerProps {
   directory: string
@@ -173,8 +174,25 @@ export function BranchPicker({
     setIsOpen(false)
   }
 
+  // Mirrors the `disabled` state of the rows below (dirty tree → only the current branch).
+  const isBranchSelectable = (branch: { name: string; isLocal: boolean }): boolean =>
+    !repoState.isDirty || (branch.isLocal && repoState.currentBranch === branch.name)
+
+  // Escape inside the open dropdown closes only the dropdown, never the enclosing modal.
+  const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!isOpen || e.key !== 'Escape' || isImeKeyEvent(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsOpen(false)
+    setSearch('')
+  }
+
   return (
-    <div ref={containerRef} className={cn('relative font-mono', className)}>
+    <div
+      ref={containerRef}
+      className={cn('relative font-mono', className)}
+      onKeyDown={handleContainerKeyDown}
+    >
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -214,14 +232,16 @@ export function BranchPicker({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setIsOpen(false)
-                    setSearch('')
-                  }
-                  if (e.key === 'Enter') {
-                    const first = filteredLocal[0] ?? filteredRemote[0]
-                    if (first) handleSelect(first.name)
-                  }
+                  if (e.key !== 'Enter') return
+                  // Enter picks the top match; it must never submit the enclosing form
+                  // (nor pick anything when it only confirms an IME candidate).
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (isImeKeyEvent(e)) return
+                  const first = [...filteredLocal, ...filteredRemote].find((branch) =>
+                    isBranchSelectable(branch)
+                  )
+                  if (first) handleSelect(first.name)
                 }}
                 placeholder="filter branches…"
                 className="w-full pl-7 pr-6 py-1 text-[11px] rounded-sm bg-background border border-border focus:border-foreground/40 focus:outline-none text-foreground placeholder:text-muted-foreground-faint"

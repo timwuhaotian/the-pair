@@ -20,6 +20,7 @@ import {
   type EffortOption,
   type ModelRoute
 } from '../lib/modelCatalogGrouping'
+import { isImeKeyEvent } from './keyboard'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
@@ -286,6 +287,30 @@ export function ModelPicker({
   const activeRoute = current.route
   const showEffort = Boolean(activeRoute && activeRoute.effortOptions.length > 0)
 
+  const closeDropdown = (): void => {
+    setIsDropdownOpen(false)
+    setSearchQuery('')
+  }
+
+  // Escape anywhere inside an open dropdown closes just the dropdown — it must
+  // not reach an enclosing modal's Escape handler and discard the modal draft.
+  const handleDropdownKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!isDropdownOpen || e.key !== 'Escape' || isImeKeyEvent(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    closeDropdown()
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key !== 'Enter') return
+    // Never let Enter in the search box submit the enclosing modal form — not
+    // even the Enter that confirms an IME candidate (WebKit reports it as Enter).
+    e.preventDefault()
+    e.stopPropagation()
+    if (isImeKeyEvent(e)) return
+    if (filteredModels.length === 1) selectModel(filteredModels[0])
+  }
+
   const pickerContent = (
     <>
       {/* Recent quick-picks */}
@@ -310,7 +335,7 @@ export function ModelPicker({
       )}
 
       <div className="flex flex-col gap-2">
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative" ref={dropdownRef} onKeyDown={handleDropdownKeyDown}>
           <button
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -367,12 +392,7 @@ export function ModelPicker({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setIsDropdownOpen(false)
-                        setSearchQuery('')
-                      }
-                    }}
+                    onKeyDown={handleSearchKeyDown}
                     placeholder={t('pickers.searchModels')}
                     className="w-full border border-border bg-background py-1 pl-7 pr-2 text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/40 focus:outline-none rounded-sm font-mono"
                   />
