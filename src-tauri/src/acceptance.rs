@@ -222,12 +222,15 @@ fn build_acceptance_check_plan(
     // adds noise — or worse, surfaces env-level failures (exit 129) that the
     // mentor then has to explain away.
     if !modified_files.is_empty() {
+        // The trailing `--` keeps `HEAD` a revision even when the repo root
+        // holds a file named `HEAD` (git would otherwise stop as ambiguous).
         checks.push(AcceptanceCheckPlan::new(
             "git",
             vec![
                 "diff".to_string(),
                 diff_base.to_string(),
                 "--check".to_string(),
+                "--".to_string(),
             ],
         ));
 
@@ -473,11 +476,14 @@ async fn run_check_with_timeout(
     let duration_ms = started.elapsed().as_millis() as u64;
 
     let exit_status = match wait_result {
+        // Running out of time says nothing about the executor's work (a slow
+        // machine, a huge suite, a watcher that never exits). Reporting it as
+        // failed told the mentor the tests fail on every iteration.
         Err(_elapsed) => {
             return AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: AcceptanceCheckStatus::Failed,
+                status: AcceptanceCheckStatus::Skipped,
                 exit_code: None,
                 duration_ms,
                 summary: format!(
@@ -1064,7 +1070,11 @@ mod tests {
         let names: Vec<_> = checks.iter().map(|check| check.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["git diff HEAD --check", "npm run typecheck", "npm run test"]
+            vec![
+                "git diff HEAD --check --",
+                "npm run typecheck",
+                "npm run test"
+            ]
         );
     }
 
@@ -1400,8 +1410,12 @@ mod tests {
         let run =
             super::run_check_with_timeout(&dir, &plan, std::time::Duration::from_secs(1)).await;
         assert!(started.elapsed() < std::time::Duration::from_secs(20));
-        assert_eq!(run.status, AcceptanceCheckStatus::Failed);
-        assert!(run.summary.contains("timed out"), "{}", run.summary);
+        assert_eq!(run.status, AcceptanceCheckStatus::Skipped);
+        assert!(
+            run.summary.contains("timed out after 1s"),
+            "{}",
+            run.summary
+        );
         assert!(run.stdout.contains("started"), "{}", run.stdout);
 
         // The background grandchild was killed along with the shell.
@@ -1506,9 +1520,59 @@ mod tests {
         fs::write(dir.join("b.txt"), "bad   \n").unwrap();
         git(&dir, &["add", "b.txt"]);
         let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
-        assert_eq!(record.checks[0].command, "git diff HEAD --check");
+        assert_eq!(record.checks[0].command, "git diff HEAD --check --");
         assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
 
+        // A file named `HEAD` must not make the revision ambiguous.
+        fs::write(dir.join("HEAD"), "not a revision\n").unwrap();
+        git(&dir, &["add", "HEAD"]);
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
+        assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
+        assert!(
+            !record.checks[0].stderr.contains("ambiguous"),
+            "{:?}",
+            record.checks[0]
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_a_running_check_kills_its_process_tree() {
+        let dir = unique_dir("cancel");
+        let pid_file = dir.join("child.pid");
+        let plan = AcceptanceCheckPlan::new(
+            "sh",
+            vec![
+                "-c".to_string(),
+                format!("sleep 60 & echo $! > '{}'; wait", pid_file.display()),
+            ],
+        );
+
+        // Like a pause cancelling the review: the future is dropped mid-run.
+        let cancelled = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            super::run_check_with_timeout(&dir, &plan, std::time::Duration::from_secs(60)),
+        )
+        .await;
+        assert!(cancelled.is_err());
+
+        let pid = fs::read_to_string(&pid_file).unwrap().trim().to_string();
+        let mut alive = true;
+        for _ in 0..50 {
+            let status = std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            if !status.success() {
+                alive = false;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(!alive, "grandchild {} survived the cancelled check", pid);
         let _ = fs::remove_dir_all(&dir);
     }
 }
