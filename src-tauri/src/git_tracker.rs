@@ -1,118 +1,248 @@
 use crate::types::{FileStatus, ModifiedFile, PairState};
 use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::io::Read;
+use std::path::{Component, Path};
+use std::process::{Command, Stdio};
 
-/// Parse a single `git status --porcelain` line into a [`ModifiedFile`].
-///
-/// Returns `None` for lines too short to hold a 2-char status, a separator and
-/// a path. Renames and copies are reported by git as `XY old -> new`; we record
-/// the destination path so that `git diff HEAD -- <path>` resolves the live file
-/// instead of the literal `old -> new` string.
-fn parse_porcelain_line(line: &str) -> Option<ModifiedFile> {
-    if line.len() <= 3 {
-        return None;
+/// Upper bound on entries kept from one `git status` poll, so an unignored
+/// build directory can't flood the pair state (and every `pair:state` event).
+const MAX_MODIFIED_FILES: usize = 5_000;
+/// Untracked files are shown in full up to this many bytes.
+const MAX_UNTRACKED_READ_BYTES: u64 = 512 * 1024;
+const MAX_DIFF_LINES: usize = 500;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// `git` with `--no-optional-locks`: these are read-only polls and must never
+/// take `index.lock` away from an agent's concurrent `git add` / `git commit`.
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    let status_str = &line[0..2];
-    let raw_path = &line[3..];
+    command.arg("--no-optional-locks");
+    command
+}
 
-    let status = if status_str.starts_with('?') {
-        FileStatus::Untracked
-    } else if status_str.contains('M') {
-        FileStatus::M
-    } else if status_str.contains('A') {
-        FileStatus::A
-    } else if status_str.contains('D') {
-        FileStatus::D
-    } else if status_str.contains('R') {
-        FileStatus::R
+/// Maps a porcelain v1 `XY` status pair onto the statuses the UI knows.
+/// Unmerged entries count as modified (both-deleted as deleted), copies as
+/// added, type changes as modified.
+fn classify_status(x: u8, y: u8) -> Option<FileStatus> {
+    match (x, y) {
+        (b'?', b'?') => Some(FileStatus::Untracked),
+        (b'!', b'!') => None,
+        (b'D', b'D') => Some(FileStatus::D),
+        (b'U', _) | (_, b'U') | (b'A', b'A') => Some(FileStatus::M),
+        _ if x == b'R' || y == b'R' => Some(FileStatus::R),
+        _ if x == b'C' || y == b'C' => Some(FileStatus::A),
+        _ if x == b'A' || y == b'A' => Some(FileStatus::A),
+        _ if x == b'D' || y == b'D' => Some(FileStatus::D),
+        _ if matches!(x, b'M' | b'T') || matches!(y, b'M' | b'T') => Some(FileStatus::M),
+        _ => None,
+    }
+}
+
+/// Parses `git status --porcelain=v1 -z` output. Records are NUL-terminated
+/// and paths are raw (no quoting), so spaces and non-ASCII names survive.
+/// Renames and copies are followed by an extra NUL-terminated field holding
+/// the original path; the live destination path is the one recorded.
+fn parse_porcelain_z(output: &[u8]) -> Vec<ModifiedFile> {
+    let mut files = Vec::new();
+    let mut records = output.split(|&byte| byte == 0);
+    while let Some(record) = records.next() {
+        if record.len() < 4 || record[2] != b' ' {
+            continue;
+        }
+        let (x, y) = (record[0], record[1]);
+        if matches!(x, b'R' | b'C') || matches!(y, b'R' | b'C') {
+            let _original_path = records.next();
+        }
+        let Some(status) = classify_status(x, y) else {
+            continue;
+        };
+        let path = String::from_utf8_lossy(&record[3..]).into_owned();
+        files.push(ModifiedFile {
+            display_path: path.clone(),
+            path,
+            status,
+        });
+        if files.len() >= MAX_MODIFIED_FILES {
+            break;
+        }
+    }
+    files
+}
+
+/// Lexically validates a repo-relative path: no absolute paths, drive
+/// prefixes or `..` components. Works for files that no longer exist.
+fn validate_relative_path(file_path: &str) -> Result<&Path, String> {
+    let path = Path::new(file_path);
+    if file_path.is_empty() {
+        return Err("File path is empty".to_string());
+    }
+    let only_normal = path
+        .components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+    if !only_normal {
+        return Err("File path escapes the workspace directory".to_string());
+    }
+    Ok(path)
+}
+
+fn truncate_lines(content: &str, max_lines: usize, force_marker: bool) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.len() > max_lines {
+        lines[..max_lines].join("\n") + "\n\n... (truncated)"
+    } else if force_marker {
+        format!("{}\n\n... (truncated)", content.trim_end())
     } else {
-        FileStatus::Untracked
-    };
+        content.to_string()
+    }
+}
 
-    // For rename/copy entries git emits "old -> new"; the destination is the
-    // path that exists on disk and that diffing must target.
-    let path = match raw_path.split_once(" -> ") {
-        Some((_old, new)) => new,
-        None => raw_path,
-    };
+/// `HEAD`, or the empty tree when the repository has no commits yet, so
+/// staged files in a brand-new repo still diff.
+fn diff_base(directory: &str) -> String {
+    let has_head = git_command()
+        .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if has_head {
+        return "HEAD".to_string();
+    }
+    git_command()
+        .args(["hash-object", "-t", "tree", "--stdin"])
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|sha| !sha.is_empty())
+        .unwrap_or_else(|| "HEAD".to_string())
+}
 
-    Some(ModifiedFile {
-        path: path.to_string(),
-        status,
-        display_path: path.to_string(),
-    })
+fn read_untracked_file(
+    canonical_directory: &Path,
+    full_path: &Path,
+    file_path: &str,
+) -> Result<String, String> {
+    let canonical = full_path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve file path: {}", e))?;
+    if !canonical.starts_with(canonical_directory) {
+        return Err("File path escapes the workspace directory".to_string());
+    }
+    let metadata = fs::metadata(&canonical).map_err(|e| format!("Cannot read file: {}", e))?;
+    if metadata.is_dir() {
+        return Err("Untracked directory — cannot display diff".to_string());
+    }
+    // FIFOs, sockets and devices would block or never end.
+    if !metadata.is_file() {
+        return Err("Not a regular file — cannot display diff".to_string());
+    }
+
+    let mut bytes = Vec::new();
+    fs::File::open(&canonical)
+        .and_then(|file| file.take(MAX_UNTRACKED_READ_BYTES).read_to_end(&mut bytes))
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+    if bytes.iter().take(8000).any(|&b| b == 0) {
+        return Err("Binary file — cannot display diff".to_string());
+    }
+    let content = String::from_utf8_lossy(&bytes);
+    let truncated = truncate_lines(
+        &content,
+        MAX_DIFF_LINES,
+        metadata.len() > MAX_UNTRACKED_READ_BYTES,
+    );
+    Ok(format!("--- /dev/null\n+++ b/{}\n{}", file_path, truncated))
 }
 
 pub struct GitTracker;
 
 impl GitTracker {
-    pub fn update_state(state: &mut PairState) {
-        let output = Command::new("git")
-            .arg("status")
-            .arg("--porcelain")
-            .current_dir(&state.directory)
-            .output();
+    /// Lists the working-tree changes of `directory`, or `None` when git isn't
+    /// available there. Safe to call without holding any pair-state lock.
+    pub fn collect_modified_files(directory: &str) -> Option<Vec<ModifiedFile>> {
+        let output = git_command()
+            .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+            .current_dir(directory)
+            .stdin(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(parse_porcelain_z(&output.stdout))
+    }
 
-        if let Ok(output) = output {
-            if output.status.success() {
+    pub fn update_state(state: &mut PairState) {
+        match Self::collect_modified_files(&state.directory) {
+            Some(files) => {
                 state.git_tracking.available = true;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let files = stdout.lines().filter_map(parse_porcelain_line).collect();
                 state.modified_files = files;
-            } else {
+            }
+            None => {
                 println!(
                     "[GitTracker] Git status command failed in directory: {}",
                     state.directory
                 );
                 state.git_tracking.available = false;
             }
-        } else {
-            state.git_tracking.available = false;
         }
     }
 
     pub fn get_file_diff(directory: &str, file_path: &str, status: &str) -> Result<String, String> {
-        let max_lines = 500;
-        let full_path = Path::new(directory).join(file_path);
-
-        // Canonicalize and verify the joined path stays inside the workspace
-        // directory to prevent path traversal (e.g. file_path = "../../etc/passwd").
+        let relative = validate_relative_path(file_path)?;
         let canonical_directory = Path::new(directory)
             .canonicalize()
             .map_err(|e| format!("Failed to resolve workspace directory: {}", e))?;
-        let canonical_full_path = full_path
-            .canonicalize()
-            .map_err(|e| format!("Failed to resolve file path: {}", e))?;
-        if !canonical_full_path.starts_with(&canonical_directory) {
-            return Err("File path escapes the workspace directory".to_string());
+        let full_path = canonical_directory.join(relative);
+
+        if status == "??" {
+            return read_untracked_file(&canonical_directory, &full_path, file_path);
         }
 
-        let output = if status == "??" {
-            match fs::read(&canonical_full_path) {
-                Ok(bytes) => {
-                    if bytes.iter().take(8000).any(|&b| b == 0) {
-                        return Err("Binary file — cannot display diff".to_string());
-                    }
-                    let content = String::from_utf8_lossy(&bytes);
-                    let lines: Vec<&str> = content.lines().collect();
-                    let truncated = if lines.len() > max_lines {
-                        lines[..max_lines].join("\n") + "\n\n... (truncated)"
-                    } else {
-                        content.to_string()
-                    };
-                    return Ok(format!("--- /dev/null\n+++ b/{}\n{}", file_path, truncated));
-                }
-                Err(e) => return Err(format!("Cannot read file: {}", e)),
+        // Deleted files no longer exist, so only the nearest existing ancestor
+        // can be resolved; it must not lead outside the workspace through a
+        // symlinked directory. (git itself shows a symlink's target text, never
+        // the file it points at, so the last component needs no check.)
+        if let Some(existing_ancestor) = full_path
+            .parent()
+            .and_then(|parent| parent.ancestors().find(|p| p.exists()))
+        {
+            let resolved = existing_ancestor
+                .canonicalize()
+                .map_err(|e| format!("Failed to resolve file path: {}", e))?;
+            if !resolved.starts_with(&canonical_directory) {
+                return Err("File path escapes the workspace directory".to_string());
             }
-        } else {
-            // Tracked changes (including deletions) diff against HEAD.
-            Command::new("git")
-                .args(["diff", "HEAD", "--", file_path])
-                .current_dir(directory)
-                .output()
-                .map_err(|e| format!("git diff failed: {}", e))?
-        };
+        }
+
+        // Tracked changes (including deletions) diff against HEAD, or the
+        // empty tree in a repository without commits. `--literal-pathspecs`
+        // stops names with `*`, `?` or `:(...)` from acting as patterns.
+        let base = diff_base(directory);
+        let output = git_command()
+            .args([
+                "--literal-pathspecs",
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                &base,
+                "--",
+                file_path,
+            ])
+            .current_dir(directory)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("git diff failed: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -120,12 +250,7 @@ impl GitTracker {
         }
 
         let diff = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = diff.lines().collect();
-        let truncated = if lines.len() > max_lines {
-            lines[..max_lines].join("\n") + "\n\n... (truncated)"
-        } else {
-            diff.to_string()
-        };
+        let truncated = truncate_lines(&diff, MAX_DIFF_LINES, false);
 
         if truncated.trim().is_empty() {
             Ok("No changes to display".to_string())
@@ -138,46 +263,278 @@ impl GitTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
-    #[test]
-    fn parses_modified_file() {
-        let file = parse_porcelain_line(" M src/lib.rs").expect("should parse");
-        assert_eq!(file.path, "src/lib.rs");
-        assert_eq!(file.display_path, "src/lib.rs");
-        assert!(matches!(file.status, FileStatus::M));
+    fn parse(records: &[&str]) -> Vec<ModifiedFile> {
+        let mut raw = Vec::new();
+        for record in records {
+            raw.extend_from_slice(record.as_bytes());
+            raw.push(0);
+        }
+        parse_porcelain_z(&raw)
     }
 
     #[test]
-    fn parses_untracked_file() {
-        let file = parse_porcelain_line("?? new.txt").expect("should parse");
-        assert_eq!(file.path, "new.txt");
-        assert!(matches!(file.status, FileStatus::Untracked));
+    fn parses_modified_untracked_added_and_deleted() {
+        let files = parse(&[
+            " M src/lib.rs",
+            "?? new.txt",
+            "A  added.rs",
+            " D gone.rs",
+            "D  staged-gone.rs",
+        ]);
+        let summary: Vec<(&str, &str)> = files
+            .iter()
+            .map(|f| {
+                let status = match f.status {
+                    FileStatus::M => "M",
+                    FileStatus::A => "A",
+                    FileStatus::D => "D",
+                    FileStatus::R => "R",
+                    FileStatus::Untracked => "??",
+                };
+                (f.path.as_str(), status)
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("src/lib.rs", "M"),
+                ("new.txt", "??"),
+                ("added.rs", "A"),
+                ("gone.rs", "D"),
+                ("staged-gone.rs", "D"),
+            ]
+        );
+        assert_eq!(files[0].display_path, "src/lib.rs");
     }
 
     #[test]
-    fn parses_added_and_deleted() {
-        let added = parse_porcelain_line("A  added.rs").expect("should parse");
-        assert_eq!(added.path, "added.rs");
-        assert!(matches!(added.status, FileStatus::A));
-
-        let deleted = parse_porcelain_line(" D gone.rs").expect("should parse");
-        assert_eq!(deleted.path, "gone.rs");
-        assert!(matches!(deleted.status, FileStatus::D));
+    fn rename_and_copy_use_destination_path_and_consume_source_field() {
+        // -z emits "XY new\0old\0"; the old path must not become its own entry.
+        let files = parse(&[
+            "R  new/name.rs",
+            "old/name.rs",
+            "C  copy.rs",
+            "orig.rs",
+            " M after.rs",
+        ]);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].path, "new/name.rs");
+        assert!(matches!(files[0].status, FileStatus::R));
+        assert_eq!(files[1].path, "copy.rs");
+        assert!(matches!(files[1].status, FileStatus::A));
+        assert_eq!(files[2].path, "after.rs");
     }
 
     #[test]
-    fn rename_uses_destination_path() {
-        // Renames are emitted as "old -> new"; we must record the live destination
-        // so `git diff HEAD -- <path>` resolves rather than failing on a phantom path.
-        let file = parse_porcelain_line("R  old/name.rs -> new/name.rs").expect("should parse");
-        assert_eq!(file.path, "new/name.rs");
-        assert_eq!(file.display_path, "new/name.rs");
-        assert!(matches!(file.status, FileStatus::R));
+    fn maps_conflict_and_type_change_statuses() {
+        let files = parse(&[
+            "UU both.rs",
+            "AA both-added.rs",
+            "DD both-deleted.rs",
+            "T  typechange",
+            "MD modified-then-deleted.rs",
+        ]);
+        let statuses: Vec<&FileStatus> = files.iter().map(|f| &f.status).collect();
+        assert!(matches!(statuses[0], FileStatus::M));
+        assert!(matches!(statuses[1], FileStatus::M));
+        assert!(matches!(statuses[2], FileStatus::D));
+        assert!(matches!(statuses[3], FileStatus::M));
+        assert!(matches!(statuses[4], FileStatus::D));
     }
 
     #[test]
-    fn skips_lines_too_short_to_hold_a_path() {
-        assert!(parse_porcelain_line("").is_none());
-        assert!(parse_porcelain_line(" M ").is_none());
+    fn keeps_spaces_and_unicode_paths_verbatim() {
+        let files = parse(&[
+            "?? my file.txt",
+            "?? 中文/文档.md",
+            " M dir with space/a b.rs",
+        ]);
+        assert_eq!(files[0].path, "my file.txt");
+        assert_eq!(files[1].path, "中文/文档.md");
+        assert_eq!(files[2].path, "dir with space/a b.rs");
+    }
+
+    #[test]
+    fn skips_records_too_short_to_hold_a_path() {
+        assert!(parse(&[""]).is_empty());
+        assert!(parse(&[" M "]).is_empty());
+        assert!(parse_porcelain_z(b"").is_empty());
+    }
+
+    #[test]
+    fn validate_relative_path_rejects_escapes() {
+        assert!(validate_relative_path("src/main.rs").is_ok());
+        assert!(validate_relative_path("./src/main.rs").is_ok());
+        assert!(validate_relative_path("../outside").is_err());
+        assert!(validate_relative_path("src/../../outside").is_err());
+        assert!(validate_relative_path("/etc/passwd").is_err());
+        assert!(validate_relative_path("").is_err());
+    }
+
+    struct TempRepo {
+        root: PathBuf,
+    }
+
+    impl TempRepo {
+        fn new(label: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "the-pair-git-tracker-{}-{}-{}",
+                label,
+                std::process::id(),
+                nanos
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let temp = TempRepo {
+                root: root.canonicalize().unwrap(),
+            };
+            temp.git(&["init", "-q"]);
+            temp.git(&["config", "user.name", "Test"]);
+            temp.git(&["config", "user.email", "test@example.com"]);
+            temp.git(&["config", "commit.gpgsign", "false"]);
+            temp
+        }
+
+        fn git(&self, args: &[&str]) {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&self.root)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        fn dir(&self) -> &str {
+            self.root.to_str().unwrap()
+        }
+    }
+
+    impl Drop for TempRepo {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn collect_modified_files_handles_real_repository_edge_cases() {
+        let temp = TempRepo::new("collect");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        fs::write(temp.root.join("old name.txt"), "rename me\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        temp.git(&["mv", "old name.txt", "new name.txt"]);
+        fs::create_dir_all(temp.root.join("新目录").join("nested")).unwrap();
+        fs::write(temp.root.join("新目录/nested/文件 一.md"), "hi\n").unwrap();
+        fs::write(temp.root.join("新目录/second.txt"), "second\n").unwrap();
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+
+        let files = GitTracker::collect_modified_files(temp.dir()).expect("git status runs");
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                "keep.txt",
+                "new name.txt",
+                "新目录/nested/文件 一.md",
+                "新目录/second.txt"
+            ]
+        );
+        let renamed = files.iter().find(|f| f.path == "new name.txt").unwrap();
+        assert!(matches!(renamed.status, FileStatus::R));
+
+        // Every reported path can be diffed.
+        for file in &files {
+            let status = if matches!(file.status, FileStatus::Untracked) {
+                "??"
+            } else {
+                "M"
+            };
+            let diff = GitTracker::get_file_diff(temp.dir(), &file.path, status)
+                .unwrap_or_else(|e| panic!("diff for {} failed: {}", file.path, e));
+            assert!(!diff.is_empty());
+        }
+    }
+
+    #[test]
+    fn get_file_diff_handles_deleted_files() {
+        let temp = TempRepo::new("deleted");
+        fs::write(temp.root.join("gone.txt"), "soon deleted\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+        fs::remove_file(temp.root.join("gone.txt")).unwrap();
+
+        let diff = GitTracker::get_file_diff(temp.dir(), "gone.txt", "D").expect("deleted diff");
+        assert!(diff.contains("-soon deleted"), "{}", diff);
+
+        // A deleted file inside a deleted directory, too.
+        fs::create_dir_all(temp.root.join("dir")).unwrap();
+        fs::write(temp.root.join("dir/inner.txt"), "inner\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "dir"]);
+        fs::remove_dir_all(temp.root.join("dir")).unwrap();
+        let diff = GitTracker::get_file_diff(temp.dir(), "dir/inner.txt", "D")
+            .expect("nested deleted diff");
+        assert!(diff.contains("-inner"), "{}", diff);
+    }
+
+    #[test]
+    fn get_file_diff_works_before_the_first_commit() {
+        let temp = TempRepo::new("unborn");
+        fs::write(temp.root.join("staged.txt"), "first line\n").unwrap();
+        temp.git(&["add", "staged.txt"]);
+
+        let diff = GitTracker::get_file_diff(temp.dir(), "staged.txt", "A").expect("unborn diff");
+        assert!(diff.contains("+first line"), "{}", diff);
+    }
+
+    #[test]
+    fn get_file_diff_rejects_traversal_and_symlink_escapes() {
+        let temp = TempRepo::new("escape");
+        assert!(GitTracker::get_file_diff(temp.dir(), "../outside.txt", "M").is_err());
+        assert!(GitTracker::get_file_diff(temp.dir(), "/etc/hosts", "??").is_err());
+
+        #[cfg(unix)]
+        {
+            let outside = temp.root.with_extension("outside");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("secret.txt"), "secret\n").unwrap();
+            std::os::unix::fs::symlink(&outside, temp.root.join("link")).unwrap();
+            let result = GitTracker::get_file_diff(temp.dir(), "link/secret.txt", "??");
+            assert!(result.is_err());
+            let result = GitTracker::get_file_diff(temp.dir(), "link/secret.txt", "M");
+            assert!(result.is_err());
+            let _ = fs::remove_dir_all(&outside);
+        }
+    }
+
+    #[test]
+    fn get_file_diff_caps_untracked_reads() {
+        let temp = TempRepo::new("cap");
+        let line = "x".repeat(99) + "\n";
+        let big = line.repeat(((MAX_UNTRACKED_READ_BYTES as usize) / line.len()) * 3);
+        fs::write(temp.root.join("big.txt"), &big).unwrap();
+
+        let diff = GitTracker::get_file_diff(temp.dir(), "big.txt", "??").expect("big file");
+        assert!(diff.ends_with("... (truncated)"));
+        assert!(diff.len() < MAX_UNTRACKED_READ_BYTES as usize);
+
+        fs::create_dir_all(temp.root.join("nested-repo")).unwrap();
+        let err = GitTracker::get_file_diff(temp.dir(), "nested-repo", "??").expect_err("dir");
+        assert!(err.contains("directory"), "{}", err);
     }
 }
