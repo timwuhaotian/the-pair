@@ -99,15 +99,7 @@ pub fn check_is_git_repo(directory: &str) -> bool {
 pub fn check_is_dirty(directory: &str) -> bool {
     // `--no-optional-locks` keeps this read-only poll from taking `index.lock`
     // out from under an agent's concurrent `git add` / `git commit`.
-    let output = run_git_command(
-        directory,
-        &[
-            "--no-optional-locks",
-            "status",
-            "--porcelain",
-            "--untracked-files=normal",
-        ],
-    );
+    let output = run_git_command(directory, &["--no-optional-locks", "status", "--porcelain"]);
     match output {
         Ok(s) => !s.is_empty(),
         Err(_) => false,
