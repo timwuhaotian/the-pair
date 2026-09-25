@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri as coreIsTauri } from '@tauri-apps/api/core'
 import type { CreatePairInput, RepoState } from '../types'
 import type { BranchInfo, ConfigRecommendation, InsightsSummary } from '../types'
 import { mockRepoState } from './mock-data'
@@ -18,7 +18,21 @@ export interface TauriPair {
   worktreePath?: string
 }
 
-const isTauriRuntime = () => typeof window !== 'undefined' && '__TAURI__' in window
+/**
+ * True inside the Tauri webview. `window.__TAURI__` only exists with
+ * `app.withGlobalTauri`, which this app does not enable, so detect the runtime
+ * the way `@tauri-apps/api` does (`globalThis.isTauri`) plus the IPC internals
+ * object every Tauri 2 webview injects.
+ */
+export function detectTauriRuntime(
+  target: object | undefined = typeof window !== 'undefined' ? window : undefined
+): boolean {
+  if (!target) return false
+  if ((target as { isTauri?: unknown }).isTauri === true) return true
+  return '__TAURI_INTERNALS__' in target
+}
+
+const isTauriRuntime = (): boolean => coreIsTauri() || detectTauriRuntime()
 
 const requireTauriRuntime = () => {
   if (!isTauriRuntime()) {
