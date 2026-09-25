@@ -6,8 +6,16 @@ on:
       - main
   workflow_dispatch:
 
+# One release run at a time, never cancelled mid-publish. A run queued behind
+# an in-progress release starts after it finishes, sees the tag it created in
+# detect-version-bump, and skips publishing.
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+# Read-only by default; only publish-release gets contents: write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   detect-version-bump:
@@ -20,40 +28,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Full history + all tags, so an existing release tag is visible.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect package version change
         id: version
         run: |
           node <<'NODE'
           const fs = require('fs')
-          const { execSync } = require('child_process')
+          const { execFileSync } = require('child_process')
 
           const currentVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
           const tag = `v${currentVersion}`
 
           let tagExists = false
           try {
-            execSync(`git rev-parse ${tag}`, { encoding: 'utf8', stdio: 'pipe' })
+            execFileSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { stdio: 'pipe' })
             tagExists = true
           } catch {
             tagExists = false
           }
 
           const shouldPublish = String(!tagExists)
-
-          // Validate changelog entry exists
-          if (shouldPublish === 'true') {
-            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8')
-            if (!changelog.includes(`## [${currentVersion}]`)) {
-              throw new Error(`Missing changelog entry for ${currentVersion}. Please add it to CHANGELOG.md before releasing.`)
-            }
-          }
+          console.log(`version=${currentVersion} tag=${tag} tagExists=${tagExists} should_publish=${shouldPublish}`)
 
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentVersion}\n`)
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`)
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
           NODE
+
+      # Same matcher (scripts/changelog.mjs) as the release-notes extraction in
+      # publish-release, so a release can't pass this gate and then ship notes
+      # from the wrong section.
+      - name: Validate changelog entry
+        if: steps.version.outputs.should_publish == 'true'
+        run: node scripts/validate-changelog.mjs
 
   lint-and-test:
     needs: detect-version-bump
@@ -62,6 +72,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -70,10 +82,12 @@ jobs:
           cache: 'npm'
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: './src-tauri -> target'
 
@@ -137,6 +151,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -145,12 +161,13 @@ jobs:
           cache: 'npm'
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.rust-targets }}
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: './src-tauri -> target'
 
@@ -174,6 +191,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Signing material lives in $RUNNER_TEMP (outside the checkout) and is
+      # removed by the "Remove signing material" step below, even on failure.
       - name: Prepare updater signing key
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -184,14 +203,16 @@ jobs:
             exit 1
           fi
 
-          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > updater-private.key
+          umask 077
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$RUNNER_TEMP/updater-private.key"
 
       - name: Validate updater signing key
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ ! -s updater-private.key ]; then
+          key_file="$RUNNER_TEMP/updater-private.key"
+          if [ ! -s "$key_file" ]; then
             echo "TAURI_SIGNING_PRIVATE_KEY secret is missing or empty."
             exit 1
           fi
@@ -199,7 +220,7 @@ jobs:
           probe_file="$(mktemp)"
           printf 'updater-key-validation' > "$probe_file"
 
-          sign_args=(--private-key-path updater-private.key)
+          sign_args=(--private-key-path "$key_file")
           if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
             sign_args+=(--password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
           fi
@@ -208,7 +229,7 @@ jobs:
             echo "Updater signing key validation failed. Recheck TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets."
             exit 1
           fi
-          rm -f "$probe_file" "$probe_file.sig"
+          rm -f "$probe_file" "$probe_file.sig" "$key_file"
 
       - name: Import signing certificate
         if: matrix.platform == 'macos'
@@ -217,15 +238,17 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          CERT_FILE="$RUNNER_TEMP/certificate.p12"
 
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          umask 077
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_FILE"
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import "$CERT_FILE" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f "$CERT_FILE"
 
           CERT_ID=$(security find-identity -v -p codesigning build.keychain | awk -F'"' '/Developer ID Application:/ {print $2; exit}')
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
@@ -247,6 +270,15 @@ jobs:
             npm run tauri:build:win -- --ci --config src-tauri/tauri.updater.conf.json
           else
             npm run tauri:build:linux -- --ci --config src-tauri/tauri.updater.conf.json
+          fi
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/updater-private.key" "$RUNNER_TEMP/certificate.p12"
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            security delete-keychain build.keychain 2>/dev/null || true
           fi
 
       - name: Collect release asset
@@ -276,12 +308,17 @@ jobs:
       - build-release
     if: needs.detect-version-bump.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.detect-version-bump.outputs.version }}
       TAG: ${{ needs.detect-version-bump.outputs.tag }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download release assets
         uses: actions/download-artifact@v4
@@ -290,58 +327,18 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Fails if CHANGELOG.md has no non-empty "## [VERSION]" section. The
+      # contributors lookup is best effort and never fails the job.
       - name: Prepare release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node <<'NODE'
-          const fs = require('fs')
-          const { execSync } = require('child_process')
-
-          const version = process.env.VERSION
-          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/)
-          const start = changelog.findIndex((line) => line.startsWith(`## [${version}]`))
-
-          let end = changelog.length
-          for (let index = start + 1; index < changelog.length; index += 1) {
-            if (changelog[index].startsWith('## [')) {
-              end = index
-              break
-            }
-          }
-
-          const releaseNotes = changelog.slice(start + 1, end).join('\n').trim()
-
-          const downloadTable = [
-            '## Downloads',
-            '',
-            '| Platform | File |',
-            '|---|---|',
-            `| **macOS** (Apple Silicon + Intel) | \`the-pair-${version}.zip\` |`,
-            `| **Windows** | \`the-pair-${version}-setup.exe\` |`,
-            `| **Linux** | \`the-pair-${version}.AppImage\` |`,
-            '',
-          ].join('\n')
-
-          let contributors = ''
-          try {
-            const tags = execSync('git tag --sort=-version:refname', { encoding: 'utf8' }).trim().split('\n')
-            const prevTag = tags.find((t) => t !== `v${version}`)
-            if (prevTag) {
-              const logins = [
-                ...new Set(
-                  execSync(`git log ${prevTag}...HEAD --format='%an'`, { encoding: 'utf8' })
-                    .trim()
-                    .split('\n')
-                    .filter(Boolean)
-                ),
-              ]
-              if (logins.length > 0) {
-                contributors = `\n## Contributors\n\nThanks to ${logins.map((l) => `@${l}`).join(', ')} for contributing to this release!\n`
-              }
-            }
-          } catch {}
-
-          fs.writeFileSync('release-notes.md', `${downloadTable}\n${releaseNotes}\n${contributors}\n`)
-          NODE
+          node scripts/release-notes.mjs \
+            --version "$VERSION" \
+            --changelog CHANGELOG.md \
+            --output release-notes.md \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "$GITHUB_SHA"
 
       - name: Generate updater manifest
         run: |
@@ -352,13 +349,22 @@ jobs:
             --notes-file release-notes.md \
             --output dist/latest.json
 
-      - name: Create or update GitHub release
+      # Never overwrite a published release: its assets (and latest.json
+      # signatures) may already have been downloaded by users.
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file release-notes.md
-            gh release upload "$TAG" dist/* --clobber
-          else
-            gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md
+            echo "::error::Release $TAG already exists; refusing to overwrite its assets. Bump the version to publish a new release."
+            exit 1
           fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists without a release; refusing to publish a build of $GITHUB_SHA under it. Delete the stray tag or bump the version."
+            exit 1
+          fi
+
+          gh release create "$TAG" dist/* \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --target "$GITHUB_SHA"
