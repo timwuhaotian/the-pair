@@ -376,9 +376,27 @@ document.querySelectorAll('.event-summary').forEach(el => {
 
 // ── File Export ────────────────────────────────────────
 
+/**
+ * Default file name for an exported report: a path-safe slug of the pair name
+ * plus the user's LOCAL calendar date (not the UTC date `toISOString` gives).
+ */
+export function buildReportFileName(pairName: string, now: Date): string {
+  const slug =
+    pairName
+      .toLowerCase()
+      // Path separators, reserved Windows characters and control characters.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-.]+|[-.]+$/g, '') || 'pair'
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return `pair-report-${slug}-${date}.html`
+}
+
 export async function exportAsHtml(timeline: TimelineData): Promise<void> {
   const html = generateHtmlReport(timeline)
-  const defaultName = `pair-report-${timeline.pairName.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.html`
+  const defaultName = buildReportFileName(timeline.pairName, new Date())
 
   const filePath = await save({
     defaultPath: defaultName,
@@ -424,14 +442,64 @@ function dotColor(event: TimelineEvent): string {
   }
 }
 
-/** Protocols that can execute script when a link/image href is opened. */
-export function isUnsafeHref(href: string): boolean {
-  const value = href.trim().toLowerCase()
-  return (
-    value.startsWith('javascript:') ||
-    value.startsWith('vbscript:') ||
-    value.startsWith('data:text/html')
+const NAMED_URL_ENTITIES: Record<string, string> = {
+  colon: ':',
+  tab: '\t',
+  newline: '\n',
+  sol: '/',
+  period: '.',
+  lpar: '(',
+  rpar: ')',
+  amp: '&',
+  quot: '"',
+  apos: "'",
+  lt: '<',
+  gt: '>',
+  nbsp: '\u00a0'
+}
+
+/** Decode the HTML character references a browser would decode inside an attribute value. */
+function decodeHtmlEntities(value: string): string {
+  return value.replace(
+    /&(?:#[xX]([0-9a-fA-F]+)|#(\d+)|([a-zA-Z][a-zA-Z0-9]*));?/g,
+    (entity: string, hex?: string, dec?: string, name?: string) => {
+      if (hex !== undefined || dec !== undefined) {
+        const codePoint = hex !== undefined ? parseInt(hex, 16) : parseInt(dec as string, 10)
+        return Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : '\ufffd'
+      }
+      return NAMED_URL_ENTITIES[(name as string).toLowerCase()] ?? entity
+    }
   )
+}
+
+const SAFE_URL_SCHEMES = new Set(['http', 'https', 'mailto'])
+
+/**
+ * True unless the href is a relative URL, a `#fragment`, or uses an allowlisted
+ * scheme (http, https, mailto). The value is normalized the way a browser does
+ * before resolving it — HTML entities decoded (`javascript&#58;`, `&colon;`) and
+ * ASCII whitespace / control characters removed (`java&#x09;script:`) — so an
+ * encoded `javascript:` cannot slip past the scheme check.
+ */
+export function isUnsafeHref(href: string): boolean {
+  let value = href
+  // Decode repeatedly so double-encoded references (`&amp;#58;`) cannot survive.
+  for (let i = 0; i < 3; i += 1) {
+    const decoded = decodeHtmlEntities(value)
+    if (decoded === value) break
+    value = decoded
+  }
+  // eslint-disable-next-line no-control-regex
+  value = value.replace(/[\u0000-\u0020\u007f-\u009f\u00a0\u200b\ufeff]/g, '')
+
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(value)
+  if (!scheme) {
+    // Relative path, `#anchor`, `?query` or `//host` — no scheme of its own.
+    return false
+  }
+  return !SAFE_URL_SCHEMES.has(scheme[1].toLowerCase())
 }
 
 /**
