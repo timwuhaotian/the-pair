@@ -484,7 +484,31 @@ const SAFE_URL_SCHEMES = new Set(['http', 'https', 'mailto'])
  * encoded `javascript:` cannot slip past the scheme check.
  */
 export function isUnsafeHref(href: string): boolean {
-  let value = href
+  const scheme = urlScheme(href)
+  // No scheme of its own: relative path, `#anchor`, `?query` or `//host`.
+  return scheme !== null && !SAFE_URL_SCHEMES.has(scheme)
+}
+
+/** Raster `data:` images and local `file:` images; SVG stays blocked (it can script). */
+const SAFE_IMAGE_SRC = /^(?:data:image\/(?:png|jpe?g|gif|webp)[;,]|file:)/i
+
+/**
+ * Like {@link isUnsafeHref}, but an image may also point at a raster `data:` URL
+ * or a local `file:` path — agents embed screenshots that way, and neither can
+ * run script as an `<img>` source.
+ */
+export function isUnsafeImageSrc(src: string): boolean {
+  return isUnsafeHref(src) && !SAFE_IMAGE_SRC.test(normalizeUrl(src))
+}
+
+/**
+ * Normalize a URL the way a browser does before resolving it — HTML entities
+ * decoded (`javascript&#58;`, `&colon;`) and ASCII whitespace / control
+ * characters removed (`java&#x09;script:`) — so an encoded scheme cannot slip
+ * past the checks above.
+ */
+function normalizeUrl(url: string): string {
+  let value = url
   // Decode repeatedly so double-encoded references (`&amp;#58;`) cannot survive.
   for (let i = 0; i < 3; i += 1) {
     const decoded = decodeHtmlEntities(value)
@@ -492,14 +516,12 @@ export function isUnsafeHref(href: string): boolean {
     value = decoded
   }
   // eslint-disable-next-line no-control-regex
-  value = value.replace(/[\u0000-\u0020\u007f-\u009f\u00a0\u200b\ufeff]/g, '')
+  return value.replace(/[\u0000-\u0020\u007f-\u009f\u00a0\u200b\ufeff]/g, '')
+}
 
-  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(value)
-  if (!scheme) {
-    // Relative path, `#anchor`, `?query` or `//host` — no scheme of its own.
-    return false
-  }
-  return !SAFE_URL_SCHEMES.has(scheme[1].toLowerCase())
+function urlScheme(url: string): string | null {
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(normalizeUrl(url))
+  return scheme ? scheme[1].toLowerCase() : null
 }
 
 /**
@@ -514,7 +536,8 @@ const reportMarkdown = new Marked({
   walkTokens: (token) => {
     if (token.type === 'link' || token.type === 'image') {
       const node = token as Tokens.Link | Tokens.Image
-      if (typeof node.href === 'string' && isUnsafeHref(node.href)) {
+      const unsafe = token.type === 'image' ? isUnsafeImageSrc : isUnsafeHref
+      if (typeof node.href === 'string' && unsafe(node.href)) {
         node.href = '#'
       }
     }

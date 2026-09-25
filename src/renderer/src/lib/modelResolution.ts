@@ -1,4 +1,5 @@
 import type { PairModelSelection } from '../types'
+import { modelIdsEquivalent } from './providerResolution'
 
 export type PairLike = {
   mentorModel: string
@@ -63,13 +64,24 @@ export function buildUpdateModelsPayload(
 ): PairModelSelection {
   // `pair_update_models` overwrites the reasoning efforts with whatever the
   // payload carries, so the current ones must be sent back or they are cleared.
+  // A role whose model changes gets the default effort instead: efforts are
+  // model-specific (Claude `max` is not a Codex level), and the task modals
+  // have no effort picker to fix a mismatch.
+  const current = resolveEffectiveModels(pair)
   return {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
     pendingMentorModel: stripProviderPrefix(effectiveModels.mentorModel),
     pendingExecutorModel: stripProviderPrefix(effectiveModels.executorModel),
-    mentorReasoningEffort: pair.mentorReasoningEffort,
-    executorReasoningEffort: pair.executorReasoningEffort
+    mentorReasoningEffort: modelIdsEquivalent(current.mentorModel, effectiveModels.mentorModel)
+      ? pair.mentorReasoningEffort
+      : undefined,
+    executorReasoningEffort: modelIdsEquivalent(
+      current.executorModel,
+      effectiveModels.executorModel
+    )
+      ? pair.executorReasoningEffort
+      : undefined
   }
 }
 

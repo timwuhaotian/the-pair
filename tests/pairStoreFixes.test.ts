@@ -258,11 +258,14 @@ test('a new run archives the run as it was before pair_assign_task, even when it
   assert.equal(pair.executorProvider, 'grok')
   assert.equal(pair.mentorProvider, 'claude')
 
-  // Reasoning efforts were sent with the model update, not cleared.
+  // The unchanged mentor keeps its effort; the executor switched models, so its
+  // old effort is dropped (efforts are model-specific) — backend and mirror agree.
   assert.equal(api.updateModelsCalls.length, 1)
   assert.equal(api.updateModelsCalls[0].input.mentorReasoningEffort, 'high')
-  assert.equal(api.updateModelsCalls[0].input.executorReasoningEffort, 'low')
+  assert.equal(api.updateModelsCalls[0].input.executorReasoningEffort, undefined)
   assert.equal(api.updateModelsCalls[0].input.pendingExecutorModel, 'grok/fast')
+  assert.equal(pair.mentorReasoningEffort, 'high')
+  assert.equal(pair.executorReasoningEffort, undefined)
 })
 
 test('a new run without a racing pair:state mirrors the mentor turn instead of Idle', async () => {

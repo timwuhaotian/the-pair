@@ -418,8 +418,39 @@ test('payload: buildUpdateModelsPayload carries the current reasoning efforts', 
     executorModel: 'claude/claude-sonnet-5'
   })
   assert.equal(payload.mentorReasoningEffort, 'high')
-  assert.equal(payload.executorReasoningEffort, 'low')
+  // The executor switched models, so its old effort must not follow it.
+  assert.equal(payload.executorReasoningEffort, undefined)
   assert.equal(payload.pendingExecutorModel, 'claude-sonnet-5')
+})
+
+test('payload: an unchanged model keeps its effort, including legacy bare ids', () => {
+  const pair: PairLike = {
+    mentorModel: 'gpt-5.5',
+    executorModel: 'claude-opus-5',
+    mentorReasoningEffort: 'xhigh',
+    executorReasoningEffort: 'max'
+  }
+  const payload = buildUpdateModelsPayload(pair, {
+    mentorModel: 'codex/gpt-5.5',
+    executorModel: 'claude-opus-5'
+  })
+  assert.equal(payload.mentorReasoningEffort, 'xhigh')
+  assert.equal(payload.executorReasoningEffort, 'max')
+})
+
+test('payload: switching a role from Claude max to Codex drops the effort', () => {
+  const pair: PairLike = {
+    mentorModel: 'claude-opus-5',
+    executorModel: 'claude-opus-5',
+    mentorReasoningEffort: 'max',
+    executorReasoningEffort: 'max'
+  }
+  const payload = buildUpdateModelsPayload(pair, {
+    mentorModel: 'claude-opus-5',
+    executorModel: 'codex/gpt-5.5'
+  })
+  assert.equal(payload.mentorReasoningEffort, 'max')
+  assert.equal(payload.executorReasoningEffort, undefined)
 })
 
 test('payload: buildUpdateModelsPayload preserves bare model IDs unchanged', () => {

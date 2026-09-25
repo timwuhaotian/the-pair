@@ -711,6 +711,8 @@ function resetPairForNewRun(pair: Pair, next: NewRunInput): Pair {
     }),
     pendingMentorModel: selection.pendingMentorModel,
     pendingExecutorModel: selection.pendingExecutorModel,
+    mentorReasoningEffort: selection.mentorReasoningEffort,
+    executorReasoningEffort: selection.executorReasoningEffort,
     messages: [userMessage],
     latestAcceptance: undefined,
     mentorCpu: 0,
@@ -1630,8 +1632,11 @@ export const usePairStore = create<PairStore>((set) => ({
       // Only sync to backend when explicit overrides are provided.
       // Without overrides, the backend already has pending or default models.
       // This avoids unnecessary IPC and prevents partial state on failure.
-      if (shouldSyncModelsToBackend(overrides)) {
-        await window.api.pair.updateModels(pairId, buildUpdateModelsPayload(currentPair, effective))
+      const modelsPayload = shouldSyncModelsToBackend(overrides)
+        ? buildUpdateModelsPayload(currentPair, effective)
+        : null
+      if (modelsPayload) {
+        await window.api.pair.updateModels(pairId, modelsPayload)
       }
 
       // Archive the previous run from the pair as it is NOW: pair_assign_task emits
@@ -1656,7 +1661,15 @@ export const usePairStore = create<PairStore>((set) => ({
                 spec,
                 selection: {
                   mentorModel: effective.mentorModel,
-                  executorModel: effective.executorModel
+                  executorModel: effective.executorModel,
+                  // Mirror what the backend now holds: a role whose model changed
+                  // was reset to the default effort by the update payload.
+                  mentorReasoningEffort: modelsPayload
+                    ? modelsPayload.mentorReasoningEffort
+                    : currentPair.mentorReasoningEffort,
+                  executorReasoningEffort: modelsPayload
+                    ? modelsPayload.executorReasoningEffort
+                    : currentPair.executorReasoningEffort
                 },
                 maxIterations: options?.maxIterations,
                 archivedRun,

@@ -7,6 +7,7 @@ import {
   generateHtmlReport,
   generateMarkdownReport,
   isUnsafeHref,
+  isUnsafeImageSrc,
   shortModel
 } from '../src/renderer/src/lib/reportExport.ts'
 import type { TimelineData } from '../src/renderer/src/lib/timeline.ts'
@@ -199,4 +200,25 @@ test('buildReportFileName strips path separators and reserved characters from th
   )
   assert.equal(buildReportFileName('..\\..\\etc', now), 'pair-report-etc-2026-09-25.html')
   assert.equal(buildReportFileName('///', now), 'pair-report-pair-2026-09-25.html')
+})
+
+test('isUnsafeImageSrc keeps raster data and file images but blocks scriptable sources', () => {
+  for (const src of [
+    'data:image/png;base64,iVBORw0KGgo=',
+    'DATA:image/jpeg;base64,/9j/4AAQ',
+    'data:image/webp;base64,UklGR',
+    'file:///Users/me/screenshot.png',
+    'https://example.com/a.png',
+    'img/local.gif'
+  ]) {
+    assert.equal(isUnsafeImageSrc(src), false, src)
+  }
+  for (const src of [
+    'data:image/svg+xml,<svg onload=alert(1)>',
+    'data:text/html,<script>alert(1)</script>',
+    'javascript&#58;alert(1)',
+    'java&#x09;script:alert(1)'
+  ]) {
+    assert.equal(isUnsafeImageSrc(src), true, src)
+  }
 })

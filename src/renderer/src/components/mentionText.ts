@@ -28,11 +28,10 @@ export function replaceFileMentionToken(
 }
 
 /**
- * Enter only picks a skill when the pick is unambiguous: the user moved the
- * highlight with the arrow keys, typed nothing after the `/`, or the typed
- * text is part of the skill's name. Otherwise Enter keeps its normal meaning
- * (submit) — so typing ` /tmp/out` or ` /usr` never gets swapped for a
- * fuzzy-matched skill.
+ * Enter picks the highlighted skill, like Tab, unless the typed text looks like
+ * a filesystem path (` /tmp/out`, ` /usr/local`, ` /~/x`) — then Enter keeps its
+ * normal meaning (submit) instead of swapping the path for a fuzzy-matched
+ * skill. Moving the highlight with the arrow keys always makes Enter pick.
  */
 export function shouldAcceptSkillOnEnter(
   query: string,
@@ -41,6 +40,10 @@ export function shouldAcceptSkillOnEnter(
 ): boolean {
   if (navigated) return true
   const q = query.trim().toLowerCase()
-  if (!q) return true
-  return skillName.toLowerCase().includes(q)
+  if (!q || skillName.toLowerCase().includes(q)) return true
+  return !looksLikePath(q)
+}
+
+function looksLikePath(query: string): boolean {
+  return /[/\\~]/.test(query) || query.startsWith('.')
 }

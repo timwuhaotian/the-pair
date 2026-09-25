@@ -31,6 +31,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const assignTask = usePairStore((s) => s.assignTask)
   const isLoading = usePairStore((s) => s.isLoading)
   const error = usePairStore((s) => s.error)
+  const modelsError = usePairStore((s) => s.modelsError)
   const availableModels = usePairStore((s) => s.availableModels)
   const restoringSpec = usePairStore((s) => s.restoringSpec)
   const setRestoringSpec = usePairStore((s) => s.setRestoringSpec)
@@ -296,6 +297,15 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           {pairBusy && (
             <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
               ! {t('chrome.newTaskDisabledBusy')}
+            </div>
+          )}
+
+          {modelsError && (
+            <div
+              role="alert"
+              className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
+            >
+              ✗ {modelsError}
             </div>
           )}
 

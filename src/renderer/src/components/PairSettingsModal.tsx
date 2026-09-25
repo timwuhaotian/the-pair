@@ -24,6 +24,7 @@ export function PairSettingsModal({
   const updatePairModels = usePairStore((s) => s.updatePairModels)
   const isLoading = usePairStore((s) => s.isLoading)
   const error = usePairStore((s) => s.error)
+  const modelsError = usePairStore((s) => s.modelsError)
   const [selection, setSelection] = useState<PairModelSelection>(() => ({
     mentorModel: pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
     executorModel: pair?.pendingExecutorModel ?? pair?.executorModel ?? '',
@@ -103,6 +104,15 @@ export function PairSettingsModal({
         {(isPairActive(pair.status) || queuedForNextTask) && (
           <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
             ! {queuedForNextTask ? t('modals.modelUpdateQueued') : t('modals.pairRunningNote')}
+          </div>
+        )}
+
+        {modelsError && (
+          <div
+            role="alert"
+            className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
+          >
+            ✗ {modelsError}
           </div>
         )}
 

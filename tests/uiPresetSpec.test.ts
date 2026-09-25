@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  applyPresetTemplate,
+  wrapInPresetTemplate,
   extractPresetTask,
   finalizePresetSpec,
   isPresetTaskMissing,
@@ -46,20 +46,32 @@ test('submitting an edited preset draft never wraps the template twice', () => {
 
 test('a selected preset whose template is not applied yet is wrapped exactly once on submit', () => {
   const final = finalizePresetSpec(bugFix, null, 'Fix the login bug')
-  assert.equal(final, applyPresetTemplate(bugFix, 'Fix the login bug'))
+  assert.equal(final, wrapInPresetTemplate(bugFix, 'Fix the login bug'))
   assert.equal(occurrences(final, 'TASK:'), 1)
   assert.equal(finalizePresetSpec(null, null, 'plain task'), 'plain task')
 })
 
+test('an applied preset whose text was replaced wholesale is wrapped again on submit', () => {
+  // Select-all over the pre-filled template, then type the task.
+  const final = finalizePresetSpec(bugFix, bugFix, 'Fix the login bug')
+  assert.equal(final, wrapInPresetTemplate(bugFix, 'Fix the login bug'))
+  assert.equal(occurrences(final, 'TASK:'), 1)
+})
+
+test('an applied preset with a lightly edited template is not wrapped twice', () => {
+  const spec = wrapInPresetTemplate(bugFix, 'Fix it').replace('Be systematic.', 'Be quick.')
+  assert.equal(finalizePresetSpec(bugFix, bugFix, spec), spec)
+})
+
 test('deselecting a preset strips the whole template (prefix and suffix) and keeps the task', () => {
-  const spec = applyPresetTemplate(bugFix, 'Fix the login bug')
+  const spec = wrapInPresetTemplate(bugFix, 'Fix the login bug')
   assert.equal(removePresetTemplate(bugFix, spec), 'Fix the login bug')
   // Untouched placeholder strips to an empty draft.
-  assert.equal(removePresetTemplate(bugFix, applyPresetTemplate(bugFix, '')), '')
+  assert.equal(removePresetTemplate(bugFix, wrapInPresetTemplate(bugFix, '')), '')
 })
 
 test('switching presets carries the typed task across instead of nesting templates', () => {
-  const bugSpec = applyPresetTemplate(bugFix, 'Fix the login bug')
+  const bugSpec = wrapInPresetTemplate(bugFix, 'Fix the login bug')
   const featureSpec = switchPresetTemplate(bugFix, feature, bugSpec)
   assert.equal(extractPresetTask(feature, featureSpec), 'Fix the login bug')
   assert.equal(occurrences(featureSpec, 'You are a meticulous bug investigator'), 0)
@@ -72,7 +84,7 @@ test('a task typed before picking a preset is wrapped, not discarded', () => {
 })
 
 test('an edited template is left alone on deselect', () => {
-  const spec = applyPresetTemplate(bugFix, 'Fix it').replace('Be systematic.', 'Be quick.')
+  const spec = wrapInPresetTemplate(bugFix, 'Fix it').replace('Be systematic.', 'Be quick.')
   assert.equal(extractPresetTask(bugFix, spec), null)
   assert.equal(removePresetTemplate(bugFix, spec), spec)
   assert.equal(isPresetTaskMissing(bugFix, spec), false)
