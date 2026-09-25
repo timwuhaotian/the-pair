@@ -364,18 +364,20 @@ where
     }
 }
 
-/// Waits until `deadline` for the output readers; true when all finished.
-async fn join_readers(readers: &mut [JoinHandle<()>], deadline: tokio::time::Instant) -> bool {
-    let mut all_done = true;
-    for handle in readers.iter_mut() {
-        if tokio::time::timeout_at(deadline, &mut *handle)
+/// Waits until `deadline` for the output readers. Finished readers are removed
+/// (a completed `JoinHandle` must not be polled again); true when none remain.
+async fn join_readers(readers: &mut Vec<JoinHandle<()>>, deadline: tokio::time::Instant) -> bool {
+    let mut pending = Vec::new();
+    for mut handle in readers.drain(..) {
+        if tokio::time::timeout_at(deadline, &mut handle)
             .await
             .is_err()
         {
-            all_done = false;
+            pending.push(handle);
         }
     }
-    all_done
+    *readers = pending;
+    readers.is_empty()
 }
 
 fn take_captured(sink: &Arc<StdMutex<Vec<u8>>>) -> String {
@@ -1418,6 +1420,49 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         assert!(!alive, "grandchild {} survived the timeout", pid);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_check_does_not_stall_on_background_processes_holding_output() {
+        let dir = unique_dir("straggler");
+        let pid_file = dir.join("bg.pid");
+        // The shell exits immediately, but its background child keeps stdout open.
+        let plan = AcceptanceCheckPlan::new(
+            "sh",
+            vec![
+                "-c".to_string(),
+                // Only stdout stays open, so the stderr reader finishes first and
+                // must not be polled again after the grace period.
+                format!(
+                    "sleep 60 2>/dev/null & echo $! > '{}'; echo done",
+                    pid_file.display()
+                ),
+            ],
+        );
+
+        let started = std::time::Instant::now();
+        let run = super::run_check(&dir, &plan).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        assert_eq!(run.status, AcceptanceCheckStatus::Passed);
+        assert!(run.stdout.contains("done"), "{}", run.stdout);
+
+        let pid = fs::read_to_string(&pid_file).unwrap().trim().to_string();
+        let mut alive = true;
+        for _ in 0..50 {
+            let status = std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            if !status.success() {
+                alive = false;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(!alive, "background process {} survived", pid);
         let _ = fs::remove_dir_all(&dir);
     }
 
