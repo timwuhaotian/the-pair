@@ -15,8 +15,8 @@ The GitHub Actions workflow (`build-signed-mac.yml`) automatically:
 ## 1. Repo Hygiene
 
 - [ ] Working tree is clean except for the intended release commit
-- [ ] Version in `package.json` is bumped
-- [ ] `CHANGELOG.md` includes the release notes
+- [ ] Version bumped with `npm run bump <version>` (updates `package.json`, the root entries of `package-lock.json`, the `[package]` version in `src-tauri/Cargo.toml` and the app entry in `src-tauri/Cargo.lock`; `tauri.conf.json` reads `package.json`)
+- [ ] `CHANGELOG.md` has a non-empty `## [X.Y.Z] - YYYY-MM-DD` section, heading at the start of a line (`npm run validate:changelog` passes)
 - [ ] `README.md` still matches the current install and test flow
 - [ ] `LICENSE`, `README.md`, `CONTRIBUTING.md`, and `SECURITY.md` are present
 
@@ -68,9 +68,15 @@ The release workflow is fully automated:
 
 **Workflow flow:**
 
-1. `detect-version-bump` checks if version in package.json changed
-2. If tag doesn't exist → auto-publishes (lints, builds, tags, releases)
-3. If tag already exists → skips (prevents duplicate releases)
+1. `detect-version-bump` reads the version in package.json and checks whether tag `vX.Y.Z` exists
+2. If the tag doesn't exist → validates the changelog section (`scripts/validate-changelog.mjs`), then lints, tests, builds, and publishes
+3. If the tag already exists → skips (prevents duplicate releases)
+4. Release runs share a `concurrency` group and are never cancelled mid-run; a run queued behind a release starts after it, sees the new tag, and skips
+5. `publish-release` builds the notes from the same changelog section (`scripts/release-notes.mjs`), creates the release and tag on the pushed commit (`gh release create --target $GITHUB_SHA`), and **fails** if the release or tag already exists instead of overwriting published assets
+
+Only `publish-release` has `contents: write`; every other job is read-only, and checkouts don't persist the token. The updater key and the macOS certificate are written to `$RUNNER_TEMP` and removed at the end of the build job, even when it fails. Third-party actions (`dtolnay/rust-toolchain`, `Swatinem/rust-cache`) are pinned to commit SHAs — update the SHA and its `# version` comment together when upgrading.
+
+If a release run fails after the release was created (e.g. a partial upload), delete that release and its tag on GitHub before re-running, or bump to a new patch version.
 
 **Manual trigger (fallback):**
 

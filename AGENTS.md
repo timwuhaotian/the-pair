@@ -34,24 +34,24 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Rust Backend Modules (`src-tauri/src/`)
 
-| Module               | Responsibility                                                                                                                                                                                                                    |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                                                                   |
-| `message_broker`     | State machine for agent turn coordination and event routing                                                                                                                                                                       |
-| `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                                       |
-| `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                                        |
-| `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                                      |
+| Module               | Responsibility                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                                                                              |
+| `message_broker`     | State machine for agent turn coordination and event routing                                                                                                                                                                                  |
+| `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                                                  |
+| `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                                                   |
+| `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                                                 |
 | `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`, `grok.rs`, `muse.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
-| `model_catalog`      | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                                       |
-| `session_snapshot`   | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                              |
-| `skill_discovery`    | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                                    |
-| `resource_monitor`   | Per-agent CPU/memory polling (1s interval)                                                                                                                                                                                        |
-| `git_tracker`        | Detects modified/added/deleted files relative to a baseline commit                                                                                                                                                                |
-| `file_cache`         | Lists files and parses `@mention` references in task specs                                                                                                                                                                        |
-| `path_env`           | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                                                                  |
-| `config_paths`       | Resolves platform-specific config file locations                                                                                                                                                                                  |
-| `intelligence_store` | Cross-run intelligence: local SQLite store (`intelligence.db`) of run outcomes + human interventions, heuristic task tagging, insights/recommendation queries, one-time snapshot backfill                                         |
-| `stubs`              | Config/model-cache/provider-login commands                                                                                                                                                                                        |
+| `model_catalog`      | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                                                  |
+| `session_snapshot`   | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                                         |
+| `skill_discovery`    | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                                               |
+| `resource_monitor`   | Per-agent CPU/memory polling (1s interval)                                                                                                                                                                                                   |
+| `git_tracker`        | Detects modified/added/deleted files relative to a baseline commit                                                                                                                                                                           |
+| `file_cache`         | Lists files and parses `@mention` references in task specs                                                                                                                                                                                   |
+| `path_env`           | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                                                                             |
+| `config_paths`       | Resolves platform-specific config file locations                                                                                                                                                                                             |
+| `intelligence_store` | Cross-run intelligence: local SQLite store (`intelligence.db`) of run outcomes + human interventions, heuristic task tagging, insights/recommendation queries, one-time snapshot backfill                                                    |
+| `stubs`              | Config/model-cache/provider-login commands                                                                                                                                                                                                   |
 
 ## Frontend Components (`src/renderer/src/components/`)
 
@@ -161,8 +161,8 @@ When the user says **"update agents"**, audit every supported provider's CLI int
 The release workflow (`build-signed-mac.yml`) is fully automated:
 
 1. **Prepare release:**
-   - Update version in `package.json` using `npm run bump <version>`
-   - Update `CHANGELOG.md` with release notes
+   - Bump the version with `npm run bump <version>` — it updates `package.json`, the root entries of `package-lock.json`, the `[package]` version in `src-tauri/Cargo.toml` and the app entry in `src-tauri/Cargo.lock` (`tauri.conf.json` reads its version from `package.json`)
+   - Update `CHANGELOG.md` with release notes under a `## [X.Y.Z] - YYYY-MM-DD` heading at the start of a line (`npm run validate:changelog` checks it; the release workflow uses the same matcher, `scripts/changelog.mjs`, for its gate and for the release notes)
    - Run quality gates locally: `npm test && npm run typecheck && npm run lint`
 
 2. **Publish:**
@@ -171,11 +171,11 @@ The release workflow (`build-signed-mac.yml`) is fully automated:
    - **Do NOT run `git tag` or `git push --tags`**
 
 3. **Workflow automation:**
-   - GitHub Actions detects version bump
-   - Auto-creates tag `vX.Y.Z`
+   - GitHub Actions detects version bump (publishes only when tag `vX.Y.Z` doesn't exist yet)
+   - Release runs are serialized (`concurrency`, never cancelled); a run queued behind a release sees the new tag and skips
    - Builds macOS, Windows, Linux binaries
-   - Publishes GitHub release with changelog
-   - Uploads signed artifacts
+   - Creates the GitHub release and tag `vX.Y.Z` on the pushed commit (`--target $GITHUB_SHA`) with the changelog section as notes
+   - Uploads signed artifacts and `latest.json`; if the release already exists it fails instead of overwriting assets
 
 4. **Verify:**
    - Monitor at: https://github.com/timwuhaotian/the-pair/actions
