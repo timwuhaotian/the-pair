@@ -58,8 +58,7 @@ fn normalize_provider_label(slug: &str) -> String {
 }
 
 fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option<Vec<String>> {
-    crate::providers::provider_for_kind(provider)?
-        .reasoning_effort_levels(model_id)
+    crate::providers::provider_for_kind(provider)?.reasoning_effort_levels(model_id)
 }
 
 /// Split a trailing reasoning-effort suffix (e.g. "Gemini 3.5 Flash (Low)") from a
@@ -140,17 +139,17 @@ fn normalize_model_base(base_name: &str) -> String {
 
 /// Build the canonical merge key: `brand::normalized-model`. Two routes collapse onto
 /// the same model row iff this key matches exactly.
-fn compute_canonical_key(
-    kind: ProviderKind,
-    source_provider_label: &str,
-    id_base: &str,
-) -> String {
+fn compute_canonical_key(kind: ProviderKind, source_provider_label: &str, id_base: &str) -> String {
     format!(
         "{}::{}",
         brand_for_key(kind, source_provider_label),
         normalize_model_base(id_base)
     )
 }
+
+/// Plan label the registry gives models served through OpenCode Zen.
+const OPENCODE_ZEN_PLAN: &str = "zen-backed";
+const OPENCODE_ZEN_ACCESS_LABEL: &str = "OpenCode Zen";
 
 pub struct ModelCatalog;
 
@@ -209,7 +208,25 @@ impl ModelCatalog {
 
                 let billing_kind = provider.billing_kind();
                 let billing_label = provider.billing_label();
-                let access_label = provider.access_label(&source_provider_label);
+                // The route's billing path. It is per model: OpenCode serves the
+                // same model via Zen and via the user's own key, and the picker
+                // keys routes on `provider::planLabel`, so the profile-wide
+                // "multi-provider" would merge them into one route.
+                let plan_label = if model.subscription_label.trim().is_empty() {
+                    profile.subscription_label.clone()
+                } else {
+                    model.subscription_label.clone()
+                };
+                // The picker shows `providerLabel · accessLabel` per route, so the
+                // Zen route needs its own label: its models carry the upstream
+                // family ("Anthropic"), which would otherwise read "Anthropic API
+                // key" exactly like the bring-your-own-key route.
+                let access_label =
+                    if profile.kind == ProviderKind::Opencode && plan_label == OPENCODE_ZEN_PLAN {
+                        OPENCODE_ZEN_ACCESS_LABEL.to_string()
+                    } else {
+                        provider.access_label(&source_provider_label)
+                    };
 
                 // Identity for cross-route merging. Antigravity bakes the reasoning effort
                 // into both the display name ("Gemini 3.8 Flash (Low)") and the slug
@@ -241,15 +258,7 @@ impl ModelCatalog {
                     billing_kind: billing_kind.to_string(),
                     billing_label: billing_label.to_string(),
                     access_label,
-                    // The route's billing path. It is per model: OpenCode serves the
-                    // same model via Zen and via the user's own key, and the picker
-                    // keys routes on `provider::planLabel`, so the profile-wide
-                    // "multi-provider" would merge them into one route.
-                    plan_label: Some(if model.subscription_label.trim().is_empty() {
-                        profile.subscription_label.clone()
-                    } else {
-                        model.subscription_label.clone()
-                    }),
+                    plan_label: Some(plan_label),
                     availability_status: status,
                     availability_reason: reason,
                     supports_pair_execution: model.supports_pair_execution,
@@ -865,6 +874,11 @@ mod tests {
         assert_eq!(zen.canonical_key, byok.canonical_key);
         assert_eq!(zen.plan_label.as_deref(), Some("zen-backed"));
         assert_eq!(byok.plan_label.as_deref(), Some("internal-provider"));
+        // The route picker shows `providerLabel · accessLabel`; both routes
+        // are "OpenCode", so the access labels must tell them apart.
+        assert_eq!(zen.provider_label, byok.provider_label);
+        assert_eq!(zen.access_label, "OpenCode Zen");
+        assert_eq!(byok.access_label, "Anthropic API key");
     }
 
     #[test]
