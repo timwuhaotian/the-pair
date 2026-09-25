@@ -1,5 +1,6 @@
 import { type Pair } from '../store/usePairStore'
 import { isPairActive } from './pairStatus'
+import { derivePairNameFromDirectory } from './workspace'
 
 type DashboardPairGroupKey = 'attention' | 'active' | 'paused' | 'ready' | 'finished'
 
@@ -60,9 +61,8 @@ export function buildPairGroups(pairs: Pair[]): DashboardPairGroup[] {
 }
 
 function shortenWorkspace(directory: string): string {
-  const cleaned = directory.replace(/\/+$/, '')
-  const segments = cleaned.split('/')
-  return segments[segments.length - 1] || cleaned || directory
+  // Handles both `/` and Windows `\` separators.
+  return derivePairNameFromDirectory(directory) || directory
 }
 
 export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {

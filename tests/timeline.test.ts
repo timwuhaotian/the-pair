@@ -9,6 +9,7 @@ import {
   formatDateTime,
   eventTitle,
   isTechnicalHandoff,
+  timelinePairFromRun,
   type TimelineMessage
 } from '../src/renderer/src/lib/timeline.ts'
 
@@ -42,6 +43,49 @@ test('formatTokenCount formats thousands with k suffix', () => {
 
 test('formatTokenCount formats millions with M suffix', () => {
   assert.equal(formatTokenCount(2500000), '2.5M')
+})
+
+test('formatTokenCount moves to the next unit when rounding reaches 1000', () => {
+  assert.equal(formatTokenCount(999), '999')
+  assert.equal(formatTokenCount(1000), '1.0k')
+  assert.equal(formatTokenCount(999_940), '999.9k')
+  assert.equal(formatTokenCount(999_960), '1.0M')
+  assert.equal(formatTokenCount(999_999_999), '1.0B')
+})
+
+test('timelinePairFromRun uses the archived run times and no live file list', () => {
+  const source = timelinePairFromRun('Pair A', {
+    spec: 'old task',
+    status: 'Finished',
+    startedAt: 1_000,
+    finishedAt: 61_000,
+    mentorModel: 'm',
+    executorModel: 'e',
+    messages: [
+      {
+        id: 'x',
+        timestamp: 2_000,
+        from: 'mentor',
+        to: 'executor',
+        type: 'plan',
+        content: 'plan',
+        iteration: 1
+      }
+    ]
+  })
+  assert.equal(source.currentRunStartedAt, 1_000)
+  assert.equal(source.currentRunFinishedAt, 61_000)
+  assert.deepEqual(source.modifiedFiles, [])
+  const timeline = buildTimeline(source.messages, source)
+  assert.equal(timeline.durationMs, 60_000)
+  assert.equal(timeline.pairName, 'Pair A')
+  assert.equal(timeline.spec, 'old task')
+
+  // A null finishedAt (older snapshots) is treated as "not finished".
+  assert.equal(
+    timelinePairFromRun('P', { ...source, startedAt: 1, finishedAt: null }).currentRunFinishedAt,
+    undefined
+  )
 })
 
 // ── formatTimestamp ────────────────────────────────────

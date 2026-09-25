@@ -70,7 +70,7 @@ interface TimelineMessage {
   tokenUsage?: TurnTokenUsage
 }
 
-interface TimelinePair {
+export interface TimelinePair {
   name: string
   spec: string
   mentorModel: string
@@ -81,6 +81,38 @@ interface TimelinePair {
   modifiedFiles: Array<{ path: string; status: string; displayPath: string }>
   currentRunStartedAt: number
   currentRunFinishedAt?: number
+}
+
+/** The fields of an archived run (`PairRunSummary`) a past-run timeline needs. */
+export interface TimelineRunSource {
+  spec: string
+  status: string
+  startedAt: number
+  finishedAt?: number | null
+  mentorModel: string
+  executorModel: string
+  messages: TimelineMessage[]
+  latestAcceptance?: AcceptanceRecord
+}
+
+/**
+ * Timeline input for an archived run. Uses the run's own start/finish times, and
+ * no modified-file list: archived runs don't record one, and the pair's current
+ * list belongs to the live run.
+ */
+export function timelinePairFromRun(pairName: string, run: TimelineRunSource): TimelinePair {
+  return {
+    name: pairName,
+    spec: run.spec,
+    mentorModel: run.mentorModel,
+    executorModel: run.executorModel,
+    status: run.status,
+    messages: run.messages,
+    latestAcceptance: run.latestAcceptance,
+    modifiedFiles: [],
+    currentRunStartedAt: run.startedAt,
+    currentRunFinishedAt: run.finishedAt ?? undefined
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────
@@ -295,10 +327,22 @@ export function formatDuration(ms: number): string {
   return `${hours}h ${minutes % 60}m`
 }
 
+const TOKEN_UNITS: ReadonlyArray<readonly [number, string]> = [
+  [1_000, 'k'],
+  [1_000_000, 'M'],
+  [1_000_000_000, 'B']
+]
+
 export function formatTokenCount(count: number): string {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`
-  return count.toString()
+  if (count < 1000) return count.toString()
+  // Move to the next unit when the ROUNDED value reaches 1000, so 999,960 reads
+  // "1.0M" rather than "1000.0k".
+  let text = ''
+  for (const [divisor, suffix] of TOKEN_UNITS) {
+    text = `${(count / divisor).toFixed(1)}${suffix}`
+    if (Number((count / divisor).toFixed(1)) < 1000) break
+  }
+  return text
 }
 
 export function formatTimestamp(ts: number): string {

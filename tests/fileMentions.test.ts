@@ -58,3 +58,25 @@ test('selectReferencedFiles matches a mention at end of input', () => {
   const ctx = new Map([['src/main.rs', 'M']])
   assert.deepEqual(selectReferencedFiles('edit @src/main.rs', ctx), [['src/main.rs', 'M']])
 })
+
+test('selectReferencedFiles matches a mention followed by sentence punctuation', () => {
+  const ctx = new Map([
+    ['src/a.ts', 'A'],
+    ['README', 'R']
+  ])
+  assert.deepEqual(selectReferencedFiles('Refactor @src/a.ts.', ctx), [['src/a.ts', 'A']])
+  assert.deepEqual(selectReferencedFiles('Read @README.', ctx), [['README', 'R']])
+  assert.deepEqual(selectReferencedFiles('Read @README. Then fix it', ctx), [['README', 'R']])
+  assert.deepEqual(selectReferencedFiles('See @src/a.ts, @README!', ctx), [
+    ['src/a.ts', 'A'],
+    ['README', 'R']
+  ])
+  assert.deepEqual(selectReferencedFiles('Is it @README?', ctx), [['README', 'R']])
+})
+
+test('selectReferencedFiles still rejects a dot that continues a longer path', () => {
+  const ctx = new Map([['lib/api', 'SHORT']])
+  assert.deepEqual(selectReferencedFiles('See @lib/api.ts', ctx), [])
+  assert.deepEqual(selectReferencedFiles('See @lib/api./x', ctx), [])
+  assert.deepEqual(selectReferencedFiles('See @lib/api.', ctx), [['lib/api', 'SHORT']])
+})

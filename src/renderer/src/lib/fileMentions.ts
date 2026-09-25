@@ -10,11 +10,13 @@ export type FileContexts = Map<string, string>
 
 /** Builds a regex matching `@path` only when it is not immediately followed by a
  * path-continuation char, so a shorter path (`@lib/api`) is not falsely matched
- * inside a longer mention (`@lib/api-v2`). Mirrors the boundary handling in
+ * inside a longer mention (`@lib/api-v2`, `@lib/api.ts`). A single `.` that is
+ * not followed by another path char is sentence punctuation (`Read @README.`),
+ * so it still ends the mention. Mirrors the boundary handling in
  * `skillMentions.tokenMatcher`. */
 function mentionMatcher(path: string): RegExp {
   const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`@${escaped}(?![A-Za-z0-9_./-])`)
+  return new RegExp(`@${escaped}(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9_/-])`)
 }
 
 /**

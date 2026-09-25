@@ -6,6 +6,62 @@ import type {
   AcceptanceVerdict
 } from '../types'
 
+/** Upper bound on characters examined while matching braces; keeps pathological input bounded. */
+const MAX_BRACE_SCAN_STEPS = 2_000_000
+
+/**
+ * For every `{` in `text`, the span up to the `}` that balances it (ignoring braces
+ * inside JSON strings), in ascending start order. Equivalent to scanning forward from
+ * each `{` independently, but one scan also resolves every `{` it passes outside a
+ * string: from that brace the same state machine runs offset by a constant depth, so
+ * it closes exactly where the nested brace is popped (or never, if it is still open
+ * at the end). Only braces that sat inside a string need a scan of their own, so
+ * input full of unbalanced braces (e.g. code) is linear instead of quadratic.
+ */
+export function findBalancedObjectSpans(text: string): Array<[number, number]> {
+  // start index -> closing index, or -1 when the brace never closes
+  const closeAt = new Map<number, number>()
+  let budget = MAX_BRACE_SCAN_STEPS
+
+  for (let root = 0; root < text.length && budget > 0; root += 1) {
+    if (text[root] !== '{' || closeAt.has(root)) continue
+
+    const open: number[] = []
+    let inString = false
+    let escaped = false
+    for (let j = root; j < text.length; j += 1) {
+      budget -= 1
+      const char = text[j]
+
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (char === '"') {
+        inString = true
+      } else if (char === '{') {
+        open.push(j)
+      } else if (char === '}') {
+        const start = open.pop()
+        if (start !== undefined) closeAt.set(start, j)
+        if (open.length === 0) break
+      }
+    }
+    for (const start of open) {
+      closeAt.set(start, -1)
+    }
+  }
+
+  return [...closeAt.entries()].filter(([, end]) => end >= 0).sort(([a], [b]) => a - b)
+}
+
 function extractJsonCandidates(raw: string): string[] {
   const trimmed = raw.trim()
   const candidates = new Set<string>()
@@ -19,44 +75,8 @@ function extractJsonCandidates(raw: string): string[] {
     candidates.add(fenceMatch[1].trim())
   }
 
-  for (let i = 0; i < trimmed.length; i += 1) {
-    if (trimmed[i] !== '{') continue
-    let depth = 0
-    let inString = false
-    let escaped = false
-
-    for (let j = i; j < trimmed.length; j += 1) {
-      const char = trimmed[j]
-
-      if (inString) {
-        if (escaped) {
-          escaped = false
-          continue
-        }
-        if (char === '\\') {
-          escaped = true
-          continue
-        }
-        if (char === '"') {
-          inString = false
-        }
-        continue
-      }
-
-      if (char === '"') {
-        inString = true
-        continue
-      }
-      if (char === '{') {
-        depth += 1
-      } else if (char === '}') {
-        depth -= 1
-        if (depth === 0) {
-          candidates.add(trimmed.slice(i, j + 1).trim())
-          break
-        }
-      }
-    }
+  for (const [start, end] of findBalancedObjectSpans(trimmed)) {
+    candidates.add(trimmed.slice(start, end + 1).trim())
   }
 
   return [...candidates]

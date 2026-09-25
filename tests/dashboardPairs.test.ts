@@ -90,6 +90,18 @@ test('buildWorkspaceGroups buckets pairs by directory and subgroups by status', 
   assert.equal(betaWithSlash.shortName, 'beta')
 })
 
+test('buildWorkspaceGroups shortens Windows paths to the folder name', () => {
+  const groups = buildWorkspaceGroups([
+    pair('Idle', { name: 'win', directory: 'C:\\Users\\tim\\code\\repo' }),
+    pair('Idle', { name: 'win-slash', directory: 'D:\\work\\app\\' }),
+    pair('Idle', { name: 'root', directory: '/' })
+  ])
+  assert.deepEqual(
+    groups.map((group) => group.shortName),
+    ['repo', 'app', '/']
+  )
+})
+
 test('buildPairInsights summarizes useful dashboard context', () => {
   const insights = buildPairInsights([
     pair('Error', {
