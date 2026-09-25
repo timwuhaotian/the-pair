@@ -327,7 +327,10 @@ fn resolve_start_point(repo_path: &str, branch: &str) -> Result<String, String> 
     if ref_exists(repo_path, &remote) {
         return Ok(remote);
     }
-    Err(format!("Branch '{}' was not found in {}", branch, repo_path))
+    Err(format!(
+        "Branch '{}' was not found in {}",
+        branch, repo_path
+    ))
 }
 
 fn pair_branch_name(worktree_dir_name: &str) -> String {
@@ -439,7 +442,8 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
 
     let layout = match worktree_layout(path) {
         Some(layout)
-            if same_path(&layout.toplevel, path) && !same_path(&layout.git_dir, &layout.common_dir) =>
+            if same_path(&layout.toplevel, path)
+                && !same_path(&layout.git_dir, &layout.common_dir) =>
         {
             layout
         }
@@ -544,9 +548,12 @@ struct PreservedWorktree {
 }
 
 fn preserve_worktree(worktree: &Path, dir_name: &str) -> Result<PreservedWorktree, String> {
-    let head = run_git_command(worktree, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
-        .ok()
-        .filter(|sha| !sha.is_empty());
+    let head = run_git_command(
+        worktree,
+        &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+    )
+    .ok()
+    .filter(|sha| !sha.is_empty());
     let branch_ref = run_git_command(worktree, &["symbolic-ref", "--quiet", "HEAD"])
         .ok()
         .filter(|name| !name.is_empty());
@@ -588,9 +595,12 @@ fn worktree_status(worktree: &Path) -> Result<String, String> {
 }
 
 fn stash_tip(directory: &Path) -> Option<String> {
-    run_git_command(directory, &["rev-parse", "--verify", "--quiet", "refs/stash"])
-        .ok()
-        .filter(|sha| !sha.is_empty())
+    run_git_command(
+        directory,
+        &["rev-parse", "--verify", "--quiet", "refs/stash"],
+    )
+    .ok()
+    .filter(|sha| !sha.is_empty())
 }
 
 fn has_git_identity(directory: &Path) -> bool {
@@ -606,7 +616,13 @@ fn stash_worktree_changes(worktree: &Path, dir_name: &str) -> Result<(), String>
     if !has_git_identity(worktree) {
         args.extend(FALLBACK_IDENTITY);
     }
-    args.extend(["stash", "push", "--include-untracked", "-m", message.as_str()]);
+    args.extend([
+        "stash",
+        "push",
+        "--include-untracked",
+        "-m",
+        message.as_str(),
+    ]);
 
     run_git_command(worktree, &args).map_err(|e| {
         format!(
@@ -647,7 +663,11 @@ fn stash_worktree_changes(worktree: &Path, dir_name: &str) -> Result<(), String>
 /// True when `sha` is contained in some branch, remote-tracking branch or tag
 /// other than `exclude_ref`. Errors count as "not reachable" so callers err on
 /// the side of preserving.
-fn commit_reachable_from_other_refs(directory: &Path, sha: &str, exclude_ref: Option<&str>) -> bool {
+fn commit_reachable_from_other_refs(
+    directory: &Path,
+    sha: &str,
+    exclude_ref: Option<&str>,
+) -> bool {
     match run_git_command(
         directory,
         &[
@@ -681,7 +701,9 @@ fn rescue_commit_if_unreachable(directory: &Path, sha: &str) -> Result<Option<St
     let branch = format!("{}{}", RESCUE_BRANCH_PREFIX, short);
     let full_ref = format!("refs/heads/{}", branch);
 
-    if let Ok(existing) = run_git_command(directory, &["rev-parse", "--verify", "--quiet", &full_ref]) {
+    if let Ok(existing) =
+        run_git_command(directory, &["rev-parse", "--verify", "--quiet", &full_ref])
+    {
         if existing == sha {
             return Ok(Some(branch));
         }
@@ -826,7 +848,12 @@ fn prune_missing_worktrees(common_dir: &Path) -> Vec<WorktreeEntry> {
 /// but only when every commit on it is also on another branch/tag (no new
 /// commits, or already merged). Otherwise the branch stays as the record of the
 /// executor's work.
-fn delete_pair_branch_if_redundant(common_dir: &Path, branch_ref: &str, head: &str, dir_name: &str) {
+fn delete_pair_branch_if_redundant(
+    common_dir: &Path,
+    branch_ref: &str,
+    head: &str,
+    dir_name: &str,
+) {
     let expected = format!("refs/heads/{}", pair_branch_name(dir_name));
     if branch_ref != expected {
         return;
@@ -862,7 +889,10 @@ pub fn ensure_local_tracking_branch(
     let remotes = list_remotes(repo_path);
     let (local_name, remote_ref) = match split_remote_ref(remote_branch, &remotes) {
         Some((_remote, branch)) => (branch.to_string(), remote_branch.to_string()),
-        None => (remote_branch.to_string(), format!("origin/{}", remote_branch)),
+        None => (
+            remote_branch.to_string(),
+            format!("origin/{}", remote_branch),
+        ),
     };
 
     validate_branch_name(repo_path, &local_name)?;
@@ -895,8 +925,7 @@ pub fn ensure_local_tracking_branch(
 fn write_text_atomic(path: &Path, content: &str) -> Result<(), String> {
     let tmp_path = path.with_extension("tmp");
     std::fs::write(&tmp_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| format!("Failed to move file into place: {}", e))
+    std::fs::rename(&tmp_path, path).map_err(|e| format!("Failed to move file into place: {}", e))
 }
 
 /// Path of `info/exclude` as git resolves it — correct when `repo_path` is a
@@ -904,7 +933,12 @@ fn write_text_atomic(path: &Path, content: &str) -> Result<(), String> {
 fn resolve_exclude_path(repo_path: &str) -> Result<PathBuf, String> {
     let output = run_git_command(
         repo_path,
-        &["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "info/exclude",
+        ],
     )
     .map_err(|e| format!("Failed to locate info/exclude: {}", e))?;
     let path = PathBuf::from(output.lines().next().unwrap_or("").trim());
@@ -1054,8 +1088,19 @@ mod tests {
     fn create_worktree_starts_from_a_remote_tracking_branch() {
         let temp = TempRepo::new("create-remote");
         let sha = temp.git(&temp.repo, &["rev-parse", "HEAD"]);
-        temp.git(&temp.repo, &["remote", "add", "origin", "https://example.invalid/repo.git"]);
-        temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/feature", &sha]);
+        temp.git(
+            &temp.repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://example.invalid/repo.git",
+            ],
+        );
+        temp.git(
+            &temp.repo,
+            &["update-ref", "refs/remotes/origin/feature", &sha],
+        );
 
         let path = create_worktree(temp.repo_str(), "origin/feature", ".worktrees/pair-remote")
             .expect("worktree created from remote-tracking branch");
@@ -1095,7 +1140,11 @@ mod tests {
 
         fs::write(path.join("README.md"), "hello\nmodified\n").unwrap();
         fs::create_dir_all(path.join("new dir")).unwrap();
-        fs::write(path.join("new dir").join("untracked file.txt"), "untracked\n").unwrap();
+        fs::write(
+            path.join("new dir").join("untracked file.txt"),
+            "untracked\n",
+        )
+        .unwrap();
 
         delete_worktree(path.to_str().unwrap()).expect("delete succeeds");
         assert!(!path.exists());
@@ -1111,13 +1160,17 @@ mod tests {
             "{}",
             stashes
         );
-        let tracked = temp.git(&temp.repo, &["diff", "--name-only", "stash@{0}^1", "stash@{0}"]);
-        assert!(tracked.contains("README.md"), "{}", tracked);
-        let untracked = temp.git(
+        let tracked = temp.git(
             &temp.repo,
-            &["ls-tree", "-r", "--name-only", "stash@{0}^3"],
+            &["diff", "--name-only", "stash@{0}^1", "stash@{0}"],
         );
-        assert!(untracked.contains("new dir/untracked file.txt"), "{}", untracked);
+        assert!(tracked.contains("README.md"), "{}", tracked);
+        let untracked = temp.git(&temp.repo, &["ls-tree", "-r", "--name-only", "stash@{0}^3"]);
+        assert!(
+            untracked.contains("new dir/untracked file.txt"),
+            "{}",
+            untracked
+        );
 
         // Worktree metadata is gone from the main repository.
         let worktrees = temp.git(&temp.repo, &["worktree", "list", "--porcelain"]);
@@ -1133,7 +1186,10 @@ mod tests {
         delete_worktree(&path).expect("delete succeeds");
 
         assert!(!Path::new(&path).exists());
-        let branches = temp.git(&temp.repo, &["for-each-ref", "--format=%(refname)", "refs/heads"]);
+        let branches = temp.git(
+            &temp.repo,
+            &["for-each-ref", "--format=%(refname)", "refs/heads"],
+        );
         assert!(!branches.contains("the-pair/pair-clean"), "{}", branches);
         assert!(temp.git(&temp.repo, &["stash", "list"]).is_empty());
     }
@@ -1144,7 +1200,13 @@ mod tests {
         let path = temp.repo.join(".worktrees").join("pair-legacy");
         temp.git(
             &temp.repo,
-            &["worktree", "add", "--detach", path.to_str().unwrap(), "main"],
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                path.to_str().unwrap(),
+                "main",
+            ],
         );
         fs::write(path.join("work.txt"), "detached work\n").unwrap();
         temp.git(&path, &["add", "work.txt"]);
@@ -1157,7 +1219,10 @@ mod tests {
         let short = temp.git(&temp.repo, &["rev-parse", "--short=12", &commit]);
         let rescued = temp.git(
             &temp.repo,
-            &["rev-parse", &format!("refs/heads/the-pair/rescued-{}", short)],
+            &[
+                "rev-parse",
+                &format!("refs/heads/the-pair/rescued-{}", short),
+            ],
         );
         assert_eq!(rescued, commit);
         let stashes = temp.git(&temp.repo, &["stash", "list"]);
@@ -1170,7 +1235,13 @@ mod tests {
         let path = temp.repo.join(".worktrees").join("pair-gone");
         temp.git(
             &temp.repo,
-            &["worktree", "add", "--detach", path.to_str().unwrap(), "main"],
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                path.to_str().unwrap(),
+                "main",
+            ],
         );
         fs::write(path.join("work.txt"), "work\n").unwrap();
         temp.git(&path, &["add", "work.txt"]);
@@ -1198,7 +1269,8 @@ mod tests {
         fs::write(path.join("README.md"), "unsaved edit\n").unwrap();
 
         // A stale index.lock makes `git stash` fail.
-        let git_dir = PathBuf::from(temp.git(&path, &["rev-parse", "--path-format=absolute", "--git-dir"]));
+        let git_dir =
+            PathBuf::from(temp.git(&path, &["rev-parse", "--path-format=absolute", "--git-dir"]));
         fs::write(git_dir.join("index.lock"), "").unwrap();
 
         let error = delete_worktree(path.to_str().unwrap()).expect_err("must refuse");
@@ -1237,13 +1309,31 @@ mod tests {
         fs::write(temp.repo.join("a.txt"), "a\n").unwrap();
         temp.git(&temp.repo, &["add", "a.txt"]);
         let sha = temp.commit(&temp.repo, "fix: a | b | c");
-        temp.git(&temp.repo, &["remote", "add", "origin", "https://example.invalid/repo.git"]);
-        temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/feature", &sha]);
-        temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/main", &sha]);
+        temp.git(
+            &temp.repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://example.invalid/repo.git",
+            ],
+        );
+        temp.git(
+            &temp.repo,
+            &["update-ref", "refs/remotes/origin/feature", &sha],
+        );
+        temp.git(
+            &temp.repo,
+            &["update-ref", "refs/remotes/origin/main", &sha],
+        );
         temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/-M", &sha]);
         temp.git(
             &temp.repo,
-            &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
         );
 
         let branches = list_branches(temp.repo_str()).unwrap();
@@ -1264,14 +1354,28 @@ mod tests {
     fn ensure_local_tracking_branch_uses_existing_ref_and_rejects_options() {
         let temp = TempRepo::new("tracking");
         let sha = temp.git(&temp.repo, &["rev-parse", "HEAD"]);
-        temp.git(&temp.repo, &["remote", "add", "origin", "https://example.invalid/repo.git"]);
-        temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/feature/x", &sha]);
+        temp.git(
+            &temp.repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://example.invalid/repo.git",
+            ],
+        );
+        temp.git(
+            &temp.repo,
+            &["update-ref", "refs/remotes/origin/feature/x", &sha],
+        );
         temp.git(&temp.repo, &["update-ref", "refs/remotes/origin/-M", &sha]);
 
         // No fetch: the unreachable remote URL would fail if one were attempted.
         let local = ensure_local_tracking_branch(temp.repo_str(), "origin/feature/x").unwrap();
         assert_eq!(local, "feature/x");
-        assert_eq!(temp.git(&temp.repo, &["config", "branch.feature/x.remote"]), "origin");
+        assert_eq!(
+            temp.git(&temp.repo, &["config", "branch.feature/x.remote"]),
+            "origin"
+        );
         assert_eq!(
             temp.git(&temp.repo, &["config", "branch.feature/x.merge"]),
             "refs/heads/feature/x"
