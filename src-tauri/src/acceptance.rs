@@ -1,3 +1,4 @@
+use crate::git_tracker::GitTracker;
 use crate::types::{
     AcceptanceCheckRun, AcceptanceCheckStatus, AcceptanceNextAction, AcceptanceNextStep,
     AcceptanceRecord, AcceptanceRisk, AcceptanceVerdict, AcceptanceVerdictDecision, ModifiedFile,
@@ -5,38 +6,48 @@ use crate::types::{
 use crate::util::now_millis;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::Command;
+use tokio::task::JoinHandle;
+
+/// `git diff --check` is quick; anything slower than this is stuck.
+const GIT_CHECK_TIMEOUT: Duration = Duration::from_secs(60);
+/// Budget for `npm run typecheck` / `npm run test`. With `CI=true` watch-mode
+/// runners (CRA, Jest, Vitest, Karma) exit on their own; this bounds anything
+/// that still hangs so the pair can't wait forever.
+const SCRIPT_CHECK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// After a check exits (or is killed), how long to wait for its output pipes
+/// to close — a background process it spawned may hold them open.
+const OUTPUT_DRAIN_GRACE: Duration = Duration::from_secs(5);
+/// Tail of stdout/stderr kept per check while it runs.
+const MAX_CAPTURED_BYTES: usize = 64 * 1024;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Parses and validates a mentor review verdict through the quality gate.
-/// First checks for structured evidence (FILES_REVIEWED/CHECKS/CODE).
-/// If evidence is present but invalid, returns a specific quality error.
-/// Falls back to normal parsing for graceful degradation.
+///
+/// The structured evidence format (`FILES_REVIEWED:` / `CHECKS:` / `CODE:`
+/// lines) is optional — no prompt asks for it — so it is only enforced when
+/// the mentor deliberately used all three markers at the start of a line.
+/// Incidental text such as "EXIT CODE: 1" or "AUTOMATED CHECKS: 3 passed"
+/// never causes a valid JSON verdict to be rejected.
 pub fn parse_review_verdict_with_quality(raw: &str) -> Result<AcceptanceVerdict, String> {
-    // Check for structured evidence format
-    if raw.contains("FILES_REVIEWED:") || raw.contains("CHECKS:") || raw.contains("CODE:") {
-        if let Some(evidence) = crate::quality_gate::extract_evidence(raw) {
-            match crate::quality_gate::validate_review(&evidence) {
-                crate::quality_gate::QualityGateResult::Fail { reason } => {
-                    return Err(format!("Review quality gate: {}", reason));
-                }
-                crate::quality_gate::QualityGateResult::Pass => {
-                    // Evidence valid, proceed with normal parsing
-                }
-            }
-        } else {
-            // Had markers but couldn't extract — quality issue
-            return Err(
-                "Review verdict has evidence markers but sections are incomplete.".into(),
-            );
+    if let Some(evidence) = crate::quality_gate::extract_evidence(raw) {
+        if let crate::quality_gate::QualityGateResult::Fail { reason } =
+            crate::quality_gate::validate_review(&evidence)
+        {
+            return Err(format!("Review quality gate: {}", reason));
         }
     }
-    // Fall through to normal parsing (graceful degradation)
     parse_acceptance_verdict(raw)
 }
-use std::time::Instant;
-use tokio::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AcceptanceCheckPlan {
@@ -185,6 +196,8 @@ fn should_add_full_test(
     max_iterations > 0 && iteration.saturating_add(1) >= max_iterations.saturating_sub(1)
 }
 
+/// `diff_base` is `HEAD`, or the empty tree in a repository without commits;
+/// diffing against it (instead of the index) also covers staged changes.
 fn build_acceptance_check_plan(
     workspace_root: &str,
     package_json_override: Option<&Value>,
@@ -192,6 +205,7 @@ fn build_acceptance_check_plan(
     executor_output: &str,
     iteration: u32,
     max_iterations: u32,
+    diff_base: &str,
 ) -> Vec<AcceptanceCheckPlan> {
     let workspace_path = Path::new(workspace_root);
     let package_json = package_json_override
@@ -210,7 +224,11 @@ fn build_acceptance_check_plan(
     if !modified_files.is_empty() {
         checks.push(AcceptanceCheckPlan::new(
             "git",
-            vec!["diff".to_string(), "--check".to_string()],
+            vec![
+                "diff".to_string(),
+                diff_base.to_string(),
+                "--check".to_string(),
+            ],
         ));
 
         if scripts.iter().any(|script| script == "typecheck") {
@@ -257,75 +275,271 @@ fn is_actionable_git_check_failure(exit_code: Option<i32>, stderr: &str) -> bool
     }
 }
 
-async fn run_check(workspace_root: &Path, check: &AcceptanceCheckPlan) -> AcceptanceCheckRun {
-    let started = Instant::now();
-    let output = Command::new(&check.program)
-        .args(&check.args)
-        .current_dir(workspace_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await;
+fn check_timeout(check: &AcceptanceCheckPlan) -> Duration {
+    if check.program == "git" {
+        GIT_CHECK_TIMEOUT
+    } else {
+        SCRIPT_CHECK_TIMEOUT
+    }
+}
 
-    match output {
-        Ok(output) => {
-            let success = output.status.success();
-            let exit_code = output.status.code();
-            let stdout = trim_output(&String::from_utf8_lossy(&output.stdout), 4_000);
-            let stderr = trim_output(&String::from_utf8_lossy(&output.stderr), 4_000);
+/// Rust's `Command` only appends `.exe` when searching `PATH` on Windows, so
+/// npm's `npm.cmd` shim is never found under the bare name `npm`.
+fn resolve_program(program: &str) -> String {
+    if cfg!(windows) && program == "npm" {
+        "npm.cmd".to_string()
+    } else {
+        program.to_string()
+    }
+}
 
-            // Special-case `git diff --check`: env/signal failures shouldn't be
-            // reported as `failed`, only genuine whitespace errors should.
-            let is_git_diff_check = check.program == "git"
-                && check.args.first().map(|s| s.as_str()) == Some("diff")
-                && check.args.iter().any(|s| s == "--check");
+fn kill_process_tree(pid: u32) {
+    #[cfg(unix)]
+    {
+        // Checks run in their own process group (pgid == pid), so this also
+        // stops the test runner / watcher processes npm started.
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", pid)])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
 
-            let status = if success {
-                AcceptanceCheckStatus::Passed
-            } else if is_git_diff_check && !is_actionable_git_check_failure(exit_code, &stderr) {
-                AcceptanceCheckStatus::Skipped
-            } else {
-                AcceptanceCheckStatus::Failed
-            };
+/// Kills a check's whole process tree when dropped while armed — on timeout,
+/// or when the caller abandons the check future (e.g. a pause or delete that
+/// cancels it) — so watch-mode runners don't outlive the check.
+struct ProcessTreeGuard {
+    pid: Option<u32>,
+}
 
-            let summary = match status {
-                AcceptanceCheckStatus::Passed => format!("{} passed", check.command),
-                AcceptanceCheckStatus::Skipped => {
-                    format!("{} skipped (no actionable diff)", check.command)
+impl ProcessTreeGuard {
+    fn kill_now(&mut self) {
+        if let Some(pid) = self.pid.take() {
+            kill_process_tree(pid);
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.pid = None;
+    }
+}
+
+impl Drop for ProcessTreeGuard {
+    fn drop(&mut self) {
+        self.kill_now();
+    }
+}
+
+/// Reads `reader` to EOF, keeping only the last ~`MAX_CAPTURED_BYTES`.
+async fn capture_tail<R>(mut reader: R, sink: Arc<StdMutex<Vec<u8>>>)
+where
+    R: AsyncRead + Unpin,
+{
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                let mut buffer = sink.lock().unwrap_or_else(|e| e.into_inner());
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.len() > MAX_CAPTURED_BYTES * 2 {
+                    let excess = buffer.len() - MAX_CAPTURED_BYTES;
+                    buffer.drain(..excess);
                 }
-                AcceptanceCheckStatus::Failed => format!("{} failed", check.command),
-            };
-
-            AcceptanceCheckRun {
-                name: check.name.clone(),
-                command: check.command.clone(),
-                status,
-                exit_code,
-                duration_ms: started.elapsed().as_millis() as u64,
-                summary,
-                stdout,
-                stderr,
             }
         }
+    }
+}
+
+/// Waits until `deadline` for the output readers; true when all finished.
+async fn join_readers(readers: &mut [JoinHandle<()>], deadline: tokio::time::Instant) -> bool {
+    let mut all_done = true;
+    for handle in readers.iter_mut() {
+        if tokio::time::timeout_at(deadline, &mut *handle)
+            .await
+            .is_err()
+        {
+            all_done = false;
+        }
+    }
+    all_done
+}
+
+fn take_captured(sink: &Arc<StdMutex<Vec<u8>>>) -> String {
+    let bytes = std::mem::take(&mut *sink.lock().unwrap_or_else(|e| e.into_inner()));
+    trim_output(&String::from_utf8_lossy(&bytes), 4_000)
+}
+
+async fn run_check(workspace_root: &Path, check: &AcceptanceCheckPlan) -> AcceptanceCheckRun {
+    run_check_with_timeout(workspace_root, check, check_timeout(check)).await
+}
+
+async fn run_check_with_timeout(
+    workspace_root: &Path,
+    check: &AcceptanceCheckPlan,
+    limit: Duration,
+) -> AcceptanceCheckRun {
+    let started = Instant::now();
+    let mut command = Command::new(resolve_program(&check.program));
+    command
+        .args(&check.args)
+        .current_dir(workspace_root)
+        // Non-interactive runs: CRA / Jest / Vitest / Karma skip watch mode.
+        .env("CI", "true")
+        // Don't take index.lock away from the agents.
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
         Err(error) => {
-            let is_git_diff_check = check.program == "git"
-                && check.args.first().map(|s| s.as_str()) == Some("diff")
-                && check.args.iter().any(|s| s == "--check");
-            AcceptanceCheckRun {
+            // The tool isn't installed or not on PATH: the check is
+            // inconclusive, not evidence against the executor's work.
+            return AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: if is_git_diff_check {
-                    AcceptanceCheckStatus::Skipped
-                } else {
-                    AcceptanceCheckStatus::Failed
-                },
+                status: AcceptanceCheckStatus::Skipped,
                 exit_code: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 summary: format!("{} could not start", check.command),
                 stdout: String::new(),
                 stderr: error.to_string(),
-            }
+            };
         }
+    };
+    let mut tree = ProcessTreeGuard { pid: child.id() };
+
+    let stdout_sink = Arc::new(StdMutex::new(Vec::new()));
+    let stderr_sink = Arc::new(StdMutex::new(Vec::new()));
+    let mut readers = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        readers.push(tokio::spawn(capture_tail(stdout, stdout_sink.clone())));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        readers.push(tokio::spawn(capture_tail(stderr, stderr_sink.clone())));
+    }
+
+    let wait_result = tokio::time::timeout(limit, child.wait()).await;
+    if wait_result.is_err() {
+        tree.kill_now();
+        let _ = child.start_kill();
+        let _ = tokio::time::timeout(OUTPUT_DRAIN_GRACE, child.wait()).await;
+    }
+
+    // A background process left behind by the check (same process group) can
+    // keep the pipes open; stop it rather than stall the review.
+    if !join_readers(
+        &mut readers,
+        tokio::time::Instant::now() + OUTPUT_DRAIN_GRACE,
+    )
+    .await
+    {
+        tree.kill_now();
+        join_readers(
+            &mut readers,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        )
+        .await;
+        for reader in &readers {
+            reader.abort();
+        }
+    }
+    tree.disarm();
+
+    let stdout = take_captured(&stdout_sink);
+    let stderr = take_captured(&stderr_sink);
+    let duration_ms = started.elapsed().as_millis() as u64;
+
+    let exit_status = match wait_result {
+        Err(_elapsed) => {
+            return AcceptanceCheckRun {
+                name: check.name.clone(),
+                command: check.command.clone(),
+                status: AcceptanceCheckStatus::Failed,
+                exit_code: None,
+                duration_ms,
+                summary: format!(
+                    "{} timed out after {}s and was stopped",
+                    check.command,
+                    limit.as_secs()
+                ),
+                stdout,
+                stderr,
+            };
+        }
+        Ok(Err(error)) => {
+            return AcceptanceCheckRun {
+                name: check.name.clone(),
+                command: check.command.clone(),
+                status: AcceptanceCheckStatus::Skipped,
+                exit_code: None,
+                duration_ms,
+                summary: format!("{} could not complete", check.command),
+                stdout,
+                stderr: if stderr.is_empty() {
+                    error.to_string()
+                } else {
+                    stderr
+                },
+            };
+        }
+        Ok(Ok(status)) => status,
+    };
+
+    let success = exit_status.success();
+    let exit_code = exit_status.code();
+
+    // Special-case `git diff --check`: env/signal failures shouldn't be
+    // reported as `failed`, only genuine whitespace errors should.
+    let is_git_diff_check = check.program == "git"
+        && check.args.first().map(|s| s.as_str()) == Some("diff")
+        && check.args.iter().any(|s| s == "--check");
+
+    let status = if success {
+        AcceptanceCheckStatus::Passed
+    } else if is_git_diff_check && !is_actionable_git_check_failure(exit_code, &stderr) {
+        AcceptanceCheckStatus::Skipped
+    } else {
+        AcceptanceCheckStatus::Failed
+    };
+
+    let summary = match status {
+        AcceptanceCheckStatus::Passed => format!("{} passed", check.command),
+        AcceptanceCheckStatus::Skipped => {
+            format!("{} skipped (no actionable diff)", check.command)
+        }
+        AcceptanceCheckStatus::Failed => format!("{} failed", check.command),
+    };
+
+    AcceptanceCheckRun {
+        name: check.name.clone(),
+        command: check.command.clone(),
+        status,
+        exit_code,
+        duration_ms,
+        summary,
+        stdout,
+        stderr,
     }
 }
 
@@ -449,6 +663,17 @@ fn validate_acceptance_verdict(verdict: AcceptanceVerdict) -> Result<AcceptanceV
     {
         return Err("Acceptance fail verdict must use nextStep.action continue".to_string());
     }
+    // `should_stop_iteration` only stops at or above the threshold. A
+    // low-confidence finish would otherwise be accepted but never stop the
+    // loop, and its (empty) instructions would be sent to the executor.
+    if matches!(verdict.next_step.action, AcceptanceNextAction::Finish)
+        && verdict.confidence < CONFIDENCE_THRESHOLD
+    {
+        return Err(format!(
+            "Acceptance verdict can only finish with confidence >= {} (got {}). If work remains, use nextStep.action continue with concrete instructions; only raise confidence if the whole task is verified complete.",
+            CONFIDENCE_THRESHOLD, verdict.confidence
+        ));
+    }
 
     Ok(verdict)
 }
@@ -461,6 +686,41 @@ pub fn should_stop_iteration(verdict: &AcceptanceVerdict) -> bool {
         && verdict.confidence >= CONFIDENCE_THRESHOLD
 }
 
+/// Fresh working-tree changes first, plus anything the pair state already
+/// knew about (e.g. files the executor has since committed).
+fn merge_modified_files(known: &[ModifiedFile], fresh: Vec<ModifiedFile>) -> Vec<ModifiedFile> {
+    let mut seen: HashSet<String> = fresh.iter().map(|file| file.path.clone()).collect();
+    let mut merged = fresh;
+    for file in known {
+        if seen.insert(file.path.clone()) {
+            merged.push(file.clone());
+        }
+    }
+    merged
+}
+
+/// The pair state's list is only refreshed by a 5 s poll, so it can miss
+/// edits made right before the executor finished. Re-read the working tree.
+async fn refresh_modified_files(
+    workspace_root: &Path,
+    known: &[ModifiedFile],
+) -> Vec<ModifiedFile> {
+    let directory = workspace_root.to_string_lossy().to_string();
+    let fresh = tokio::task::spawn_blocking(move || GitTracker::collect_modified_files(&directory))
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    merge_modified_files(known, fresh)
+}
+
+async fn resolve_diff_base(workspace_root: &Path) -> String {
+    let directory = workspace_root.to_string_lossy().to_string();
+    tokio::task::spawn_blocking(move || crate::git_tracker::diff_base(&directory))
+        .await
+        .unwrap_or_else(|_| "HEAD".to_string())
+}
+
 pub async fn run_acceptance_checks(
     workspace_root: &Path,
     modified_files: &[ModifiedFile],
@@ -469,13 +729,16 @@ pub async fn run_acceptance_checks(
     max_iterations: u32,
 ) -> AcceptanceRecord {
     let started_at = now_millis();
+    let modified_files = refresh_modified_files(workspace_root, modified_files).await;
+    let diff_base = resolve_diff_base(workspace_root).await;
     let checks = build_acceptance_check_plan(
         &workspace_root.to_string_lossy(),
         None,
-        modified_files,
+        &modified_files,
         executor_output,
         iteration,
         max_iterations,
+        &diff_base,
     );
 
     let mut runs = Vec::with_capacity(checks.len());
@@ -498,7 +761,7 @@ pub async fn run_acceptance_checks(
 
     AcceptanceRecord {
         iteration,
-        risk: classify_acceptance_risk(modified_files),
+        risk: classify_acceptance_risk(&modified_files),
         checks: runs,
         summary: format!("{} passed, {} failed, {} skipped", passed, failed, skipped),
         started_at,
@@ -793,12 +1056,13 @@ mod tests {
             "Done. The feature is implemented and ready for review.",
             8,
             10,
+            "HEAD",
         );
 
         let names: Vec<_> = checks.iter().map(|check| check.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["git diff --check", "npm run typecheck", "npm run test"]
+            vec!["git diff HEAD --check", "npm run typecheck", "npm run test"]
         );
     }
 
@@ -818,6 +1082,7 @@ mod tests {
             "Greeting 1/3",
             1,
             20,
+            "HEAD",
         );
 
         assert!(
@@ -866,7 +1131,9 @@ mod tests {
         assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Pass);
         assert_eq!(verdict.risk, AcceptanceRisk::Low);
         assert!((verdict.confidence - 0.95).abs() < 0.001);
-        assert!(verdict.evidence.contains(&"Greeting 3/3 received".to_string()));
+        assert!(verdict
+            .evidence
+            .contains(&"Greeting 3/3 received".to_string()));
         assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
         assert!(verdict.next_step.instructions.is_empty());
     }
@@ -892,8 +1159,12 @@ mod tests {
         assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Fail);
         assert_eq!(verdict.risk, AcceptanceRisk::Low);
         assert!((verdict.confidence - 0.6).abs() < 0.001);
-        assert!(verdict.evidence.contains(&"Greeting 1/3 received".to_string()));
-        assert!(verdict.evidence.contains(&"Greeting 2/3 received".to_string()));
+        assert!(verdict
+            .evidence
+            .contains(&"Greeting 1/3 received".to_string()));
+        assert!(verdict
+            .evidence
+            .contains(&"Greeting 2/3 received".to_string()));
         assert_eq!(verdict.next_step.action, AcceptanceNextAction::Continue);
         assert_eq!(
             verdict.next_step.instructions,
@@ -984,5 +1255,215 @@ mod tests {
             },
         };
         assert!(should_stop_iteration(&threshold_confidence));
+    }
+
+    const PASS_FINISH_JSON: &str = r#"{
+        "verdict": "pass",
+        "risk": "low",
+        "confidence": 0.9,
+        "evidence": ["AUTOMATED CHECKS: 3 passed", "EXIT CODE: 0"],
+        "summary": "Done",
+        "nextStep": { "action": "finish", "instructions": [] }
+    }"#;
+
+    #[test]
+    fn quality_gate_ignores_incidental_marker_text() {
+        // Markers inside JSON strings or mid-line prose must not reject a valid verdict.
+        let verdict = super::parse_review_verdict_with_quality(PASS_FINISH_JSON)
+            .expect("markers inside strings are incidental");
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+
+        let with_prose = format!(
+            "CHECKS: ran npm test, all green\nNo code changes needed.\n{}\nTASK_COMPLETE",
+            PASS_FINISH_JSON
+        );
+        super::parse_review_verdict_with_quality(&with_prose)
+            .expect("a lone CHECKS: line is not the evidence format");
+    }
+
+    #[test]
+    fn quality_gate_still_rejects_deliberate_but_empty_evidence() {
+        let raw = format!(
+            "FILES_REVIEWED:\nCHECKS: types\nCODE: fn main()\n{}",
+            PASS_FINISH_JSON
+        );
+        let error = super::parse_review_verdict_with_quality(&raw).expect_err("empty files list");
+        assert!(error.contains("quality gate"), "{}", error);
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_rejects_low_confidence_finish() {
+        let error = super::parse_acceptance_verdict(
+            r#"{
+                "verdict": "pass",
+                "risk": "low",
+                "confidence": 0.6,
+                "evidence": ["looks fine"],
+                "summary": "Probably done",
+                "nextStep": { "action": "finish", "instructions": [] }
+            }"#,
+        )
+        .expect_err("finish below the stop threshold must trigger the repair prompt");
+        assert!(error.contains("confidence"), "{}", error);
+        assert!(error.contains("continue"), "{}", error);
+    }
+
+    #[test]
+    fn merge_modified_files_prefers_fresh_entries_and_keeps_known_ones() {
+        let file = |path: &str, status: FileStatus| ModifiedFile {
+            path: path.to_string(),
+            status,
+            display_path: path.to_string(),
+        };
+        let merged = super::merge_modified_files(
+            &[
+                file("a.rs", FileStatus::M),
+                file("committed.rs", FileStatus::M),
+            ],
+            vec![
+                file("a.rs", FileStatus::D),
+                file("new.rs", FileStatus::Untracked),
+            ],
+        );
+        let paths: Vec<&str> = merged.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["a.rs", "new.rs", "committed.rs"]);
+        assert!(matches!(merged[0].status, FileStatus::D));
+    }
+
+    #[test]
+    fn resolve_program_only_rewrites_npm_on_windows() {
+        let expected = if cfg!(windows) { "npm.cmd" } else { "npm" };
+        assert_eq!(super::resolve_program("npm"), expected);
+        assert_eq!(super::resolve_program("git"), "git");
+    }
+
+    fn unique_dir(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "the-pair-acceptance-{}-{}-{}",
+            label,
+            std::process::id(),
+            nanos
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn run_check_reports_spawn_failures_as_skipped() {
+        let dir = unique_dir("spawn");
+        let plan = AcceptanceCheckPlan::new("the-pair-no-such-binary-xyz", vec!["run".to_string()]);
+        let run = super::run_check(&dir, &plan).await;
+        assert_eq!(run.status, AcceptanceCheckStatus::Skipped);
+        assert!(run.summary.contains("could not start"), "{}", run.summary);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_check_sets_ci_and_closes_stdin() {
+        let dir = unique_dir("ci");
+        let plan = AcceptanceCheckPlan::new(
+            "sh",
+            vec![
+                "-c".to_string(),
+                "read line; echo \"CI=$CI stdin_rc=$?\"".to_string(),
+            ],
+        );
+        let run = super::run_check(&dir, &plan).await;
+        assert!(run.stdout.contains("CI=true"), "{}", run.stdout);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_check_times_out_and_kills_the_whole_process_tree() {
+        let dir = unique_dir("timeout");
+        let pid_file = dir.join("child.pid");
+        let plan = AcceptanceCheckPlan::new(
+            "sh",
+            vec![
+                "-c".to_string(),
+                format!(
+                    "sleep 60 & echo $! > '{}'; echo started; wait",
+                    pid_file.display()
+                ),
+            ],
+        );
+
+        let started = std::time::Instant::now();
+        let run =
+            super::run_check_with_timeout(&dir, &plan, std::time::Duration::from_secs(1)).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        assert_eq!(run.status, AcceptanceCheckStatus::Failed);
+        assert!(run.summary.contains("timed out"), "{}", run.summary);
+        assert!(run.stdout.contains("started"), "{}", run.stdout);
+
+        // The background grandchild was killed along with the shell.
+        let pid = fs::read_to_string(&pid_file).unwrap().trim().to_string();
+        let mut alive = true;
+        for _ in 0..50 {
+            let status = std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            if !status.success() {
+                alive = false;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(!alive, "grandchild {} survived the timeout", pid);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[tokio::test]
+    async fn run_acceptance_checks_sees_fresh_and_staged_whitespace_errors() {
+        let dir = unique_dir("diff-check");
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["config", "user.name", "Test"]);
+        git(&dir, &["config", "user.email", "test@example.com"]);
+        git(&dir, &["config", "commit.gpgsign", "false"]);
+
+        // Unborn HEAD: a staged whitespace error is still caught.
+        fs::write(dir.join("a.txt"), "trailing   \n").unwrap();
+        git(&dir, &["add", "a.txt"]);
+        // The pair state's (stale) list is empty; the fresh status must be used.
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
+        assert_eq!(record.checks.len(), 1, "{:?}", record.checks);
+        assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
+
+        // With a commit: staged changes are checked against HEAD.
+        fs::write(dir.join("a.txt"), "clean\n").unwrap();
+        git(&dir, &["add", "a.txt"]);
+        git(&dir, &["commit", "-q", "--no-verify", "-m", "init"]);
+        fs::write(dir.join("b.txt"), "bad   \n").unwrap();
+        git(&dir, &["add", "b.txt"]);
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
+        assert_eq!(record.checks[0].command, "git diff HEAD --check");
+        assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

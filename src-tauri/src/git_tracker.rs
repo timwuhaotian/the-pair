@@ -105,7 +105,7 @@ fn truncate_lines(content: &str, max_lines: usize, force_marker: bool) -> String
 
 /// `HEAD`, or the empty tree when the repository has no commits yet, so
 /// staged files in a brand-new repo still diff.
-fn diff_base(directory: &str) -> String {
+pub(crate) fn diff_base(directory: &str) -> String {
     let has_head = git_command()
         .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
         .current_dir(directory)
