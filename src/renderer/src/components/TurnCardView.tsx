@@ -158,7 +158,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           >
             <span className="tty-spin">✻</span>
           </span>
-          {t('common.thinking')}
+          {t('pair.thinking')}
         </div>
       )}
     </TerminalBlock>

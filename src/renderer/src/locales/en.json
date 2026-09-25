@@ -37,7 +37,9 @@
     "error": "Error",
     "finished": "Finished",
     "running": "Running",
-    "stop": "Stop"
+    "stop": "Stop",
+    "resume": "Resume",
+    "pause": "Pause"
   },
   "status": {
     "Idle": "Idle",
@@ -187,7 +189,8 @@
     "approvedMessage": "Approved the plan — executor starting.",
     "sentBackMessage": "Sent the plan back for revision.",
     "reviewPending": "Plan awaiting review",
-    "returnToReview": "Return to review"
+    "returnToReview": "Return to review",
+    "failed": "Couldn't submit the review decision"
   },
   "modals": {
     "recommendationHint": "{{mentor}} + {{executor}} succeeded {{successes}}/{{runs}} times on similar tasks",
@@ -223,7 +226,10 @@
     "startFresh": "Start fresh",
     "dismissDesc": "Dismissing keeps the snapshots for later recovery.",
     "deleteTitle": "Delete \"{{name}}\"?",
-    "deleteDesc": "This will permanently remove the pair, its snapshot, and its recoverable session."
+    "deleteDesc": "This will permanently remove the pair, its snapshot, and its recoverable session.",
+    "deleteWorktreeNote": "Its worktree is removed too: uncommitted changes are saved to git stash, and the pair's commits stay on its the-pair/… branch.",
+    "deleteFailed": "Couldn't delete the pair: {{error}}",
+    "presetTaskMissing": "Replace the placeholder in the preset template with your task before starting."
   },
   "pickers": {
     "mentorLabel": "Mentor",
@@ -301,7 +307,8 @@
     "thinking": "Thinking...",
     "working": "Working...",
     "pausedAt": "Paused {{date}}",
-    "finishedAt": "Finished {{date}}"
+    "finishedAt": "Finished {{date}}",
+    "retryFailed": "Retry failed"
   },
   "console": {
     "all": "All",
@@ -343,7 +350,9 @@
     "earlierStepsButton_plural": "Show {{count}} earlier steps",
     "earlierStepsHide": "Hide earlier steps",
     "earlierMessagesDropped_one": "+ {{count}} earlier message hidden",
-    "earlierMessagesDropped_other": "+ {{count}} earlier messages hidden"
+    "earlierMessagesDropped_other": "+ {{count}} earlier messages hidden",
+    "submitFailed": "Failed to start the task",
+    "stopFailed": "Failed to stop the turn"
   },
   "skills": {
     "popoverTitle": "skills",
@@ -404,14 +413,18 @@
     "checkUpdates": "Check updates",
     "available": "Update Available \u2014 v{{version}}",
     "remindLater": "Remind me later",
-    "installingPercent": "Installing {{percent}}%"
+    "installingPercent": "Installing {{percent}}%",
+    "failedTitle": "Update failed",
+    "close": "Close"
   },
   "history": {
     "title": "Task History",
     "empty": "No previous tasks yet.",
     "backToCurrent": "Back to Current",
     "copyMD": "Copy MD",
-    "exportHTML": "Export HTML"
+    "exportHTML": "Export HTML",
+    "restoreTask": "Restore this task",
+    "restoreDisabledBusy": "Pause or stop the pair before restoring a task"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

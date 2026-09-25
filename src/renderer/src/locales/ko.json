@@ -37,7 +37,9 @@
     "error": "오류",
     "finished": "완료",
     "running": "실행 중",
-    "stop": "중지"
+    "stop": "중지",
+    "resume": "재개",
+    "pause": "일시정지"
   },
   "chrome": {
     "title": "The Pair",
@@ -108,6 +110,16 @@
       "success": "성공률",
       "avgIter": "평균 반복",
       "avgTokens": "평균 토큰"
+    },
+    "stats": {
+      "total": "모든 페어",
+      "running": "실행 중",
+      "paused": "일시정지됨",
+      "finished": "완료"
+    },
+    "activity": {
+      "title": "최근 활동",
+      "empty": "페어가 실행되면 여기에 활동이 표시됩니다"
     }
   },
   "emptyState": {
@@ -116,7 +128,13 @@
     "mentorDesc": "작업을 분석하고 실행기 출력을 검토",
     "handoffDesc": "에이전트가 자동으로 제어를 교환",
     "executorDesc": "계획을 실행하고 결과를 보고",
-    "createFirst": "첫 번째 페어 만들기"
+    "createFirst": "첫 번째 페어 만들기",
+    "welcome": "The Pair에 오신 것을 환영합니다",
+    "step1": "작업 디렉터리 선택",
+    "step2": "Mentor 및 Executor 모델 선택",
+    "step3": "작업 설명",
+    "step4": "첫 번째 페어를 만들고 협업 시작",
+    "importConfig": "기존 구성 가져오기 →"
   },
   "onboarding": {
     "title": "설정 마법사",
@@ -161,7 +179,8 @@
     "approvedMessage": "계획을 승인했습니다 — 실행자를 시작합니다.",
     "sentBackMessage": "수정을 위해 계획을 되돌렸습니다.",
     "reviewPending": "계획 검토 대기 중",
-    "returnToReview": "검토로 돌아가기"
+    "returnToReview": "검토로 돌아가기",
+    "failed": "검토 결과를 제출하지 못했습니다"
   },
   "modals": {
     "recommendationHint": "유사한 작업에서 {{mentor}} + {{executor}} 조합이 {{runs}}회 중 {{successes}}회 성공했습니다",
@@ -197,7 +216,10 @@
     "startFresh": "새로 시작",
     "dismissDesc": "닫으면 나중에 복원할 수 있도록 스냅샷이 유지됩니다.",
     "deleteTitle": "\"{{name}}\"을(를) 삭제하시겠습니까?",
-    "deleteDesc": "페어, 해당 스냅샷 및 복구 가능한 세션이 영구적으로 제거됩니다."
+    "deleteDesc": "페어, 해당 스냅샷 및 복구 가능한 세션이 영구적으로 제거됩니다.",
+    "deleteWorktreeNote": "워크트리도 제거됩니다. 커밋되지 않은 변경 사항은 git stash에 저장되고, 페어의 커밋은 the-pair/… 브랜치에 남습니다.",
+    "deleteFailed": "페어를 삭제하지 못했습니다: {{error}}",
+    "presetTaskMissing": "시작하기 전에 프리셋 템플릿의 자리 표시자를 작업 내용으로 바꾸세요."
   },
   "pickers": {
     "mentorLabel": "멘토",
@@ -275,7 +297,8 @@
     "thinking": "생각 중...",
     "working": "작업 중...",
     "pausedAt": "일시 중지됨: {{date}}",
-    "finishedAt": "완료됨: {{date}}"
+    "finishedAt": "완료됨: {{date}}",
+    "retryFailed": "재시도 실패"
   },
   "console": {
     "all": "전체",
@@ -317,7 +340,9 @@
     "showStepsOnly_one": "{{count}}개 단계 보기",
     "showStepsOnly_other": "{{count}}개 단계 보기",
     "showReportOnly": "전체 보고서 보기",
-    "hideDetails": "세부 정보 숨기기"
+    "hideDetails": "세부 정보 숨기기",
+    "submitFailed": "작업을 시작하지 못했습니다",
+    "stopFailed": "턴을 중지하지 못했습니다"
   },
   "skills": {
     "popoverTitle": "스킬",
@@ -378,14 +403,18 @@
     "checkUpdates": "업데이트 확인",
     "available": "업데이트 가능 — v{{version}}",
     "remindLater": "나중에 알림",
-    "installingPercent": "설치 중 {{percent}}%"
+    "installingPercent": "설치 중 {{percent}}%",
+    "failedTitle": "업데이트 실패",
+    "close": "닫기"
   },
   "history": {
     "title": "작업 기록",
     "empty": "아직 이전 작업이 없습니다.",
     "backToCurrent": "현재로 돌아가기",
     "copyMD": "MD 복사",
-    "exportHTML": "HTML 내보내기"
+    "exportHTML": "HTML 내보내기",
+    "restoreTask": "이 작업 복원",
+    "restoreDisabledBusy": "작업을 복원하기 전에 페어를 일시정지하거나 중지하세요"
   },
   "shortcuts": {
     "title": "키보드 단축키",
@@ -417,5 +446,8 @@
     "loginLaunched": "터미널이 열렸습니다 — 로그인 완료 후 새로고침을 클릭하세요",
     "loginFailed": "터미널을 열 수 없습니다. 수동으로 다음 명령을 실행하세요:",
     "copyCommand": "복사"
+  },
+  "quickActions": {
+    "create": "새 페어"
   }
 }

@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Square, Trash2, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
-import { cn, formatIterations } from '../lib/utils'
-import { usePairStore, type Message, type Pair } from '../store/usePairStore'
+import { cn, extractErrorMessage, formatIterations } from '../lib/utils'
+import { usePairStore, type Message, type Pair, type TurnCard } from '../store/usePairStore'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { MessageFilterBar } from './MessageFilterBar'
 import { GlassButton } from './ui/GlassButton'
@@ -19,26 +19,48 @@ import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
 import { composeFinalSpec, type SkillContexts } from '../lib/skillMentions'
+import { isSubmitEnter } from './keyboard'
+import { useCompositionTracker } from './useCompositionTracker'
+import {
+  isNearBottom,
+  resolveViewingRun,
+  selectVisibleTurnCard,
+  splitComposition
+} from './consoleView'
 
 interface PairConsoleProps {
   pair: Pair
   className?: string
 }
 
+interface CompositionState {
+  text: string
+  start: number | null
+}
+
+const NO_COMPOSITION: CompositionState = { text: '', start: null }
+
 function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const { t } = useTranslation()
   const killProcess = usePairStore((s) => s.killProcess)
   const setMessages = usePairStore((s) => s.setMessages)
   const assignTask = usePairStore((s) => s.assignTask)
-  const isLoading = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Whether the console should follow new output. Updated from the user's own
+  // scrolling so a reader scrolled up into the history is never yanked down.
+  const stickToBottomRef = useRef(true)
+  const composition = useCompositionTracker()
   const [messageFilter, setMessageFilter] = useState<'all' | 'mentor' | 'executor'>('all')
   const [taskInput, setTaskInput] = useState('')
-  const [composingText, setComposingText] = useState('')
+  const [composingState, setComposingState] = useState<CompositionState>(NO_COMPOSITION)
   const [isSubmittingTask, setIsSubmittingTask] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [isStoppingTurn, setIsStoppingTurn] = useState(false)
+  // Scoped to the card it was raised for, so a stale failure never shows under a later turn.
+  const [stopError, setStopError] = useState<{ cardId: string; message: string } | null>(null)
   const [fileContexts, setFileContexts] = useState<FileContexts>(new Map())
   const [skillContexts, setSkillContexts] = useState<SkillContexts>(new Map())
 
@@ -58,9 +80,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     })
   }, [])
 
-  const viewingRun = viewingRunId
-    ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
-    : null
+  // An id that isn't in this pair's history (e.g. left over from another pair)
+  // means "live" — never lock this pair's console into a phantom archive view.
+  const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
+  const isViewingArchived = viewingRun !== null
 
   const consoleMessages = useMemo(() => {
     const messages = viewingRun ? viewingRun.messages : pair.messages
@@ -83,24 +106,36 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }, [pair.messages, viewingRun])
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [pair.messages.length])
-
-  useEffect(() => {
-    if (!isPairActive(pair.status)) return
     const el = scrollRef.current
     if (!el) return
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distanceToBottom < 160) el.scrollTop = el.scrollHeight
-  }, [pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+    const handleScroll = (): void => {
+      stickToBottomRef.current = isNearBottom(el)
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
 
-  const visibleCurrentTurnCard =
-    pair.currentTurnCard &&
-    (deduplicatedConsoleMessages.length === 0 ||
-      deduplicatedConsoleMessages[deduplicatedConsoleMessages.length - 1].from !==
-        pair.currentTurnCard.role)
-      ? pair.currentTurnCard
-      : null
+  // Opening the pair (or returning from an archived run) lands on the newest output.
+  useEffect(() => {
+    if (isViewingArchived) return
+    stickToBottomRef.current = true
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [isViewingArchived])
+
+  // Follow new output only while the reader is already at the bottom, and never
+  // while reading an archived run.
+  useEffect(() => {
+    if (isViewingArchived || !stickToBottomRef.current) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [isViewingArchived, pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+
+  // The live turn card belongs to the live run only; compare against the
+  // unfiltered live transcript so a role filter can't hide it.
+  const visibleCurrentTurnCard = isViewingArchived
+    ? null
+    : selectVisibleTurnCard(pair.messages, pair.currentTurnCard)
 
   const renderedChat = useMemo(() => {
     const nodes: React.ReactNode[] = []
@@ -156,25 +191,29 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const submitTask = async (): Promise<void> => {
     const spec = taskInput.trim()
-    if (!spec || isLoading || isSubmittingTask) return
+    if (!spec || isSubmittingTask) return
     // Guard: if pair is running, refuse silently. The UI already disables the textarea,
     // but keep this as a belt-and-suspenders fallback against stale state.
     if (isPairActive(pair.status)) return
 
     setIsSubmittingTask(true)
+    setSubmitError(null)
     try {
       const finalSpec = composeFinalSpec(spec, fileContexts, skillContexts, pair.executorProvider)
       await assignTask(pair.id, finalSpec)
       setTaskInput('')
       setFileContexts(new Map())
       setSkillContexts(new Map())
+      stickToBottomRef.current = true
       requestAnimationFrame(() => {
         const el = scrollRef.current
         if (el) el.scrollTop = el.scrollHeight
         inputRef.current?.focus()
       })
-    } catch {
-      // Store already handles errors
+    } catch (error) {
+      // The store's global error is only rendered inside modals — surface the
+      // failure right next to the input so a failed submit is never silent.
+      setSubmitError(extractErrorMessage(error, t('console.submitFailed')))
     } finally {
       setIsSubmittingTask(false)
     }
@@ -186,12 +225,31 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Enter that confirms an IME candidate must never submit the task.
+    if (isSubmitEnter(e, composition.isComposing())) {
       e.preventDefault()
       void submitTask()
     }
   }
 
+  const handleStopTurn = async (card: TurnCard): Promise<void> => {
+    if (isStoppingTurn) return
+    setIsStoppingTurn(true)
+    setStopError(null)
+    try {
+      await killProcess(pair.id, card.role)
+    } catch (error) {
+      setStopError({
+        cardId: card.id,
+        message: extractErrorMessage(error, t('console.stopFailed'))
+      })
+    } finally {
+      setIsStoppingTurn(false)
+    }
+  }
+
+  const composingText = composingState.text
+  const inputSegments = splitComposition(taskInput, composingText, composingState.start)
   const hasText = taskInput.length > 0 || composingText.length > 0
 
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
@@ -201,7 +259,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // archive the in-progress run, which is almost never what the user wants.
   const inputLocked = isRunning
 
-  const taskInputRow = !viewingRunId ? (
+  const taskInputRow = !isViewingArchived ? (
     <form
       onSubmit={handleTaskSubmit}
       className={cn('mt-2', inputLocked ? 'cursor-not-allowed opacity-60' : 'cursor-text')}
@@ -231,12 +289,13 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           >
             {hasText ? (
               <>
-                <span>{taskInput}</span>
-                {composingText && (
+                <span>{inputSegments.before}</span>
+                {inputSegments.composing && (
                   <span className="text-muted-foreground underline decoration-dotted">
-                    {composingText}
+                    {inputSegments.composing}
                   </span>
                 )}
+                {inputSegments.after && <span>{inputSegments.after}</span>}
                 <span
                   className={cn(
                     'select-none ml-[1px]',
@@ -270,11 +329,24 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             ref={inputRef}
             rows={1}
             value={taskInput}
-            onChange={(e) => setTaskInput(e.target.value)}
+            onChange={(e) => {
+              setTaskInput(e.target.value)
+              if (submitError) setSubmitError(null)
+            }}
             onKeyDown={handleInputKeyDown}
-            onCompositionStart={(e) => setComposingText(e.data || '')}
-            onCompositionUpdate={(e) => setComposingText(e.data || '')}
-            onCompositionEnd={() => setComposingText('')}
+            onCompositionStart={(e) => {
+              composition.onCompositionStart()
+              const start = e.currentTarget.selectionStart
+              setComposingState({ text: e.data || '', start })
+            }}
+            onCompositionUpdate={(e) => {
+              const data = e.data || ''
+              setComposingState((prev) => ({ ...prev, text: data }))
+            }}
+            onCompositionEnd={() => {
+              composition.onCompositionEnd()
+              setComposingState(NO_COMPOSITION)
+            }}
             aria-label={
               inputLocked
                 ? t('console.inputDisabledRunningHint')
@@ -336,6 +408,18 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             ))}
         </div>
       )}
+      {submitError && (
+        <div
+          role="alert"
+          data-testid="pair-task-submit-error"
+          className="mt-1.5 flex items-baseline gap-1.5 pl-[2ch] font-mono text-[11px] state-error [overflow-wrap:anywhere]"
+        >
+          <span aria-hidden className="select-none">
+            ✗
+          </span>
+          <span>{submitError}</span>
+        </div>
+      )}
     </form>
   ) : null
 
@@ -359,17 +443,27 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           {'>_'}
         </span>
         <span className="uppercase tracking-[0.14em] font-bold text-foreground/90">
-          {viewingRunId ? t('history.title') : t('pair.sessionConsole')}
+          {isViewingArchived ? t('history.title') : t('pair.sessionConsole')}
         </span>
-        {viewingRunId && (
-          <span className="text-muted-foreground-faint">· {t('console.viewingArchived')}</span>
+        {isViewingArchived && (
+          <>
+            <span className="text-muted-foreground-faint">· {t('console.viewingArchived')}</span>
+            <button
+              type="button"
+              onClick={() => setViewingRunId(null)}
+              data-testid="console-back-to-live-btn"
+              className="rounded-sm border border-border px-1.5 py-px text-[10px] uppercase tracking-[0.14em] text-foreground/85 transition-colors hover:border-foreground/40 hover:bg-foreground/[0.06] cursor-pointer"
+            >
+              ← {t('history.backToCurrent')}
+            </button>
+          </>
         )}
         <span className="text-muted-foreground-faint">·</span>
         <span className="tabular-nums">
           iter {formatIterations(pair.iterations, pair.maxIterations)}
         </span>
         <div className="ml-auto flex items-center gap-3">
-          {!viewingRunId && (
+          {!isViewingArchived && (
             <MessageFilterBar
               activeFilter={messageFilter}
               onFilterChange={setMessageFilter}
@@ -390,7 +484,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               {isRunning ? t('pair.systemOnline') : t('pair.systemIdle')}
             </span>
           </div>
-          {!viewingRunId && pair.messages.length > 0 && !isRunning && (
+          {!isViewingArchived && pair.messages.length > 0 && !isRunning && (
             <button
               onClick={handleClearMessages}
               title={t('console.clearHistory')}
@@ -407,7 +501,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           <div className="flex w-full flex-col gap-2 px-6 py-6">
-            {deduplicatedConsoleMessages.length === 0 && !pair.currentTurnCard ? (
+            {deduplicatedConsoleMessages.length === 0 && !visibleCurrentTurnCard ? (
               <>
                 <div className="flex flex-col items-start gap-1 pt-12 font-mono text-[12px] text-muted-foreground">
                   <span className="uppercase tracking-[0.14em] text-foreground/80">
@@ -422,13 +516,13 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             ) : (
               <>
                 {renderedChat}
-                {(isPairActive(pair.status) || visibleCurrentTurnCard) && (
+                {((!isViewingArchived && isPairActive(pair.status)) || visibleCurrentTurnCard) && (
                   <AnimatePresence mode="popLayout">
                     {visibleCurrentTurnCard ? (
                       <div key={visibleCurrentTurnCard.id} className="space-y-1">
                         <TurnCardView card={visibleCurrentTurnCard} />
                         {isRunning && (
-                          <div className="pl-[3ch] flex items-center gap-2">
+                          <div className="pl-[3ch] flex flex-wrap items-center gap-2">
                             <GlassButton
                               variant={
                                 visibleCurrentTurnCard.activity.phase === 'stalled'
@@ -438,8 +532,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                               size="sm"
                               className="gap-1.5"
                               onClick={() => {
-                                void killProcess(pair.id, visibleCurrentTurnCard.role)
+                                void handleStopTurn(visibleCurrentTurnCard)
                               }}
+                              disabled={isStoppingTurn}
                               title={t('console.stopTurn')}
                               data-testid="console-stop-turn-btn"
                             >
@@ -455,6 +550,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                                 </>
                               )}
                             </GlassButton>
+                            {stopError?.cardId === visibleCurrentTurnCard.id && (
+                              <span
+                                role="alert"
+                                className="font-mono text-[11px] state-error [overflow-wrap:anywhere]"
+                              >
+                                ✗ {stopError.message}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -483,14 +586,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                           >
                             <span className="tty-spin">✻</span>
                           </span>
-                          {t('common.thinking')}
+                          {t('pair.thinking')}
                         </span>
                       </TerminalBlock>
                     )}
                   </AnimatePresence>
                 )}
                 {pair.status === 'Awaiting Human Review' &&
-                  (viewingRunId ? (
+                  (isViewingArchived ? (
                     // While viewing an archived run, don't render the approve/reject
                     // controls (they act on the live pair, not the run on screen);
                     // surface a clear one-click return to the pending plan instead.
@@ -519,7 +622,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         </div>
         <ScrollToBottomButton
           scrollRef={scrollRef}
-          dependency={`${consoleMessages.length}-${messageFilter}-${viewingRunId ?? 'live'}`}
+          dependency={`${consoleMessages.length}-${messageFilter}-${viewingRun?.id ?? 'live'}`}
         />
       </div>
     </div>

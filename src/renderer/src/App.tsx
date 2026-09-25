@@ -12,7 +12,9 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { canStartUpdateCheck } from './components/updateView'
 import { isPairActive, isPairBusy } from './lib/pairStatus'
+import { extractErrorMessage } from './lib/utils'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -108,6 +110,7 @@ function App(): React.ReactNode {
   const resumePair = usePairStore((state) => state.resumePair)
   const deletePair = usePairStore((state) => state.deletePair)
   const setRestoringSpec = usePairStore((state) => state.setRestoringSpec)
+  const setViewingRunId = usePairStore((state) => state.setViewingRunId)
   const setMessages = usePairStore((state) => state.setMessages)
 
   const theme = useThemeStore((state) => state.theme)
@@ -127,6 +130,8 @@ function App(): React.ReactNode {
     let active = true
 
     const performUpdateCheck = async (): Promise<void> => {
+      // A check while an update installs would close the Update being installed.
+      if (!canStartUpdateCheck(useUpdateStore.getState().phase)) return
       setPhase('checking')
       setMessage('Checking for updates...')
 
@@ -269,8 +274,9 @@ function App(): React.ReactNode {
   useEffect(() => {
     if (selectedPairId && !selectedPair) {
       setSelectedPairId(null)
+      setViewingRunId(null)
     }
-  }, [selectedPairId, selectedPair])
+  }, [selectedPairId, selectedPair, setViewingRunId])
 
   const handlePauseSelectedPair = useCallback(async (): Promise<void> => {
     if (!selectedPair || !isPairActive(selectedPair.status)) return
@@ -347,8 +353,18 @@ function App(): React.ReactNode {
   useShortcuts(shortcuts)
 
   const handleRestoreTask = (spec: string, mentorModel: string, executorModel: string): void => {
+    // Same guard as "New Task": starting a run while the pair is busy would
+    // stop the run in progress.
+    if (!selectedPair || isPairBusy(selectedPair.status)) return
     setRestoringSpec({ spec, mentorModel, executorModel })
     setIsAssignTaskOpen(true)
+  }
+
+  // viewingRunId is global in the store while run ids are per pair — leave any
+  // archived-run view when switching pairs or going back to the dashboard.
+  const selectPair = (pairId: string | null): void => {
+    if (pairId !== selectedPairId) setViewingRunId(null)
+    setSelectedPairId(pairId)
   }
 
   const handleDeletePair = (pair: Pair): void => {
@@ -363,10 +379,18 @@ function App(): React.ReactNode {
     try {
       await deletePair(pair.id)
       if (selectedPairId === pair.id) {
-        setSelectedPairId(null)
+        selectPair(null)
       }
     } catch (error) {
+      // The backend aborts the delete (keeping the pair) when it can't preserve
+      // the worktree's work — tell the user instead of failing silently.
       console.error('[App] Failed to delete pair:', error)
+      displayToast(
+        t('modals.deleteFailed', {
+          error: extractErrorMessage(error, String(error))
+        }),
+        'error'
+      )
     } finally {
       setDeletingPairId(null)
     }
@@ -402,7 +426,7 @@ function App(): React.ReactNode {
           theme={theme}
           onToggleTheme={toggleTheme}
           onNewTask={handleNewTask}
-          onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
+          onBack={selectedPair ? () => selectPair(null) : undefined}
           onClearSession={selectedPair ? handleRequestClearSession : undefined}
           onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
           onShowShortcuts={() => setIsShortcutsOpen(true)}
@@ -414,7 +438,7 @@ function App(): React.ReactNode {
               selectedPair={selectedPair}
               selectedPairId={selectedPairId}
               onSelectPair={(pair) => {
-                setSelectedPairId(pair.id)
+                selectPair(pair.id)
               }}
               onDeletePair={(pair) => {
                 void handleDeletePair(pair)
@@ -447,9 +471,14 @@ function App(): React.ReactNode {
 
       <ConfirmModal
         isOpen={pendingDeletePair !== null}
-        title={`Delete "${pendingDeletePair?.name}"?`}
-        message="This will permanently remove the pair, its snapshot, and its recoverable session."
-        confirmLabel="Delete"
+        title={t('modals.deleteTitle', { name: pendingDeletePair?.name ?? '' })}
+        message={
+          pendingDeletePair?.worktreePath
+            ? `${t('modals.deleteDesc')} ${t('modals.deleteWorktreeNote')}`
+            : t('modals.deleteDesc')
+        }
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
         onConfirm={confirmDeletePair}
         onCancel={cancelDeletePair}
       />

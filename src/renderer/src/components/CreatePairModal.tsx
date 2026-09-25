@@ -12,12 +12,18 @@ import { SkillPicker } from './SkillPicker'
 import { derivePairNameFromDirectory } from '../lib/workspace'
 import { BranchPicker } from './BranchPicker'
 import { PresetPicker } from './PresetPicker'
-import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { usePresets } from '../lib/usePresets'
 import { prependFileContext } from '../lib/fileMentions'
 import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
 import type { ConfigRecommendation, PairPreset } from '../types'
+import { preventImeEnterSubmit } from './keyboard'
+import {
+  finalizePresetSpec,
+  isPresetTaskMissing,
+  removePresetTemplate,
+  switchPresetTemplate
+} from './presetSpec'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -34,6 +40,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
   const [name, setName] = useState('')
   const [directory, setDirectory] = useState('')
+  // The directory repo/file scans run against. Only committed via the folder
+  // picker or when the path input loses focus — never on every keystroke, where
+  // each existing prefix (e.g. the home dir) would trigger a full recursive scan.
+  const [scanDirectory, setScanDirectory] = useState('')
   const [spec, setSpec] = useState('')
   const [mentorModel, setMentorModel] = useState('')
   const [executorModel, setExecutorModel] = useState('')
@@ -46,6 +56,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
+  // The preset whose template currently wraps the textarea text (if any).
+  const [appliedPreset, setAppliedPreset] = useState<PairPreset | null>(null)
   const {
     presets,
     loading: presetsLoading,
@@ -78,6 +90,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     return () => clearTimeout(handle)
   }, [spec])
 
+  // A stale global error (e.g. from a pair's handoff) must not greet the user
+  // in a freshly opened modal.
+  useEffect(() => {
+    if (isOpen) usePairStore.setState({ error: null })
+  }, [isOpen])
+
   useEffect(() => {
     if (isOpen && availableModels.length === 0) {
       loadAvailableModels()
@@ -101,48 +119,38 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     }
   }, [availableModels, mentorModel])
 
-  const handlePresetSelect = useCallback((preset: PairPreset | null) => {
-    setSelectedPreset(preset)
-    if (preset) {
-      if (preset.recommendedMentorModel) {
-        setMentorModel(preset.recommendedMentorModel)
-      }
-      if (preset.recommendedExecutorModel) {
-        setExecutorModel(preset.recommendedExecutorModel)
-      }
-      if (preset.mentorPromptTemplate) {
-        setSpec(() => {
-          try {
-            return buildSpecFromPreset(preset, '')
-          } catch {
-            return preset.mentorPromptTemplate.replace('{task}', '(describe your task)')
-          }
-        })
-      }
-    } else {
-      setSpec((current) => {
-        if (current && current.includes('ROLE: MENTOR')) {
-          return stripTemplate(current)
+  const handlePresetSelect = useCallback(
+    (preset: PairPreset | null) => {
+      setSelectedPreset(preset)
+      if (preset) {
+        if (preset.recommendedMentorModel) {
+          setMentorModel(preset.recommendedMentorModel)
         }
-        return current
-      })
-    }
-  }, [])
+        if (preset.recommendedExecutorModel) {
+          setExecutorModel(preset.recommendedExecutorModel)
+        }
+        if (preset.mentorPromptTemplate) {
+          // Carry the typed task into the new template instead of wrapping twice.
+          setSpec((current) => switchPresetTemplate(appliedPreset, preset, current))
+          setAppliedPreset(preset)
+        }
+      } else {
+        const previous = appliedPreset
+        if (previous) setSpec((current) => removePresetTemplate(previous, current))
+        setAppliedPreset(null)
+      }
+    },
+    [appliedPreset]
+  )
+
+  const presetTaskMissing = isPresetTaskMissing(appliedPreset, spec)
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
+    if (presetTaskMissing) return
     try {
-      let finalSpec = spec
-      if (selectedPreset && !finalSpec.includes('ROLE: MENTOR')) {
-        try {
-          finalSpec = buildSpecFromPreset(selectedPreset, finalSpec)
-        } catch {
-          finalSpec = selectedPreset.mentorPromptTemplate.replace(
-            '{task}',
-            finalSpec || '(describe your task)'
-          )
-        }
-      }
+      // Wraps only if the selected preset's template isn't already in the textarea.
+      let finalSpec = finalizePresetSpec(selectedPreset, appliedPreset, spec)
       finalSpec = prependFileContext(finalSpec, fileContexts)
       await createPair({
         name,
@@ -160,6 +168,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       })
       setName('')
       setDirectory('')
+      setScanDirectory('')
       setSpec('')
       setFileContexts(new Map())
       setMentorReasoningEffort(undefined)
@@ -167,6 +176,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setBranch(undefined)
       setPlanGate(false)
       setSelectedPreset(null)
+      setAppliedPreset(null)
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -184,16 +194,36 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     })
   }
 
+  // A branch belongs to the repo it was picked from — drop it whenever the
+  // directory changes so createPair never receives a stale, hidden branch.
+  const changeDirectory = (next: string): void => {
+    if (next !== directory) setBranch(undefined)
+    setDirectory(next)
+  }
+
+  const commitScanDirectory = (next: string): void => {
+    const trimmed = next.trim()
+    if (trimmed !== scanDirectory) {
+      setBranch(undefined)
+      setScanDirectory(trimmed)
+    }
+  }
+
   const handleSelectDirectory = async (): Promise<void> => {
-    const selected = await open({
-      directory: true,
-      multiple: false
-    })
-    if (selected) {
-      setDirectory(selected)
-      setName((currentName) =>
-        currentName.trim().length > 0 ? currentName : derivePairNameFromDirectory(selected)
-      )
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false
+      })
+      if (selected) {
+        changeDirectory(selected)
+        commitScanDirectory(selected)
+        setName((currentName) =>
+          currentName.trim().length > 0 ? currentName : derivePairNameFromDirectory(selected)
+        )
+      }
+    } catch (err) {
+      console.error('[CreatePairModal] Folder picker failed:', err)
     }
   }
 
@@ -246,6 +276,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={preventImeEnterSubmit}
               placeholder={t('onboarding.pairNamePlaceholder')}
               className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm"
               required
@@ -261,7 +292,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               <input
                 type="text"
                 value={directory}
-                onChange={(e) => setDirectory(e.target.value)}
+                onChange={(e) => changeDirectory(e.target.value)}
+                onBlur={(e) => commitScanDirectory(e.target.value)}
+                onKeyDown={preventImeEnterSubmit}
                 onClick={() => {
                   if (!directory) {
                     void handleSelectDirectory()
@@ -287,7 +320,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             </div>
           </div>
 
-          {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
+          {scanDirectory && scanDirectory === directory.trim() && (
+            <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
+          )}
 
           <button
             type="button"
@@ -350,13 +385,13 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               data-testid="pair-task-spec"
             />
             <div className="absolute top-[26px] right-2 flex items-center gap-1">
-              {directory && (
+              {scanDirectory && scanDirectory === directory.trim() && (
                 <>
-                  <SkillPicker projectDir={directory} onSelect={handleSkillSelect} />
+                  <SkillPicker projectDir={scanDirectory} onSelect={handleSkillSelect} />
                   <FileMention
                     textareaRef={textareaRef}
                     onChange={setSpec}
-                    directory={directory}
+                    directory={scanDirectory}
                     onFileSelect={handleFileSelect}
                   />
                 </>
@@ -381,6 +416,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             )}
           </div>
 
+          {presetTaskMissing && (
+            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
+              ! {t('modals.presetTaskMissing')}
+            </div>
+          )}
+
           {error && (
             <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
               ✗ {error}
@@ -395,12 +436,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             onClick={onClose}
             data-testid="pair-cancel-btn"
           >
-            cancel
+            {t('common.cancel')}
           </GlassButton>
           <GlassButton
             type="submit"
             variant="primary"
-            disabled={isLoading}
+            disabled={isLoading || presetTaskMissing}
             data-testid="pair-submit-btn"
           >
             {isLoading ? t('modals.creating') : `▸ ${t('modals.create').toLowerCase()}`}
