@@ -49,7 +49,7 @@ npm run e2e:setup              # One-time: appium driver install mac2
 npm run e2e
 
 # Release
-npm run bump <version>         # Updates package.json + Cargo.toml + tauri.conf.json
+npm run bump <version>         # Updates package.json, package-lock.json, src-tauri/Cargo.toml + Cargo.lock
 npm run validate:changelog
 ```
 
@@ -121,12 +121,12 @@ Set `THE_PAIR_E2E_MOCK=true` (e.g. via `npm run dev:mock`) to short-circuit real
 
 GitHub Actions (`build-signed-mac.yml`) auto-tags and publishes when a version bump lands on `main`. The full flow:
 
-1. `npm run bump <version>` (updates `package.json`, `Cargo.toml`, `tauri.conf.json` in lock-step)
-2. Update `CHANGELOG.md`
+1. `npm run bump <version>` (updates `package.json`, the root entries of `package-lock.json`, the `[package]` version in `src-tauri/Cargo.toml` and the app entry in `src-tauri/Cargo.lock` in lock-step; `tauri.conf.json` reads its version from `package.json`)
+2. Update `CHANGELOG.md` — the heading must start its line as `## [X.Y.Z] - YYYY-MM-DD` and the section must not be empty (the release gate and the release-notes extraction share `scripts/changelog.mjs`)
 3. Run `npm test && npm run typecheck && npm run lint && npm run build`
 4. `git commit -m "chore: bump version to X.Y.Z"` and `git push` — that's it
 
-Never run `git tag` or `git push --tags`. Fallback if the workflow misses the bump: `gh workflow run build-signed-mac.yml`. See `docs/RELEASE_CHECKLIST.md`.
+Never run `git tag` or `git push --tags`. The workflow tags the pushed commit (`--target $GITHUB_SHA`), runs one release at a time (a run queued behind a release skips once the tag exists), and fails rather than overwrite an existing release. Fallback if the workflow misses the bump: `gh workflow run build-signed-mac.yml`. See `docs/RELEASE_CHECKLIST.md`.
 
 ### Version bump keywords (semantic versioning)
 

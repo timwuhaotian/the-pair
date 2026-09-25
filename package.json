@@ -78,9 +78,9 @@
     "build:linux": "npm run tauri:build:linux",
     "prepare": "husky",
     "e2e:setup": "appium driver install mac2",
-    "e2e": "THE_PAIR_E2E_MOCK=true wdio run e2e/wdio.conf.ts",
-    "dev:mock": "THE_PAIR_E2E_MOCK=true npm run dev",
-    "dev:smoke": "THE_PAIR_E2E_MOCK=true THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke npm run dev",
+    "e2e": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true wdio run e2e/wdio.conf.ts",
+    "dev:mock": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true npm run dev",
+    "dev:smoke": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke npm run dev",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {

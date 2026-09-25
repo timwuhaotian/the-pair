@@ -3,11 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>The Pair</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
-    />
+    <!-- No CSP meta tag here: Tauri serves app.security.csp from
+         src-tauri/tauri.conf.json as a header (with hashes for inline
+         scripts). A second, stricter meta policy would be enforced on top of
+         it and block the ipc: custom protocol and blob:/asset: images. -->
     <style>
       /* The Tauri window is launched hidden and revealed only after React paints
          its own BootSplash (see src/renderer/src/main.tsx). These styles only
