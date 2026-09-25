@@ -1,5 +1,6 @@
 import type { AvailableModel } from '../types'
 import { getQualifiedModel, isSelectableForPairExecution } from './modelPreferences'
+import { modelIdsEquivalent } from './providerResolution'
 
 export type AgentRole = 'mentor' | 'executor'
 
@@ -197,31 +198,51 @@ export function defaultLeafForRoute(route: ModelRoute): {
   return { qualifiedId: route.baseQualifiedId, reasoningEffort: undefined }
 }
 
-/** Find which model / route / effort a stored (value, reasoningEffort) pair points at. */
-export function resolveSelection(
+function findSelection(
   models: CanonicalModel[],
-  value: string,
+  matches: (qualifiedId: string) => boolean,
   reasoningEffort?: string
-): ResolvedSelection {
+): ResolvedSelection | undefined {
   for (const model of models) {
     for (const route of model.routes) {
       if (route.effortOptions.length > 0) {
         const exact = route.effortOptions.find(
           (option) =>
-            option.qualifiedId === value &&
+            matches(option.qualifiedId) &&
             (option.reasoningEffort === undefined || option.reasoningEffort === reasoningEffort)
         )
         if (exact) return { model, route, effort: exact }
-        if (route.effortOptions.some((option) => option.qualifiedId === value)) {
+        if (route.effortOptions.some((option) => matches(option.qualifiedId))) {
           // Same model id, effort flag not matched yet (e.g. an unset Codex effort).
           return { model, route, effort: undefined }
         }
-      } else if (route.baseQualifiedId === value) {
+      } else if (matches(route.baseQualifiedId)) {
         return { model, route, effort: undefined }
       }
     }
   }
-  return {}
+  return undefined
+}
+
+/**
+ * Find which model / route / effort a stored (value, reasoningEffort) pair points at.
+ * `value` is normally a qualified id; legacy bare ids stored by older builds
+ * (`gpt-5` for `codex/gpt-5`) are matched when no qualified id does.
+ */
+export function resolveSelection(
+  models: CanonicalModel[],
+  value: string,
+  reasoningEffort?: string
+): ResolvedSelection {
+  return (
+    findSelection(models, (qualifiedId) => qualifiedId === value, reasoningEffort) ??
+    findSelection(
+      models,
+      (qualifiedId) => modelIdsEquivalent(qualifiedId, value),
+      reasoningEffort
+    ) ??
+    {}
+  )
 }
 
 function getLastRouteKey(role: AgentRole, canonicalKey: string): string | undefined {

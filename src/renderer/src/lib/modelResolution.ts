@@ -5,6 +5,8 @@ export type PairLike = {
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
 }
 
 export type ModelOverrides = {
@@ -38,17 +40,17 @@ export function getAssignableTaskModels(
  * Strip the provider prefix from a qualified model ID.
  *
  * The frontend uses "qualified" IDs like `claude/claude-haiku-4-5-20251001`
- * for model selection and localStorage. The backend and CLI tools expect bare
- * IDs (e.g. `claude-haiku-4-5-20251001`). OpenCode IDs already use
- * `provider/model` format internally and must not be stripped.
+ * for model selection and localStorage. Only providers whose bare ids always
+ * self-identify (Claude, Gemini) are sent bare. Every other qualifier must
+ * survive: Codex `codex-*` slugs, Grok aliases, the Muse settings model and
+ * Kimi/Pi/Kiro/Aider aliases carry no provider keyword, so the backend would
+ * re-infer them as OpenCode. The Rust providers strip their own qualifier at
+ * spawn time. OpenCode IDs already use `provider/model` format internally.
  */
 function stripProviderPrefix(qualifiedId: string): string {
   if (qualifiedId.includes('/')) {
     const [prefix, ...rest] = qualifiedId.split('/')
-    // `kimi` is deliberately absent: Kimi aliases are arbitrary user-defined
-    // names, so the `kimi/` qualifier must survive in stored ids for provider
-    // re-inference. The Rust provider strips it at spawn time instead.
-    if (['claude', 'codex', 'gemini', 'grok', 'muse'].includes(prefix) && rest.length > 0) {
+    if (['claude', 'gemini'].includes(prefix) && rest.length > 0) {
       return rest.join('/')
     }
   }
@@ -59,11 +61,15 @@ export function buildUpdateModelsPayload(
   pair: PairLike,
   effectiveModels: { mentorModel: string; executorModel: string }
 ): PairModelSelection {
+  // `pair_update_models` overwrites the reasoning efforts with whatever the
+  // payload carries, so the current ones must be sent back or they are cleared.
   return {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
     pendingMentorModel: stripProviderPrefix(effectiveModels.mentorModel),
-    pendingExecutorModel: stripProviderPrefix(effectiveModels.executorModel)
+    pendingExecutorModel: stripProviderPrefix(effectiveModels.executorModel),
+    mentorReasoningEffort: pair.mentorReasoningEffort,
+    executorReasoningEffort: pair.executorReasoningEffort
   }
 }
 

@@ -132,6 +132,24 @@ const viewOnlyGeminiModel: AvailableModel = {
   recommendedRoles: ['mentor', 'executor']
 }
 
+test('getPreferredQualifiedModel resolves a legacy bare preference to its qualified id', () => {
+  const readyCodexModel: AvailableModel = {
+    ...readyOpenCodeModel,
+    provider: 'codex',
+    modelId: 'gpt-5.5',
+    providerLabel: 'Codex'
+  }
+  const restore = installLocalStorage({ 'the-pair-preferred-mentor-model': 'gpt-5.5' })
+  try {
+    assert.equal(
+      getPreferredQualifiedModel('mentor', [readyOpenCodeModel, readyCodexModel]),
+      'codex/gpt-5.5'
+    )
+  } finally {
+    restore()
+  }
+})
+
 test('isSelectableForPairExecution returns false for view-only models', () => {
   assert.equal(isSelectableForPairExecution(readyOpenCodeModel), true)
   assert.equal(isSelectableForPairExecution(unavailableClaudeModel), false)

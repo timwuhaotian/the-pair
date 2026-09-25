@@ -5,6 +5,7 @@ import {
   buildExecutorAcceptanceFollowupPrompt,
   buildMentorAcceptanceRepairPrompt,
   buildMentorAcceptancePrompt,
+  findBalancedObjectSpans,
   isAcceptanceVerdictContent,
   parseAcceptanceVerdict,
   parseAcceptanceVerdictForDisplay,
@@ -339,4 +340,89 @@ test('parseAcceptanceRecordForDisplay throws on invalid risk', () => {
     ]
   })
   assert.throws(() => parseAcceptanceRecordForDisplay(badRisk))
+})
+
+// ── brace scanning (quadratic-time regression) ─────────
+
+/** The original per-`{` scan, kept as the reference the linear version must match. */
+function referenceSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== '{') continue
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let j = i; j < text.length; j += 1) {
+      const char = text[j]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (char === '\\') escaped = true
+        else if (char === '"') inString = false
+        continue
+      }
+      if (char === '"') {
+        inString = true
+        continue
+      }
+      if (char === '{') depth += 1
+      else if (char === '}') {
+        depth -= 1
+        if (depth === 0) {
+          spans.push([i, j])
+          break
+        }
+      }
+    }
+  }
+  return spans
+}
+
+test('findBalancedObjectSpans matches the per-brace reference scan', () => {
+  const fixed = [
+    '',
+    '{}',
+    '{ {}',
+    'code { x } then {"verdict":"pass","n":{"a":1}}',
+    'function f() { if (x) { return "}" } {"a":"{"}',
+    '{"s":"{\\"a\\":1}"} tail {',
+    '{"a":"\\\\"}{"b":2}',
+    '"{"{"{"}"}"}'
+  ]
+  for (const text of fixed) {
+    assert.deepEqual(findBalancedObjectSpans(text), referenceSpans(text), JSON.stringify(text))
+  }
+
+  // Deterministic fuzz over the characters that drive the state machine.
+  const alphabet = ['{', '}', '"', '\\', 'a', ' ', ':']
+  let seed = 42
+  const next = (): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed
+  }
+  for (let round = 0; round < 2000; round += 1) {
+    const length = next() % 40
+    let text = ''
+    for (let k = 0; k < length; k += 1) text += alphabet[next() % alphabet.length]
+    assert.deepEqual(findBalancedObjectSpans(text), referenceSpans(text), JSON.stringify(text))
+  }
+})
+
+test('verdict detection stays fast on long input full of unbalanced braces', () => {
+  const code = 'if (x) {\n'.repeat(5000)
+  const verdict = JSON.stringify({
+    verdict: 'pass',
+    risk: 'low',
+    confidence: 0.9,
+    issues: [],
+    evidence: ['tests pass'],
+    reasoning: 'ok',
+    summary: 'done',
+    nextStep: { action: 'finish', instructions: [] }
+  })
+  const started = performance.now()
+  assert.equal(isAcceptanceVerdictContent(code), false)
+  assert.equal(isAcceptanceRecordContent(code), false)
+  // The JSON after unbalanced code is still found.
+  assert.equal(parseAcceptanceVerdictForDisplay(`${code}\n${verdict}`).verdict, 'pass')
+  assert.ok(performance.now() - started < 250, 'linear scan')
 })

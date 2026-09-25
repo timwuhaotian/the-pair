@@ -5,7 +5,9 @@ import type { AvailableModel } from '../src/renderer/src/types.ts'
 import {
   buildAgentConfig,
   getModelByQualifiedId,
-  inferProviderFromModel
+  inferProviderFromModel,
+  modelIdsEquivalent,
+  resolveModelProvider
 } from '../src/renderer/src/lib/providerResolution.ts'
 
 const readyOpenCodeModel: AvailableModel = {
@@ -168,7 +170,7 @@ test('buildAgentConfig keeps the aider qualifier in the stored model id', () => 
   })
 })
 
-test('buildAgentConfig stores the bare grok model id', () => {
+test('buildAgentConfig keeps the grok qualifier in the stored model id', () => {
   const readyGrokModel: AvailableModel = {
     ...readyClaudeModel,
     provider: 'grok',
@@ -183,12 +185,124 @@ test('buildAgentConfig stores the bare grok model id', () => {
   }
   const config = buildAgentConfig('executor', 'grok/grok-4.6', [readyGrokModel])
 
-  // Bare grok ids are self-identifying via the grok keyword, so the
-  // qualifier is dropped and re-inferred from the bare id.
   assert.deepEqual(config, {
     role: 'executor',
     provider: 'grok',
-    model: 'grok-4.6'
+    model: 'grok/grok-4.6'
   })
   assert.equal(inferProviderFromModel(config.model), 'grok')
+
+  // A custom `[model.<alias>]` alias has no grok keyword; only the qualifier routes it.
+  const alias = buildAgentConfig('executor', 'grok/fast', [{ ...readyGrokModel, modelId: 'fast' }])
+  assert.equal(alias.model, 'grok/fast')
+  assert.equal(inferProviderFromModel(alias.model), 'grok')
+})
+
+const readyCodexModel: AvailableModel = {
+  ...readyClaudeModel,
+  provider: 'codex',
+  modelId: 'codex-mini-latest',
+  displayName: 'Codex Mini',
+  providerLabel: 'Codex',
+  sourceProvider: 'openai',
+  sourceProviderLabel: 'OpenAI',
+  accessLabel: 'Codex login'
+}
+
+test('buildAgentConfig keeps the codex qualifier so codex-* slugs never route to opencode', () => {
+  const config = buildAgentConfig('mentor', 'codex/codex-mini-latest', [readyCodexModel])
+  assert.deepEqual(config, {
+    role: 'mentor',
+    provider: 'codex',
+    model: 'codex/codex-mini-latest'
+  })
+  assert.equal(inferProviderFromModel(config.model), 'codex')
+})
+
+test('buildAgentConfig still stores bare claude and gemini ids', () => {
+  const gemini: AvailableModel = {
+    ...readyClaudeModel,
+    provider: 'gemini',
+    modelId: 'gemini-2.5-pro'
+  }
+  assert.equal(
+    buildAgentConfig('mentor', 'gemini/gemini-2.5-pro', [gemini]).model,
+    'gemini-2.5-pro'
+  )
+  assert.equal(buildAgentConfig('mentor', 'claude/sonnet', [readyClaudeModel]).model, 'sonnet')
+})
+
+test('inferProviderFromModel is case-insensitive and routes the codex- prefix (Rust lockstep)', () => {
+  // Antigravity display-name ids are capitalized.
+  assert.equal(inferProviderFromModel('Gemini 3.5 Flash (Low)'), 'gemini')
+  assert.equal(inferProviderFromModel('Claude-Opus-5'), 'claude')
+  assert.equal(inferProviderFromModel('GPT-5.5'), 'codex')
+  assert.equal(inferProviderFromModel('O3-mini'), 'codex')
+  assert.equal(inferProviderFromModel('Codex/gpt-5'), 'codex')
+  assert.equal(inferProviderFromModel('GROK/fast'), 'grok')
+  assert.equal(inferProviderFromModel('codex-mini-latest'), 'codex')
+  assert.equal(inferProviderFromModel('Codex-Mini-Latest'), 'codex')
+  // Unknown slashed ids and plain aliases still fall back to opencode.
+  assert.equal(inferProviderFromModel('anthropic/claude-sonnet-4'), 'opencode')
+  assert.equal(inferProviderFromModel('opencode'), 'opencode')
+  assert.equal(inferProviderFromModel('OpenCode'), 'opencode')
+  assert.equal(inferProviderFromModel('fast'), 'opencode')
+  // Keywords win over the codex- prefix (same order as Rust).
+  assert.equal(inferProviderFromModel('codex-claude-bridge'), 'claude')
+})
+
+test('inferProviderFromModel mirrors the Rust infer_provider_kind cases', () => {
+  assert.equal(inferProviderFromModel('codex-mini-latest'), 'codex')
+  assert.equal(inferProviderFromModel('Gemini 3.5 Flash (Low)'), 'gemini')
+  assert.equal(inferProviderFromModel('CODEX/gpt-5'), 'codex')
+  assert.equal(inferProviderFromModel('grok/my-model'), 'grok')
+})
+
+test('getModelByQualifiedId accepts qualified ids and legacy bare ids', () => {
+  const grok: AvailableModel = { ...readyClaudeModel, provider: 'grok', modelId: 'fast' }
+  const models = [readyOpenCodeModel, readyClaudeModel, readyCodexModel, grok]
+
+  assert.equal(getModelByQualifiedId(models, 'codex/codex-mini-latest'), readyCodexModel)
+  // Ids stored by older builds (bare codex/grok/muse/claude/gemini ids).
+  assert.equal(getModelByQualifiedId(models, 'codex-mini-latest'), readyCodexModel)
+  assert.equal(getModelByQualifiedId(models, 'fast'), grok)
+  assert.equal(getModelByQualifiedId(models, 'sonnet'), readyClaudeModel)
+  // OpenCode ids are matched as-is and win over a same-named legacy bare id.
+  assert.equal(getModelByQualifiedId(models, 'gpt-4o-mini'), readyOpenCodeModel)
+  // Kimi/Pi/Kiro/Aider were always stored qualified: no bare fallback for them.
+  const kimi: AvailableModel = { ...readyClaudeModel, provider: 'kimi', modelId: 'k3' }
+  assert.equal(getModelByQualifiedId([kimi], 'k3'), undefined)
+  assert.equal(getModelByQualifiedId([kimi], 'kimi/k3'), kimi)
+})
+
+test('getModelByQualifiedId prefers the inferred provider for an ambiguous bare id', () => {
+  const codexGpt: AvailableModel = { ...readyCodexModel, modelId: 'gpt-5' }
+  const museGpt: AvailableModel = { ...readyClaudeModel, provider: 'muse', modelId: 'gpt-5' }
+  assert.equal(getModelByQualifiedId([museGpt, codexGpt], 'gpt-5'), codexGpt)
+})
+
+test('modelIdsEquivalent treats a qualified id and its legacy bare id as the same model', () => {
+  assert.equal(modelIdsEquivalent('codex/gpt-5', 'gpt-5'), true)
+  assert.equal(modelIdsEquivalent('gpt-5', 'codex/gpt-5'), true)
+  assert.equal(modelIdsEquivalent('claude/sonnet', 'claude/sonnet'), true)
+  assert.equal(modelIdsEquivalent('codex/gpt-5', 'claude/gpt-5'), false)
+  assert.equal(modelIdsEquivalent('kimi/k3', 'k3'), false)
+  assert.equal(modelIdsEquivalent('anthropic/claude-x', 'claude-x'), false)
+})
+
+test('resolveModelProvider keeps the known provider for an unchanged model', () => {
+  const grok: AvailableModel = { ...readyClaudeModel, provider: 'grok', modelId: 'fast' }
+  // Unchanged (even across qualified/bare spelling): the stored provider wins,
+  // no catalog needed.
+  assert.equal(resolveModelProvider([], 'fast', { modelId: 'grok/fast', provider: 'grok' }), 'grok')
+  // Changed: the catalog decides…
+  assert.equal(
+    resolveModelProvider([grok], 'grok/fast', { modelId: 'claude/sonnet', provider: 'claude' }),
+    'grok'
+  )
+  // …falling back to inference when the catalog doesn't list the model.
+  assert.equal(
+    resolveModelProvider([], 'codex/gpt-5', { modelId: 'claude/sonnet', provider: 'claude' }),
+    'codex'
+  )
 })

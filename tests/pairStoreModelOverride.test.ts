@@ -376,25 +376,50 @@ test('transactional: no backend mutation when no overrides (safe on failure)', (
   // No rollback needed because we never mutated backend state
 })
 
-test('payload: buildUpdateModelsPayload strips provider prefix from qualified IDs', () => {
+test('payload: buildUpdateModelsPayload strips only self-identifying provider prefixes', () => {
   const pair: PairLike = {
     mentorModel: 'default-mentor',
     executorModel: 'default-executor'
   }
 
-  // Simulates the bug path: frontend sends qualified IDs like "claude/claude-haiku-4-5-20251001"
-  const effective = {
+  // Claude/Gemini bare ids always re-infer correctly, so their qualifier is dropped.
+  const payload = buildUpdateModelsPayload(pair, {
     mentorModel: 'claude/claude-haiku-4-5-20251001',
-    executorModel: 'codex/o3-mini'
-  }
-  const payload = buildUpdateModelsPayload(pair, effective)
-
+    executorModel: 'gemini/gemini-2.5-pro'
+  })
   assert.equal(
     payload.pendingMentorModel,
     'claude-haiku-4-5-20251001',
     'claude prefix should be stripped'
   )
-  assert.equal(payload.pendingExecutorModel, 'o3-mini', 'codex prefix should be stripped')
+  assert.equal(payload.pendingExecutorModel, 'gemini-2.5-pro', 'gemini prefix should be stripped')
+
+  // Codex/Grok/Muse ids can be keyword-free (`codex-mini-latest`, grok aliases, the Muse
+  // settings model): stripping them made the backend re-infer OpenCode.
+  const kept = buildUpdateModelsPayload(pair, {
+    mentorModel: 'codex/codex-mini-latest',
+    executorModel: 'grok/fast'
+  })
+  assert.equal(kept.pendingMentorModel, 'codex/codex-mini-latest')
+  assert.equal(kept.pendingExecutorModel, 'grok/fast')
+})
+
+test('payload: buildUpdateModelsPayload carries the current reasoning efforts', () => {
+  // pair_update_models overwrites both efforts with the payload's values, so
+  // omitting them silently reset the agents to the default effort.
+  const pair: PairLike = {
+    mentorModel: 'codex/gpt-5.5',
+    executorModel: 'claude-opus-5',
+    mentorReasoningEffort: 'high',
+    executorReasoningEffort: 'low'
+  }
+  const payload = buildUpdateModelsPayload(pair, {
+    mentorModel: 'codex/gpt-5.5',
+    executorModel: 'claude/claude-sonnet-5'
+  })
+  assert.equal(payload.mentorReasoningEffort, 'high')
+  assert.equal(payload.executorReasoningEffort, 'low')
+  assert.equal(payload.pendingExecutorModel, 'claude-sonnet-5')
 })
 
 test('payload: buildUpdateModelsPayload preserves bare model IDs unchanged', () => {

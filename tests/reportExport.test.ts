@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildReportFileName,
   escapeHtml,
   generateHtmlReport,
   generateMarkdownReport,
@@ -105,4 +106,97 @@ test('generateHtmlReport produces valid HTML with escaped pair name', () => {
   const html = generateHtmlReport(makeTimeline())
   assert.ok(html.startsWith('<!DOCTYPE html>'))
   assert.ok(html.includes('Test'))
+})
+
+// ── XSS via entity-encoded / obfuscated schemes ────────
+
+test('isUnsafeHref decodes entities and strips whitespace before the scheme check', () => {
+  for (const href of [
+    'javascript&#58;alert(document.domain)',
+    'javascript&#x3A;alert(1)',
+    'javascript&colon;alert(1)',
+    'JAVASCRIPT&COLON;alert(1)',
+    'java&#x09;script:alert(1)',
+    'java&Tab;script:alert(1)',
+    'java\tscript:alert(1)',
+    'java\nscript:alert(1)',
+    '\u0001javascript:alert(1)',
+    '&#106;avascript:alert(1)',
+    'vbscript&#58;msgbox(1)',
+    'data:image/svg+xml,<svg onload=alert(1)>',
+    'file:///etc/passwd'
+  ]) {
+    assert.equal(isUnsafeHref(href), true, href)
+  }
+})
+
+test('isUnsafeHref allows http(s), mailto, anchors and relative links', () => {
+  for (const href of [
+    'https://example.com/a?b=c#d',
+    'HTTP://example.com',
+    'mailto:dev@example.com',
+    '#section-2',
+    'docs/readme.md',
+    './a/b',
+    '../up',
+    '/abs/path',
+    '?q=1'
+  ]) {
+    assert.equal(isUnsafeHref(href), false, href)
+  }
+})
+
+function timelineWithContent(content: string): TimelineData {
+  const timeline = makeTimeline()
+  timeline.iterations[0].events = [
+    {
+      id: 'e1',
+      type: 'mentor-plan',
+      iteration: 1,
+      from: 'mentor',
+      timestamp: 1700000000000,
+      title: 'Mentor Plan',
+      summary: 'summary',
+      // Long enough to render the markdown detail section.
+      content: `${'x'.repeat(130)}\n\n${content}`
+    }
+  ]
+  return timeline
+}
+
+test('generateHtmlReport neutralizes encoded javascript: links, incl. reference-style ones', () => {
+  const html = generateHtmlReport(
+    timelineWithContent(
+      [
+        '[inline](javascript&#58;alert(document.domain))',
+        '[tab](java&#x09;script:alert(1))',
+        '[named](javascript&colon;alert(1))',
+        '[ref-style][evil]',
+        '[ok](https://example.com)',
+        '',
+        '[evil]: javascript&#58;alert(2)'
+      ].join('\n')
+    )
+  )
+  const hrefs = [...html.matchAll(/<a href="([^"]*)"/g)].map((match) => match[1])
+  assert.deepEqual(hrefs, ['#', '#', '#', '#', 'https://example.com'])
+  assert.ok(!/javascript/i.test(hrefs.join(' ')))
+})
+
+// ── Export file name ───────────────────────────────────
+
+test('buildReportFileName uses the local date, not the UTC date', () => {
+  // 00:30 local time on Jan 2 — in any timezone east of UTC this is still Jan 1 in UTC.
+  const now = new Date(2026, 0, 2, 0, 30)
+  assert.equal(buildReportFileName('My Pair', now), 'pair-report-my-pair-2026-01-02.html')
+})
+
+test('buildReportFileName strips path separators and reserved characters from the pair name', () => {
+  const now = new Date(2026, 8, 25, 12, 0)
+  assert.equal(
+    buildReportFileName('feat/login: fix <auth>?', now),
+    'pair-report-feat-login-fix-auth-2026-09-25.html'
+  )
+  assert.equal(buildReportFileName('..\\..\\etc', now), 'pair-report-etc-2026-09-25.html')
+  assert.equal(buildReportFileName('///', now), 'pair-report-pair-2026-09-25.html')
 })
