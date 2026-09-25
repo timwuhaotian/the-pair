@@ -101,9 +101,7 @@ impl Provider for ClaudeProvider {
             .and_then(|v| v.as_u64())
             .or_else(|| usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()))
             .map(|uncached| {
-                uncached
-                    + cached("cache_creation_input_tokens")
-                    + cached("cache_read_input_tokens")
+                uncached + cached("cache_creation_input_tokens") + cached("cache_read_input_tokens")
             });
 
         Some(TurnTokenUsage {
@@ -129,6 +127,12 @@ impl Provider for ClaudeProvider {
             collect_claude_assistant_text_blocks(event, &mut out);
         }
         Some(out)
+    }
+
+    fn final_output_text(&self, event: &Value) -> Option<String> {
+        // The non-error `result` event holds the whole reply; assistant text
+        // blocks before it are narration between tool calls.
+        extract_claude_final_output(event)
     }
 
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
@@ -196,10 +200,17 @@ impl Provider for ClaudeProvider {
         {
             let tools: Vec<String> = denials
                 .iter()
-                .filter_map(|d| d.get("tool_name").and_then(|t| t.as_str()).map(String::from))
+                .filter_map(|d| {
+                    d.get("tool_name")
+                        .and_then(|t| t.as_str())
+                        .map(String::from)
+                })
                 .collect();
             if !tools.is_empty() {
-                return Some(format!("Permission denied for tool(s): {}", tools.join(", ")));
+                return Some(format!(
+                    "Permission denied for tool(s): {}",
+                    tools.join(", ")
+                ));
             }
             return Some("Claude Code reported permission denials".to_string());
         }
@@ -442,7 +453,8 @@ mod tests {
             .contains("auto mode is unavailable"));
 
         for mode in ["auto", "plan"] {
-            let init = serde_json::json!({"type": "system", "subtype": "init", "permissionMode": mode});
+            let init =
+                serde_json::json!({"type": "system", "subtype": "init", "permissionMode": mode});
             assert!(provider.extract_error_detail(&init).is_none());
         }
     }

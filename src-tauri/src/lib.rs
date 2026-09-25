@@ -49,8 +49,17 @@ fn show_main_window(app: AppHandle) {
 }
 
 #[tauri::command]
-fn git_get_file_diff(directory: String, file_path: String, status: String) -> Result<String, String> {
-    git_tracker::GitTracker::get_file_diff(&directory, &file_path, &status)
+async fn git_get_file_diff(
+    directory: String,
+    file_path: String,
+    status: String,
+) -> Result<String, String> {
+    // Off the main thread: diffs (and untracked-file reads) can be slow.
+    tauri::async_runtime::spawn_blocking(move || {
+        git_tracker::GitTracker::get_file_diff(&directory, &file_path, &status)
+    })
+    .await
+    .map_err(|e| format!("Diff task failed: {}", e))?
 }
 
 fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
@@ -93,6 +102,13 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Resolve PATH before anything else runs: the first model detection must
+    // see the login-shell PATH (CLIs only on it were reported missing and
+    // cached that way), and changing the environment is only sound while this
+    // is still the only thread. The login-shell capture is bounded.
+    path_env::apply_fallback_path();
+    path_env::refresh_path_from_login_shell();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -101,8 +117,6 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            path_env::apply_fallback_path();
-            std::thread::spawn(path_env::refresh_path_from_login_shell);
             setup_menu(app.handle())?;
 
             let broker = app.state::<Mutex<MessageBroker>>();

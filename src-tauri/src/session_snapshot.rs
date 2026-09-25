@@ -13,8 +13,11 @@ use crate::types::{
 };
 use crate::util::{build_mentor_planning_prompt, now_millis};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Manager, State};
 
 const SNAPSHOT_VERSION: u32 = 2;
@@ -48,6 +51,8 @@ pub struct SnapshotRunSummary {
     pub mentor_model: String,
     pub executor_model: String,
     pub iterations: u32,
+    /// Absent in snapshots written before run history kept messages.
+    #[serde(default)]
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_output_tokens: Option<u64>,
@@ -60,6 +65,8 @@ pub struct SnapshotRunSummary {
 pub struct SnapshotProcessContext {
     pub mentor_session_id: Option<String>,
     pub executor_session_id: Option<String>,
+    /// Absent in snapshots written before v1.3.5.
+    #[serde(default)]
     pub run_generation: u32,
     #[serde(default)]
     pub is_smoke_test: bool,
@@ -371,11 +378,57 @@ pub(crate) fn ensure_snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Serializes every read-modify-write of one pair's snapshot file (the
+/// backend writer, frontend saves and deletion), so concurrent writers can't
+/// interleave and a delete can't be undone by a persist already in flight.
+fn snapshot_lock(pair_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(pair_id.to_string())
+        .or_default()
+        .clone()
+}
+
+/// Serializes read-modify-write of the shared `index.json`.
+static INDEX_LOCK: Mutex<()> = Mutex::new(());
+
 fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<(), String> {
-    let tmp_path = path.with_extension("tmp");
     let payload = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
-    fs::write(&tmp_path, payload).map_err(|e| format!("Failed to write snapshot: {}", e))?;
-    fs::rename(&tmp_path, path).map_err(|e| format!("Failed to move snapshot into place: {}", e))
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("snapshot");
+    // A unique temp name per write: two writers never share (and truncate)
+    // the same temp file. It doesn't end in `.json`, so scans skip it.
+    let tmp_path = path.with_file_name(format!(".{}.{}.tmp", file_name, uuid::Uuid::new_v4()));
+
+    let result = (|| {
+        let mut file =
+            fs::File::create(&tmp_path).map_err(|e| format!("Failed to write snapshot: {}", e))?;
+        file.write_all(&payload)
+            .map_err(|e| format!("Failed to write snapshot: {}", e))?;
+        // Flush to disk before the rename makes it visible, so a crash can't
+        // leave a renamed-but-empty file.
+        file.sync_all()
+            .map_err(|e| format!("Failed to flush snapshot: {}", e))?;
+        fs::rename(&tmp_path, path)
+            .map_err(|e| format!("Failed to move snapshot into place: {}", e))
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    } else {
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            if let Ok(dir) = fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
+    }
+    result
 }
 
 pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
@@ -467,6 +520,11 @@ fn scan_snapshot_files(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>
 }
 
 fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
+    let _index_guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    load_summaries_unlocked(app)
+}
+
+fn load_summaries_unlocked(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
     match load_index(app) {
         Ok(from_index) if !from_index.is_empty() => return Ok(from_index),
         Ok(_) => {}
@@ -486,11 +544,13 @@ fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, Str
 }
 
 fn delete_pair_snapshot_in_dir(snapshot_dir: &Path, pair_id: &str) -> Result<(), String> {
+    validate_pair_id(pair_id)?;
     let path = snapshot_file_path_in_dir(snapshot_dir, pair_id);
     if path.exists() {
         let _ = fs::remove_file(&path);
     }
 
+    let _index_guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let index_path = snapshot_index_path_in_dir(snapshot_dir);
     if !index_path.exists() {
         return Ok(());
@@ -506,12 +566,16 @@ fn delete_pair_snapshot_in_dir(snapshot_dir: &Path, pair_id: &str) -> Result<(),
     Ok(())
 }
 
+/// Write a pair's snapshot and update the index. Callers hold the pair's
+/// `snapshot_lock`.
 fn upsert_snapshot_record(app: &AppHandle, snapshot: &SessionSnapshotRecord) -> Result<(), String> {
+    validate_pair_id(&snapshot.pair_id)?;
     let path = snapshot_path_for_pair(app, &snapshot.pair_id)?;
     ensure_snapshot_dir(app)?;
     write_json_atomic(&path, snapshot)?;
 
-    let mut summaries = load_summaries(app).unwrap_or_default();
+    let _index_guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut summaries = load_summaries_unlocked(app).unwrap_or_default();
     let summary = snapshot.to_summary();
     summaries.retain(|entry| entry.pair_id != summary.pair_id);
     summaries.push(summary);
@@ -589,18 +653,23 @@ impl SessionSnapshotRecord {
 }
 
 fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
-    let directory = if let Some(ref wt_path) = snapshot.worktree_path {
-        if Path::new(wt_path).exists() {
-            wt_path.clone()
-        } else {
+    let directory = match snapshot.worktree_path.as_ref() {
+        Some(wt_path) if Path::new(wt_path).exists() => wt_path.clone(),
+        Some(wt_path) => {
+            // For worktree pairs `directory` *is* the worktree path, so the
+            // only meaningful fallback is the repository it came from.
+            let fallback = snapshot
+                .repo_path
+                .clone()
+                .filter(|repo| Path::new(repo).exists())
+                .unwrap_or_else(|| snapshot.directory.clone());
             println!(
-                "[session_snapshot] Worktree path '{}' no longer exists, falling back to directory '{}'",
-                wt_path, snapshot.directory
+                "[session_snapshot] Worktree path '{}' no longer exists, falling back to '{}'",
+                wt_path, fallback
             );
-            snapshot.directory.clone()
+            fallback
         }
-    } else {
-        snapshot.directory.clone()
+        None => snapshot.directory.clone(),
     };
     ProcessContext {
         directory,
@@ -705,6 +774,8 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
             .and_then(|tc| tc.cognitive_events.clone())
             .unwrap_or_default(),
         plan_gate: snapshot.plan_gate,
+        task_spec: snapshot.spec.clone(),
+        run_started_at: Some(snapshot.current_run_started_at),
     }
 }
 
@@ -770,12 +841,18 @@ fn build_snapshot_from_state(
         pair_id: pair.pair_id.clone(),
         name: pair.name.clone(),
         directory: pair.directory.clone(),
-        spec: state
-            .messages
-            .iter()
-            .find(|message| matches!(message.from, MessageSender::Human) && message.to == "mentor")
-            .map(|message| message.content.clone())
-            .unwrap_or_default(),
+        spec: if state.task_spec.trim().is_empty() {
+            state
+                .messages
+                .iter()
+                .find(|message| {
+                    matches!(message.from, MessageSender::Human) && message.to == "mentor"
+                })
+                .map(|message| message.content.clone())
+                .unwrap_or_default()
+        } else {
+            state.task_spec.clone()
+        },
         status: state.status.clone(),
         iterations: state.iteration,
         max_iterations: state.max_iterations,
@@ -805,12 +882,12 @@ fn build_snapshot_from_state(
         current_turn_card,
         run_count: 1,
         run_history: Vec::new(),
-        current_run_started_at: now_millis(),
-        current_run_finished_at: matches!(
-            state.status,
-            PairStatus::Paused | PairStatus::Error | PairStatus::Finished
-        )
-        .then(now_millis),
+        current_run_started_at: state.run_started_at.unwrap_or_else(now_millis),
+        current_run_finished_at: match state.status {
+            PairStatus::Finished => Some(state.finished_at.unwrap_or_else(now_millis)),
+            PairStatus::Paused | PairStatus::Error => Some(now_millis()),
+            _ => None,
+        },
         created_at: pair.created_at,
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
@@ -899,31 +976,24 @@ fn snapshot_path_for_pair(app: &AppHandle, pair_id: &str) -> Result<PathBuf, Str
     Ok(snapshot_dir(app)?.join(format!("{}.json", pair_id)))
 }
 
-pub fn persist_pair_snapshot_from_state(
-    app: &AppHandle,
-    pair_id: &str,
+/// Fold the backend's live state into a pair's snapshot. The backend owns
+/// status, turn, iteration, verdicts, activity and provider sessions; fields
+/// the renderer owns (run history and count, the live turn card, pending
+/// models, the plan-gate flag, and messages only the renderer has, such as
+/// the human mission card) are kept rather than replaced with empty data.
+fn merge_state_into_snapshot(
+    snapshot: &mut SessionSnapshotRecord,
+    pair: &Pair,
     state: &PairState,
-) -> Result<(), String> {
-    validate_pair_id(pair_id)?;
-    let pair_manager = app.state::<std::sync::Mutex<PairManager>>();
-    let manager = pair_manager.lock().map_err(|e| e.to_string())?;
-    let pair = manager
-        .get_pair(pair_id)
-        .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-    drop(manager);
-
-    let spawner = app.state::<ProcessSpawner>();
-    let context = {
-        let contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
-        contexts.get(pair_id).cloned()
-    };
-
-    let mut snapshot = match read_snapshot(app, pair_id) {
-        Ok(existing) => existing,
-        Err(_) => build_snapshot_from_state(&pair, state, context.as_ref()),
-    };
-
-    snapshot.saved_at = now_millis();
+    context: Option<&ProcessContext>,
+) {
+    let now = now_millis();
+    snapshot.saved_at = now;
+    snapshot.name = pair.name.clone();
+    snapshot.directory = pair.directory.clone();
+    if !state.task_spec.trim().is_empty() {
+        snapshot.spec = state.task_spec.clone();
+    }
     snapshot.status = state.status.clone();
     snapshot.iterations = state.iteration;
     snapshot.max_iterations = state.max_iterations;
@@ -932,9 +1002,30 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.mentor_model = pair.mentor_model.clone();
     snapshot.executor_provider = Some(pair.executor_provider);
     snapshot.executor_model = pair.executor_model.clone();
+    if pair.pending_mentor_model.is_some() {
+        snapshot.pending_mentor_model = pair.pending_mentor_model.clone();
+    }
+    if pair.pending_executor_model.is_some() {
+        snapshot.pending_executor_model = pair.pending_executor_model.clone();
+    }
     snapshot.mentor_reasoning_effort = pair.mentor_reasoning_effort.clone();
     snapshot.executor_reasoning_effort = pair.executor_reasoning_effort.clone();
-    snapshot.messages = state.messages.clone();
+
+    // Messages: the broker's history plus renderer-only messages of the
+    // current run (older ones belong to archived runs).
+    let backend_ids: std::collections::HashSet<&str> =
+        state.messages.iter().map(|m| m.id.as_str()).collect();
+    let run_started_at = state.run_started_at.unwrap_or(0);
+    let mut messages: Vec<Message> = snapshot
+        .messages
+        .iter()
+        .filter(|m| !backend_ids.contains(m.id.as_str()) && m.timestamp >= run_started_at)
+        .cloned()
+        .collect();
+    messages.extend(state.messages.iter().cloned());
+    messages.sort_by_key(|m| m.timestamp);
+    snapshot.messages = messages;
+
     snapshot.mentor_activity = state.mentor_activity.clone();
     snapshot.executor_activity = state.executor_activity.clone();
     snapshot.mentor_cpu = state.resources.mentor.cpu;
@@ -948,44 +1039,88 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.automation_mode = state.automation_mode.clone();
     snapshot.latest_acceptance = state.latest_acceptance.clone();
     snapshot.acceptance_history = state.acceptance_history.clone();
-    if snapshot.current_run_finished_at.is_none()
-        && matches!(
-            state.status,
-            PairStatus::Paused | PairStatus::Error | PairStatus::Finished
-        )
-    {
-        snapshot.current_run_finished_at = Some(now_millis());
+
+    if let Some(started) = state.run_started_at {
+        snapshot.current_run_started_at = started;
     }
-    snapshot.provider_sessions = SnapshotProcessContext {
-        mentor_session_id: context
-            .as_ref()
-            .and_then(|ctx| ctx.mentor_session_id.clone()),
-        executor_session_id: context
-            .as_ref()
-            .and_then(|ctx| ctx.executor_session_id.clone()),
-        run_generation: context.as_ref().map(|ctx| ctx.run_generation).unwrap_or(0),
-        is_smoke_test: context
-            .as_ref()
-            .map(|ctx| ctx.is_smoke_test)
-            .unwrap_or(false),
+    snapshot.current_run_finished_at = match state.status {
+        PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing => None,
+        PairStatus::Finished => Some(
+            state
+                .finished_at
+                .or(snapshot.current_run_finished_at)
+                .unwrap_or(now),
+        ),
+        PairStatus::Paused | PairStatus::Error => {
+            Some(snapshot.current_run_finished_at.unwrap_or(now))
+        }
+        PairStatus::Idle | PairStatus::AwaitingHumanReview => snapshot.current_run_finished_at,
     };
 
-    upsert_snapshot_record(app, &snapshot)
+    if let Some(context) = context {
+        snapshot.provider_sessions = SnapshotProcessContext {
+            mentor_session_id: context.mentor_session_id.clone(),
+            executor_session_id: context.executor_session_id.clone(),
+            run_generation: context.run_generation,
+            is_smoke_test: context.is_smoke_test,
+        };
+    }
+    snapshot.branch = pair.branch.clone();
+    snapshot.repo_path = pair.repo_path.clone();
+    snapshot.worktree_path = pair.worktree_path.clone();
 }
 
+/// Persist the pair's current backend state into its snapshot (merging, see
+/// `merge_state_into_snapshot`). A pair that no longer exists is skipped, so
+/// a persist racing a delete can never resurrect the snapshot.
 pub fn persist_current_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(), String> {
-    let broker = app.state::<std::sync::Mutex<MessageBroker>>();
+    validate_pair_id(pair_id)?;
+    let lock = snapshot_lock(pair_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Read everything under the pair's snapshot lock (one manager/broker/
+    // context lock at a time, never nested), so the newest state always wins.
+    let pair = {
+        let pair_manager = app.state::<std::sync::Mutex<PairManager>>();
+        let manager = pair_manager.lock().unwrap_or_else(|e| e.into_inner());
+        manager.get_pair(pair_id)
+    };
+    let Some(pair) = pair else {
+        return Ok(());
+    };
     let state = {
-        let broker_guard = broker.lock().map_err(|e| e.to_string())?;
+        let broker = app.state::<std::sync::Mutex<MessageBroker>>();
+        let broker_guard = broker.lock().unwrap_or_else(|e| e.into_inner());
         broker_guard.get_state(pair_id)
     };
-
-    let state = match state {
-        Some(state) => state,
-        None => return Ok(()),
+    let Some(state) = state else {
+        return Ok(());
+    };
+    let context = {
+        let spawner = app.state::<ProcessSpawner>();
+        let contexts = spawner
+            .pair_contexts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        contexts.get(pair_id).cloned()
     };
 
-    persist_pair_snapshot_from_state(app, pair_id, &state)
+    let path = snapshot_path_for_pair(app, pair_id)?;
+    let mut snapshot = match read_json::<SessionSnapshotRecord>(&path) {
+        Ok(existing) => existing,
+        Err(error) => {
+            if path.exists() {
+                println!(
+                    "[session_snapshot] Existing snapshot {:?} is unreadable ({}); rebuilding it from live state",
+                    path, error
+                );
+            }
+            build_snapshot_from_state(&pair, &state, context.as_ref())
+        }
+    };
+    merge_state_into_snapshot(&mut snapshot, &pair, &state, context.as_ref());
+
+    upsert_snapshot_record(app, &snapshot)
 }
 
 #[tauri::command]
@@ -994,20 +1129,51 @@ pub fn session_save_snapshot(
     input: SessionSnapshotDraft,
 ) -> Result<SessionSnapshotRecord, String> {
     validate_pair_id(&input.pair_id)?;
+    let lock = snapshot_lock(&input.pair_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    // A save for a pair that was deleted (or never existed) must not write a
+    // snapshot that brings it back on the next launch.
+    let exists = {
+        let pair_manager = app.state::<std::sync::Mutex<PairManager>>();
+        let manager = pair_manager.lock().unwrap_or_else(|e| e.into_inner());
+        manager.get_pair(&input.pair_id).is_some()
+    };
+    if !exists {
+        return Err(format!("Pair {} not found", input.pair_id));
+    }
 
     let context = {
         let spawner = app.state::<ProcessSpawner>();
-        let contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
+        let contexts = spawner
+            .pair_contexts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         contexts.get(&input.pair_id).cloned()
     };
+    // The renderer doesn't send the acceptance history; keep the backend's.
+    let acceptance_history = if input.acceptance_history.is_empty() {
+        let broker = app.state::<std::sync::Mutex<MessageBroker>>();
+        let broker_guard = broker.lock().unwrap_or_else(|e| e.into_inner());
+        broker_guard
+            .get_state(&input.pair_id)
+            .map(|state| state.acceptance_history)
+            .unwrap_or_default()
+    } else {
+        input.acceptance_history.clone()
+    };
 
-    let snapshot = build_snapshot_from_draft(input, context);
+    let mut snapshot = build_snapshot_from_draft(input, context);
+    snapshot.acceptance_history = acceptance_history;
     upsert_snapshot_record(&app, &snapshot)?;
 
     Ok(snapshot)
 }
 
 pub fn delete_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(), String> {
+    validate_pair_id(pair_id)?;
+    let lock = snapshot_lock(pair_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let dir = snapshot_dir(app)?;
     delete_pair_snapshot_in_dir(&dir, pair_id)
 }
@@ -1033,42 +1199,45 @@ pub fn read_snapshot(app: &AppHandle, pair_id: &str) -> Result<SessionSnapshotRe
 }
 
 /// Apply the on-load transformations for a persisted snapshot: reset live
-/// activity / running statuses to Idle and drop any in-flight turn card.
-/// Messages and run history are intentionally preserved so reopening a pair
-/// shows the previous conversation; `assignTask` is what archives them into
+/// activity, drop any in-flight turn card, and turn a run that was
+/// interrupted mid-turn (the app quit or crashed) into a Paused pair, which
+/// Resume continues from its restored provider sessions. Messages and run
+/// history are intentionally preserved so reopening a pair shows the
+/// previous conversation; `assignTask` is what archives them into
 /// `run_history` for a new run.
-fn prepare_loaded_snapshot(
-    snapshot: SessionSnapshotRecord,
-) -> (PairState, SessionSnapshotRecord) {
+fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, SessionSnapshotRecord) {
+    const INTERRUPTED_DETAIL: &str = "Interrupted when the app closed. Resume to continue.";
+
+    let was_running = snapshot.status.is_active();
     let mut state = build_pair_state(&snapshot);
-    let idle = idle_activity();
+    let mut idle = idle_activity();
+    if was_running {
+        idle.label = "Paused".to_string();
+        idle.detail = Some(INTERRUPTED_DETAIL.to_string());
+    }
     state.mentor_activity = idle.clone();
     state.executor_activity = idle.clone();
     state.mentor.activity = idle.clone();
     state.executor.activity = idle.clone();
 
-    if matches!(
-        state.status,
-        PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
-    ) {
-        state.status = PairStatus::Idle;
-        state.mentor.status = PairStatus::Idle;
-        state.executor.status = PairStatus::Idle;
+    if was_running {
+        state.status = PairStatus::Paused;
+        state.mentor.status = PairStatus::Paused;
+        state.executor.status = PairStatus::Paused;
     }
 
     let mut snapshot_with_idle = snapshot;
     snapshot_with_idle.mentor_activity = idle.clone();
     snapshot_with_idle.executor_activity = idle;
-    if matches!(
-        snapshot_with_idle.status,
-        PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
-    ) {
-        snapshot_with_idle.status = PairStatus::Idle;
+    if was_running {
+        snapshot_with_idle.status = PairStatus::Paused;
     }
-    if matches!(
-        snapshot_with_idle.status,
-        PairStatus::Idle | PairStatus::Finished
-    ) {
+    if was_running
+        || matches!(
+            snapshot_with_idle.status,
+            PairStatus::Idle | PairStatus::Finished
+        )
+    {
         // The live turn card represents in-progress work; drop it when the pair
         // is no longer actively running so we don't render a stale "running"
         // placeholder on top of preserved history.
@@ -1104,8 +1273,22 @@ pub fn load_all_pairs(
         }
         let snapshot = match read_json::<SessionSnapshotRecord>(&path) {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(error) => {
+                // Don't drop a pair silently: say which file failed and why.
+                eprintln!(
+                    "[session_snapshot] Skipping snapshot {:?} that failed to load: {}",
+                    path, error
+                );
+                continue;
+            }
         };
+        if validate_pair_id(&snapshot.pair_id).is_err() {
+            eprintln!(
+                "[session_snapshot] Skipping snapshot {:?} with an invalid pair id",
+                path
+            );
+            continue;
+        }
 
         let pair = build_pair(&snapshot);
         let (state, snapshot_with_idle) = prepare_loaded_snapshot(snapshot);
@@ -1188,7 +1371,11 @@ pub async fn restore_session(
         run_generation: updated_snapshot.provider_sessions.run_generation,
         is_smoke_test: updated_snapshot.provider_sessions.is_smoke_test,
     };
-    upsert_snapshot_record(&app, &updated_snapshot)?;
+    {
+        let lock = snapshot_lock(&updated_snapshot.pair_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        upsert_snapshot_record(&app, &updated_snapshot)?;
+    }
 
     let should_resume = input.continue_run
         && !matches!(
@@ -1247,6 +1434,10 @@ mod tests {
             content: content.to_string(),
             iteration,
             token_usage: None,
+            attachments: None,
+            cognitive_events: None,
+            started_at: None,
+            finalized_at: None,
         }
     }
 
@@ -1525,10 +1716,374 @@ mod tests {
 
         let (state, returned) = prepare_loaded_snapshot(snap);
 
-        assert!(matches!(state.status, PairStatus::Idle));
-        assert!(matches!(returned.status, PairStatus::Idle));
+        // An interrupted run comes back Paused (resumable), not Idle.
+        assert!(matches!(state.status, PairStatus::Paused));
+        assert!(matches!(returned.status, PairStatus::Paused));
         assert_eq!(state.messages.len(), history.len());
         assert_eq!(returned.messages.len(), history.len());
+        assert!(returned.current_turn_card.is_none());
+        assert_eq!(
+            state.mentor_activity.detail.as_deref(),
+            Some("Interrupted when the app closed. Resume to continue.")
+        );
+        // The restored state carries what Resume needs.
+        assert_eq!(state.task_spec, "Fallback task spec");
+        assert_eq!(state.turn, AgentRole::Mentor);
+    }
+
+    #[test]
+    fn prepare_loaded_snapshot_keeps_stopped_statuses() {
+        for status in [
+            PairStatus::Idle,
+            PairStatus::Paused,
+            PairStatus::Error,
+            PairStatus::Finished,
+            PairStatus::AwaitingHumanReview,
+        ] {
+            let (state, returned) =
+                prepare_loaded_snapshot(snapshot(AgentRole::Mentor, status.clone(), vec![]));
+            assert_eq!(state.status, status);
+            assert_eq!(returned.status, status);
+        }
+    }
+
+    /// A draft exactly as the renderer's `snapshotPair` builds it: PascalCase
+    /// statuses (also inside run history), optional fields omitted or null,
+    /// renderer-only message fields, `tool_call` cognitive events.
+    const FRONTEND_DRAFT_JSON: &str = r#"{
+        "pairId": "5d9c2f7e-8a1b-4c3d-9e0f-112233445566",
+        "name": "Demo Pair",
+        "directory": "/tmp/repo/.worktrees/pair-5d9c",
+        "spec": "Fix the login bug",
+        "status": "Awaiting Human Review",
+        "iterations": 2,
+        "maxIterations": 0,
+        "turn": "mentor",
+        "mentorProvider": "claude",
+        "mentorModel": "claude-sonnet-4-5",
+        "executorProvider": "codex",
+        "executorModel": "codex/gpt-5-codex",
+        "pendingMentorModel": null,
+        "mentorReasoningEffort": "high",
+        "messages": [
+            {"id": "h1", "timestamp": 1000, "from": "human", "to": "mentor", "type": "plan",
+             "content": "Fix the login bug", "iteration": 0},
+            {"id": "m1", "timestamp": 2000, "from": "mentor", "to": "human", "type": "plan",
+             "content": "1. Read auth.ts", "iteration": 1,
+             "tokenUsage": {"outputTokens": 120, "inputTokens": 3400, "lastUpdatedAt": 2000,
+                            "source": "final", "provider": "claude"},
+             "cognitiveEvents": [{"id": "ce-1", "timestamp": 1500, "role": "mentor",
+                                  "eventType": "tool_call", "toolName": "Read",
+                                  "description": "Calling Read", "status": "completed"}],
+             "startedAt": 1100, "finalizedAt": 2000},
+            {"id": "e1", "timestamp": 3000, "from": "executor", "to": "both", "type": "result",
+             "content": "Done", "iteration": 1,
+             "attachments": [{"path": "src/auth.ts", "description": "auth"}],
+             "tokenUsage": {"outputTokens": 50, "lastUpdatedAt": 3000, "source": "live"}},
+            {"id": "f1", "timestamp": 3500, "from": "human", "to": "mentor", "type": "feedback",
+             "content": "Approved", "iteration": 1}
+        ],
+        "mentorActivity": {"phase": "waiting", "label": "Awaiting human review",
+                           "detail": "Plan ready", "startedAt": 1, "updatedAt": 2,
+                           "lastOutputAt": 3, "outputLineCount": 12},
+        "executorActivity": {"phase": "using_tools", "label": "Calling Bash",
+                             "startedAt": 1, "updatedAt": 2},
+        "mentorCpu": 1.5, "mentorMemMb": 120.25, "executorCpu": 0, "executorMemMb": 0,
+        "cpuUsage": 1.5, "memUsage": 120.25,
+        "modifiedFiles": [
+            {"path": "src/auth.ts", "status": "M", "displayPath": "src/auth.ts"},
+            {"path": "notes.md", "status": "??", "displayPath": "notes.md"}
+        ],
+        "gitTracking": {"available": true, "rootPath": "/tmp/repo"},
+        "automationMode": "full-auto",
+        "latestAcceptance": {
+            "iteration": 1, "risk": "medium",
+            "checks": [{"name": "npm run test", "command": "npm run test", "status": "failed",
+                        "exitCode": null, "durationMs": 1200, "summary": "1 failing",
+                        "stdout": "", "stderr": "boom"}],
+            "summary": "0 passed, 1 failed, 0 skipped", "startedAt": 10, "finishedAt": 20,
+            "verdict": {"verdict": "fail", "risk": "medium", "confidence": 0.4, "issues": ["x"],
+                        "evidence": ["y"], "reasoning": "r", "summary": "s",
+                        "nextStep": {"action": "continue", "instructions": ["fix test"]}},
+            "rawVerdict": "{}", "repairAttempts": 1
+        },
+        "currentTurnCard": {
+            "id": "turn-mentor-2", "role": "mentor", "state": "live", "content": "Working...",
+            "activity": {"phase": "thinking", "label": "Reviewing", "startedAt": 1, "updatedAt": 2},
+            "startedAt": 1, "updatedAt": 2, "finalizedAt": 3,
+            "tokenUsage": {"outputTokens": 5, "lastUpdatedAt": 2, "source": "live"},
+            "cognitiveEvents": [{"id": "ce-2", "timestamp": 2, "role": "mentor",
+                                 "eventType": "reasoning", "description": "Thinking",
+                                 "status": "running"}]
+        },
+        "runCount": 2,
+        "runHistory": [{
+            "id": "5d9c-run-1", "spec": "Previous task", "status": "Finished",
+            "startedAt": 100, "finishedAt": 200, "mentorModel": "claude-sonnet-4-5",
+            "executorModel": "gpt-5", "iterations": 3,
+            "messages": [{"id": "old", "timestamp": 150, "from": "mentor", "to": "human",
+                          "type": "acceptance", "content": "ok", "iteration": 3}],
+            "latestAcceptance": null
+        }, {
+            "id": "5d9c-run-0", "spec": "Aborted task", "status": "Mentoring",
+            "startedAt": 50, "finishedAt": 60, "mentorModel": "m", "executorModel": "e",
+            "iterations": 1, "messages": []
+        }],
+        "currentRunStartedAt": 1000,
+        "createdAt": 50,
+        "branch": "the-pair/pair-5d9c",
+        "repoPath": "/tmp/repo",
+        "worktreePath": "/tmp/repo/.worktrees/pair-5d9c",
+        "planGate": true
+    }"#;
+
+    #[test]
+    fn realistic_frontend_draft_deserializes_and_round_trips() {
+        let draft: SessionSnapshotDraft =
+            serde_json::from_str(FRONTEND_DRAFT_JSON).expect("frontend draft must deserialize");
+
+        assert_eq!(draft.status, PairStatus::AwaitingHumanReview);
+        assert_eq!(draft.run_history[0].status, PairStatus::Finished);
+        assert_eq!(draft.run_history[1].status, PairStatus::Mentoring);
+        assert!(draft.plan_gate);
+        let card = draft.current_turn_card.as_ref().unwrap();
+        assert_eq!(
+            card.cognitive_events.as_ref().unwrap()[0].event_type,
+            crate::types::CognitiveEventType::Reasoning
+        );
+
+        let record = build_snapshot_from_draft(draft, None);
+        let json = serde_json::to_string(&record).unwrap();
+        let reloaded: SessionSnapshotRecord =
+            serde_json::from_str(&json).expect("persisted record must load back");
+
+        // Renderer-only message fields survive the round trip.
+        let mentor = &reloaded.messages[1];
+        assert_eq!(mentor.started_at, Some(1100));
+        assert_eq!(mentor.finalized_at, Some(2000));
+        assert_eq!(
+            mentor.cognitive_events.as_ref().unwrap()[0]["eventType"],
+            "tool_call"
+        );
+        assert!(reloaded.messages[2].attachments.is_some());
+        assert_eq!(reloaded.run_history.len(), 2);
+        assert_eq!(reloaded.status, PairStatus::AwaitingHumanReview);
+        // Status keeps its canonical wire spelling when written back.
+        assert!(json.contains(r#""status":"finished""#));
+    }
+
+    #[test]
+    fn every_frontend_status_spelling_deserializes() {
+        for (spelling, expected) in [
+            ("Idle", PairStatus::Idle),
+            ("Mentoring", PairStatus::Mentoring),
+            ("Executing", PairStatus::Executing),
+            ("Reviewing", PairStatus::Reviewing),
+            ("Paused", PairStatus::Paused),
+            ("Awaiting Human Review", PairStatus::AwaitingHumanReview),
+            ("Error", PairStatus::Error),
+            ("Finished", PairStatus::Finished),
+        ] {
+            let json = FRONTEND_DRAFT_JSON.replace(
+                r#""status": "Awaiting Human Review""#,
+                &format!(r#""status": "{}""#, spelling),
+            );
+            let draft: SessionSnapshotDraft = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("{} should deserialize: {}", spelling, e));
+            assert_eq!(draft.status, expected);
+        }
+    }
+
+    #[test]
+    fn legacy_snapshot_without_newer_fields_still_loads() {
+        // Written before runGeneration, acceptanceHistory, planGate, run
+        // history messages and the verdict's confidence/issues/reasoning.
+        let json = r#"{
+            "snapshotVersion": 1, "savedAt": 1, "pairId": "legacy-pair", "name": "Old",
+            "directory": "/tmp/old", "spec": "Old task", "status": "reviewing",
+            "iterations": 2, "maxIterations": 20, "turn": "mentor",
+            "mentorModel": "gpt-4o", "executorModel": "gpt-4o-mini",
+            "pendingMentorModel": null, "pendingExecutorModel": null,
+            "messages": [], "mentorActivity": {"phase": "idle", "label": "x", "detail": null,
+            "startedAt": 0, "updatedAt": 0}, "executorActivity": {"phase": "idle", "label": "x",
+            "detail": null, "startedAt": 0, "updatedAt": 0},
+            "mentorCpu": 0, "mentorMemMb": 0, "executorCpu": 0, "executorMemMb": 0,
+            "cpuUsage": 0, "memUsage": 0, "modifiedFiles": [],
+            "gitTracking": {"available": false, "rootPath": null, "baseline": null,
+                            "gitReviewAvailable": null},
+            "automationMode": "full-auto",
+            "latestAcceptance": {"iteration": 1, "risk": "low", "checks": [], "summary": "s",
+                "startedAt": 1, "finishedAt": 2,
+                "verdict": {"verdict": "pass", "risk": "low", "evidence": [], "summary": "ok",
+                            "nextStep": {"action": "finish", "instructions": []}}},
+            "currentTurnCard": null, "runCount": 1,
+            "runHistory": [{"id": "r", "spec": "s", "status": "finished", "startedAt": 1,
+                            "finishedAt": 2, "mentorModel": "m", "executorModel": "e",
+                            "iterations": 1}],
+            "currentRunStartedAt": 1, "currentRunFinishedAt": null, "createdAt": 1,
+            "providerSessions": {"mentorSessionId": null, "executorSessionId": null}
+        }"#;
+
+        let snapshot: SessionSnapshotRecord =
+            serde_json::from_str(json).expect("legacy snapshot must load");
+        assert_eq!(snapshot.provider_sessions.run_generation, 0);
+        assert!(snapshot.run_history[0].messages.is_empty());
+        let verdict = snapshot.latest_acceptance.unwrap().verdict.unwrap();
+        assert_eq!(verdict.confidence, 1.0);
+        assert_eq!(verdict.reasoning, "ok");
+        assert!(verdict.issues.is_empty());
+    }
+
+    fn live_state(status: PairStatus) -> PairState {
+        let mut state = build_pair_state(&snapshot(AgentRole::Executor, status.clone(), vec![]));
+        state.status = status;
+        state.task_spec = "Live task".to_string();
+        state.run_started_at = Some(500);
+        state.messages = vec![Message {
+            timestamp: 600,
+            ..message(
+                "backend-1",
+                MessageSender::Mentor,
+                MessageType::Plan,
+                "plan",
+                1,
+            )
+        }];
+        state
+    }
+
+    #[test]
+    fn merge_keeps_renderer_owned_fields_and_the_mission_message() {
+        let mut existing = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        existing.messages = vec![
+            Message {
+                timestamp: 100,
+                ..message(
+                    "old-run",
+                    MessageSender::Mentor,
+                    MessageType::Plan,
+                    "old",
+                    1,
+                )
+            },
+            Message {
+                timestamp: 500,
+                to: "mentor".to_string(),
+                ..message(
+                    "mission",
+                    MessageSender::Human,
+                    MessageType::Plan,
+                    "Live task",
+                    0,
+                )
+            },
+        ];
+        existing.run_count = 3;
+        existing.run_history = vec![SnapshotRunSummary {
+            id: "r1".to_string(),
+            spec: "old".to_string(),
+            status: PairStatus::Finished,
+            started_at: 1,
+            finished_at: Some(2),
+            mentor_model: "m".to_string(),
+            executor_model: "e".to_string(),
+            iterations: 1,
+            messages: vec![],
+            total_output_tokens: None,
+            latest_acceptance: None,
+        }];
+        existing.pending_mentor_model = Some("pending".to_string());
+        existing.plan_gate = true;
+        existing.current_run_finished_at = Some(99);
+
+        let pair = build_pair(&existing);
+        let mut pair_without_pending = pair.clone();
+        pair_without_pending.pending_mentor_model = None;
+        pair_without_pending.plan_gate = false;
+
+        let state = live_state(PairStatus::Executing);
+        merge_state_into_snapshot(&mut existing, &pair_without_pending, &state, None);
+
+        assert_eq!(existing.spec, "Live task");
+        assert_eq!(existing.run_count, 3);
+        assert_eq!(existing.run_history.len(), 1);
+        assert_eq!(existing.pending_mentor_model.as_deref(), Some("pending"));
+        assert!(existing.plan_gate);
+        assert!(existing.current_turn_card.is_some());
+        let ids: Vec<&str> = existing.messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["mission", "backend-1"]);
+        assert_eq!(existing.status, PairStatus::Executing);
+        assert_eq!(existing.current_run_started_at, 500);
+        assert_eq!(
+            existing.current_run_finished_at, None,
+            "a running run has no finish time"
+        );
+
+        let mut finished = live_state(PairStatus::Finished);
+        finished.finished_at = Some(777);
+        merge_state_into_snapshot(&mut existing, &pair_without_pending, &finished, None);
+        assert_eq!(existing.current_run_finished_at, Some(777));
+    }
+
+    #[test]
+    fn write_json_atomic_leaves_no_temp_files_under_concurrency() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-atomic-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pair-1.json");
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut record = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+                    record.name = format!("writer-{}", i);
+                    record.spec = "x".repeat(20_000);
+                    write_json_atomic(&path, &record).unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let loaded: SessionSnapshotRecord = read_json(&path).expect("result must be valid JSON");
+        assert!(loaded.name.starts_with("writer-"));
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_pair_snapshot_rejects_path_traversal_ids() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-delete-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim.json");
+        fs::write(&victim, "{}").unwrap();
+
+        assert!(delete_pair_snapshot_in_dir(&dir.join("sub"), "../victim").is_err());
+        assert!(delete_pair_snapshot_in_dir(&dir, "/etc/passwd").is_err());
+        assert!(victim.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_process_context_falls_back_to_the_repo_when_the_worktree_is_gone() {
+        let repo = std::env::temp_dir();
+        let mut snap = snapshot(AgentRole::Executor, PairStatus::Paused, vec![]);
+        snap.worktree_path = Some("/definitely/missing/worktree".to_string());
+        snap.directory = "/definitely/missing/worktree".to_string();
+        snap.repo_path = Some(repo.to_string_lossy().to_string());
+
+        let context = build_process_context(&snap);
+        assert_eq!(context.directory, repo.to_string_lossy());
     }
 
     #[test]
