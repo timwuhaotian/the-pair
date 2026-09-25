@@ -1812,6 +1812,9 @@ mod tests {
         let source = temp.root.join("subsrc");
         fs::create_dir_all(&source).unwrap();
         temp.git(&source, &["init", "-q"]);
+        // CI runners have no global git identity; configure it like TempRepo does.
+        temp.git(&source, &["config", "user.name", "Test"]);
+        temp.git(&source, &["config", "user.email", "test@example.com"]);
         write(&source.join("lib.txt"), "lib\n");
         temp.git(&source, &["add", "lib.txt"]);
         temp.commit(&source, "lib");
