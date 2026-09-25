@@ -537,6 +537,7 @@ fn sum_token_usage(messages: &[Message]) -> (u64, u64) {
 
 /// Build a `RunRecord` from the live broker state at run completion. Called by
 /// the process spawner's run-completion path.
+#[allow(clippy::too_many_arguments)]
 pub fn build_run_record(
     pair_id: &str,
     started_at: u64,
