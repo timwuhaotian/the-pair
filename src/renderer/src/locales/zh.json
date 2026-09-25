@@ -37,7 +37,9 @@
     "error": "错误",
     "finished": "已完成",
     "running": "运行中",
-    "stop": "停止"
+    "stop": "停止",
+    "resume": "继续",
+    "pause": "暂停"
   },
   "status": {
     "Idle": "空闲",
@@ -187,7 +189,8 @@
     "approvedMessage": "已批准计划 — 执行者开始执行。",
     "sentBackMessage": "已将计划打回重新规划。",
     "reviewPending": "计划待审核",
-    "returnToReview": "返回审核"
+    "returnToReview": "返回审核",
+    "failed": "无法提交审查结果"
   },
   "modals": {
     "recommendationHint": "类似任务中,{{mentor}} + {{executor}} 成功了 {{successes}}/{{runs}} 次",
@@ -223,7 +226,10 @@
     "startFresh": "重新开始",
     "dismissDesc": "关闭将保留快照以供后续恢复。",
     "deleteTitle": "删除 \"{{name}}\"？",
-    "deleteDesc": "这将永久移除 Pair、其快照和可恢复的会话。"
+    "deleteDesc": "这将永久移除 Pair、其快照和可恢复的会话。",
+    "deleteWorktreeNote": "其工作树也会被移除：未提交的改动会保存到 git stash，Pair 的提交保留在其 the-pair/… 分支上。",
+    "deleteFailed": "无法删除 Pair：{{error}}",
+    "presetTaskMissing": "开始前，请将预设模板中的占位文字替换为你的任务。"
   },
   "pickers": {
     "mentorLabel": "导师",
@@ -301,7 +307,8 @@
     "thinking": "思考中...",
     "working": "工作中...",
     "pausedAt": "已暂停于 {{date}}",
-    "finishedAt": "已完成于 {{date}}"
+    "finishedAt": "已完成于 {{date}}",
+    "retryFailed": "重试失败"
   },
   "console": {
     "all": "全部",
@@ -343,7 +350,9 @@
     "showStepsOnly_one": "显示 {{count}} 个步骤",
     "showStepsOnly_other": "显示 {{count}} 个步骤",
     "showReportOnly": "显示完整报告",
-    "hideDetails": "隐藏详情"
+    "hideDetails": "隐藏详情",
+    "submitFailed": "任务启动失败",
+    "stopFailed": "无法停止当前轮次"
   },
   "skills": {
     "popoverTitle": "技能",
@@ -404,14 +413,18 @@
     "checkUpdates": "检查更新",
     "available": "更新可用 — v{{version}}",
     "remindLater": "稍后提醒",
-    "installingPercent": "已安装 {{percent}}%"
+    "installingPercent": "已安装 {{percent}}%",
+    "failedTitle": "更新失败",
+    "close": "关闭"
   },
   "history": {
     "title": "任务历史",
     "empty": "还没有历史任务。",
     "backToCurrent": "返回当前",
     "copyMD": "复制 Markdown",
-    "exportHTML": "导出 HTML"
+    "exportHTML": "导出 HTML",
+    "restoreTask": "恢复此任务",
+    "restoreDisabledBusy": "恢复任务前请先暂停或停止该 Pair"
   },
   "shortcuts": {
     "title": "键盘快捷键",

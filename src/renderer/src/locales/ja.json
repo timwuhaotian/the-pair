@@ -37,7 +37,9 @@
     "error": "エラー",
     "finished": "完了",
     "running": "実行中",
-    "stop": "停止"
+    "stop": "停止",
+    "resume": "再開",
+    "pause": "一時停止"
   },
   "chrome": {
     "title": "The Pair",
@@ -108,6 +110,16 @@
       "success": "成功率",
       "avgIter": "平均反復",
       "avgTokens": "平均トークン"
+    },
+    "stats": {
+      "total": "すべてのペア",
+      "running": "実行中",
+      "paused": "一時停止中",
+      "finished": "完了"
+    },
+    "activity": {
+      "title": "最近のアクティビティ",
+      "empty": "ペアの実行が始まると、ここにアクティビティが表示されます"
     }
   },
   "emptyState": {
@@ -116,7 +128,13 @@
     "mentorDesc": "タスクを分析し、実行者の出力をレビュー",
     "handoffDesc": "エージェントが自動的に制御を交代",
     "executorDesc": "計画を実行し、結果を報告",
-    "createFirst": "最初のペアを作成"
+    "createFirst": "最初のペアを作成",
+    "welcome": "The Pair へようこそ",
+    "step1": "作業ディレクトリを選択",
+    "step2": "Mentor と Executor のモデルを選択",
+    "step3": "タスクを記述",
+    "step4": "最初のペアを作成して協働を開始",
+    "importConfig": "既存の設定をインポート →"
   },
   "onboarding": {
     "title": "セットアップウィザード",
@@ -161,7 +179,8 @@
     "approvedMessage": "プランを承認しました — 実行者を開始します。",
     "sentBackMessage": "プランを修正のため差し戻しました。",
     "reviewPending": "プランがレビュー待ちです",
-    "returnToReview": "レビューに戻る"
+    "returnToReview": "レビューに戻る",
+    "failed": "レビュー結果を送信できませんでした"
   },
   "modals": {
     "recommendationHint": "類似タスクで {{mentor}} + {{executor}} は {{runs}} 回中 {{successes}} 回成功しました",
@@ -197,7 +216,10 @@
     "startFresh": "新しく始める",
     "dismissDesc": "閉じると、スナップショットは後で復元できるよう保持されます。",
     "deleteTitle": "\"{{name}}\" を削除しますか？",
-    "deleteDesc": "ペア、そのスナップショット、および復元可能なセッションが完全に削除されます。"
+    "deleteDesc": "ペア、そのスナップショット、および復元可能なセッションが完全に削除されます。",
+    "deleteWorktreeNote": "ワークツリーも削除されます。未コミットの変更は git stash に保存され、ペアのコミットは the-pair/… ブランチに残ります。",
+    "deleteFailed": "ペアを削除できませんでした: {{error}}",
+    "presetTaskMissing": "開始する前に、プリセットテンプレートのプレースホルダーをタスク内容に置き換えてください。"
   },
   "pickers": {
     "mentorLabel": "メンター",
@@ -275,7 +297,8 @@
     "thinking": "思考中...",
     "working": "作業中...",
     "pausedAt": "一時停止: {{date}}",
-    "finishedAt": "完了: {{date}}"
+    "finishedAt": "完了: {{date}}",
+    "retryFailed": "再試行に失敗しました"
   },
   "console": {
     "all": "すべて",
@@ -317,7 +340,9 @@
     "showStepsOnly_one": "{{count}}ステップを表示",
     "showStepsOnly_other": "{{count}}ステップを表示",
     "showReportOnly": "レポート全文を表示",
-    "hideDetails": "詳細を非表示"
+    "hideDetails": "詳細を非表示",
+    "submitFailed": "タスクを開始できませんでした",
+    "stopFailed": "ターンを停止できませんでした"
   },
   "skills": {
     "popoverTitle": "スキル",
@@ -378,14 +403,18 @@
     "checkUpdates": "更新を確認",
     "available": "更新利用可能 — v{{version}}",
     "remindLater": "後で通知",
-    "installingPercent": "インストール {{percent}}%"
+    "installingPercent": "インストール {{percent}}%",
+    "failedTitle": "アップデートに失敗しました",
+    "close": "閉じる"
   },
   "history": {
     "title": "タスク履歴",
     "empty": "まだ以前のタスクはありません。",
     "backToCurrent": "現在に戻る",
     "copyMD": "MDをコピー",
-    "exportHTML": "HTMLをエクスポート"
+    "exportHTML": "HTMLをエクスポート",
+    "restoreTask": "このタスクを復元",
+    "restoreDisabledBusy": "タスクを復元する前にペアを一時停止または停止してください"
   },
   "shortcuts": {
     "title": "キーボードショートカット",
@@ -417,5 +446,8 @@
     "loginLaunched": "ターミナルを開きました — ログイン完了後、更新をクリックしてください",
     "loginFailed": "ターミナルを開けませんでした。手動で以下を実行してください：",
     "copyCommand": "コピー"
+  },
+  "quickActions": {
+    "create": "新しいペア"
   }
 }
