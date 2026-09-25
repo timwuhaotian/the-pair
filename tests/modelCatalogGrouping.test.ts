@@ -98,6 +98,30 @@ test('collapses baked-in effort variants into one model with one route and order
   assert.equal(sel.route?.provider, 'gemini')
 })
 
+test('resolveSelection accepts legacy bare ids stored by older builds', () => {
+  const models = buildCanonicalModels([
+    makeModel({ provider: 'codex', modelId: 'codex-mini-latest' }),
+    makeModel({ provider: 'grok', modelId: 'fast' }),
+    antigravityFlash('high'),
+    antigravityFlash('medium')
+  ])
+
+  assert.equal(resolveSelection(models, 'codex/codex-mini-latest').route?.provider, 'codex')
+  assert.equal(resolveSelection(models, 'codex-mini-latest').route?.provider, 'codex')
+  assert.equal(resolveSelection(models, 'fast').route?.provider, 'grok')
+  assert.equal(resolveSelection(models, 'Gemini 3.5 Flash (High)').effort?.value, 'high')
+  assert.deepEqual(resolveSelection(models, 'unknown-model'), {})
+})
+
+test('resolveSelection prefers an exact qualified match over a legacy bare match', () => {
+  const models = buildCanonicalModels([
+    makeModel({ provider: 'claude', modelId: 'gpt-4o-mini', canonicalKey: 'a' }),
+    makeModel({ provider: 'opencode', modelId: 'gpt-4o-mini', canonicalKey: 'b' })
+  ])
+  // "gpt-4o-mini" is the OpenCode qualified id and only a legacy bare id for claude.
+  assert.equal(resolveSelection(models, 'gpt-4o-mini').route?.provider, 'opencode')
+})
+
 test('merges the same model across native + OpenCode routes under one canonical key', () => {
   const claude = makeModel({
     provider: 'claude',

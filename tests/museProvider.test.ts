@@ -39,25 +39,33 @@ test('muse inference does not steal other providers', () => {
   assert.equal(inferProviderFromModel('gpt-5'), 'codex')
 })
 
-test('muse models are stored bare, like claude and codex', () => {
+test('muse models keep their qualifier when stored (the settings model may be any name)', () => {
   const config = buildAgentConfig('mentor', 'muse/muse-spark-1.3', [museModel])
   assert.deepEqual(config, {
     role: 'mentor',
     provider: 'muse',
-    model: 'muse-spark-1.3'
+    model: 'muse/muse-spark-1.3'
   })
+
+  // A settings.json model with no "muse" keyword still routes to muse.
+  const custom = buildAgentConfig('mentor', 'muse/llama-5-coder', [
+    { ...museModel, modelId: 'llama-5-coder' }
+  ])
+  assert.equal(custom.model, 'muse/llama-5-coder')
+  assert.equal(inferProviderFromModel(custom.model), 'muse')
 })
 
-test('the muse qualifier is stripped from update payloads', () => {
+test('the muse qualifier survives in update payloads', () => {
   const payload = buildUpdateModelsPayload(
-    { id: 'p1', mentorModel: 'muse-spark-1.3', executorModel: 'muse-spark-1.3' },
+    { mentorModel: 'muse-spark-1.3', executorModel: 'muse-spark-1.3' },
     {
       mentorModel: 'muse/muse-spark-1.3',
-      executorModel: 'muse/muse-spark-1.2'
+      executorModel: 'muse/llama-5-coder'
     }
   )
-  assert.equal(payload.pendingMentorModel, 'muse-spark-1.3')
-  assert.equal(payload.pendingExecutorModel, 'muse-spark-1.2')
+  assert.equal(payload.pendingMentorModel, 'muse/muse-spark-1.3')
+  assert.equal(payload.pendingExecutorModel, 'muse/llama-5-coder')
+  assert.equal(inferProviderFromModel(payload.pendingExecutorModel ?? ''), 'muse')
 })
 
 test('muse exposes a login command for the onboarding screen', () => {

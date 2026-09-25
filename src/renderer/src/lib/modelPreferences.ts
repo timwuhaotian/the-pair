@@ -1,4 +1,5 @@
 import type { AvailableModel } from '../types'
+import { modelMatchesId } from './providerResolution'
 
 const PREFERRED_MODEL_KEYS = {
   mentor: 'the-pair-preferred-mentor-model',
@@ -37,13 +38,13 @@ export function getPreferredQualifiedModel(
   models: AvailableModel[]
 ): string {
   const preferred = getPreferredModelId(role)
-  if (
-    preferred &&
-    models.some(
-      (model) => isSelectableForPairExecution(model) && getQualifiedModel(model) === preferred
-    )
-  ) {
-    return preferred
+  if (preferred) {
+    // Exact qualified match first; a legacy bare id resolves to its qualified form.
+    const selectable = models.filter((model) => isSelectableForPairExecution(model))
+    const match =
+      selectable.find((model) => getQualifiedModel(model) === preferred) ??
+      selectable.find((model) => modelMatchesId(model, preferred))
+    if (match) return getQualifiedModel(match)
   }
 
   const defaultEntry = models.find((model) => isSelectableForPairExecution(model))
