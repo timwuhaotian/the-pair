@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
@@ -30,6 +30,12 @@ export function PairSettingsModal({
     mentorReasoningEffort: pair?.mentorReasoningEffort,
     executorReasoningEffort: pair?.executorReasoningEffort
   }))
+
+  // A stale global error (e.g. from another pair's handoff) must not greet the
+  // user in a freshly opened modal.
+  useEffect(() => {
+    if (isOpen) usePairStore.setState({ error: null })
+  }, [isOpen])
 
   const queuedForNextTask = useMemo(
     () => Boolean(pair?.pendingMentorModel || pair?.pendingExecutorModel),

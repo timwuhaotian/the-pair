@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { ArrowUpRight, Sparkles, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
@@ -9,10 +9,16 @@ import { ModelPicker } from './ModelPicker'
 import { SkillPicker } from './SkillPicker'
 import { PresetPicker } from './PresetPicker'
 import { usePresets } from '../lib/usePresets'
-import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
 import { getAssignableTaskModels } from '../lib/modelResolution'
 import { prependFileContext } from '../lib/fileMentions'
+import { isPairBusy } from '../lib/pairStatus'
 import type { PairPreset } from '../types'
+import {
+  finalizePresetSpec,
+  isPresetTaskMissing,
+  removePresetTemplate,
+  switchPresetTemplate
+} from './presetSpec'
 
 interface AssignTaskModalProps {
   pair: Pair | null
@@ -28,9 +34,24 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const availableModels = usePairStore((s) => s.availableModels)
   const restoringSpec = usePairStore((s) => s.restoringSpec)
   const setRestoringSpec = usePairStore((s) => s.setRestoringSpec)
-  const [spec, setSpec] = useState('')
+  // "Restore Task" pre-fills the archived run's spec; re-initialise whenever the
+  // restore target changes while this instance is mounted.
+  const [spec, setSpec] = useState(() => restoringSpec?.spec ?? '')
+  const [specSource, setSpecSource] = useState(restoringSpec)
+  if (specSource !== restoringSpec) {
+    setSpecSource(restoringSpec)
+    setSpec(restoringSpec?.spec ?? '')
+  }
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
+  // The preset whose template currently wraps the textarea text (if any).
+  const [appliedPreset, setAppliedPreset] = useState<PairPreset | null>(null)
+
+  // A stale global error (e.g. from another pair's handoff) must not greet the
+  // user in a freshly opened modal.
+  useEffect(() => {
+    if (isOpen) usePairStore.setState({ error: null })
+  }, [isOpen])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const {
     presets,
@@ -100,25 +121,21 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     })
   }, [])
 
-  const handlePresetSelect = useCallback((preset: PairPreset | null) => {
-    setSelectedPreset(preset)
-    if (preset) {
-      setSpec(() => {
-        try {
-          return buildSpecFromPreset(preset, '')
-        } catch {
-          return preset.mentorPromptTemplate.replace('{task}', '(describe your task)')
-        }
-      })
-    } else {
-      setSpec((current) => {
-        if (current && current.includes('ROLE: MENTOR')) {
-          return stripTemplate(current)
-        }
-        return current
-      })
-    }
-  }, [])
+  const handlePresetSelect = useCallback(
+    (preset: PairPreset | null) => {
+      setSelectedPreset(preset)
+      if (preset) {
+        // Carry the typed task into the new template instead of wrapping twice.
+        setSpec((current) => switchPresetTemplate(appliedPreset, preset, current))
+        setAppliedPreset(preset)
+      } else {
+        const previous = appliedPreset
+        if (previous) setSpec((current) => removePresetTemplate(previous, current))
+        setAppliedPreset(null)
+      }
+    },
+    [appliedPreset]
+  )
 
   const effectiveMentorModel = useMemo(
     () => pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
@@ -134,6 +151,10 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
   if (!pair) return null
 
+  // Starting a run while the pair is busy would stop the run in progress.
+  const pairBusy = isPairBusy(pair.status)
+  const presetTaskMissing = isPresetTaskMissing(appliedPreset, spec)
+
   const handleSkillSelect = (skillName: string) => {
     const insertion = `Load the ${skillName} skill and `
     setSpec((prev) => {
@@ -147,9 +168,12 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (!spec.trim()) return
+    if (!spec.trim() || pairBusy || presetTaskMissing) return
 
-    const finalSpec = prependFileContext(spec.trim(), fileContexts)
+    const finalSpec = prependFileContext(
+      finalizePresetSpec(selectedPreset, appliedPreset, spec.trim()),
+      fileContexts
+    )
 
     try {
       const modelOverrides = modelsChanged
@@ -164,6 +188,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       setFileContexts(new Map())
       setRestoringSpec(null)
       setSelectedPreset(null)
+      setAppliedPreset(null)
       onClose()
     } catch {
       // Store already holds the user-facing error
@@ -262,6 +287,18 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             </p>
           </div>
 
+          {presetTaskMissing && (
+            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
+              ! {t('modals.presetTaskMissing')}
+            </div>
+          )}
+
+          {pairBusy && (
+            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
+              ! {t('chrome.newTaskDisabledBusy')}
+            </div>
+          )}
+
           {error && (
             <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
               ✗ {error}
@@ -276,6 +313,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             onClick={() => {
               setRestoringSpec(null)
               setSelectedPreset(null)
+              setAppliedPreset(null)
               onClose()
             }}
             data-testid="assign-cancel-btn"
@@ -285,7 +323,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           <GlassButton
             type="submit"
             variant="primary"
-            disabled={isLoading || spec.trim().length === 0}
+            disabled={isLoading || pairBusy || presetTaskMissing || spec.trim().length === 0}
             icon={isRestoring ? <RotateCcw size={11} /> : <ArrowUpRight size={11} />}
             data-testid="assign-submit-btn"
           >
