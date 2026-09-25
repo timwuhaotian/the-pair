@@ -74,6 +74,14 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// The provider's authoritative final reply, when `event` carries one
+    /// (e.g. Claude Code's `result`). When present it replaces every text
+    /// fragment collected from intermediate events, so mid-turn narration never
+    /// leaks into the handed-off output.
+    fn final_output_text(&self, _event: &Value) -> Option<String> {
+        None
+    }
+
     /// Extract a provider-specific error from a turn event (e.g. Claude Code
     /// `result` with `is_error: true`). Return `None` if no error.
     fn extract_error_detail(&self, _event: &Value) -> Option<String> {
