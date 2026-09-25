@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -25,6 +26,25 @@ static SKILL_CACHE: Mutex<Option<HashMap<Option<String>, Vec<SkillCacheEntry>>>>
 /// the executor's context budget. Matches `MAX_FILE_SIZE` shape in file_cache.
 const MAX_SKILL_BODY_BYTES: u64 = 32 * 1024;
 
+/// Only this much of a SKILL.md is read to find its frontmatter, so a huge
+/// file in an untrusted repository can't exhaust memory during discovery.
+const MAX_FRONTMATTER_SCAN_BYTES: u64 = 64 * 1024;
+
+/// Reads at most `limit` bytes of `path`, refusing anything that isn't a
+/// regular file (a SKILL.md symlinked to `/dev/zero`, a FIFO, a directory…).
+fn read_regular_file_capped(path: &Path, limit: u64) -> Result<String, String> {
+    let metadata =
+        fs::metadata(path).map_err(|e| format!("Failed to read skill metadata: {}", e))?;
+    if !metadata.is_file() {
+        return Err("Skill file is not a regular file".to_string());
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .and_then(|file| file.take(limit).read_to_end(&mut bytes))
+        .map_err(|e| format!("Failed to read skill: {}", e))?;
+    String::from_utf8(bytes).map_err(|_| "Skill file is not valid UTF-8".to_string())
+}
+
 #[derive(Debug, Deserialize)]
 struct SkillFrontmatter {
     name: String,
@@ -32,7 +52,7 @@ struct SkillFrontmatter {
 }
 
 fn parse_skill_md(path: &Path) -> Option<SkillInfo> {
-    let content = fs::read_to_string(path).ok()?;
+    let content = read_regular_file_capped(path, MAX_FRONTMATTER_SCAN_BYTES).ok()?;
     let lines: Vec<&str> = content.lines().collect();
 
     if lines.first()? != &"---" {
@@ -59,17 +79,21 @@ fn scan_skills_dir(dir: &Path) -> Vec<SkillCacheEntry> {
     };
 
     for entry in entries.flatten() {
-        // `file_type` doesn't follow symlinks; resolve via metadata so the
-        // user's symlinked ~/.claude/skills → ~/.agents/skills works.
-        let is_dir = entry
-            .metadata()
+        // Neither `DirEntry::file_type` nor `DirEntry::metadata` follow
+        // symlinks; `fs::metadata` does, so symlinked skill folders (e.g.
+        // ~/.claude/skills/foo → ~/.agents/skills/foo) are found. Scanning
+        // never recurses, so symlink loops can't occur.
+        let is_dir = fs::metadata(entry.path())
             .map(|m| m.is_dir())
             .unwrap_or(false);
         if !is_dir {
             continue;
         }
         let skill_md = entry.path().join("SKILL.md");
-        if !skill_md.exists() {
+        if !fs::metadata(&skill_md)
+            .map(|m| m.is_file())
+            .unwrap_or(false)
+        {
             continue;
         }
         if let Some(info) = parse_skill_md(&skill_md) {
@@ -124,7 +148,7 @@ fn cache_or_populate(project_dir: Option<&str>) -> Vec<SkillCacheEntry> {
     let key = project_dir.map(|s| s.to_string());
 
     {
-        let guard = SKILL_CACHE.lock().expect("skill cache poisoned");
+        let guard = SKILL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(map) = guard.as_ref() {
             if let Some(cached) = map.get(&key) {
                 return cached.clone();
@@ -135,7 +159,7 @@ fn cache_or_populate(project_dir: Option<&str>) -> Vec<SkillCacheEntry> {
     let scanned = scan_all(project_dir);
 
     {
-        let mut guard = SKILL_CACHE.lock().expect("skill cache poisoned");
+        let mut guard = SKILL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
         let map = guard.get_or_insert_with(HashMap::new);
         map.insert(key, scanned.clone());
     }
@@ -144,7 +168,7 @@ fn cache_or_populate(project_dir: Option<&str>) -> Vec<SkillCacheEntry> {
 }
 
 fn clear_cache(project_dir: Option<&str>) {
-    let mut guard = SKILL_CACHE.lock().expect("skill cache poisoned");
+    let mut guard = SKILL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(map) = guard.as_mut() {
         map.remove(&project_dir.map(|s| s.to_string()));
     }
@@ -174,27 +198,39 @@ fn read_content_impl(name: &str, project_dir: Option<&str>) -> Result<String, St
         ));
     }
 
-    fs::read_to_string(&entry.skill_md_path)
-        .map_err(|e| format!("Failed to read skill: {}", e))
+    // Capped read as well: the file may have grown since the size check, and
+    // device files report a length of 0.
+    read_regular_file_capped(&entry.skill_md_path, MAX_SKILL_BODY_BYTES)
+}
+
+// Discovery walks several directories and reads files, so the commands are
+// async and do that work on the blocking pool instead of the main thread.
+
+#[tauri::command]
+pub async fn discover_skills(project_dir: Option<String>) -> Vec<SkillInfo> {
+    tauri::async_runtime::spawn_blocking(move || discover_skills_impl(project_dir.as_deref()))
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-pub fn discover_skills(project_dir: Option<String>) -> Vec<SkillInfo> {
-    discover_skills_impl(project_dir.as_deref())
-}
-
-#[tauri::command]
-pub fn skill_read_content(
+pub async fn skill_read_content(
     name: String,
     project_dir: Option<String>,
 ) -> Result<String, String> {
-    read_content_impl(&name, project_dir.as_deref())
+    tauri::async_runtime::spawn_blocking(move || read_content_impl(&name, project_dir.as_deref()))
+        .await
+        .map_err(|e| format!("Failed to read skill: {}", e))?
 }
 
 #[tauri::command]
-pub fn skill_refresh(project_dir: Option<String>) -> Vec<SkillInfo> {
-    clear_cache(project_dir.as_deref());
-    discover_skills_impl(project_dir.as_deref())
+pub async fn skill_refresh(project_dir: Option<String>) -> Vec<SkillInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        clear_cache(project_dir.as_deref());
+        discover_skills_impl(project_dir.as_deref())
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -217,7 +253,12 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("the-pair-skill-test-{}-{}-{}", label, std::process::id(), nanos))
+        std::env::temp_dir().join(format!(
+            "the-pair-skill-test-{}-{}-{}",
+            label,
+            std::process::id(),
+            nanos
+        ))
     }
 
     #[test]
@@ -300,5 +341,42 @@ mod tests {
         assert_eq!(entry.description, "from-project");
 
         fs::remove_dir_all(&project).unwrap();
+    }
+
+    #[test]
+    fn parse_skill_md_reads_only_the_start_of_huge_files() {
+        let root = unique_root("huge");
+        let skill_dir = root.join("huge-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let mut content = String::from("---\nname: huge-skill\ndescription: big\n---\n");
+        content.push_str(&"x".repeat((MAX_FRONTMATTER_SCAN_BYTES as usize) * 4));
+        fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+
+        let info = parse_skill_md(&skill_dir.join("SKILL.md")).expect("frontmatter parsed");
+        assert_eq!(info.name, "huge-skill");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_dir_follows_symlinked_folders_but_skips_device_files() {
+        let root = unique_root("symlink");
+        let real = unique_root("symlink-target");
+        write_skill(&real, "linked-skill", "via symlink", "body");
+        fs::create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink(real.join("linked-skill"), root.join("linked-skill")).unwrap();
+
+        // A SKILL.md pointing at /dev/zero must be skipped, not read forever.
+        let evil = root.join("evil");
+        fs::create_dir_all(&evil).unwrap();
+        std::os::unix::fs::symlink("/dev/zero", evil.join("SKILL.md")).unwrap();
+
+        let scanned = scan_skills_dir(&root);
+        let names: Vec<&str> = scanned.iter().map(|e| e.info.name.as_str()).collect();
+        assert_eq!(names, vec!["linked-skill"]);
+        assert!(read_regular_file_capped(&evil.join("SKILL.md"), 16).is_err());
+
+        fs::remove_dir_all(&root).unwrap();
+        fs::remove_dir_all(&real).unwrap();
     }
 }

@@ -34,30 +34,42 @@ pub fn validate_review(evidence: &ReviewEvidence) -> QualityGateResult {
     }
     if evidence.code_reference.trim().is_empty() {
         return QualityGateResult::Fail {
-            reason: "No code reference provided. Quote or reference the changed code you validated.".into(),
+            reason:
+                "No code reference provided. Quote or reference the changed code you validated."
+                    .into(),
         };
     }
     QualityGateResult::Pass
 }
 
-/// Extracts evidence from a mentor verdict message.
-/// Expects structured sections: FILES_REVIEWED:, CHECKS:, CODE:
-pub fn extract_evidence(verdict_text: &str) -> Option<ReviewEvidence> {
-    let files_line = verdict_text.lines().find(|l| l.starts_with("FILES_REVIEWED:"))?;
-    let checks_line = verdict_text.lines().find(|l| l.starts_with("CHECKS:"))?;
-    let code_line = verdict_text.lines().find(|l| l.starts_with("CODE:"))?;
+/// Returns the text after `marker` on the first line that starts with it
+/// (leading indentation allowed). Markers in the middle of a line — e.g.
+/// "EXIT CODE: 1" or "AUTOMATED CHECKS: 3 passed" — don't count.
+fn marker_value<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
+    text.lines()
+        .find_map(|line| line.trim_start().strip_prefix(marker))
+}
 
-    let files_reviewed = files_line["FILES_REVIEWED:".len()..]
+/// Extracts evidence from a mentor verdict message.
+/// Expects structured sections, each at the start of a line:
+/// `FILES_REVIEWED:`, `CHECKS:`, `CODE:`. Returns `None` unless all three are
+/// present, i.e. unless the mentor deliberately used the format.
+pub fn extract_evidence(verdict_text: &str) -> Option<ReviewEvidence> {
+    let files_value = marker_value(verdict_text, "FILES_REVIEWED:")?;
+    let checks_value = marker_value(verdict_text, "CHECKS:")?;
+    let code_value = marker_value(verdict_text, "CODE:")?;
+
+    let files_reviewed = files_value
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let checks_performed = checks_line["CHECKS:".len()..]
+    let checks_performed = checks_value
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let code_reference = code_line["CODE:".len()..].trim().to_string();
+    let code_reference = code_value.trim().to_string();
 
     Some(ReviewEvidence {
         files_reviewed,
@@ -87,7 +99,10 @@ mod tests {
             checks_performed: vec!["error handling".into()],
             code_reference: "some code".into(),
         };
-        assert!(matches!(validate_review(&evidence), QualityGateResult::Fail { .. }));
+        assert!(matches!(
+            validate_review(&evidence),
+            QualityGateResult::Fail { .. }
+        ));
     }
 
     #[test]
@@ -97,7 +112,10 @@ mod tests {
             checks_performed: vec![],
             code_reference: "some code".into(),
         };
-        assert!(matches!(validate_review(&evidence), QualityGateResult::Fail { .. }));
+        assert!(matches!(
+            validate_review(&evidence),
+            QualityGateResult::Fail { .. }
+        ));
     }
 
     #[test]
@@ -107,7 +125,10 @@ mod tests {
             checks_performed: vec!["error handling".into()],
             code_reference: "".into(),
         };
-        assert!(matches!(validate_review(&evidence), QualityGateResult::Fail { .. }));
+        assert!(matches!(
+            validate_review(&evidence),
+            QualityGateResult::Fail { .. }
+        ));
     }
 
     #[test]
@@ -115,7 +136,10 @@ mod tests {
         let text = "I approve.\nFILES_REVIEWED: src/main.rs, src/utils.rs\nCHECKS: error handling, edge cases\nCODE: handle_login returns Result";
         let evidence = extract_evidence(text).expect("should extract");
         assert_eq!(evidence.files_reviewed, vec!["src/main.rs", "src/utils.rs"]);
-        assert_eq!(evidence.checks_performed, vec!["error handling", "edge cases"]);
+        assert_eq!(
+            evidence.checks_performed,
+            vec!["error handling", "edge cases"]
+        );
         assert_eq!(evidence.code_reference, "handle_login returns Result");
     }
 
@@ -135,5 +159,18 @@ mod tests {
     fn test_extract_evidence_missing_code() {
         let text = "I approve.\nFILES_REVIEWED: src/main.rs\nCHECKS: error handling";
         assert!(extract_evidence(text).is_none());
+    }
+
+    #[test]
+    fn test_extract_evidence_ignores_markers_inside_lines() {
+        let text = "AUTOMATED CHECKS: 3 passed\nEXIT CODE: 1\nsee FILES_REVIEWED: none";
+        assert!(extract_evidence(text).is_none());
+    }
+
+    #[test]
+    fn test_extract_evidence_allows_indented_markers() {
+        let text = "  FILES_REVIEWED: a.rs\n  CHECKS: types\n  CODE: fn a()";
+        let evidence = extract_evidence(text).expect("indented markers still count");
+        assert_eq!(evidence.files_reviewed, vec!["a.rs"]);
     }
 }
