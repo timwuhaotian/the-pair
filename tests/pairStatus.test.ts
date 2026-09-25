@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isPairActive, isPairBusy } from '../src/renderer/src/lib/pairStatus.ts'
+import {
+  isPairActive,
+  isPairBusy,
+  normalizePairStatus
+} from '../src/renderer/src/lib/pairStatus.ts'
+
+test('normalizePairStatus maps backend kebab-case and renderer PascalCase alike', () => {
+  assert.equal(normalizePairStatus('paused'), 'Paused')
+  assert.equal(normalizePairStatus('Paused'), 'Paused')
+  assert.equal(normalizePairStatus('awaiting-human-review'), 'Awaiting Human Review')
+  assert.equal(normalizePairStatus('Awaiting Human Review'), 'Awaiting Human Review')
+  assert.equal(normalizePairStatus('awaiting_human_review'), 'Awaiting Human Review')
+  assert.equal(normalizePairStatus(' finished '), 'Finished')
+  assert.equal(normalizePairStatus('bogus'), undefined)
+  assert.equal(normalizePairStatus(undefined), undefined)
+  assert.equal(normalizePairStatus(3), undefined)
+})
 
 type PairStatus =
   | 'Idle'

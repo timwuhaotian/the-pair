@@ -17,8 +17,8 @@ import {
 } from '../lib/tokenUsage'
 import {
   buildAgentConfig,
-  getModelByQualifiedId,
-  inferProviderFromModel
+  inferProviderFromModel,
+  resolveModelProvider
 } from '../lib/providerResolution'
 import {
   buildExecutorAcceptanceFollowupPrompt,
@@ -31,7 +31,7 @@ import {
   shouldSyncModelsToBackend
 } from '../lib/modelResolution'
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
-import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
+import { isHandoffIgnoredError, shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 import {
   buildInitialExecutorHandoffPrompt,
   buildInitialMentorReviewPrompt,
@@ -40,7 +40,7 @@ import {
 import { playFinishChime, playErrorAlert, playPauseConfirm } from '../lib/sound'
 import { resolvePairSoundCue, type PairSoundCue } from '../lib/pairSoundCue'
 import { extractErrorMessage } from '../lib/utils'
-import { isPairActive } from '../lib/pairStatus'
+import { isPairActive, normalizePairStatus } from '../lib/pairStatus'
 import i18n from '../i18n'
 
 type PairStatus =
@@ -203,6 +203,16 @@ export interface Pair {
   keyDecisions?: string[]
   /** When true, the pair pauses for human plan approval before the executor starts. */
   planGate?: boolean
+  /**
+   * Set by "Clear Session": backend messages at or before this time are not merged
+   * back in on later `pair:state` events (the backend still holds them).
+   */
+  messagesClearedAt?: number
+  /**
+   * Why the last background handoff (`pair:handoff` → next turn) failed. Kept per pair
+   * so background failures never land in the global `error` shown by modals.
+   */
+  handoffError?: string
 }
 
 interface PairStateSnapshot {
@@ -211,7 +221,8 @@ interface PairStateSnapshot {
   iteration?: number
   maxIterations?: number
   turn?: 'mentor' | 'executor' | string
-  finishedAt?: number
+  /** Backend sends `null` while the run is not finished. */
+  finishedAt?: number | null
   mentorStatus?: PairStatus
   executorStatus?: PairStatus
   mentorActivity?: AgentActivity
@@ -324,6 +335,16 @@ let _modelsLoading = false
 const _handoffLocks = new Map<string, Promise<void>>()
 const _manualPauseTimestamps = new Map<string, number>()
 let _unlistenFns: Array<() => void> = []
+/** Bumped by teardownListeners so listeners that finish registering afterwards are dropped. */
+let _listenerGeneration = 0
+/** Pairs whose deletion has started: never write their snapshot again (it would resurrect them). */
+const _deletingPairs = new Set<string>()
+/** Count of `pair:state` events applied per pair, used to tell whether one raced an IPC call. */
+const _stateEventCounts = new Map<string, number>()
+
+function stateEventCount(pairId: string): number {
+  return _stateEventCounts.get(pairId) ?? 0
+}
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -458,7 +479,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     runCount: snapshot.runCount,
     runHistory: snapshot.runHistory,
     currentRunStartedAt: snapshot.currentRunStartedAt,
-    currentRunFinishedAt: snapshot.currentRunFinishedAt,
+    // Snapshots serialize an unfinished run as `null`; the store uses `undefined`.
+    currentRunFinishedAt: snapshot.currentRunFinishedAt ?? undefined,
     branch: snapshot.branch,
     repoPath: snapshot.repoPath,
     worktreePath: snapshot.worktreePath
@@ -469,11 +491,16 @@ const shouldSaveSnapshot = shouldSaveSnapshotImpl
 
 async function saveSnapshotForPair(pair: Pair): Promise<void> {
   if (typeof window === 'undefined' || !window.api?.session?.saveSnapshot) return
+  // A save queued behind `pair_delete` would rewrite the snapshot file it just removed.
+  if (_deletingPairs.has(pair.id)) return
 
   try {
     await window.api.session.saveSnapshot(snapshotPair(pair))
   } catch (error) {
-    console.warn('[usePairStore] Failed to save session snapshot:', error)
+    console.warn(
+      `[usePairStore] Failed to save session snapshot for pair ${pair.id}: ${extractErrorMessage(error, 'unknown error')}`,
+      error
+    )
   }
 }
 
@@ -587,35 +614,6 @@ function sanitizeProgressDetail(
     : text.replace(/^Executor[:：]\s*/i, '')
 }
 
-function normalizePairStatus(raw: unknown): PairStatus | undefined {
-  if (typeof raw !== 'string') return undefined
-  const normalized = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, '-')
-
-  switch (normalized) {
-    case 'idle':
-      return 'Idle'
-    case 'mentoring':
-      return 'Mentoring'
-    case 'executing':
-      return 'Executing'
-    case 'reviewing':
-      return 'Reviewing'
-    case 'paused':
-      return 'Paused'
-    case 'awaiting-human-review':
-      return 'Awaiting Human Review'
-    case 'error':
-      return 'Error'
-    case 'finished':
-      return 'Finished'
-    default:
-      return undefined
-  }
-}
-
 function normalizeTurn(raw: unknown): 'mentor' | 'executor' | undefined {
   if (typeof raw !== 'string') return undefined
   const normalized = raw.trim().toLowerCase()
@@ -643,13 +641,27 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
   }
 }
 
-function resetPairForNewRun(
-  pair: Pair,
-  nextSpec: string,
-  selection: PairModelSelection,
+interface NewRunInput {
+  spec: string
+  selection: PairModelSelection
   maxIterations?: number
-): Pair {
-  const archivedRun = createRunSummary(pair)
+  /** Summary of the previous run, captured BEFORE `pair_assign_task` was invoked. */
+  archivedRun: PairRunSummary | null
+  /**
+   * True when a `pair:state` for the new run was already applied (the backend emits
+   * it from inside `pair_assign_task`); its status/turn/activities must then be kept.
+   */
+  backendSynced: boolean
+  availableModels: AvailableModel[]
+}
+
+/**
+ * Local mirror of a new run the backend has just started. The archive is built by
+ * the caller from the pair as it was before the invoke — by now `pair` may already
+ * carry the new run's state from a racing `pair:state` event.
+ */
+function resetPairForNewRun(pair: Pair, next: NewRunInput): Pair {
+  const { spec: nextSpec, selection, maxIterations, archivedRun } = next
   const now = Date.now()
 
   // Display only the bare task spec to the user. The backend (see
@@ -666,21 +678,41 @@ function resetPairForNewRun(
     iteration: 0
   }
 
+  // The backend has already moved to the new run's first mentor turn. If that
+  // pair:state has not arrived yet, mirror it; never force Idle, which would make
+  // the progress handler drop the turn's first events.
+  const runState: Partial<Pair> = next.backendSynced
+    ? {}
+    : {
+        status: 'Mentoring',
+        turn: 'mentor',
+        iterations: 1,
+        mentorActivity: createIdleActivity('Mentor idle'),
+        executorActivity: createIdleActivity('Executor idle'),
+        currentTurnCard: undefined
+      }
+
   return {
     ...pair,
-    status: 'Idle',
-    iterations: 0,
+    ...runState,
     maxIterations: maxIterations ?? pair.maxIterations,
     cpuUsage: 0,
     memUsage: 0,
     spec: nextSpec,
     mentorModel: selection.mentorModel,
+    mentorProvider: resolveModelProvider(next.availableModels, selection.mentorModel, {
+      modelId: pair.mentorModel,
+      provider: pair.mentorProvider
+    }),
     executorModel: selection.executorModel,
+    executorProvider: resolveModelProvider(next.availableModels, selection.executorModel, {
+      modelId: pair.executorModel,
+      provider: pair.executorProvider
+    }),
     pendingMentorModel: selection.pendingMentorModel,
     pendingExecutorModel: selection.pendingExecutorModel,
     messages: [userMessage],
-    mentorActivity: createIdleActivity('Mentor idle'),
-    executorActivity: createIdleActivity('Executor idle'),
+    latestAcceptance: undefined,
     mentorCpu: 0,
     mentorMemMb: 0,
     executorCpu: 0,
@@ -689,7 +721,7 @@ function resetPairForNewRun(
     runHistory: archivedRun ? [...pair.runHistory, archivedRun] : pair.runHistory,
     currentRunStartedAt: now,
     currentRunFinishedAt: undefined,
-    currentTurnCard: undefined
+    handoffError: undefined
   }
 }
 
@@ -700,23 +732,27 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
   const nextExecutorActivity = state.executorActivity ?? pair.executorActivity
   const nextActiveActivity = nextTurn === 'mentor' ? nextMentorActivity : nextExecutorActivity
   const shouldHaveCurrentCard = isPairActive(nextStatus)
-  const closedNow =
-    pair.currentRunFinishedAt === undefined &&
-    (nextStatus === 'Finished' || nextStatus === 'Error' || nextStatus === 'Paused') &&
-    pair.status !== nextStatus
+  const currentRunFinishedAt = resolveRunFinishedAt(pair, nextStatus, state.finishedAt)
 
   let messages = pair.messages
   let currentTurnCard = pair.currentTurnCard
 
-  if (state.messages && state.messages.length > 0) {
+  // After "Clear Session" the backend still holds the old transcript; don't merge it back.
+  const clearedAt = pair.messagesClearedAt
+  const backendMessages =
+    clearedAt === undefined
+      ? state.messages
+      : state.messages?.filter((m) => m.timestamp > clearedAt)
+
+  if (backendMessages && backendMessages.length > 0) {
     // Merge: keep frontend messages that aren't in the backend (e.g. human mission card)
     // so that reset_session on the backend doesn't erase them from the UI.
-    const backendIds = new Set(state.messages.map((m) => m.id))
+    const backendIds = new Set(backendMessages.map((m) => m.id))
     const preservedMessages = pair.messages.filter((m) => !backendIds.has(m.id))
     const existingTokenUsage = new Map(pair.messages.map((m) => [m.id, m.tokenUsage]))
     messages = [
       ...preservedMessages,
-      ...state.messages.map((m) => ({
+      ...backendMessages.map((m) => ({
         ...m,
         tokenUsage: m.tokenUsage ?? existingTokenUsage.get(m.id)
       }))
@@ -835,9 +871,31 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
       state.latestAcceptance !== undefined ? state.latestAcceptance : pair.latestAcceptance,
     mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
     executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
-    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt),
+    currentRunFinishedAt,
     turnStartedAt: state.turnStartedAt ?? pair.turnStartedAt
   }
+}
+
+/**
+ * When the current run stopped. Cleared while the pair runs (a resumed or retried
+ * run is not finished), taken from the backend when it reports one (`Finished`),
+ * otherwise stamped the moment the pair stops (`Paused`/`Error` carry no backend
+ * time). `null` from the backend or a snapshot means "not finished".
+ */
+function resolveRunFinishedAt(
+  pair: Pair,
+  nextStatus: PairStatus,
+  backendFinishedAt: number | null | undefined
+): number | undefined {
+  if (isPairActive(nextStatus)) return undefined
+  if (typeof backendFinishedAt === 'number') return backendFinishedAt
+
+  const previous = pair.currentRunFinishedAt ?? undefined
+  const stoppedNow =
+    (nextStatus === 'Finished' || nextStatus === 'Error' || nextStatus === 'Paused') &&
+    pair.status !== nextStatus
+  if (previous === undefined && stoppedNow) return Date.now()
+  return previous
 }
 
 function parseProgressUpdate(
@@ -1178,6 +1236,7 @@ export const usePairStore = create<PairStore>((set) => ({
       window.api.pair.onState((payload) => {
         const pairState = payload as PairStateSnapshot
         if (!pairState?.pairId) return
+        _stateEventCounts.set(pairState.pairId, stateEventCount(pairState.pairId) + 1)
 
         let shouldSave = false
         let prevStatus: string | undefined
@@ -1236,19 +1295,16 @@ export const usePairStore = create<PairStore>((set) => ({
               )
             }
 
-            if (backendState?.status === 'Finished') {
-              return
-            }
-
-            if (backendState?.status === 'Paused') {
+            // The backend reports kebab-case statuses; the guard normalizes them.
+            if (shouldIgnoreHandoffEvent({ backendStatus: backendState?.status })) {
               return
             }
 
             const state = usePairStore.getState()
             const pair = state.pairs.find((p) => p.id === data.pairId)
 
-            if (!pair) {
-              console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
+            if (!pair || _deletingPairs.has(data.pairId)) {
+              if (!pair) console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
               return
             }
 
@@ -1332,9 +1388,19 @@ export const usePairStore = create<PairStore>((set) => ({
             const { assignTask } = state
             await assignTask(data.pairId, message, data.nextRole)
           } catch (error) {
+            // The backend refused a handoff that arrived after the pair stopped
+            // (paused/finished/errored meanwhile): an expected race, not a failure.
+            if (isHandoffIgnoredError(error)) return
+
             console.error('[usePairStore] Handoff processing failed:', error)
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            set({ error: `Handoff failed: ${errorMessage}` })
+            const errorMessage = extractErrorMessage(error, 'unknown error')
+            // Background failure: record it on the pair, never in the global `error`
+            // that the modals display.
+            set((state) => ({
+              pairs: state.pairs.map((p) =>
+                p.id === data.pairId ? { ...p, handoffError: `Handoff failed: ${errorMessage}` } : p
+              )
+            }))
             try {
               await window.api.pair.pause(data.pairId)
             } catch (pauseError) {
@@ -1347,11 +1413,16 @@ export const usePairStore = create<PairStore>((set) => ({
       })
     )
 
+    const generation = _listenerGeneration
     for (const p of unlistenPromises) {
       Promise.resolve(p).then((fn) => {
-        if (typeof fn === 'function') {
-          _unlistenFns.push(fn as () => void)
+        if (typeof fn !== 'function') return
+        if (generation !== _listenerGeneration) {
+          // Torn down before `listen()` resolved: unregister right away.
+          ;(fn as () => void)()
+          return
         }
+        _unlistenFns.push(fn as () => void)
       })
     }
   },
@@ -1365,6 +1436,7 @@ export const usePairStore = create<PairStore>((set) => ({
       }
     }
     _unlistenFns = []
+    _listenerGeneration += 1
     _listenersInitialized = false
   },
 
@@ -1386,7 +1458,9 @@ export const usePairStore = create<PairStore>((set) => ({
       })
     } catch (error) {
       console.error('Failed to load models:', error)
-      set({ error: 'Failed to load models', modelsError: 'Failed to load models' })
+      // Background load: report through `modelsError` only, so the failure does not
+      // later surface as a stale error inside an unrelated modal.
+      set({ modelsError: 'Failed to load models' })
     } finally {
       _modelsLoading = false
       set({ isLoadingModels: false })
@@ -1457,6 +1531,10 @@ export const usePairStore = create<PairStore>((set) => ({
         mentorProvider: mentorConfig.provider,
         executorModel: input.executorModel,
         executorProvider: executorConfig.provider,
+        // Mirror what the backend stored so later model saves send them back
+        // instead of clearing them.
+        mentorReasoningEffort: input.mentorReasoningEffort,
+        executorReasoningEffort: input.executorReasoningEffort,
         messages: [initialMessage],
         mentorActivity: createIdleActivity('Mentor idle'),
         executorActivity: createIdleActivity('Executor idle'),
@@ -1519,7 +1597,14 @@ export const usePairStore = create<PairStore>((set) => ({
       overrides = modelOverrides ?? roleOrModelOverrides
     }
 
-    set({ isLoading: true, error: null })
+    // Role handoffs (pair:handoff events, plan-review decisions) continue a run in
+    // the background. They must not toggle the global isLoading/error: that would
+    // clobber errors shown in modals and make console submits for other pairs no-op.
+    // Their failures are thrown to the caller instead.
+    const isHandoff = role !== undefined
+    if (!isHandoff) {
+      set({ isLoading: true, error: null })
+    }
 
     try {
       const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === pairId)
@@ -1527,63 +1612,74 @@ export const usePairStore = create<PairStore>((set) => ({
         throw new Error(`Pair ${pairId} not found`)
       }
 
-      // For new runs (not handoffs), compute effective models
-      let effectiveMentorModel = currentPair.mentorModel
-      let effectiveExecutorModel = currentPair.executorModel
-
-      if (!role) {
-        // Compute effective models: override > pending > default
-        const effective = resolveEffectiveModels(currentPair, overrides)
-        effectiveMentorModel = effective.mentorModel
-        effectiveExecutorModel = effective.executorModel
-
-        // Only sync to backend when explicit overrides are provided.
-        // Without overrides, the backend already has pending or default models.
-        // This avoids unnecessary IPC and prevents partial state on failure.
-        if (shouldSyncModelsToBackend(overrides)) {
-          await window.api.pair.updateModels(
-            pairId,
-            buildUpdateModelsPayload(currentPair, effective)
-          )
+      if (isHandoff) {
+        await window.api.pair.assignTask(pairId, { spec, role })
+        if (currentPair.handoffError) {
+          set((state) => ({
+            pairs: state.pairs.map((pair) =>
+              pair.id === pairId ? { ...pair, handoffError: undefined } : pair
+            )
+          }))
         }
+        return
       }
+
+      // New run: compute effective models (override > pending > default)
+      const effective = resolveEffectiveModels(currentPair, overrides)
+
+      // Only sync to backend when explicit overrides are provided.
+      // Without overrides, the backend already has pending or default models.
+      // This avoids unnecessary IPC and prevents partial state on failure.
+      if (shouldSyncModelsToBackend(overrides)) {
+        await window.api.pair.updateModels(pairId, buildUpdateModelsPayload(currentPair, effective))
+      }
+
+      // Archive the previous run from the pair as it is NOW: pair_assign_task emits
+      // the new run's pair:state before it returns, and that event may be applied
+      // before we get control back.
+      const archivedRun = createRunSummary(currentPair)
+      const stateEventsBefore = stateEventCount(pairId)
 
       await window.api.pair.assignTask(pairId, { spec, role })
 
       // Only update state AFTER backend succeeds
+      const backendSynced = stateEventCount(pairId) !== stateEventsBefore
       set((state) => ({
         isLoading: false,
-        pairs: state.pairs.map((pair) => {
-          if (pair.id !== pairId) return pair
-
-          // For handoffs, do NOT reset the pair - just pass through
-          if (role) {
-            return pair
-          }
-
-          // New run: apply effective models and reset
-          return resetPairForNewRun(
-            pair,
-            spec,
-            {
-              mentorModel: effectiveMentorModel,
-              executorModel: effectiveExecutorModel
-            },
-            options?.maxIterations
-          )
-        })
+        // Leave an archived-run view of this pair so the new run is visible.
+        viewingRunId: currentPair.runHistory.some((run) => run.id === state.viewingRunId)
+          ? null
+          : state.viewingRunId,
+        pairs: state.pairs.map((pair) =>
+          pair.id === pairId
+            ? resetPairForNewRun(pair, {
+                spec,
+                selection: {
+                  mentorModel: effective.mentorModel,
+                  executorModel: effective.executorModel
+                },
+                maxIterations: options?.maxIterations,
+                archivedRun,
+                backendSynced,
+                availableModels: state.availableModels
+              })
+            : pair
+        )
       }))
 
-      // Only snapshot for new runs (not handoffs)
-      if (!role) {
-        const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === pairId)
-        if (currentPair) {
-          await saveSnapshotForPair(currentPair)
-        }
+      const updatedPair = usePairStore.getState().pairs.find((pair) => pair.id === pairId)
+      if (updatedPair) {
+        await saveSnapshotForPair(updatedPair)
       }
     } catch (error) {
-      console.error('[usePairStore] assignTask error:', error)
       const message = extractErrorMessage(error, 'Failed to assign task')
+      if (isHandoff) {
+        if (!isHandoffIgnoredError(error)) {
+          console.error('[usePairStore] assignTask (handoff) error:', error)
+        }
+        throw error instanceof Error ? error : new Error(message)
+      }
+      console.error('[usePairStore] assignTask error:', error)
       set({
         isLoading: false,
         error: message
@@ -1598,9 +1694,6 @@ export const usePairStore = create<PairStore>((set) => ({
     try {
       const result = await window.api.pair.updateModels(pairId, selection)
       const typedResult = result as PairModelSelection
-      const availableModels = usePairStore.getState().availableModels
-      const mentorModelEntry = getModelByQualifiedId(availableModels, typedResult.mentorModel)
-      const executorModelEntry = getModelByQualifiedId(availableModels, typedResult.executorModel)
 
       set((state) => ({
         isLoading: false,
@@ -1609,9 +1702,17 @@ export const usePairStore = create<PairStore>((set) => ({
             ? {
                 ...pair,
                 mentorModel: typedResult.mentorModel,
-                mentorProvider: mentorModelEntry?.provider ?? pair.mentorProvider,
+                mentorProvider: resolveModelProvider(
+                  state.availableModels,
+                  typedResult.mentorModel,
+                  { modelId: pair.mentorModel, provider: pair.mentorProvider }
+                ),
                 executorModel: typedResult.executorModel,
-                executorProvider: executorModelEntry?.provider ?? pair.executorProvider,
+                executorProvider: resolveModelProvider(
+                  state.availableModels,
+                  typedResult.executorModel,
+                  { modelId: pair.executorModel, provider: pair.executorProvider }
+                ),
                 pendingMentorModel: typedResult.pendingMentorModel,
                 pendingExecutorModel: typedResult.pendingExecutorModel,
                 mentorReasoningEffort: typedResult.mentorReasoningEffort,
@@ -1659,7 +1760,10 @@ export const usePairStore = create<PairStore>((set) => ({
 
     try {
       await window.api.pair.resume(id)
-      set({ isLoading: false })
+      set((state) => ({
+        isLoading: false,
+        pairs: state.pairs.map((p) => (p.id === id ? { ...p, handoffError: undefined } : p))
+      }))
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to resume pair')
       set({
@@ -1674,7 +1778,8 @@ export const usePairStore = create<PairStore>((set) => ({
     // Resolve a gated plan (status "Awaiting Human Review"). Approve releases the
     // suppressed handoff to the executor; reject sends the plan back to the mentor
     // to revise with the human's feedback. Both reuse the assignTask handoff path,
-    // which manages loading/error and starts the next turn without resetting state.
+    // which starts the next turn without resetting state and throws on failure
+    // (it does not touch the global loading/error state).
     const pair = usePairStore.getState().pairs.find((p) => p.id === pairId)
     if (!pair) return
 
@@ -1708,9 +1813,32 @@ export const usePairStore = create<PairStore>((set) => ({
           ? trimmedFeedback
           : i18n.t('planReview.sentBackMessage')
 
+    const decidedAt = Date.now()
+
+    // Throws on failure (the caller keeps the feedback so the user can retry);
+    // nothing below runs then, so a failed decision leaves no trace.
+    const { assignTask } = usePairStore.getState()
+    if (decision === 'approve') {
+      await assignTask(
+        pairId,
+        buildInitialExecutorHandoffPrompt({ mentorPlan: lastMentorPlan }),
+        'executor'
+      )
+    } else {
+      await assignTask(
+        pairId,
+        buildPlanRevisionPrompt({
+          taskSpec: pair.spec,
+          previousPlan: lastMentorPlan,
+          feedback
+        }),
+        'mentor'
+      )
+    }
+
     usePairStore.getState().addMessage(pairId, {
       id: generateId(),
-      timestamp: Date.now(),
+      timestamp: decidedAt,
       from: 'human',
       to: 'mentor',
       type: 'feedback',
@@ -1731,37 +1859,33 @@ export const usePairStore = create<PairStore>((set) => ({
           console.warn('[usePairStore] Failed to record plan review intervention', error)
         )
     }
-
-    const { assignTask } = usePairStore.getState()
-    if (decision === 'approve') {
-      await assignTask(
-        pairId,
-        buildInitialExecutorHandoffPrompt({ mentorPlan: lastMentorPlan }),
-        'executor'
-      )
-    } else {
-      await assignTask(
-        pairId,
-        buildPlanRevisionPrompt({
-          taskSpec: pair.spec,
-          previousPlan: lastMentorPlan,
-          feedback
-        }),
-        'mentor'
-      )
-    }
   },
 
   deletePair: async (id) => {
     set({ isLoading: true, error: null })
+    // Killing the pair's processes emits pair:state / pair:message while the delete
+    // runs; those must not write a fresh snapshot that brings the pair back on the
+    // next launch. The mark stays after success (the pair is gone for good).
+    _deletingPairs.add(id)
 
     try {
       await window.api.pair.delete(id)
       set((state) => ({
         isLoading: false,
-        pairs: state.pairs.filter((p) => p.id !== id)
+        pairs: state.pairs.filter((p) => p.id !== id),
+        viewingRunId: state.pairs
+          .find((p) => p.id === id)
+          ?.runHistory.some((run) => run.id === state.viewingRunId)
+          ? null
+          : state.viewingRunId
       }))
+      _handoffLocks.delete(id)
+      _manualPauseTimestamps.delete(id)
+      _stateEventCounts.delete(id)
     } catch (error) {
+      // The pair still exists (e.g. its worktree changes could not be preserved):
+      // resume persisting it.
+      _deletingPairs.delete(id)
       const message = extractErrorMessage(error, 'Failed to delete pair')
       set({
         isLoading: false,
@@ -1775,7 +1899,10 @@ export const usePairStore = create<PairStore>((set) => ({
     set({ isLoading: true, error: null })
     try {
       await window.api.pair.retryTurn(id)
-      set({ isLoading: false })
+      set((state) => ({
+        isLoading: false,
+        pairs: state.pairs.map((p) => (p.id === id ? { ...p, handoffError: undefined } : p))
+      }))
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to retry turn')
       set({ isLoading: false, error: message })
@@ -1812,10 +1939,22 @@ export const usePairStore = create<PairStore>((set) => ({
       )
     })),
 
-  setMessages: (pairId, messages) =>
+  setMessages: (pairId, messages) => {
     set((state) => ({
-      pairs: state.pairs.map((p) => (p.id === pairId ? { ...p, messages } : p))
-    })),
+      pairs: state.pairs.map((p) => {
+        if (p.id !== pairId) return p
+        if (messages.length > 0) return { ...p, messages }
+        // Clearing the session: the backend keeps its transcript and re-sends it
+        // with every pair:state, so remember the cutoff and filter those out.
+        const newest = p.messages.reduce((max, m) => Math.max(max, m.timestamp), 0)
+        return { ...p, messages, messagesClearedAt: Math.max(Date.now(), newest) }
+      })
+    }))
+    if (messages.length === 0) {
+      const pair = usePairStore.getState().pairs.find((p) => p.id === pairId)
+      if (pair) void saveSnapshotForPair(pair)
+    }
+  },
 
   syncState: (pairId, status, iteration) =>
     set((state) => ({
@@ -1849,3 +1988,12 @@ export const usePairStore = create<PairStore>((set) => ({
     set({ restoringSpec: spec })
   }
 }))
+
+// Vite HMR re-evaluates this module and creates a fresh store; drop the old
+// store's Tauri listeners first, or every event (incl. pair:handoff → assignTask)
+// would be handled twice.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    usePairStore.getState().teardownListeners()
+  })
+}
