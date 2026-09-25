@@ -7,10 +7,16 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Upper bound for capturing the login shell's PATH. Startup may wait on the
-/// refresh, so a profile script that blocks (an `ssh-add` or keychain prompt)
-/// must not stall the app.
-const LOGIN_SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(3);
+/// Upper bound for capturing the login shell's PATH, all attempts together.
+/// Startup waits on the refresh, so a profile script that blocks (an `ssh-add`
+/// or keychain prompt) must not stall the app. Typical profiles finish well
+/// under a second.
+const LOGIN_SHELL_PATH_BUDGET: Duration = Duration::from_secs(5);
+
+/// Share of the budget the interactive `-ilc` attempt may use; the rest is
+/// kept for the plain `-lc` fallback.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const INTERACTIVE_SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Printed around `$PATH` so banners and `echo`s from profile scripts can't be
 /// mistaken for PATH entries.
@@ -285,7 +291,45 @@ pub(crate) struct BoundedOutput {
 /// macOS): it blocks on write, never exits, and runs into the timeout. The
 /// helper stops at EOF, and waiting for it is capped by the same deadline, so
 /// a daemon that inherited the pipe can't hold the caller either.
-pub(crate) fn run_with_timeout(mut command: Command, timeout: Duration) -> Option<BoundedOutput> {
+pub(crate) fn run_with_timeout(command: Command, timeout: Duration) -> Option<BoundedOutput> {
+    run_bounded(command, timeout, false, &|_| false)
+}
+
+/// Stops the child and, when it leads its own session (`detach_from_terminal`),
+/// everything it started.
+fn terminate(child: &mut std::process::Child, whole_group: bool) {
+    #[cfg(unix)]
+    if whole_group {
+        extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        const SIGKILL: i32 = 9;
+        if let Ok(pid) = i32::try_from(child.id()) {
+            // Never let a bogus id turn into kill(0)/kill(-1).
+            if pid > 1 {
+                // SAFETY: kill(2) takes plain integers and touches no memory;
+                // a negative pid addresses the process group.
+                unsafe { kill(-pid, SIGKILL) };
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = whole_group;
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// `run_with_timeout` that also returns as soon as `is_complete` accepts the
+/// output: once the child has exited it stops waiting for EOF (a background
+/// job may keep the pipe open), and a child that lingers past
+/// `PIPE_DRAIN_GRACE` after that is stopped. `whole_group`: the child leads
+/// its own process group (`detach_from_terminal`), which is stopped with it.
+fn run_bounded(
+    mut command: Command,
+    timeout: Duration,
+    whole_group: bool,
+    is_complete: &dyn Fn(&[u8]) -> bool,
+) -> Option<BoundedOutput> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -295,8 +339,7 @@ pub(crate) fn run_with_timeout(mut command: Command, timeout: Duration) -> Optio
     let deadline = Instant::now() + timeout;
     let mut child = command.spawn().ok()?;
     let Some(mut pipe) = child.stdout.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
+        terminate(&mut child, whole_group);
         return None;
     };
 
@@ -320,26 +363,71 @@ pub(crate) fn run_with_timeout(mut command: Command, timeout: Duration) -> Optio
         let _ = eof_tx.send(());
     });
 
+    let complete = || is_complete(&captured.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut completed_at: Option<Instant> = None;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
+            Ok(None) => {
+                let now = Instant::now();
+                if completed_at.is_none() && complete() {
+                    completed_at = Some(now);
+                }
+                let lingering =
+                    completed_at.is_some_and(|at| now.duration_since(at) >= PIPE_DRAIN_GRACE);
+                if now < deadline && !lingering {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                terminate(&mut child, whole_group);
+                break None;
+            }
+            Err(_) => {
+                terminate(&mut child, whole_group);
                 break None;
             }
         }
     };
 
     if status.is_some() {
-        let drain = deadline
-            .saturating_duration_since(Instant::now())
-            .max(PIPE_DRAIN_GRACE);
-        let _ = eof_rx.recv_timeout(drain);
+        let drain_until = deadline.max(Instant::now() + PIPE_DRAIN_GRACE);
+        loop {
+            let now = Instant::now();
+            if now >= drain_until || complete() {
+                break;
+            }
+            let step = (drain_until - now).min(Duration::from_millis(10));
+            match eof_rx.recv_timeout(step) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
     }
     let stdout = std::mem::take(&mut *captured.lock().unwrap_or_else(|e| e.into_inner()));
     Some(BoundedOutput { status, stdout })
+}
+
+/// Starts the child in a session of its own, without a controlling terminal.
+/// An interactive shell run from a terminal (the app launched from one)
+/// otherwise tries to take the terminal over, gets stopped by SIGTTIN/SIGTTOU
+/// and runs into the timeout; a profile that reads `/dev/tty` fails at once
+/// instead of waiting for input. The child leads its own process group, so
+/// `run_bounded(.., whole_group: true, ..)` can stop all it started.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn detach_from_terminal(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    extern "C" {
+        fn setsid() -> i32;
+    }
+    // SAFETY: setsid(2) is async-signal-safe, allocates nothing and only
+    // runs in the forked child before exec. Failure (already a group
+    // leader, which a fresh fork never is) leaves the child as it was.
+    unsafe {
+        command.pre_exec(|| {
+            setsid();
+            Ok(())
+        });
+    }
 }
 
 /// The PATH printed between the markers, ignoring whatever else the shell's
@@ -364,16 +452,63 @@ pub fn capture_login_shell_path() -> Option<String> {
                 "/bin/bash".to_string()
             }
         });
+    capture_shell_path(
+        &shell,
+        &[],
+        INTERACTIVE_SHELL_PATH_TIMEOUT,
+        LOGIN_SHELL_PATH_BUDGET,
+    )
+}
 
+/// The PATH a terminal would have. An interactive login shell (`-ilc`, as the
+/// `shell-env` package does) also reads `.zshrc` / `.bashrc`, where
+/// `~/.local/bin`, nvm, the Claude Code installer and opencode usually add
+/// themselves, after macOS `path_helper` put `/usr/local/bin` and
+/// `/opt/homebrew/bin` first. A plain login shell (`-lc`) skips those files,
+/// so stale system copies of a CLI would win over the user's own.
+///
+/// If the interactive attempt fails or prints no PATH (a `.zshrc` that execs
+/// tmux, exits, or blocks), `-lc` gets what is left of `budget`.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn capture_shell_path(
+    shell: &str,
+    envs: &[(&str, &OsStr)],
+    interactive_timeout: Duration,
+    budget: Duration,
+) -> Option<String> {
+    let started = Instant::now();
+    if let Some(path) = run_shell_for_path(shell, "-ilc", envs, interactive_timeout.min(budget)) {
+        return Some(path);
+    }
+    let remaining = budget.saturating_sub(started.elapsed());
+    if remaining.is_zero() {
+        return None;
+    }
+    run_shell_for_path(shell, "-lc", envs, remaining)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn run_shell_for_path(
+    shell: &str,
+    flags: &str,
+    envs: &[(&str, &OsStr)],
+    timeout: Duration,
+) -> Option<String> {
     let mut command = Command::new(shell);
-    command.arg("-lc").arg(format!(
+    command.arg(flags).arg(format!(
         "printf '%s%s%s' '{PATH_BEGIN_MARKER}' \"$PATH\" '{PATH_END_MARKER}'"
     ));
-    // Own process group: a profile script that reads the terminal (when the
-    // app runs from one) is stopped instead of taking over its input.
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    // Oh My Zsh would otherwise check for (and prompt about) updates.
+    command.env("DISABLE_AUTO_UPDATE", "true");
+    command.envs(envs.iter().copied());
+    detach_from_terminal(&mut command);
 
-    let output = run_with_timeout(command, LOGIN_SHELL_PATH_TIMEOUT)?;
+    let has_end_marker = |output: &[u8]| {
+        output
+            .windows(PATH_END_MARKER.len())
+            .any(|window| window == PATH_END_MARKER.as_bytes())
+    };
+    let output = run_bounded(command, timeout, true, &has_end_marker)?;
     extract_marked_path(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -382,7 +517,7 @@ pub fn capture_login_shell_path() -> Option<String> {
     let mut command = Command::new("cmd.exe");
     command.arg("/c").arg("@echo off & echo %PATH%");
 
-    let output = run_with_timeout(command, LOGIN_SHELL_PATH_TIMEOUT)?;
+    let output = run_with_timeout(command, LOGIN_SHELL_PATH_BUDGET)?;
     if !output.status.is_some_and(|status| status.success()) {
         return None;
     }
@@ -440,6 +575,182 @@ mod tests {
             extract_marked_path(&format!("{PATH_BEGIN_MARKER}  {PATH_END_MARKER}")),
             None
         );
+    }
+
+    /// A throwaway home holding the given startup files.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_home(files: &[(&str, &str)]) -> PathBuf {
+        let home = temp_home();
+        for (name, content) in files {
+            fs::write(home.join(name), content).expect("write startup file");
+        }
+        home
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn process_is_gone(pid: &str) -> bool {
+        (0..50).any(|_| {
+            let alive = Command::new("kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            if alive {
+                thread::sleep(Duration::from_millis(100));
+            }
+            !alive
+        })
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_path_includes_what_a_noisy_zshrc_adds() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let home = shell_home(&[
+            (".zshenv", "echo zshenv says hi\n"),
+            (
+                ".zprofile",
+                "echo profile banner\nexport PATH=\"/zprofile/bin:$PATH\"\n",
+            ),
+            (
+                ".zshrc",
+                // Prints, reads stdin (closed), then puts its dir first, as the
+                // Claude Code / opencode installers do.
+                "echo rc noise; print -P '%F{red}prompt%f'\nread -r answer\nexport PATH=\"/zshrc/bin:$PATH\"\n",
+            ),
+        ]);
+
+        let started = Instant::now();
+        let path = capture_shell_path(
+            "/bin/zsh",
+            &[("ZDOTDIR", home.as_os_str()), ("HOME", home.as_os_str())],
+            Duration::from_secs(3),
+            Duration::from_secs(5),
+        )
+        .expect("PATH from an interactive login zsh");
+        assert!(path.starts_with("/zshrc/bin:"), "{path}");
+        assert!(path.contains("/zprofile/bin"), "{path}");
+        assert!(
+            !path.contains("noise") && !path.contains("banner"),
+            "{path}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(3));
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_path_reads_bashrc_through_bash_profile() {
+        if !Path::new("/bin/bash").exists() {
+            return;
+        }
+        let home = shell_home(&[
+            (
+                ".bash_profile",
+                "echo welcome\n[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"\n",
+            ),
+            (
+                ".bashrc",
+                "case $- in *i*) ;; *) return ;; esac\nread -r line\necho interactive only\nexport PATH=\"/bashrc/bin:$PATH\"\n",
+            ),
+        ]);
+
+        let path = capture_shell_path(
+            "/bin/bash",
+            &[("HOME", home.as_os_str())],
+            Duration::from_secs(3),
+            Duration::from_secs(5),
+        )
+        .expect("PATH from an interactive login bash");
+        assert!(path.starts_with("/bashrc/bin:"), "{path}");
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_path_falls_back_to_a_login_shell_when_zshrc_blocks() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let pid_file = temp_home().join("sleep.pid");
+        let home = shell_home(&[
+            (".zprofile", "export PATH=\"/zprofile/bin:$PATH\"\n"),
+            (
+                ".zshrc",
+                &format!(
+                    "export PATH=\"/zshrc/bin:$PATH\"\nsleep 30 &\necho $! > '{}'\nwait\n",
+                    pid_file.display()
+                ),
+            ),
+        ]);
+
+        let started = Instant::now();
+        let path = capture_shell_path(
+            "/bin/zsh",
+            &[("ZDOTDIR", home.as_os_str()), ("HOME", home.as_os_str())],
+            Duration::from_millis(700),
+            Duration::from_secs(4),
+        )
+        .expect("the -lc fallback still answers");
+        assert!(path.contains("/zprofile/bin"), "{path}");
+        assert!(!path.contains("/zshrc/bin"), "{path}");
+        assert!(started.elapsed() < Duration::from_secs(4));
+
+        // The timed-out interactive shell was stopped with everything it ran.
+        let pid = fs::read_to_string(&pid_file)
+            .expect("zshrc ran")
+            .trim()
+            .to_string();
+        assert!(process_is_gone(&pid), "sleep {pid} outlived the probe");
+
+        fs::remove_dir_all(&home).ok();
+        fs::remove_dir_all(pid_file.parent().unwrap()).ok();
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_path_does_not_wait_for_background_jobs_holding_stdout() {
+        if !Path::new("/bin/zsh").exists() {
+            return;
+        }
+        // A profile-started daemon keeps the pipe open after the shell exits.
+        let home = shell_home(&[(".zshrc", "(sleep 20) &\n")]);
+
+        let started = Instant::now();
+        let path = capture_shell_path(
+            "/bin/zsh",
+            &[("ZDOTDIR", home.as_os_str()), ("HOME", home.as_os_str())],
+            Duration::from_secs(3),
+            Duration::from_secs(5),
+        );
+        assert!(path.is_some());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
+
+        fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn shell_path_is_none_for_a_missing_shell() {
+        let started = Instant::now();
+        assert_eq!(
+            capture_shell_path(
+                "/nonexistent/the-pair-shell",
+                &[],
+                Duration::from_secs(3),
+                Duration::from_secs(5),
+            ),
+            None
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[cfg(unix)]
