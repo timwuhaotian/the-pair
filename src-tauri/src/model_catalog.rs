@@ -241,7 +241,15 @@ impl ModelCatalog {
                     billing_kind: billing_kind.to_string(),
                     billing_label: billing_label.to_string(),
                     access_label,
-                    plan_label: Some(profile.subscription_label.clone()),
+                    // The route's billing path. It is per model: OpenCode serves the
+                    // same model via Zen and via the user's own key, and the picker
+                    // keys routes on `provider::planLabel`, so the profile-wide
+                    // "multi-provider" would merge them into one route.
+                    plan_label: Some(if model.subscription_label.trim().is_empty() {
+                        profile.subscription_label.clone()
+                    } else {
+                        model.subscription_label.clone()
+                    }),
                     availability_status: status,
                     availability_reason: reason,
                     supports_pair_execution: model.supports_pair_execution,
@@ -809,6 +817,78 @@ mod tests {
         assert_eq!(
             unknown_model.source_provider_label, "Unknownvendor",
             "unknown family should fall back to title-casing"
+        );
+    }
+
+    #[test]
+    fn build_catalog_keeps_opencode_zen_and_api_key_routes_distinct() {
+        // Same model via OpenCode Zen and via the user's own Anthropic key: one
+        // canonical model, but two billing routes. The picker keys routes on
+        // `provider::planLabel`, so the labels must differ per model.
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Opencode,
+            true,
+            true,
+            true,
+            "multi-provider",
+            vec![
+                model(
+                    "opencode/claude-sonnet-4-5",
+                    "claude-sonnet-4-5",
+                    Some("opencode"),
+                    Some("claude"),
+                    "zen-backed",
+                    true,
+                    true,
+                ),
+                model(
+                    "anthropic/claude-sonnet-4-5",
+                    "claude-sonnet-4-5",
+                    Some("anthropic"),
+                    None,
+                    "internal-provider",
+                    true,
+                    true,
+                ),
+            ],
+        )]);
+
+        let row = |id: &str| {
+            catalog
+                .iter()
+                .find(|m| m.model_id == id)
+                .unwrap_or_else(|| panic!("{id} should be in the catalog"))
+        };
+        let zen = row("opencode/claude-sonnet-4-5");
+        let byok = row("anthropic/claude-sonnet-4-5");
+
+        assert_eq!(zen.canonical_key, byok.canonical_key);
+        assert_eq!(zen.plan_label.as_deref(), Some("zen-backed"));
+        assert_eq!(byok.plan_label.as_deref(), Some("internal-provider"));
+    }
+
+    #[test]
+    fn build_catalog_falls_back_to_the_profile_plan_label() {
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Claude,
+            true,
+            true,
+            true,
+            "subscription-backed",
+            vec![model(
+                "claude-sonnet-4-6",
+                "Claude Sonnet 4.6",
+                Some("anthropic"),
+                None,
+                "",
+                true,
+                true,
+            )],
+        )]);
+
+        assert_eq!(
+            catalog[0].plan_label.as_deref(),
+            Some("subscription-backed")
         );
     }
 }
