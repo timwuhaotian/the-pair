@@ -96,12 +96,14 @@ impl ProviderAdapter {
 
     pub fn infer_provider_kind(model: &str) -> ProviderKind {
         // Antigravity (`agy`) model ids are display names like "Gemini 3.5 Flash (Low)"
-        // (capitalized), so the keyword checks below are case-insensitive to route them
-        // correctly alongside the lowercase canonical ids.
-        if model.starts_with("opencode") || model.contains("/") {
-            let parts: Vec<&str> = model.split('/').collect();
+        // (capitalized), so every check below is case-insensitive to route them
+        // correctly alongside the lowercase canonical ids. The frontend's
+        // `inferProviderFromModel` mirrors these rules.
+        let lower = model.to_ascii_lowercase();
+        if lower.starts_with("opencode") || lower.contains('/') {
+            let parts: Vec<&str> = lower.split('/').collect();
             if parts.len() >= 2 {
-                return match parts[0].to_ascii_lowercase().as_str() {
+                return match parts[0] {
                     "codex" => ProviderKind::Codex,
                     "claude" => ProviderKind::Claude,
                     "gemini" => ProviderKind::Gemini,
@@ -116,30 +118,30 @@ impl ProviderAdapter {
             }
 
             ProviderKind::Opencode
+        } else if lower.contains("claude") {
+            ProviderKind::Claude
+        } else if lower.contains("gemini") {
+            ProviderKind::Gemini
+        } else if lower.contains("kimi") {
+            ProviderKind::Kimi
+        } else if lower.contains("grok") {
+            ProviderKind::Grok
+        } else if lower.contains("aider") {
+            ProviderKind::Aider
+        } else if lower.contains("muse") {
+            ProviderKind::Muse
+        } else if lower.starts_with("codex-")
+            || lower.contains("gpt")
+            || lower
+                .strip_prefix('o')
+                .and_then(|s| s.chars().next())
+                .is_some_and(|c| c.is_ascii_digit())
+        {
+            // `codex-*` slugs (e.g. `codex-mini-latest`), `gpt-*` and the
+            // o-series, matching `provider_registry::is_codex_model_id`.
+            ProviderKind::Codex
         } else {
-            let lower = model.to_ascii_lowercase();
-            if lower.contains("claude") {
-                ProviderKind::Claude
-            } else if lower.contains("gemini") {
-                ProviderKind::Gemini
-            } else if lower.contains("kimi") {
-                ProviderKind::Kimi
-            } else if lower.contains("grok") {
-                ProviderKind::Grok
-            } else if lower.contains("aider") {
-                ProviderKind::Aider
-            } else if lower.contains("muse") {
-                ProviderKind::Muse
-            } else if lower.contains("gpt")
-                || lower
-                    .strip_prefix('o')
-                    .and_then(|s| s.chars().next())
-                    .is_some_and(|c| c.is_ascii_digit())
-            {
-                ProviderKind::Codex
-            } else {
-                ProviderKind::Opencode
-            }
+            ProviderKind::Opencode
         }
     }
 
@@ -395,6 +397,85 @@ mod tests {
             ProviderAdapter::infer_provider_kind("grok/grok-4.6"),
             ProviderKind::Grok
         );
+    }
+
+    #[test]
+    fn inference_routes_codex_slugs_case_insensitively() {
+        for model in [
+            "codex-mini-latest",
+            "codex-ultra-latest",
+            "CODEX-Mini-Latest",
+        ] {
+            assert_eq!(
+                ProviderAdapter::infer_provider_kind(model),
+                ProviderKind::Codex,
+                "{model} should route to Codex"
+            );
+        }
+        // Qualified ids route by their prefix regardless of case.
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("Codex/gpt-5.5"),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("codex/codex-mini-latest"),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("GROK/my-model"),
+            ProviderKind::Grok
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("GPT-5.5"),
+            ProviderKind::Codex
+        );
+        // Only a leading `codex-` routes; an unrelated id stays with OpenCode.
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("mycodex-model"),
+            ProviderKind::Opencode
+        );
+    }
+
+    #[test]
+    fn qualified_codex_grok_and_muse_ids_are_stripped_at_spawn() {
+        // The frontend stores provider-qualified ids (`codex/…`, `grok/…`,
+        // `muse/…`); each CLI must receive the bare model id.
+        let cases = [
+            (ProviderKind::Codex, "codex/gpt-5.5", "--model", "gpt-5.5"),
+            (
+                ProviderKind::Codex,
+                "codex/codex-mini-latest",
+                "--model",
+                "codex-mini-latest",
+            ),
+            (ProviderKind::Grok, "grok/my-model", "-m", "my-model"),
+            (
+                ProviderKind::Muse,
+                "muse/muse-spark-1.3",
+                "--model",
+                "muse-spark-1.3",
+            ),
+        ];
+        for (kind, model, flag, expected) in cases {
+            for role in ["mentor", "executor"] {
+                let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+                    provider_kind: kind,
+                    model,
+                    session_id: None,
+                    role,
+                    pair_id: "pair-1",
+                    message: "do the work",
+                    reasoning_effort: None,
+                })
+                .unwrap();
+                let idx = command
+                    .args
+                    .iter()
+                    .position(|arg| arg == flag)
+                    .unwrap_or_else(|| panic!("{kind:?} command should carry {flag}"));
+                assert_eq!(command.args[idx + 1], expected, "{kind:?} {role}");
+            }
+        }
     }
 
     #[test]

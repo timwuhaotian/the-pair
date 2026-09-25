@@ -257,6 +257,23 @@ mod tests {
     }
 
     #[test]
+    fn codex_strips_qualified_prefix_from_model() {
+        let provider = CodexProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Codex,
+            model: "codex/codex-mini-latest",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: None,
+        });
+        let idx = command.args.iter().position(|a| a == "--model").unwrap();
+        assert_eq!(command.args[idx + 1], "codex-mini-latest");
+        assert!(!command.args.iter().any(|a| a.starts_with("codex/")));
+    }
+
+    #[test]
     fn codex_mentor_sandbox_is_read_only_via_config_override() {
         let provider = CodexProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {

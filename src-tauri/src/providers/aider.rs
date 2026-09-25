@@ -14,6 +14,15 @@ use serde_json::Value;
 /// reads the streamed text directly via `OutputTransport::Stdio`.
 /// Aider is stateless per `--message` invocation (git history is the persistence),
 /// so `SessionStrategy::NewFirst` is the correct choice.
+///
+/// The mentor runs in ask mode (`--chat-mode ask`, an alias of
+/// `--edit-format ask`). Aider's `AskCoder` never parses or applies edits, so
+/// the mentor can read (files it mentions are still added to the chat) but
+/// cannot change the worktree. `--no-suggest-shell-commands` also turns off
+/// shell-command suggestions. `--yes-always` stays: it answers aider's
+/// add-file prompts, and it declines shell commands anyway because they need
+/// an explicit yes. Flags verified against aider-chat v0.86.1 `aider/args.py`
+/// (2026-09-26).
 pub struct AiderProvider;
 
 impl Provider for AiderProvider {
@@ -73,7 +82,19 @@ impl Provider for AiderProvider {
             "--no-check-update".into(),
             "--no-show-release-notes".into(),
             "--no-analytics".into(),
+            // With URL detection on, every URL in a prompt is scraped. Scraping
+            // offers to pip-install Playwright plus a Chromium build, and
+            // `--yes-always` would accept.
+            "--no-detect-urls".into(),
         ];
+
+        // The mentor is read-only. Ask mode answers questions about the code
+        // but never applies edits, and it gets no shell-command suggestions.
+        if request.role == "mentor" {
+            args.push("--chat-mode".into());
+            args.push("ask".into());
+            args.push("--no-suggest-shell-commands".into());
+        }
 
         // Aider forwards `--reasoning-effort` to models that accept it.
         if let Some(effort) = request.reasoning_effort {
@@ -218,9 +239,12 @@ mod tests {
                 "--no-show-model-warnings".to_string(),
                 "--no-check-update".to_string(),
                 "--no-show-release-notes".to_string(),
-                "--no-analytics".to_string()
+                "--no-analytics".to_string(),
+                "--no-detect-urls".to_string()
             ]
         );
+        // The executor keeps aider's default edit mode.
+        assert!(!command.args.contains(&"--chat-mode".to_string()));
         // Aider streams plain text; the orchestrator reads it via Stdio, not a
         // sentinel last-message file.
         assert!(command.last_message_path.is_none());
@@ -266,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn aider_mentor_command_has_no_special_permission_flags() {
+    fn aider_mentor_runs_in_ask_mode_without_shell_suggestions() {
         let provider = AiderProvider;
         let command = provider.build_turn_command(&ProviderTurnRequest {
             provider_kind: ProviderKind::Aider,
@@ -278,6 +302,30 @@ mod tests {
             reasoning_effort: None,
         });
 
+        let mode_idx = command
+            .args
+            .iter()
+            .position(|a| a == "--chat-mode")
+            .expect("the read-only mentor must run in ask mode");
+        assert_eq!(command.args[mode_idx + 1], "ask");
+        assert!(command
+            .args
+            .contains(&"--no-suggest-shell-commands".to_string()));
+        // Headless-safety flags still apply to the mentor.
+        for flag in [
+            "--yes-always",
+            "--no-auto-commits",
+            "--no-dirty-commits",
+            "--no-detect-urls",
+            "--no-check-update",
+        ] {
+            assert!(
+                command.args.contains(&flag.to_string()),
+                "aider mentor should receive {}",
+                flag
+            );
+        }
+        // Flags that aider does not have must never be passed.
         for flag in ["--plan", "--yolo", "--auto", "--permission-mode", "--ask"] {
             assert!(
                 !command.args.contains(&flag.to_string()),

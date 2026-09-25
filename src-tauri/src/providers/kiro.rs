@@ -15,7 +15,21 @@ use serde_json::Value;
 /// engine) is available but its event format is undocumented, so the
 /// plain-text transport is kept; switching to the structured stream would
 /// enable session-id capture and token usage, neither of which surface today.
+///
+/// Permissions are per role. The executor runs with `--trust-all-tools`. The
+/// mentor only trusts [`MENTOR_TRUSTED_TOOLS`], Kiro's read-only built-ins
+/// (`read` is also known as `fs_read`). Every other tool (`write`, `shell`,
+/// `aws`, `code`, ...) would need approval, and `--no-interactive` refuses
+/// approval requests ("tool permission approval is not supported in
+/// non-interactive mode", kiro-cli 2.24.0). The call fails and the turn
+/// continues. So the mentor never hangs, and it cannot edit the worktree
+/// unless the user's own Kiro settings pre-approve writes or commands.
 pub struct KiroProvider;
+
+/// Kiro's read-only built-in tools, passed as `--trust-tools=<list>` on
+/// mentor turns. Names come from the Kiro built-in tools reference; `code` is
+/// left out because it can also rewrite code.
+const MENTOR_TRUSTED_TOOLS: &str = "read,grep,glob";
 
 impl Provider for KiroProvider {
     fn kind(&self) -> ProviderKind {
@@ -38,7 +52,8 @@ impl Provider for KiroProvider {
             // `--output-format stream-json` would expose the session id and make
             // this effective; see the module docstring.
             session_strategy: SessionStrategy::ResumeExisting,
-            // --trust-all-tools pre-approves every tool call for unattended operation.
+            // Tool calls are pre-approved so turns run unattended: the executor
+            // with --trust-all-tools, the mentor only for read-only tools.
             permission_strategy: PermissionStrategy::PreApproved,
             cwd_strategy: CwdStrategy::Worktree,
         }
@@ -58,11 +73,14 @@ impl Provider for KiroProvider {
             request.message.to_string()
         };
 
-        let mut args: Vec<String> = vec![
-            "chat".into(),
-            "--no-interactive".into(),
-            "--trust-all-tools".into(),
-        ];
+        // The mentor is read-only: it may only use the read-only tools. The
+        // `=` form keeps the comma-separated list bound to the flag.
+        let trust = if request.role == "mentor" {
+            format!("--trust-tools={MENTOR_TRUSTED_TOOLS}")
+        } else {
+            "--trust-all-tools".to_string()
+        };
+        let mut args: Vec<String> = vec!["chat".into(), "--no-interactive".into(), trust];
 
         // Pairs saved before 2.8.1 may hold a whole `--list-models` table row
         // as their model id; Kiro rejects unknown ids, so only a real model
@@ -244,24 +262,35 @@ mod tests {
     }
 
     #[test]
-    fn kiro_both_roles_use_trust_all_tools() {
+    fn kiro_mentor_trusts_only_read_only_tools() {
         let provider = KiroProvider;
-        for role in ["mentor", "executor"] {
-            let command = provider.build_turn_command(&ProviderTurnRequest {
-                provider_kind: ProviderKind::Kiro,
-                model: "claude-sonnet-4.5",
-                session_id: None,
-                role,
-                pair_id: "pair-1",
-                message: "work",
-                reasoning_effort: None,
-            });
-            assert!(
-                command.args.contains(&"--trust-all-tools".to_string()),
-                "role {} should have --trust-all-tools",
-                role
-            );
-        }
+        let request = |role| ProviderTurnRequest {
+            provider_kind: ProviderKind::Kiro,
+            model: "claude-sonnet-4.5",
+            session_id: None,
+            role,
+            pair_id: "pair-1",
+            message: "work",
+            reasoning_effort: None,
+        };
+
+        let mentor = provider.build_turn_command(&request("mentor"));
+        assert!(
+            !mentor.args.contains(&"--trust-all-tools".to_string()),
+            "the read-only mentor must not pre-approve write/shell tools"
+        );
+        assert!(mentor
+            .args
+            .contains(&"--trust-tools=read,grep,glob".to_string()));
+        assert!(mentor.args.contains(&"--no-interactive".to_string()));
+        assert_eq!(mentor.args.last().unwrap(), "work");
+
+        let executor = provider.build_turn_command(&request("executor"));
+        assert!(executor.args.contains(&"--trust-all-tools".to_string()));
+        assert!(!executor
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--trust-tools")));
     }
 
     #[test]

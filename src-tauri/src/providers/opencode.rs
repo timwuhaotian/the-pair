@@ -72,6 +72,25 @@ fn build_opencode_turn_command(
         _ => {}
     }
 
+    // The mentor runs as OpenCode's built-in `plan` agent. It denies the
+    // edit/write/patch tools and adds a read-only plan-mode reminder. `bash`
+    // stays allowed (the agent inherits `"*": "allow"`), so shell writes are
+    // blocked only by that reminder and the mentor prompt.
+    //
+    // This is safe for non-interactive `run`: `deny` rules never prompt, and
+    // the plan agent adds no `ask` rules beyond the build agent's defaults.
+    // Verified against v1.1.1–v1.18.32 and 2.0.14. Early 1.0.x releases had
+    // a plan agent with `bash: {"*": "ask"}` and a `run` that answered
+    // permission requests through an interactive terminal prompt, which could
+    // stall a headless turn. No 1.0.x release supports variants (`--variant`
+    // arrived in 1.1.x), so those installs keep the default agent.
+    if request.role == "mentor"
+        && variant_syntax != crate::provider_registry::OpencodeVariantSyntax::Unsupported
+    {
+        args.push("--agent".into());
+        args.push("plan".into());
+    }
+
     if let Some(sid) = request.session_id {
         args.push("--session".into());
         args.push(sid.into());
@@ -111,25 +130,42 @@ impl Provider for OpenCodeProvider {
     }
 
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
-        // OpenCode emits message.updated events with part.type = "step-finish"
-        // The tokens are at event.part.tokens.{input, output, total}
+        // `run --format json` emits one `step_finish` event per model step.
+        // Its `part.tokens` holds `{input, output, reasoning, cache: {read,
+        // write}}` for that step only (1.x and 2.x). The whole turn's usage
+        // is the sum over its steps. Providers are stateless per event, so
+        // the spawner has to do that summing; each step is reported as-is here.
         if let Some(part) = event.get("part") {
             let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
             if part_type == "step-finish" || part_type == "step_finish" {
                 if let Some(tokens) = part.get("tokens") {
-                    let output_tokens = tokens
-                        .get("output")
-                        .or_else(|| tokens.get("completionTokens"))
-                        .or_else(|| tokens.get("completion_tokens"))
-                        .and_then(|v| v.as_u64());
+                    let bucket = |key: &str| tokens.get(key).and_then(|v| v.as_u64());
+                    let cache = |key: &str| {
+                        tokens
+                            .get("cache")
+                            .and_then(|c| c.get(key))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0)
+                    };
 
-                    let input_tokens = tokens
-                        .get("input")
-                        .or_else(|| tokens.get("promptTokens"))
-                        .or_else(|| tokens.get("prompt_tokens"));
+                    // OpenCode subtracts reasoning from `output`. Add it back
+                    // so the count matches Claude and Codex, which include
+                    // thinking in their output tokens.
+                    let output_tokens = bucket("output")
+                        .or_else(|| bucket("completionTokens"))
+                        .or_else(|| bucket("completion_tokens"))
+                        .map(|output| output + bucket("reasoning").unwrap_or(0));
+
+                    // `input` counts only the uncached prompt tokens. Fold the
+                    // cache buckets in so the count covers the whole prompt, as
+                    // Claude, Gemini and Grok do.
+                    let input_tokens = bucket("input")
+                        .or_else(|| bucket("promptTokens"))
+                        .or_else(|| bucket("prompt_tokens"));
 
                     if let Some(output) = output_tokens {
-                        let input_val = input_tokens.and_then(|v| v.as_u64());
+                        let input_val =
+                            input_tokens.map(|uncached| uncached + cache("read") + cache("write"));
                         // A step is final only when `reason == "stop"` (the model is done) or
                         // when `reason` is absent. `reason == "tool-calls"` is an intermediate
                         // step that continues into the next tool round -> Live.
@@ -452,6 +488,76 @@ mod tests {
         );
         assert_eq!(command.args.last().unwrap(), "\n- Do the next step");
         assert!(!command.args.contains(&"--".to_string()));
+    }
+
+    #[test]
+    fn opencode_mentor_runs_as_the_read_only_plan_agent() {
+        let mentor_request = ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax/MiniMax-M3",
+            session_id: Some("ses_1"),
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "review the diff",
+            reasoning_effort: None,
+        };
+        for syntax in [OpencodeVariantSyntax::Flag, OpencodeVariantSyntax::Suffix] {
+            let command = build_opencode_turn_command(&mentor_request, syntax);
+            let agent_idx = command
+                .args
+                .iter()
+                .position(|arg| arg == "--agent")
+                .expect("mentor should run as the plan agent");
+            assert_eq!(command.args[agent_idx + 1], "plan");
+            assert_eq!(command.args.last().unwrap(), "review the diff");
+        }
+
+        // OpenCode 1.0.x (no variant support) answered permission requests with
+        // an interactive prompt, and early 1.0.x plan agents asked before most
+        // bash commands, so these installs keep the default agent.
+        let legacy =
+            build_opencode_turn_command(&mentor_request, OpencodeVariantSyntax::Unsupported);
+        assert!(!legacy.args.contains(&"--agent".to_string()));
+
+        let executor = build_opencode_turn_command(
+            &base_request("minimax/MiniMax-M3", None),
+            OpencodeVariantSyntax::Suffix,
+        );
+        assert!(!executor.args.contains(&"--agent".to_string()));
+    }
+
+    #[test]
+    fn opencode_step_usage_folds_cache_and_reasoning_buckets() {
+        let provider = OpenCodeProvider;
+        let step = serde_json::json!({
+            "type": "step_finish",
+            "part": {
+                "type": "step-finish",
+                "reason": "tool-calls",
+                "cost": 0.01,
+                "tokens": {
+                    "total": 23120,
+                    "input": 1200,
+                    "output": 90,
+                    "reasoning": 30,
+                    "cache": {"read": 21504, "write": 296}
+                }
+            }
+        });
+        let usage = provider.extract_token_usage(&step).expect("step usage");
+        assert_eq!(usage.input_tokens, Some(1200 + 21504 + 296));
+        assert_eq!(usage.output_tokens, 90 + 30);
+        assert_eq!(usage.source, TokenUsageSource::Live);
+
+        // Events without cache or reasoning buckets keep their plain counts.
+        let stop = serde_json::json!({
+            "type": "step_finish",
+            "part": {"type": "step-finish", "reason": "stop", "tokens": {"input": 671, "output": 8}}
+        });
+        let usage = provider.extract_token_usage(&stop).expect("stop usage");
+        assert_eq!(usage.input_tokens, Some(671));
+        assert_eq!(usage.output_tokens, 8);
+        assert_eq!(usage.source, TokenUsageSource::Final);
     }
 
     #[test]

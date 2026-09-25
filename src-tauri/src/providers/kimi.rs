@@ -11,7 +11,23 @@ use serde_json::Value;
 /// kept the `-p` / `--output-format stream-json` / `--session <id>` /
 /// `--model <alias>` surface used by The Pair; argument order around `-p`
 /// is strict (the prompt value follows `-p` directly), but the Pair's
-/// invocation already follows that order.
+/// invocation already follows that order. Re-checked against kimi-code 2.1.1
+/// (2026-09-26): same surface; `--session` is now `-S, --session [id]`.
+///
+/// KNOWN LIMITATION: the Kimi mentor is NOT read-only at the CLI level.
+/// Prompt mode (`-p`) always uses the auto permission policy, so every tool,
+/// including file writes and shell, runs without approval. kimi-code 2.1.1
+/// rejects each restricting flag alongside `-p` ("Cannot combine --prompt
+/// with --plan." / "--yolo." / "--auto."). There is no tool allowlist flag
+/// either: `--agent`/`--agent-file` profiles cannot be combined with
+/// `--session`. Only the mentor role prompt keeps a Kimi mentor from editing
+/// the worktree.
+///
+/// Failures are not reported on stdout either. A failed prompt prints
+/// `error: failed to run prompt: …` to stderr and exits 1; the only stdout
+/// meta events are `system.version`, `session.resume_hint` and the
+/// transient `turn.step.retrying`. So there is nothing for
+/// `extract_error_detail` to match, and failures are caught by exit status.
 pub struct KimiProvider;
 
 impl Provider for KimiProvider {
@@ -44,9 +60,9 @@ impl Provider for KimiProvider {
             "--model".into(),
             model.into(),
         ];
-        // NOTE: `-p` implies the auto permission policy; `--yolo`, `--auto` and
-        // `--plan` are all rejected alongside it. Mentor read-only therefore
-        // relies on the role prompt, matching the OpenCode provider.
+        // No mentor-specific flags. `-p` forces the auto permission policy and
+        // rejects `--plan`/`--yolo`/`--auto`, so the mentor cannot be made
+        // read-only here; see the KNOWN LIMITATION note on `KimiProvider`.
         if let Some(sid) = request.session_id {
             args.push("--session".into());
             args.push(sid.into());
@@ -70,8 +86,18 @@ impl Provider for KimiProvider {
         // Only assistant text is the turn result. Tool results (`role: "tool"`)
         // and the resume hint (`role: "meta"`) must not leak into the message,
         // so the generic text walker is always bypassed.
+        //
+        // An assistant message that carries `tool_calls` is a mid-turn step:
+        // the stream-json writer flushes a step's text together with its tool
+        // calls, so that text is narration ("I'll check the tests first.").
+        // The turn ends on a step without tool calls, and that step holds the
+        // reply.
         let mut out = Vec::new();
-        if event.get("role").and_then(|v| v.as_str()) == Some("assistant") {
+        let has_tool_calls = event
+            .get("tool_calls")
+            .and_then(|v| v.as_array())
+            .is_some_and(|calls| !calls.is_empty());
+        if event.get("role").and_then(|v| v.as_str()) == Some("assistant") && !has_tool_calls {
             collect_kimi_content(event.get("content"), &mut out);
         }
         Some(out)
@@ -249,6 +275,18 @@ mod tests {
                 "function": {"name": "Bash", "arguments": "{\"command\":\"ls\"}"}}]
         });
         assert_eq!(provider.collect_json_candidates(&tool_call), Some(vec![]));
+
+        // Narration flushed together with a step's tool calls is not the reply.
+        let narrated_tool_call = json!({
+            "role": "assistant",
+            "content": "I'll check the tests first.",
+            "tool_calls": [{"type": "function", "id": "call_2",
+                "function": {"name": "Bash", "arguments": "{\"command\":\"npm test\"}"}}]
+        });
+        assert_eq!(
+            provider.collect_json_candidates(&narrated_tool_call),
+            Some(vec![])
+        );
 
         let tool_result = json!({"role": "tool", "tool_call_id": "call_1", "content": "file.txt"});
         assert_eq!(provider.collect_json_candidates(&tool_result), Some(vec![]));
