@@ -3,6 +3,7 @@ use crate::provider_adapter::{ProviderTurnCommand, ProviderTurnRequest};
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde_json::Value;
+use std::path::Path;
 
 /// OpenCode — multi-provider gateway. Model ids use `provider/model` format.
 pub struct OpenCodeProvider;
@@ -32,9 +33,218 @@ fn reasoning_variants_for_model(model_id: &str) -> Option<&'static [ReasoningVar
         .then_some(MINIMAX_M3_REASONING_VARIANTS)
 }
 
+/// Config file names OpenCode reads in a config directory.
+const CONFIG_FILES: [&str; 2] = ["opencode.json", "opencode.jsonc"];
+/// Subdirectories of a config directory holding markdown agent files; the
+/// agent `plan` is `<dir>/plan.md`.
+const AGENT_FILE_DIRS: [&str; 4] = ["agent", "agents", "mode", "modes"];
+
+/// Whether the user's OpenCode config disables the built-in `plan` agent:
+/// `{"agent":{"plan":{"disable":true}}}` (1.x schema, still read by 2.x),
+/// `{"agents":{"plan":{"disabled":true}}}` (2.x), the deprecated `mode.plan`,
+/// or a `plan.md` agent file with `disable: true` front matter.
+///
+/// OpenCode 1.x answers `--agent plan` for a disabled agent by falling back to
+/// the default one; 2.x fails every such run with `Agent not found: "plan"`.
+///
+/// Sources are read in OpenCode 2.x's precedence order and a later explicit
+/// value wins: the global config dir(s), `$OPENCODE_CONFIG`, then (when
+/// `project_dir` is known) `opencode.json[c]` and `.opencode/` from the
+/// filesystem root down to `project_dir`, then `$OPENCODE_CONFIG_CONTENT`.
+///
+/// Fails open: a config file this parser can't read (OpenCode also accepts
+/// `{env:...}` / `{file:...}` substitutions) counts as disabling the agent
+/// when it mentions it. Dropping `--agent plan` only loses the plan agent's
+/// edit guard (the mentor prompt still asks for read-only work); a wrong
+/// `--agent plan` fails every mentor turn.
+pub(crate) fn plan_agent_disabled(project_dir: Option<&Path>) -> bool {
+    let mut disabled = None;
+    let mut apply = |flag: Option<bool>| {
+        if flag.is_some() {
+            disabled = flag;
+        }
+    };
+
+    for dir in crate::config_paths::opencode_config_dirs() {
+        apply(config_dir_plan_flag(&dir));
+    }
+    if let Some(file) = std::env::var_os("OPENCODE_CONFIG").filter(|value| !value.is_empty()) {
+        apply(config_file_plan_flag(Path::new(&file)));
+    }
+    if let Some(project_dir) = project_dir {
+        let from_root: Vec<&Path> = project_dir.ancestors().collect::<Vec<_>>();
+        for dir in from_root.iter().rev() {
+            for name in CONFIG_FILES {
+                apply(config_file_plan_flag(&dir.join(name)));
+            }
+        }
+        for dir in from_root.iter().rev() {
+            apply(config_dir_plan_flag(&dir.join(".opencode")));
+        }
+    }
+    if let Ok(content) = std::env::var("OPENCODE_CONFIG_CONTENT") {
+        if !content.trim().is_empty() {
+            apply(config_text_plan_flag(&content));
+        }
+    }
+
+    disabled == Some(true)
+}
+
+/// The plan agent's `disable` flag set by a config directory: its config
+/// files, then its markdown agent files.
+fn config_dir_plan_flag(dir: &Path) -> Option<bool> {
+    let mut flag = None;
+    for name in CONFIG_FILES {
+        flag = config_file_plan_flag(&dir.join(name)).or(flag);
+    }
+    for sub in AGENT_FILE_DIRS {
+        flag = agent_file_plan_flag(&dir.join(sub).join("plan.md")).or(flag);
+    }
+    flag
+}
+
+fn config_file_plan_flag(path: &Path) -> Option<bool> {
+    config_text_plan_flag(&std::fs::read_to_string(path).ok()?)
+}
+
+fn config_text_plan_flag(text: &str) -> Option<bool> {
+    match serde_json::from_str::<Value>(&strip_jsonc(text)) {
+        Ok(config) => plan_flag_in_config(&config),
+        Err(_) => text.contains("\"plan\"").then_some(true),
+    }
+}
+
+fn plan_flag_in_config(config: &Value) -> Option<bool> {
+    let mut flag = None;
+    for section in ["mode", "agent", "agents"] {
+        let Some(plan) = config.get(section).and_then(|agents| agents.get("plan")) else {
+            continue;
+        };
+        for key in ["disable", "disabled"] {
+            match plan.get(key).and_then(Value::as_bool) {
+                Some(true) => return Some(true),
+                Some(false) => flag = Some(false),
+                None => {}
+            }
+        }
+    }
+    flag
+}
+
+/// `disable` / `disabled` from a markdown agent file's front matter.
+fn agent_file_plan_flag(path: &Path) -> Option<bool> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let front_matter = front_matter(&text)?;
+    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&front_matter) else {
+        return front_matter.contains("disable").then_some(true);
+    };
+    let mut flag = None;
+    for key in ["disable", "disabled"] {
+        match yaml.get(key).and_then(serde_yaml::Value::as_bool) {
+            Some(true) => return Some(true),
+            Some(false) => flag = Some(false),
+            None => {}
+        }
+    }
+    flag
+}
+
+/// The YAML between a leading `---` line and the next `---` line.
+fn front_matter(text: &str) -> Option<String> {
+    let mut lines = text.trim_start_matches('\u{feff}').lines();
+    if lines.next()?.trim_end() != "---" {
+        return None;
+    }
+    let mut block = Vec::new();
+    for line in lines {
+        if line.trim_end() == "---" {
+            return Some(block.join("\n"));
+        }
+        block.push(line);
+    }
+    None
+}
+
+/// JSONC → JSON: drops `//` and `/* */` comments and trailing commas outside
+/// strings, as OpenCode's config parser accepts them.
+fn strip_jsonc(text: &str) -> String {
+    let mut without_comments = String::with_capacity(text.len());
+    let mut chars = text.trim_start_matches('\u{feff}').chars().peekable();
+    let mut in_string = false;
+    while let Some(ch) = chars.next() {
+        if in_string {
+            without_comments.push(ch);
+            if ch == '\\' {
+                if let Some(escaped) = chars.next() {
+                    without_comments.push(escaped);
+                }
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match (ch, chars.peek()) {
+            ('"', _) => {
+                in_string = true;
+                without_comments.push(ch);
+            }
+            ('/', Some('/')) => {
+                while chars.peek().is_some_and(|&next| next != '\n') {
+                    chars.next();
+                }
+            }
+            ('/', Some('*')) => {
+                chars.next();
+                let mut previous = '\0';
+                for next in chars.by_ref() {
+                    if previous == '*' && next == '/' {
+                        break;
+                    }
+                    previous = next;
+                }
+                without_comments.push(' ');
+            }
+            _ => without_comments.push(ch),
+        }
+    }
+
+    // A `,` whose next significant character closes the object/array.
+    let chars: Vec<char> = without_comments.chars().collect();
+    let mut json = String::with_capacity(without_comments.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, &ch) in chars.iter().enumerate() {
+        if in_string {
+            json.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+        } else if ch == ','
+            && matches!(
+                chars[index + 1..].iter().find(|next| !next.is_whitespace()),
+                Some('}') | Some(']')
+            )
+        {
+            continue;
+        }
+        json.push(ch);
+    }
+    json
+}
+
 fn build_opencode_turn_command(
     request: &ProviderTurnRequest,
     variant_syntax: crate::provider_registry::OpencodeVariantSyntax,
+    plan_agent_disabled: bool,
 ) -> ProviderTurnCommand {
     let model = request.model.to_string();
     let mut args = vec!["run".into(), "--model".into(), model];
@@ -53,17 +263,11 @@ fn build_opencode_turn_command(
     // OpenCode 2.x: bake the variant into the model id (`provider/model#variant`).
     // Older installs without either form silently skip the variant.
     match (variant_syntax, variant) {
-        (
-            crate::provider_registry::OpencodeVariantSyntax::Flag,
-            Some(cli_variant),
-        ) => {
+        (crate::provider_registry::OpencodeVariantSyntax::Flag, Some(cli_variant)) => {
             args.push("--variant".into());
             args.push(cli_variant.into());
         }
-        (
-            crate::provider_registry::OpencodeVariantSyntax::Suffix,
-            Some(cli_variant),
-        ) => {
+        (crate::provider_registry::OpencodeVariantSyntax::Suffix, Some(cli_variant)) => {
             // Re-stamp the model id with the variant suffix; the bare
             // `--model <id>` placeholder was inserted above.
             let model_idx = args.iter().position(|arg| arg == "--model").unwrap() + 1;
@@ -83,9 +287,12 @@ fn build_opencode_turn_command(
     // a plan agent with `bash: {"*": "ask"}` and a `run` that answered
     // permission requests through an interactive terminal prompt, which could
     // stall a headless turn. No 1.0.x release supports variants (`--variant`
-    // arrived in 1.1.x), so those installs keep the default agent.
+    // arrived in 1.1.x), so those installs keep the default agent. So does a
+    // config that disables `plan`: 2.x would fail the run (see
+    // `plan_agent_disabled`).
     if request.role == "mentor"
         && variant_syntax != crate::provider_registry::OpencodeVariantSyntax::Unsupported
+        && !plan_agent_disabled
     {
         args.push("--agent".into());
         args.push("plan".into());
@@ -123,9 +330,14 @@ impl Provider for OpenCodeProvider {
     }
 
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
+        // Only a mentor turn asks for the plan agent. The request carries no
+        // working directory, so project-level config (`opencode.json` or
+        // `.opencode/` in the pair's directory) isn't consulted here.
+        let plan_disabled = request.role == "mentor" && plan_agent_disabled(None);
         build_opencode_turn_command(
             request,
             crate::provider_registry::opencode_variant_syntax(),
+            plan_disabled,
         )
     }
 
@@ -313,6 +525,14 @@ mod tests {
     use super::*;
     use crate::provider_registry::OpencodeVariantSyntax;
 
+    /// A command built with no config disabling the plan agent.
+    fn build_command(
+        request: &ProviderTurnRequest,
+        syntax: OpencodeVariantSyntax,
+    ) -> ProviderTurnCommand {
+        build_opencode_turn_command(request, syntax, false)
+    }
+
     fn base_request<'a>(
         model: &'a str,
         reasoning_effort: Option<&'a str>,
@@ -330,7 +550,7 @@ mod tests {
 
     #[test]
     fn opencode_command_ignores_unsupported_reasoning_effort() {
-        let command = build_opencode_turn_command(
+        let command = build_command(
             &base_request("example/model", Some("high")),
             OpencodeVariantSyntax::Flag,
         );
@@ -350,7 +570,7 @@ mod tests {
     fn opencode_command_maps_reasoning_effort_to_cli_variant_for_opencode_1x() {
         // OpenCode 1.x emits --model <id> plus a separate --variant <cli> flag.
         for (effort, expected_variant) in [("adaptive", "thinking"), ("disabled", "none")] {
-            let command = build_opencode_turn_command(
+            let command = build_command(
                 &base_request("minimax-cn/MiniMax-M3", Some(effort)),
                 OpencodeVariantSyntax::Flag,
             );
@@ -376,7 +596,7 @@ mod tests {
         // OpenCode 2.x removed --variant; the variant must be appended to the
         // model id with `#variant`.
         for (effort, expected_variant) in [("adaptive", "thinking"), ("disabled", "none")] {
-            let command = build_opencode_turn_command(
+            let command = build_command(
                 &base_request("minimax/MiniMax-M3", Some(effort)),
                 OpencodeVariantSyntax::Suffix,
             );
@@ -400,7 +620,7 @@ mod tests {
 
     #[test]
     fn opencode_command_omits_variant_when_installed_cli_has_no_variant_support() {
-        let command = build_opencode_turn_command(
+        let command = build_command(
             &base_request("minimax/MiniMax-M3", Some("adaptive")),
             OpencodeVariantSyntax::Unsupported,
         );
@@ -417,7 +637,7 @@ mod tests {
 
     #[test]
     fn opencode_command_resumes_session_and_emits_json_format() {
-        let command = build_opencode_turn_command(
+        let command = build_command(
             &ProviderTurnRequest {
                 provider_kind: ProviderKind::Opencode,
                 model: "minimax/MiniMax-M3",
@@ -474,7 +694,7 @@ mod tests {
 
     #[test]
     fn opencode_guards_leading_dash_prompt() {
-        let command = build_opencode_turn_command(
+        let command = build_command(
             &ProviderTurnRequest {
                 provider_kind: ProviderKind::Opencode,
                 model: "opencode/mimo-v2.6-flash-free",
@@ -502,7 +722,7 @@ mod tests {
             reasoning_effort: None,
         };
         for syntax in [OpencodeVariantSyntax::Flag, OpencodeVariantSyntax::Suffix] {
-            let command = build_opencode_turn_command(&mentor_request, syntax);
+            let command = build_command(&mentor_request, syntax);
             let agent_idx = command
                 .args
                 .iter()
@@ -515,15 +735,167 @@ mod tests {
         // OpenCode 1.0.x (no variant support) answered permission requests with
         // an interactive prompt, and early 1.0.x plan agents asked before most
         // bash commands, so these installs keep the default agent.
-        let legacy =
-            build_opencode_turn_command(&mentor_request, OpencodeVariantSyntax::Unsupported);
+        let legacy = build_command(&mentor_request, OpencodeVariantSyntax::Unsupported);
         assert!(!legacy.args.contains(&"--agent".to_string()));
 
-        let executor = build_opencode_turn_command(
+        let executor = build_command(
             &base_request("minimax/MiniMax-M3", None),
             OpencodeVariantSyntax::Suffix,
         );
         assert!(!executor.args.contains(&"--agent".to_string()));
+    }
+
+    #[test]
+    fn opencode_mentor_skips_the_plan_agent_when_config_disables_it() {
+        let mentor_request = ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax/MiniMax-M3",
+            session_id: None,
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "plan the work",
+            reasoning_effort: None,
+        };
+        let command =
+            build_opencode_turn_command(&mentor_request, OpencodeVariantSyntax::Suffix, true);
+        assert!(!command.args.contains(&"--agent".to_string()));
+        assert_eq!(command.args.last().unwrap(), "plan the work");
+    }
+
+    #[test]
+    fn strip_jsonc_drops_comments_and_trailing_commas_outside_strings() {
+        let jsonc = "\u{feff}{\n  // the plan agent\n  \"agent\": { /* inline */ \"plan\": { \"disable\": true, }, },\n  \"url\": \"https://x.test/a//b\", \"note\": \"keep ,} and /* this */\",\n}\n";
+        let value: Value = serde_json::from_str(&strip_jsonc(jsonc)).expect("valid JSON");
+        assert_eq!(value["agent"]["plan"]["disable"], Value::Bool(true));
+        assert_eq!(value["url"], "https://x.test/a//b");
+        assert_eq!(value["note"], "keep ,} and /* this */");
+    }
+
+    #[test]
+    fn plan_flag_reads_every_config_schema() {
+        for text in [
+            r#"{"agent":{"plan":{"disable":true}}}"#,
+            r#"{"agents":{"plan":{"disabled":true}}}"#,
+            r#"{"mode":{"plan":{"disable":true}}}"#,
+            "{\n  // 2.x\n  \"agents\": {\"plan\": {\"disabled\": true,},},\n}",
+        ] {
+            assert_eq!(config_text_plan_flag(text), Some(true), "{text}");
+        }
+        assert_eq!(
+            config_text_plan_flag(r#"{"agent":{"plan":{"disable":false,"model":"x/y"}}}"#),
+            Some(false)
+        );
+        assert_eq!(
+            config_text_plan_flag(r#"{"agent":{"build":{"disable":true}}}"#),
+            None
+        );
+        assert_eq!(
+            config_text_plan_flag(r#"{"$schema":"https://opencode.ai"}"#),
+            None
+        );
+        // Unparseable (e.g. an `{env:...}` substitution): fail open only
+        // when the plan agent is mentioned.
+        assert_eq!(
+            config_text_plan_flag(r#"{"agent":{"plan":{"disable":{env:NO_PLAN}}}}"#),
+            Some(true)
+        );
+        assert_eq!(config_text_plan_flag(r#"{"model": {env:MODEL}}"#), None);
+    }
+
+    #[test]
+    fn plan_flag_reads_markdown_agent_front_matter() {
+        let dir = std::env::temp_dir().join(format!("the-pair-oc-md-{}", uuid::Uuid::new_v4()));
+        let file = dir.join("agent/plan.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+
+        std::fs::write(
+            &file,
+            "---\ndescription: Plan\ndisable: true\n---\nPrompt\n",
+        )
+        .unwrap();
+        assert_eq!(agent_file_plan_flag(&file), Some(true));
+        assert_eq!(config_dir_plan_flag(&dir), Some(true));
+
+        std::fs::write(&file, "---\ndescription: Plan\n---\nPrompt\n").unwrap();
+        assert_eq!(agent_file_plan_flag(&file), None);
+        std::fs::write(&file, "No front matter, disable: true\n").unwrap();
+        assert_eq!(agent_file_plan_flag(&file), None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn plan_agent_disabled_follows_global_project_and_env_config() {
+        const KEYS: [&str; 5] = [
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+        ];
+        let _guard = crate::test_env::lock_env();
+        let saved: Vec<(&str, Option<std::ffi::OsString>)> = KEYS
+            .iter()
+            .map(|key| (*key, std::env::var_os(key)))
+            .collect();
+        let root = std::env::temp_dir().join(format!("the-pair-oc-cfg-{}", uuid::Uuid::new_v4()));
+        let global = root.join("xdg/opencode");
+        let project = root.join("repo/.worktrees/pair-1");
+        std::fs::create_dir_all(&global).unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("XDG_CONFIG_HOME", root.join("xdg"));
+        for key in [
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+        ] {
+            std::env::remove_var(key);
+        }
+
+        let mut results = Vec::new();
+        results.push(("no config", plan_agent_disabled(Some(&project))));
+
+        std::fs::write(
+            global.join("opencode.jsonc"),
+            "{\n  // no plan mode for me\n  \"agents\": {\"plan\": {\"disabled\": true,},},\n}\n",
+        )
+        .unwrap();
+        results.push(("global jsonc", plan_agent_disabled(None)));
+
+        // A project config closer to the pair re-enables it.
+        std::fs::create_dir_all(root.join("repo/.opencode")).unwrap();
+        std::fs::write(
+            root.join("repo/.opencode/opencode.json"),
+            r#"{"agent":{"plan":{"disable":false}}}"#,
+        )
+        .unwrap();
+        results.push(("project re-enables", plan_agent_disabled(Some(&project))));
+
+        std::env::set_var(
+            "OPENCODE_CONFIG_CONTENT",
+            r#"{"agent":{"plan":{"disable":true}}}"#,
+        );
+        results.push(("inline content", plan_agent_disabled(Some(&project))));
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(
+            results,
+            vec![
+                ("no config", false),
+                ("global jsonc", true),
+                ("project re-enables", false),
+                ("inline content", true),
+            ]
+        );
     }
 
     #[test]

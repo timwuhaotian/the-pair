@@ -36,19 +36,29 @@ fn legacy_windows_path(file: &str) -> Option<PathBuf> {
     Some(appdata.join("opencode").join(file))
 }
 
+fn build_opencode_config_dir(
+    config_dir_override: Option<&Path>,
+    xdg_config_home: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    match config_dir_override {
+        Some(dir) => Some(dir.to_path_buf()),
+        None => Some(
+            xdg_config_home
+                .map(Path::to_path_buf)
+                .or_else(|| home.map(|home| home.join(".config")))?
+                .join("opencode"),
+        ),
+    }
+}
+
 fn build_opencode_config_path(
     config_dir_override: Option<&Path>,
     xdg_config_home: Option<&Path>,
     home: Option<&Path>,
 ) -> Option<PathBuf> {
-    let dir = match config_dir_override {
-        Some(dir) => dir.to_path_buf(),
-        None => xdg_config_home
-            .map(Path::to_path_buf)
-            .or_else(|| home.map(|home| home.join(".config")))?
-            .join("opencode"),
-    };
-    Some(dir.join(OPENCODE_CONFIG_FILE))
+    build_opencode_config_dir(config_dir_override, xdg_config_home, home)
+        .map(|dir| dir.join(OPENCODE_CONFIG_FILE))
 }
 
 fn build_opencode_auth_path(xdg_data_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
@@ -74,6 +84,30 @@ pub fn opencode_config_path() -> Option<PathBuf> {
         home_dir().as_deref(),
     );
     prefer_existing(primary, legacy_windows_path(OPENCODE_CONFIG_FILE))
+}
+
+/// Global config directories OpenCode may read, most specific last: the XDG
+/// default, then `$OPENCODE_CONFIG_DIR` when set (2.x reads it instead of the
+/// default, 1.x in addition to it).
+pub fn opencode_config_dirs() -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for dir in [
+        build_opencode_config_dir(
+            None,
+            env_path("XDG_CONFIG_HOME").as_deref(),
+            home.as_deref(),
+        ),
+        env_path("OPENCODE_CONFIG_DIR"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
 }
 
 pub fn opencode_auth_path() -> Option<PathBuf> {
@@ -180,9 +214,11 @@ mod tests {
         std::env::set_var("XDG_CONFIG_HOME", "/xdg/config");
         std::env::set_var("XDG_DATA_HOME", "/xdg/data");
         let xdg = (opencode_config_path(), opencode_auth_path());
+        let xdg_dirs = opencode_config_dirs();
 
         std::env::set_var("OPENCODE_CONFIG_DIR", "/custom/opencode");
         let overridden = opencode_config_path();
+        let overridden_dirs = opencode_config_dirs();
 
         for key in ["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] {
             std::env::remove_var(key);
@@ -206,6 +242,14 @@ mod tests {
         assert_eq!(
             overridden,
             Some(PathBuf::from("/custom/opencode/opencode.json"))
+        );
+        assert_eq!(xdg_dirs, vec![PathBuf::from("/xdg/config/opencode")]);
+        assert_eq!(
+            overridden_dirs,
+            vec![
+                PathBuf::from("/xdg/config/opencode"),
+                PathBuf::from("/custom/opencode")
+            ]
         );
         assert_eq!(
             defaults,
