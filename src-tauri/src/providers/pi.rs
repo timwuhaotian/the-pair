@@ -12,8 +12,9 @@ use serde_json::Value;
 ///
 /// Event shapes verified against pi 0.79.2 (2026-09-23): the stream opens with
 /// a `{"type":"session","id":…}` header, assistant messages carry
-/// `usage.{input,output}`, and the closing `agent_end` repeats every message
-/// of the turn in `messages`.
+/// `usage.{input,output,cacheRead,cacheWrite}` (`input` excludes both cache
+/// buckets, per pi-ai 0.87.0's usage mapping), and the closing `agent_end`
+/// repeats every message of the turn in `messages`.
 pub struct PiProvider;
 
 impl Provider for PiProvider {
@@ -96,9 +97,12 @@ impl Provider for PiProvider {
                 .sum::<u64>()
         };
 
+        // Pi's `input` counts only the uncached prompt tokens and reports cache
+        // hits and writes separately. Fold them in so the count covers the
+        // whole prompt, as Claude, Gemini and Grok do.
         Some(TurnTokenUsage {
             output_tokens: sum("output"),
-            input_tokens: Some(sum("input")),
+            input_tokens: Some(sum("input") + sum("cacheRead") + sum("cacheWrite")),
             last_updated_at: crate::util::now_millis(),
             source: if is_final {
                 TokenUsageSource::Final
@@ -394,6 +398,30 @@ mod tests {
 
         let turn_start = json!({"type": "turn_start"});
         assert!(provider.extract_token_usage(&turn_start).is_none());
+    }
+
+    #[test]
+    fn pi_input_tokens_include_cache_buckets() {
+        let provider = PiProvider;
+        let agent_end = json!({
+            "type": "agent_end",
+            "messages": [
+                {"role": "assistant", "usage": {"input": 12, "output": 40, "cacheRead": 46000, "cacheWrite": 900}},
+                {"role": "toolResult", "content": []},
+                {"role": "assistant", "usage": {"input": 5, "output": 7, "cacheRead": 47000, "cacheWrite": 0}}
+            ]
+        });
+        let usage = provider.extract_token_usage(&agent_end).expect("final usage");
+        assert_eq!(usage.input_tokens, Some(12 + 46000 + 900 + 5 + 47000));
+        assert_eq!(usage.output_tokens, 47);
+
+        // Older streams without cache fields still parse.
+        let message_end = json!({
+            "type": "message_end",
+            "message": {"role": "assistant", "usage": {"input": 10, "output": 2}}
+        });
+        let live = provider.extract_token_usage(&message_end).expect("live usage");
+        assert_eq!(live.input_tokens, Some(10));
     }
 
     #[test]
