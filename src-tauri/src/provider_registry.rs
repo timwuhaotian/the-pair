@@ -673,7 +673,7 @@ fn collect_model_ids_from_help_line(
     model_ids: &mut Vec<String>,
 ) {
     // `claude --help` wraps the `--model` description across multiple indented
-    // continuation lines (verified against claude-code 2.1.280), so the block
+    // continuation lines (verified against claude-code 2.1.283), so the block
     // is stitched back together first. Only that block is scanned: the rest of
     // the help mentions look-alike quoted words (permission modes, output
     // formats) that are not models.
@@ -1836,7 +1836,7 @@ fn parse_grok_config_models(content: &str) -> Vec<DetectedModelOption> {
 }
 
 /// Discover Pi models via `pi --list-models`. The CLI prints a padded table
-/// (verified against pi 0.79.2, 2026-09-23):
+/// (verified against pi 0.87.0, 2026-09-26):
 ///
 /// ```text
 /// provider   model                      context  max-out  thinking  images

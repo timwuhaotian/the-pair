@@ -11,7 +11,7 @@ use serde_json::Value;
 ///
 /// Uses `muse exec --json`, which emits one JSONL envelope per line:
 /// `{schema_version, id, stream{kind,id}, sequence, payload_type, payload}`.
-/// Verified against Muse Code 1.3.0 (2026-09-23; first integrated on 1.0.3).
+/// Verified against Muse Code 1.4.0 (2026-09-26; first integrated on 1.0.3).
 ///
 /// Two behaviours to know:
 ///
@@ -106,7 +106,7 @@ impl Provider for MuseProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // `muse exec --json` carries no usage data on any payload type
-        // (verified against Muse Code 1.0.3 on 2026-09-19), so token counts
+        // (re-verified against Muse Code 1.4.0 on 2026-09-26), so token counts
         // stay hidden for this provider, as they do for Kimi.
         None
     }

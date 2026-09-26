@@ -10,11 +10,13 @@ use serde_json::Value;
 /// (e.g. `anthropic/claude-sonnet-4`). The `pi/` qualifier added by The Pair
 /// is stripped at spawn time so Pi receives the inner `provider/model` value.
 ///
-/// Event shapes verified against pi 0.79.2 (2026-09-23): the stream opens with
+/// Event shapes verified against pi 0.87.0 (2026-09-26): the stream opens with
 /// a `{"type":"session","id":…}` header, assistant messages carry
 /// `usage.{input,output,cacheRead,cacheWrite}` (`input` excludes both cache
-/// buckets, per pi-ai 0.87.0's usage mapping), and the closing `agent_end`
-/// repeats every message of the turn in `messages`.
+/// buckets — a live `agent_end` summed to `totalTokens` only after folding
+/// them in; recent versions add `reasoning`/`totalTokens`/`cost` alongside,
+/// which we ignore), and the closing `agent_end` repeats every message of the
+/// turn in `messages`.
 pub struct PiProvider;
 
 impl Provider for PiProvider {

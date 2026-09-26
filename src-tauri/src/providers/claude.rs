@@ -56,7 +56,7 @@ impl Provider for ClaudeProvider {
         // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
         // the session's reasoning effort. The Pair maps its reasoning_effort
         // picker value through verbatim. Omitted when the caller passes None.
-        // Verified against claude-code 2.1.276 (2026-09-19).
+        // Verified against claude-code 2.1.283 (2026-09-26).
         if let Some(level) = request.reasoning_effort {
             args.push("--effort".into());
             args.push(level.into());
@@ -142,6 +142,10 @@ impl Provider for ClaudeProvider {
         // mode is unavailable for the model/account (e.g. Haiku, Sonnet/Opus
         // 4.5), Claude Code silently starts in the default (manual) mode, where
         // every edit is denied while the result still reports success.
+        // Note: recent CLI versions renamed the `--permission-mode` choice
+        // "default" to "manual", but the init event still reports
+        // `permissionMode: "default"` on the downgrade (verified live against
+        // claude-code 2.1.283 with `--model haiku --permission-mode auto`).
         if event_type == Some("system")
             && event.get("subtype").and_then(|v| v.as_str()) == Some("init")
             && event.get("permissionMode").and_then(|v| v.as_str()) == Some("default")
@@ -269,7 +273,7 @@ impl Provider for ClaudeProvider {
     fn login_command(&self) -> Option<String> {
         // `claude login` is not a subcommand: it starts a session with "login"
         // as the prompt. Sign-in lives under `claude auth` (verified against
-        // claude-code 2.1.280).
+        // claude-code 2.1.283).
         Some("claude auth login".into())
     }
 
@@ -278,7 +282,7 @@ impl Provider for ClaudeProvider {
     }
 
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
-        // Verified against claude-code 2.1.276 (2026-09-19): --effort accepts
+        // Verified against claude-code 2.1.283 (2026-09-26): --effort accepts
         // {low, medium, high, xhigh, max}. Older installs (pre-2.1.111) reject
         // the flag outright; callers should hide the picker for those.
         Some(vec![
@@ -462,7 +466,7 @@ mod tests {
     #[test]
     fn claude_api_error_result_is_reported_once_as_an_error() {
         let provider = ClaudeProvider;
-        // Captured from claude-code 2.1.280 with an unknown --model.
+        // Captured from claude-code 2.1.283 with an unknown --model.
         let result = serde_json::json!({
             "type": "result",
             "subtype": "success",

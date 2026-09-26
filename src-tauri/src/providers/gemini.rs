@@ -9,7 +9,7 @@ use serde_json::Value;
 
 /// Antigravity CLI (`agy`) - Google's successor to the Gemini CLI.
 /// Uses `agy --print --output-format stream-json`, which emits one NDJSON
-/// envelope per line keyed by `event` (verified against agy 1.2.7, 2026-09-23):
+/// envelope per line keyed by `event` (verified against agy 1.2.11, 2026-09-26):
 ///
 /// - `{"event":"init","conversation_id":"…","init":{…}}` — the id
 ///   `--conversation` takes to resume.
@@ -168,10 +168,13 @@ impl Provider for GeminiProvider {
 ///   read-only operations.
 /// - **Executor** (code writing): `--mode accept-edits` allows file edits,
 ///   and `--dangerously-skip-permissions` auto-approves tool calls.
-/// - **Reasoning effort**: `--effort <low|medium|high>` (verified against
-///   agy 1.2.0, 2026-09-19). Omitted when the caller passes `None`; the
-///   legacy `--thinking-budget` flag was never supported on `agy` and is
-///   rejected outright, so we don't fall back to it.
+/// - **Reasoning effort**: `--effort <low|medium|high|max>` (`max` added in
+///   agy 1.2.11, verified 2026-09-26). Omitted when the caller passes `None`;
+///   the legacy `--thinking-budget` flag was never supported on `agy` and is
+///   rejected outright, so we don't fall back to it. Note: agy model slugs
+///   already encode effort (`gemini-3.8-flash-high`), and passing `--effort`
+///   alongside such a slug is rejected as a conflict — which is why Gemini
+///   models don't offer separate effort levels in the model picker.
 /// - **Session**: `--conversation <id>` resumes the conversation captured from
 ///   the `init` event of an earlier turn.
 ///
@@ -303,9 +306,9 @@ mod tests {
 
     #[test]
     fn agy_forwards_effort_when_reasoning_effort_is_set() {
-        // Verified against agy 1.2.0 (2026-09-19): `--effort` accepts
-        // low|medium|high. The legacy `--thinking-budget` flag is rejected
-        // outright by agy, so we never emit it.
+        // `--effort` accepts low|medium|high (max added in agy 1.2.11). The
+        // legacy `--thinking-budget` flag is rejected outright by agy, so we
+        // never emit it.
         let args = build_agy_args(
             "gemini-3.8-flash-low",
             "do the work",
@@ -409,7 +412,7 @@ mod tests {
     }
 
     // Envelopes below are verbatim shapes captured from
-    // `agy --output-format stream-json --print` (agy 1.2.7, 2026-09-23).
+    // `agy --output-format stream-json --print` (agy 1.2.11, 2026-09-26).
 
     #[test]
     fn agy_result_event_yields_response_and_final_usage() {

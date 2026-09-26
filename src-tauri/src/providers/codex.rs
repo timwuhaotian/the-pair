@@ -52,7 +52,7 @@ impl Provider for CodexProvider {
         // Sandbox is explicit per role: mentor is read-only (the CLI default),
         // executor needs workspace-write to apply edits in the worktree. It is
         // set through `-c sandbox_mode=` because `codex exec resume` rejects
-        // `--sandbox` (verified against codex-cli 0.149.1), and a resume without
+        // `--sandbox` (verified against codex-cli 0.157.1), and a resume without
         // any sandbox setting would fall back to the user's config.toml.
         let sandbox = if request.role == "mentor" {
             "read-only"
@@ -176,11 +176,20 @@ impl Provider for CodexProvider {
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
-        // Every gpt-5.x model in `codex debug models` supports at least
-        // low/medium/high/xhigh (verified against codex-cli 0.149.1). The
-        // o<digit> prefix (o1, o3, o4, o5, …) keeps the classic three levels.
+        // Reasoning levels per `codex debug models` (verified against codex-cli
+        // 0.157.1): every gpt-5.x supports at least low/medium/high/xhigh, and
+        // every gpt-6 model (gpt-6-luna, gpt-reserve) additionally supports
+        // max. The o<digit> prefix (o1, o3, o4, o5, …) keeps the classic three.
         let id = model_id.strip_prefix("codex/").unwrap_or(model_id);
-        if id.starts_with("gpt-5") {
+        if id.starts_with("gpt-6") {
+            Some(vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ])
+        } else if id.starts_with("gpt-5") {
             Some(vec![
                 "low".into(),
                 "medium".into(),
@@ -328,6 +337,18 @@ mod tests {
         assert_eq!(
             provider.reasoning_effort_levels("codex/gpt-5.6-terra").map(|l| l.len()),
             Some(4)
+        );
+        assert_eq!(
+            provider
+                .reasoning_effort_levels("gpt-6-luna")
+                .map(|l| l.len()),
+            Some(5)
+        );
+        assert_eq!(
+            provider
+                .reasoning_effort_levels("codex/gpt-6-luna")
+                .and_then(|l| l.last().cloned()),
+            Some("max".to_string())
         );
         assert_eq!(provider.reasoning_effort_levels("o3").map(|l| l.len()), Some(3));
         assert!(provider.reasoning_effort_levels("gpt-4o").is_none());

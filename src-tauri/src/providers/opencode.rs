@@ -347,6 +347,15 @@ impl Provider for OpenCodeProvider {
         // write}}` for that step only (1.x and 2.x). The whole turn's usage
         // is the sum over its steps. Providers are stateless per event, so
         // the spawner has to do that summing; each step is reported as-is here.
+        //
+        // Caveat: 2.x (verified live on 2.0.14; unchanged through 2.0.18 —
+        // `run/noninteractive.ts` sets `finalizing` once the execution ends
+        // and then skips every non-`session.execution.*` event) never prints
+        // the final step's `step_finish`; only intermediate `tool-calls`
+        // steps arrive. 1.x (verified live on 1.18.32) does print the final
+        // `reason: "stop"` one. So on 2.x the turn total misses the last
+        // step and the source stays Live. Parsing stays as-is: correct for
+        // 1.x and forward-compatible if 2.x restores the event.
         if let Some(part) = event.get("part") {
             let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
             if part_type == "step-finish" || part_type == "step_finish" {

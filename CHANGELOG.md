@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.3] - 2026-09-26
+
+Provider CLI audit: every supported CLI (OpenCode, Codex, Claude, Antigravity, Kimi, Pi, Kiro, Aider, Grok, Muse) was re-verified against its latest release — by live CLI runs where installable — and the integrations were confirmed or brought up to date.
+
+### Fixed
+
+- **gpt-6 Codex models get reasoning-effort options.** Codex CLI 0.157.x added `gpt-6-luna` and `gpt-reserve`; they appeared in the model picker but offered no effort levels. gpt-6 models now offer low/medium/high/xhigh/max.
+
+### Changed
+
+- **Provider integrations re-verified against the latest CLIs.** Confirmed unchanged: OpenCode 1.18.x/2.x flags, event schema and plan-agent mentor mode; Codex 0.157.1 `exec`/`resume` semantics and usage events; Claude Code 2.1.283 stream-json and permission modes; Antigravity 1.2.11 envelopes and resume; Kimi 2.1.1 stream-json and session resume; Pi 0.87.x `message_end`/`agent_end` schema; Kiro 2.24.0 trust flags and effort levels; Aider 0.86.2 flags; Grok Build streaming-messages-json and model catalog; Muse Code 1.4.0 exec envelope and resume. Known upstream quirk documented: OpenCode 2.x omits the final `step_finish` event, so its turn token totals can miss the last step (OpenCode 1.x, still shipped by brew/npm, is unaffected).
+
 ## [2.8.2] - 2026-09-26
 
 A codebase-wide bug sweep: every module was reviewed, and the fixes below were re-reviewed for regressions before release.
