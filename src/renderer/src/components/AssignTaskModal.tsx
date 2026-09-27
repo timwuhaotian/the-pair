@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
-import { ArrowUpRight, Sparkles, RotateCcw } from 'lucide-react'
+import { ArrowUpRight, GitBranch, Sparkles, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
@@ -12,7 +12,9 @@ import { usePresets } from '../lib/usePresets'
 import { getAssignableTaskModels } from '../lib/modelResolution'
 import { prependFileContext } from '../lib/fileMentions'
 import { isPairBusy } from '../lib/pairStatus'
-import type { PairPreset } from '../types'
+import { tauriApi } from '../lib/tauri-api'
+import { cn } from '../lib/utils'
+import type { PairPreset, RepoState } from '../types'
 import {
   finalizePresetSpec,
   isPresetTaskMissing,
@@ -47,12 +49,53 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
   // The preset whose template currently wraps the textarea text (if any).
   const [appliedPreset, setAppliedPreset] = useState<PairPreset | null>(null)
+  // Whether the pair's repository can provide a fresh worktree; `null` while
+  // unknown or when it was fetched for a different pair. The toggle only
+  // renders once a git repo is confirmed for this pair.
+  const [repoCheck, setRepoCheck] = useState<{ key: string; state: RepoState | null }>({
+    key: '',
+    state: null
+  })
+
+  // The fresh-worktree opt-in belongs to a single modal session (same pair,
+  // same open state); render-phase reset keyed like `specSource` above.
+  const sessionKey = `${isOpen ? 'open' : 'closed'}:${pair?.id ?? 'none'}:${restoringSpec ? 'restore' : 'new'}`
+  const [session, setSession] = useState(() => ({ key: sessionKey, freshWorktree: false }))
+  if (session.key !== sessionKey) {
+    setSession({ key: sessionKey, freshWorktree: false })
+  }
+  const freshWorktree = session.freshWorktree
+  const toggleFreshWorktree = useCallback(() => {
+    setSession((current) => ({ ...current, freshWorktree: !current.freshWorktree }))
+  }, [])
 
   // A stale global error (e.g. from another pair's handoff) must not greet the
   // user in a freshly opened modal.
   useEffect(() => {
     if (isOpen) usePairStore.setState({ error: null })
   }, [isOpen])
+
+  const repoDirectory = pair?.repoPath ?? pair?.directory ?? ''
+  const pairId = pair?.id
+  useEffect(() => {
+    if (!isOpen || !pairId || restoringSpec || !repoDirectory) {
+      return
+    }
+    let cancelled = false
+    tauriApi.repo
+      .checkState(repoDirectory)
+      .then((state) => {
+        if (!cancelled) setRepoCheck({ key: pairId, state })
+      })
+      .catch(() => {
+        if (!cancelled) setRepoCheck({ key: pairId, state: null })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, pairId, repoDirectory, restoringSpec])
+
+  const pairRepoCheck = repoCheck.key === (pairId ?? '') ? repoCheck.state : null
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const {
     presets,
@@ -184,7 +227,13 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               tempExecutorModel !== effectiveExecutorModel ? tempExecutorModel : undefined
           }
         : undefined
-      await assignTask(pair.id, finalSpec, undefined, modelOverrides)
+      await assignTask(
+        pair.id,
+        finalSpec,
+        undefined,
+        modelOverrides,
+        freshWorktree ? { freshWorktree: true } : undefined
+      )
       setSpec('')
       setFileContexts(new Map())
       setRestoringSpec(null)
@@ -219,7 +268,46 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             <div className="mt-0.5 truncate text-foreground/90" title={pair.directory}>
               {pair.directory}
             </div>
+            {(pair.worktreeBranch || pair.branch) && (
+              <div className="mt-0.5 flex items-baseline gap-1.5 min-w-0">
+                <GitBranch className="h-3 w-3 translate-y-px role-mentor shrink-0" />
+                <span className="role-mentor truncate" title={pair.worktreePath}>
+                  {pair.worktreeBranch ?? pair.branch}
+                </span>
+                {pair.branch && pair.worktreeBranch && (
+                  <span className="text-[10px] text-muted-foreground-faint truncate">
+                    {t('modals.workspaceFromBranch', { branch: pair.branch })}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+          {!isRestoring && pairRepoCheck?.isGitRepo && (
+            <button
+              type="button"
+              onClick={toggleFreshWorktree}
+              aria-pressed={freshWorktree}
+              data-testid="fresh-worktree-toggle"
+              className="flex items-start gap-2 text-left"
+            >
+              <span
+                className={cn(
+                  'mt-px select-none font-mono text-[12px]',
+                  freshWorktree ? 'state-running' : 'text-muted-foreground-faint'
+                )}
+              >
+                {freshWorktree ? '[x]' : '[ ]'}
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {t('modals.freshWorktreeLabel')}
+                </span>
+                <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+                  {t('modals.freshWorktreeHint')}
+                </span>
+              </span>
+            </button>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <ModelPicker
               value={tempMentorModel}

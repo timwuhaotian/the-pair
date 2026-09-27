@@ -196,6 +196,8 @@ export interface Pair {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  /** The `the-pair/…` branch the pair's worktree is checked out on. */
+  worktreeBranch?: string
   turnStartedAt?: number
   adaptiveBudget?: number
   pauseMessage?: string
@@ -258,7 +260,31 @@ interface PairCreatedResponse {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  worktreeBranch?: string
   directory?: string
+}
+
+/** The backend's `pair_assign_task` returns the pair — with the workspace it
+ * will run in, possibly rotated into a fresh worktree for this task. */
+interface PairAssignResponse {
+  directory?: string | null
+  branch?: string | null
+  repoPath?: string | null
+  worktreePath?: string | null
+  worktreeBranch?: string | null
+}
+
+/** Sync the pair's workspace fields with what the backend now runs in. */
+function applyAssignedWorkspace(pair: Pair, assigned: PairAssignResponse | undefined): Pair {
+  if (!assigned) return pair
+  return {
+    ...pair,
+    directory: assigned.directory ?? pair.directory,
+    branch: assigned.branch ?? undefined,
+    repoPath: assigned.repoPath ?? undefined,
+    worktreePath: assigned.worktreePath ?? undefined,
+    worktreeBranch: assigned.worktreeBranch ?? undefined
+  }
 }
 
 interface BackendPairState {
@@ -301,7 +327,7 @@ interface PairStore {
     spec: string,
     role?: string,
     modelOverrides?: { mentorModel?: string; executorModel?: string },
-    options?: { maxIterations?: number }
+    options?: { maxIterations?: number; freshWorktree?: boolean }
   ) => Promise<void>
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   pausePair: (id: string) => Promise<void>
@@ -430,6 +456,7 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     branch: pair.branch,
     repoPath: pair.repoPath,
     worktreePath: pair.worktreePath,
+    worktreeBranch: pair.worktreeBranch,
     planGate: pair.planGate
   }
 }
@@ -483,7 +510,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     currentRunFinishedAt: snapshot.currentRunFinishedAt ?? undefined,
     branch: snapshot.branch,
     repoPath: snapshot.repoPath,
-    worktreePath: snapshot.worktreePath
+    worktreePath: snapshot.worktreePath,
+    worktreeBranch: snapshot.worktreeBranch
   }
 }
 
@@ -1500,6 +1528,7 @@ export const usePairStore = create<PairStore>((set) => ({
         mentorReasoningEffort: input.mentorReasoningEffort,
         executorReasoningEffort: input.executorReasoningEffort,
         branch: input.branch,
+        ...(input.useWorktree ? { useWorktree: true } : {}),
         maxIterations: input.maxIterations,
         planGate: input.planGate
       })) as PairCreatedResponse
@@ -1555,6 +1584,7 @@ export const usePairStore = create<PairStore>((set) => ({
         branch: pairProcess.branch,
         repoPath: pairProcess.repoPath,
         worktreePath: pairProcess.worktreePath,
+        worktreeBranch: pairProcess.worktreeBranch,
         planGate: input.planGate
       }
 
@@ -1580,7 +1610,7 @@ export const usePairStore = create<PairStore>((set) => ({
     spec,
     roleOrModelOverrides?,
     modelOverrides?: { mentorModel?: string; executorModel?: string },
-    options?: { maxIterations?: number }
+    options?: { maxIterations?: number; freshWorktree?: boolean }
   ) => {
     let role: string | undefined
     let overrides: { mentorModel?: string; executorModel?: string } | undefined
@@ -1645,7 +1675,11 @@ export const usePairStore = create<PairStore>((set) => ({
       const archivedRun = createRunSummary(currentPair)
       const stateEventsBefore = stateEventCount(pairId)
 
-      await window.api.pair.assignTask(pairId, { spec, role })
+      const assigned = (await window.api.pair.assignTask(pairId, {
+        spec,
+        role,
+        ...(options?.freshWorktree ? { freshWorktree: true } : {})
+      })) as PairAssignResponse
 
       // Only update state AFTER backend succeeds
       const backendSynced = stateEventCount(pairId) !== stateEventsBefore
@@ -1657,25 +1691,28 @@ export const usePairStore = create<PairStore>((set) => ({
           : state.viewingRunId,
         pairs: state.pairs.map((pair) =>
           pair.id === pairId
-            ? resetPairForNewRun(pair, {
-                spec,
-                selection: {
-                  mentorModel: effective.mentorModel,
-                  executorModel: effective.executorModel,
-                  // Mirror what the backend now holds: a role whose model changed
-                  // was reset to the default effort by the update payload.
-                  mentorReasoningEffort: modelsPayload
-                    ? modelsPayload.mentorReasoningEffort
-                    : currentPair.mentorReasoningEffort,
-                  executorReasoningEffort: modelsPayload
-                    ? modelsPayload.executorReasoningEffort
-                    : currentPair.executorReasoningEffort
-                },
-                maxIterations: options?.maxIterations,
-                archivedRun,
-                backendSynced,
-                availableModels: state.availableModels
-              })
+            ? applyAssignedWorkspace(
+                resetPairForNewRun(pair, {
+                  spec,
+                  selection: {
+                    mentorModel: effective.mentorModel,
+                    executorModel: effective.executorModel,
+                    // Mirror what the backend now holds: a role whose model changed
+                    // was reset to the default effort by the update payload.
+                    mentorReasoningEffort: modelsPayload
+                      ? modelsPayload.mentorReasoningEffort
+                      : currentPair.mentorReasoningEffort,
+                    executorReasoningEffort: modelsPayload
+                      ? modelsPayload.executorReasoningEffort
+                      : currentPair.executorReasoningEffort
+                  },
+                  maxIterations: options?.maxIterations,
+                  archivedRun,
+                  backendSynced,
+                  availableModels: state.availableModels
+                }),
+                assigned
+              )
             : pair
         )
       }))

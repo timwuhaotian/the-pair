@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "2.8.3",
+  "version": "2.9.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Open-source AI pair programming desktop app with Mentor and Executor agents for cross-validated AI code review",
@@ -52,8 +52,11 @@
     "build:logos": "node scripts/build-logo-variants.mjs",
     "validate:changelog": "node scripts/validate-changelog.mjs",
     "test:js": "node --import tsx --test tests/*.test.ts",
+    "test:ui": "node scripts/with-env.mjs TSX_TSCONFIG_PATH=tsconfig.web.json node --import tsx --test tests/render/*.test.tsx",
     "test:rust": "cargo test -q --manifest-path src-tauri/Cargo.toml",
-    "test": "npm run test:js && npm run test:rust",
+    "test": "npm run test:js && npm run test:ui && npm run test:rust",
+    "coverage:ts": "node scripts/with-env.mjs TSX_TSCONFIG_PATH=tsconfig.web.json c8 --include 'src/renderer/src/**' --reporter=text --reporter=lcovonly --reports-dir=coverage node --import tsx --test tests/*.test.ts tests/render/*.test.tsx",
+    "coverage:rust": "node scripts/coverage-rust.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -79,6 +82,7 @@
     "prepare": "husky",
     "e2e:setup": "appium driver install mac2",
     "e2e": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true wdio run e2e/wdio.conf.ts",
+    "e2e:web": "npx playwright test --config e2e-web/playwright.config.ts",
     "dev:mock": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true npm run dev",
     "dev:smoke": "node scripts/with-env.mjs THE_PAIR_E2E_MOCK=true THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke npm run dev",
     "clean": "node scripts/clean.mjs"
@@ -106,7 +110,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.10.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
@@ -119,11 +126,13 @@
     "@wdio/spec-reporter": "^9.27.0",
     "appium": "^3.2.2",
     "appium-mac2-driver": "^4.0.4",
+    "c8": "^12.0.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "husky": "^9.1.7",
+    "jsdom": "^30.1.1",
     "lint-staged": "^16.4.0",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
@@ -142,5 +151,10 @@
     "*.{json,md,css}": [
       "prettier --write"
     ]
+  },
+  "allowScripts": {
+    "playwright@1.63.0": true,
+    "sharp@0.35.1": true,
+    "sharp@0.34.5": true
   }
 }

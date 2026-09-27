@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-09-28
+
+Every pair can now do its work in an isolated git worktree on a fresh auto-named branch — off the current branch by default, and rotated per task on request.
+
+### Added
+
+- **Worktree isolation for pairs.** Creating a pair in a git repository now defaults to isolating the agents in `.worktrees/pair-<id>` on a new `the-pair/pair-<id>` branch, so agents never touch your working tree. Your uncommitted changes stay put, and multiple pairs can isolate off the same branch concurrently. A base branch can still be selected for the fresh branch to start from. Non-git folders (and repos with no commits yet) keep the previous in-place behavior. The create modal shows the opt-in with a preview of what will be isolated; the branch picker becomes a base-branch picker when isolation is on.
+- **Fresh worktree per task.** Assigning a new task to an existing pair can rotate it onto a fresh worktree and branch. The previous run's work is preserved exactly as on delete (uncommitted changes stashed, its `the-pair/…` branch kept when it holds commits no other branch has), and if that preservation fails the assignment is refused with the pair untouched.
+- **The pair's branch is visible.** The title bar shows the `the-pair/…` branch the pair works on, and the assign-task modal shows the working branch plus the base it started from.
+- **Headless e2e suite.** `npm run e2e:web` runs the real UI in headless Chromium against a scripted Tauri IPC mock (no GUI, no Appium), asserting the exact payloads the UI sends. Covered: worktree default-on, opt-out, and per-task rotation. The desktop (Appium mac2) suite remains available on demand via `npm run e2e`.
+- **Component unit tests.** `npm run test:ui` renders the modals and chrome under jsdom with React Testing Library on top of the `@tauri-apps/api` IPC mock. Coverage commands: `npm run coverage:ts` and `npm run coverage:rust`.
+
+### Changed
+
+- **Command bodies are thin.** `pair_assign_task`'s validation, workspace rotation, and process-context rebuild were extracted into testable functions (`validate_assign_task`, `prepare_new_run_workspace`, `prepare_run_context`). `pair_assign_task` now returns the pair (possibly rotated), which the renderer uses to sync the workspace it displays.
+- **Coverage policy.** New or changed code carries 95%+ line coverage, measured on changed lines (`npm run coverage:ts`, `npm run coverage:rust`). The policy and the test harness layers are documented in `AGENTS.md`.
+
 ## [2.8.3] - 2026-09-26
 
 Provider CLI audit: every supported CLI (OpenCode, Codex, Claude, Antigravity, Kimi, Pi, Kiro, Aider, Grok, Muse) was re-verified against its latest release — by live CLI runs where installable — and the integrations were confirmed or brought up to date.

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   ChevronLeft,
   Eraser,
+  GitBranch,
   Keyboard,
   Moon,
   Settings2,
@@ -148,6 +149,18 @@ export function AppChrome({
                     selectedPair.executorActivity.phase === 'stalled')
                 }
               />
+            )}
+            {selectedPair && (selectedPair.worktreeBranch || selectedPair.branch) && (
+              <span
+                className="inline-flex items-baseline gap-1 border border-border px-1.5 py-px text-[9px] text-muted-foreground"
+                title={selectedPair.worktreePath}
+                data-testid="chrome-branch-chip"
+              >
+                <GitBranch className="h-2.5 w-2.5 translate-y-px shrink-0" />
+                <span className="truncate">
+                  {selectedPair.worktreeBranch ?? selectedPair.branch}
+                </span>
+              </span>
             )}
             {(selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel) && (
               <span className="inline-flex items-baseline gap-1 border border-state-running/40 bg-state-running/12 px-1.5 py-px text-[9px] uppercase tracking-[0.14em] state-running">

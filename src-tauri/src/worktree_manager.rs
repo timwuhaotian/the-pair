@@ -356,6 +356,15 @@ fn pair_branch_name(worktree_dir_name: &str) -> String {
     format!("{}{}", PAIR_BRANCH_PREFIX, worktree_dir_name)
 }
 
+/// The branch a pair worktree at `worktree_path` is checked out on
+/// (`the-pair/<dir-name>`). `None` when the path has no final component.
+pub fn branch_for_worktree(worktree_path: &str) -> Option<String> {
+    Path::new(worktree_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(pair_branch_name)
+}
+
 /// Creates `<repo_path>/<worktree_path>` as a linked worktree on a NEW branch
 /// `the-pair/<worktree-dir-name>` started from `branch` (a local branch or a
 /// remote-tracking branch). Working on a named branch, instead of a detached

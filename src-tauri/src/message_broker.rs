@@ -452,6 +452,26 @@ impl MessageBroker {
         }
     }
 
+    /// Point a pair's broker state at a new workspace (worktree rotation).
+    /// Git/resource sampling reads `state.directory` every tick, so this is
+    /// all the monitor needs to follow the pair into its new worktree.
+    pub fn update_workspace(
+        &self,
+        pair_id: &str,
+        directory: &str,
+        worktree_path: Option<&str>,
+    ) {
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.directory = directory.to_string();
+            state.worktree_path = worktree_path.map(|s| s.to_string());
+            println!(
+                "[MessageBroker] Workspace for pair {} is now {}",
+                pair_id, directory
+            );
+        }
+    }
+
     /// Drop all broker state for a deleted pair (its monitor exits on its
     /// next tick because the state is gone).
     pub fn remove_pair(&self, pair_id: &str) {
@@ -1242,6 +1262,7 @@ mod tests {
             executor_reasoning_effort: None,
             max_iterations: None,
             branch: None,
+            use_worktree: None,
             plan_gate: None,
         }
     }
@@ -1300,6 +1321,26 @@ mod tests {
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert!(state.acceptance_history.is_empty());
         assert!(state.latest_acceptance.is_none());
+    }
+
+    #[test]
+    fn update_workspace_points_a_pair_at_a_new_worktree() {
+        let broker = MessageBroker::new();
+        broker
+            .initialize_pair("pair-wt", sample_input(), Some("/repo/.worktrees/pair-old"))
+            .unwrap();
+
+        broker.update_workspace("pair-wt", "/repo/.worktrees/pair-new", Some("/repo/.worktrees/pair-new"));
+
+        let state = broker.get_state("pair-wt").unwrap();
+        assert_eq!(state.directory, "/repo/.worktrees/pair-new");
+        assert_eq!(
+            state.worktree_path.as_deref(),
+            Some("/repo/.worktrees/pair-new")
+        );
+
+        // An unknown pair is a no-op: a rotation racing a delete must not panic.
+        broker.update_workspace("gone", "/somewhere", None);
     }
 
     #[test]

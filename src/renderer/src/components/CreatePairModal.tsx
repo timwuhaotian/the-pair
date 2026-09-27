@@ -52,6 +52,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [executorReasoningEffort, setExecutorReasoningEffort] = useState<string | undefined>()
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [branch, setBranch] = useState<string | undefined>()
+  const [useWorktree, setUseWorktree] = useState(false)
   const [planGate, setPlanGate] = useState(false)
   const [recommendation, setRecommendation] = useState<ConfigRecommendation | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -90,6 +91,26 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     }, 500)
     return () => clearTimeout(handle)
   }, [spec])
+
+  // A git repo with at least one branch defaults to an isolated worktree; the
+  // user can always opt back into working in place. Non-git (or unborn, i.e.
+  // no commits yet) folders keep the in-place default — there is nothing to
+  // isolate from and no base to start the fresh branch from. Re-evaluated only
+  // when the committed scan directory changes, so an explicit uncheck survives
+  // until a new folder is picked.
+  useEffect(() => {
+    if (!scanDirectory) return
+    let cancelled = false
+    tauriApi.repo
+      .checkState(scanDirectory)
+      .then((state) => {
+        if (!cancelled) setUseWorktree(state.isGitRepo && state.branches.length > 0)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [scanDirectory])
 
   // A stale global error (e.g. from a pair's handoff) must not greet the user
   // in a freshly opened modal.
@@ -162,6 +183,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         mentorReasoningEffort,
         executorReasoningEffort,
         branch,
+        useWorktree,
         maxIterations: undefined,
         planGate,
         pauseOnIteration: selectedPreset?.pauseOnIteration,
@@ -175,6 +197,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setMentorReasoningEffort(undefined)
       setExecutorReasoningEffort(undefined)
       setBranch(undefined)
+      setUseWorktree(false)
       setPlanGate(false)
       setSelectedPreset(null)
       setAppliedPreset(null)
@@ -322,7 +345,52 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {scanDirectory && scanDirectory === directory.trim() && (
-            <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setUseWorktree((v) => !v)
+                  // The selection means different things in the two modes
+                  // (work on the branch vs. start from it), so start clean.
+                  setBranch(undefined)
+                }}
+                aria-pressed={useWorktree}
+                data-testid="worktree-toggle"
+                className="flex items-start gap-2 text-left"
+              >
+                <span
+                  className={cn(
+                    'mt-px select-none font-mono text-[12px]',
+                    useWorktree ? 'state-running' : 'text-muted-foreground-faint'
+                  )}
+                >
+                  {useWorktree ? '[x]' : '[ ]'}
+                </span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {t('modals.worktreeLabel')}
+                  </span>
+                  <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+                    {t('modals.worktreeHint')}
+                  </span>
+                </span>
+              </button>
+              {useWorktree ? (
+                <>
+                  <BranchPicker
+                    directory={scanDirectory}
+                    value={branch}
+                    onChange={setBranch}
+                    variant="base"
+                  />
+                  <div className="border-l-2 border-state-running/40 bg-state-running/8 px-3 py-1.5 text-[11px] state-running normal-case tracking-normal">
+                    → {t('modals.worktreePreview')}
+                  </div>
+                </>
+              ) : (
+                <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
+              )}
+            </div>
           )}
 
           <button

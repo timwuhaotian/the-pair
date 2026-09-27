@@ -119,6 +119,8 @@ export interface CreatePairInput {
   mentorReasoningEffort?: string
   executorReasoningEffort?: string
   branch?: string
+  /** When true, work in a fresh worktree on an auto-named branch (see Rust `CreatePairInput`). */
+  useWorktree?: boolean
   maxIterations?: number
   planGate?: boolean
 }
@@ -242,6 +244,7 @@ export interface SessionSnapshotDraft {
   branch?: string
   repoPath?: string
   worktreePath?: string
+  worktreeBranch?: string
   planGate?: boolean
   cognitiveEvents?: SnapshotCognitiveEvent[]
 }

@@ -10,3 +10,6 @@ out
 docs/superpowers
 test-*.txt
 IDEAS.md
+# test coverage output
+coverage/
+test-results/

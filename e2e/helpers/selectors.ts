@@ -28,9 +28,11 @@ export const S = {
   CREATE_PAIR_SUBMIT: '[data-testid="pair-submit-btn"]',
   CANCEL_BTN_CREATE: '[data-testid="pair-cancel-btn"]',
   PLAN_GATE_TOGGLE: '[data-testid="plan-gate-toggle"]',
+  WORKTREE_TOGGLE: '[data-testid="worktree-toggle"]',
 
   // ── Assign Task Modal ─────────────────────────────────────────────
   TASK_SPEC_ASSIGN: '[data-testid="assign-task-spec"]',
+  FRESH_WORKTREE_TOGGLE: '[data-testid="fresh-worktree-toggle"]',
   START_NEW_TASK_BTN: '[data-testid="assign-submit-btn"]',
   CANCEL_BTN_ASSIGN: '[data-testid="assign-cancel-btn"]',
 
@@ -44,6 +46,7 @@ export const S = {
   MODEL_SEARCH: 'input[placeholder*="Search models"]',
 
   // ── Operations Panel ──────────────────────────────────────────────
+  BRANCH_CHIP: '[data-testid="chrome-branch-chip"]',
   PAUSE_BTN: '[data-testid="ops-pause-btn"]',
   RESUME_BTN: '[data-testid="ops-resume-btn"]',
   RETRY_BTN: '[data-testid="ops-retry-btn"]',

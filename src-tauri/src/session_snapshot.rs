@@ -125,6 +125,8 @@ pub struct SessionSnapshotRecord {
     pub repo_path: Option<String>,
     pub worktree_path: Option<String>,
     #[serde(default)]
+    pub worktree_branch: Option<String>,
+    #[serde(default)]
     pub plan_gate: bool,
 }
 
@@ -174,6 +176,8 @@ pub struct SessionSnapshotDraft {
     pub branch: Option<String>,
     pub repo_path: Option<String>,
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub worktree_branch: Option<String>,
     #[serde(default)]
     pub plan_gate: bool,
 }
@@ -702,6 +706,17 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         branch: snapshot.branch.clone(),
         repo_path: snapshot.repo_path.clone(),
         worktree_path: snapshot.worktree_path.clone(),
+        // Snapshots from before the field existed didn't record the branch;
+        // it is derived from the worktree directory, which names it.
+        worktree_branch: snapshot
+            .worktree_branch
+            .clone()
+            .or_else(|| {
+                snapshot
+                    .worktree_path
+                    .as_deref()
+                    .and_then(crate::worktree_manager::branch_for_worktree)
+            }),
         plan_gate: snapshot.plan_gate,
     }
 }
@@ -890,6 +905,7 @@ fn build_snapshot_from_state(
         branch: pair.branch.clone(),
         repo_path: pair.repo_path.clone(),
         worktree_path: pair.worktree_path.clone(),
+        worktree_branch: pair.worktree_branch.clone(),
         plan_gate: pair.plan_gate,
     }
 }
@@ -960,6 +976,7 @@ fn build_snapshot_from_draft(
         branch: draft.branch,
         repo_path: draft.repo_path,
         worktree_path: draft.worktree_path,
+        worktree_branch: draft.worktree_branch,
         plan_gate: draft.plan_gate,
     }
 }
@@ -1061,6 +1078,7 @@ fn merge_state_into_snapshot(
     snapshot.branch = pair.branch.clone();
     snapshot.repo_path = pair.repo_path.clone();
     snapshot.worktree_path = pair.worktree_path.clone();
+    snapshot.worktree_branch = pair.worktree_branch.clone();
 }
 
 /// Persist the pair's current backend state into its snapshot (merging, see
@@ -1524,6 +1542,7 @@ mod tests {
             branch: None,
             repo_path: None,
             worktree_path: None,
+            worktree_branch: None,
             plan_gate: false,
         }
     }
@@ -1583,6 +1602,7 @@ mod tests {
             branch: None,
             repo_path: None,
             worktree_path: None,
+            worktree_branch: None,
             plan_gate: false,
         }
     }
@@ -2118,6 +2138,47 @@ mod tests {
 
         let context = build_process_context(&snap);
         assert_eq!(context.directory, "/definitely/missing/worktree");
+    }
+
+    #[test]
+    fn build_pair_derives_the_worktree_branch_for_legacy_snapshots() {
+        let mut snap = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        snap.worktree_path = Some("/tmp/repo/.worktrees/pair-abc".to_string());
+        // Snapshots from before the field existed record no worktree branch;
+        // it is derived from the worktree directory, which names it.
+        snap.worktree_branch = None;
+
+        let pair = build_pair(&snap);
+        assert_eq!(pair.worktree_branch.as_deref(), Some("the-pair/pair-abc"));
+
+        snap.worktree_branch = Some("the-pair/pair-recorded".to_string());
+        assert_eq!(
+            build_pair(&snap).worktree_branch.as_deref(),
+            Some("the-pair/pair-recorded")
+        );
+    }
+
+    #[test]
+    fn build_snapshot_from_state_records_the_pairs_worktree_branch() {
+        let snap = snapshot(AgentRole::Executor, PairStatus::Paused, vec![]);
+        let state = build_pair_state(&snap);
+        let mut pair = build_pair(&snap);
+        pair.branch = Some("main".to_string());
+        pair.repo_path = Some("/tmp/repo".to_string());
+        pair.worktree_path = Some("/tmp/repo/.worktrees/pair-abc".to_string());
+        pair.worktree_branch = Some("the-pair/pair-abc".to_string());
+
+        let record = build_snapshot_from_state(&pair, &state, None);
+
+        assert_eq!(
+            record.worktree_branch.as_deref(),
+            Some("the-pair/pair-abc"),
+            "the snapshot must record the checked-out pair branch"
+        );
+        assert_eq!(
+            record.worktree_path.as_deref(),
+            Some("/tmp/repo/.worktrees/pair-abc")
+        );
     }
 
     #[test]

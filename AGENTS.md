@@ -36,9 +36,10 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 | Module               | Responsibility                                                                                                                                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models                                                                                                                                                              |
+| `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models; resolves each pair's workspace (in-place, or a fresh worktree on an auto-named `the-pair/…` branch — per task when requested)                               |
 | `message_broker`     | State machine for agent turn coordination and event routing                                                                                                                                                                                  |
 | `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                                                  |
+| `worktree_manager`   | Git worktree lifecycle: repo state checks, branch listing, worktree creation with work-preservation contract on delete (stash + rescued/kept `the-pair/…` branches)                                                                          |
 | `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                                                   |
 | `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                                                 |
 | `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`, `grok.rs`, `muse.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
@@ -153,6 +154,30 @@ When the user says **"update agents"**, audit every supported provider's CLI int
 - **State:** Use `usePairStore` for pair-related global state. Add new stores in `src/renderer/src/store/` only if the concern is orthogonal.
 - **Tauri Commands:** Add new commands to the appropriate Rust module and register them in `lib.rs`'s `invoke_handler`.
 - **Models:** Update `model_catalog.rs` when adding new model entries; implement the `Provider` trait in `providers/` for new CLI tools.
+
+## Testing & Coverage
+
+**Policy: new or changed code must have 95%+ line coverage from unit tests.** Measured as _changed lines_ (`git diff`) against the coverage report, not whole-repo averages.
+
+Three layers, all headless except the optional desktop smoke:
+
+| Layer               | Command                                                                                                                   | Covers                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Rust unit tests     | `npm run test:rust` (in `cargo test`)                                                                                     | `PairManager`/broker/spawner logic, git worktree operations against real temp git repos |
+| Renderer unit tests | `npm run test:js` (store/logic, `tests/*.test.ts`) + `npm run test:ui` (jsdom component tests, `tests/render/*.test.tsx`) | Store contracts, modal/branch-chip UI                                                   |
+| Headless e2e        | `npm run e2e:web` (Playwright + a scripted Tauri IPC mock, `e2e-web/`)                                                    | Real app UI against a mocked backend                                                    |
+| Desktop e2e         | `npm run e2e` (Appium mac2, needs a GUI machine)                                                                          | Real packaged app, on-demand only                                                       |
+
+Coverage commands:
+
+- `npm run coverage:ts` — c8 report for the renderer (runs both unit suites).
+- `npm run coverage:rust` — `cargo llvm-cov` for the Rust lib.
+
+Harness notes:
+
+- **Renderer component tests** (`tests/render/`) run React under jsdom via `node:test` + `@testing-library/react`. They use `TSX_TSCONFIG_PATH=tsconfig.web.json` (through `scripts/with-env.mjs`) so tsx applies the automatic JSX transform — component modules rely on it. `tests/render/setup-dom.ts` installs the jsdom globals and the `__APP_VERSION__` vite define; `tests/render/mock-ipc.ts` installs the real `tauri-shim` plus a scripted `mockIPC` handler covering `repo_check_state` and friends.
+- **Headless e2e** (`e2e-web/`) starts the vite dev server (`npm run dev:renderer -- --port 5199 --host 127.0.0.1`) and injects `e2e-web/mock-init.js` before app code, defining `window.__TAURI_INTERNALS__`/`__TAURI_EVENT_PLUGIN_INTERNALS__`. Every IPC call lands on `window.__MOCK_CALLS__` so specs assert exact payloads. Test state is seeded through `openApp(page, state)` in `e2e-web/fixtures/app.ts`.
+- Keep tauri command bodies thin: extract the testable logic into plain functions (see `prepare_new_run_workspace`, `prepare_run_context`, `validate_assign_task` in `pair_manager.rs`) — command shells cannot be unit-covered without an app runtime.
 
 ## Release Process (Automated)
 

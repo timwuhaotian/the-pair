@@ -11,6 +11,9 @@ interface BranchPickerProps {
   value?: string
   onChange: (branch: string | undefined) => void
   className?: string
+  /** `branch`: the picked branch is where the pair works (default). `base`:
+   *  the picked branch is what a worktree starts from — none means current. */
+  variant?: 'branch' | 'base'
 }
 
 function formatDate(timestamp: number): string {
@@ -29,8 +32,10 @@ export function BranchPicker({
   directory,
   value,
   onChange,
-  className
+  className,
+  variant = 'branch'
 }: BranchPickerProps): React.ReactNode {
+  const isBaseVariant = variant === 'base'
   const [repoState, setRepoState] = useState<RepoState | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
@@ -207,7 +212,9 @@ export function BranchPicker({
           {selectedBranch ? (
             <span className="role-mentor truncate">{selectedBranch.name}</span>
           ) : (
-            <span className="text-muted-foreground">select branch (optional)</span>
+            <span className="text-muted-foreground">
+              {isBaseVariant ? 'base branch (defaults to current)' : 'select branch (optional)'}
+            </span>
           )}
         </div>
         <ChevronDown
@@ -266,12 +273,15 @@ export function BranchPicker({
               !value && 'bg-foreground/[0.05] text-foreground/90'
             )}
           >
-            — no branch (work in directory)
+            — {isBaseVariant ? 'from current branch' : 'no branch (work in directory)'}
           </button>
 
           {repoState.isDirty && (
             <div className="px-3 py-1.5 text-[10px] state-running bg-state-running/8 border-t border-border">
-              ! uncommitted changes — commit or stash before selecting a branch
+              ! uncommitted changes —{' '}
+              {isBaseVariant
+                ? 'only the current branch can be the base'
+                : 'commit or stash before selecting a branch'}
             </div>
           )}
 

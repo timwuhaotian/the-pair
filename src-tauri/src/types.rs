@@ -356,6 +356,12 @@ pub struct CreatePairInput {
     #[serde(rename = "executorReasoningEffort")]
     pub executor_reasoning_effort: Option<String>,
     pub branch: Option<String>,
+    /// When true, the pair works in a fresh worktree on an auto-named
+    /// `the-pair/…` branch instead of the user's working tree. `branch`, if
+    /// set, is the base the fresh branch starts from; without it the base is
+    /// the repository's current branch.
+    #[serde(rename = "useWorktree", default)]
+    pub use_worktree: Option<bool>,
     #[serde(rename = "maxIterations")]
     pub max_iterations: Option<u32>,
     /// When true, the pair pauses for human approval after the mentor's first
@@ -368,6 +374,11 @@ pub struct CreatePairInput {
 pub struct AssignTaskInput {
     pub spec: String,
     pub role: Option<String>,
+    /// New runs only: rotate the pair into a fresh worktree on a new
+    /// auto-named branch before the run starts. The previous run's work is
+    /// preserved (stashed, and its `the-pair/…` branch kept).
+    #[serde(rename = "freshWorktree", default)]
+    pub fresh_worktree: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,11 +488,15 @@ pub struct Pair {
     pub executor_reasoning_effort: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: u64,
+    /// The base branch the pair's worktree was started from.
     pub branch: Option<String>,
     #[serde(rename = "repoPath")]
     pub repo_path: Option<String>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
+    /// The branch the pair's worktree is checked out on (`the-pair/…`).
+    #[serde(rename = "worktreeBranch")]
+    pub worktree_branch: Option<String>,
     #[serde(rename = "planGate", default)]
     pub plan_gate: bool,
 }
