@@ -16,6 +16,13 @@ use serde_json::Value;
 /// Verified against Grok Build 1.0.40 and the xai-org/grok-build headless
 /// documentation (2026-09-23): `-p <prompt>`, `-m <model>`, `--resume <id>`,
 /// `--reasoning-effort <level>`, `--yolo`, and the read-only `--tools` allowlist.
+/// Re-checked against Grok Build 1.0.44 (2026-09-30), where `grok --help` lists
+/// `plain | json | streaming-json | streaming-messages-json` and still accepts
+/// every flag above. `streaming-messages-json` is confirmed to be the right
+/// choice over `streaming-json`, whose events are "one ACP session update per
+/// line" (the agent's native format, not the Messages API shape parsed here).
+/// The `result` event omits its text field on the error path, so
+/// `collect_json_candidates` correctly yields nothing for a failed turn.
 pub struct GrokProvider;
 
 impl Provider for GrokProvider {

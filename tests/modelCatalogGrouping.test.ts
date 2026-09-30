@@ -273,3 +273,70 @@ test('aider route sorts after kiro in provider priority', () => {
     restore()
   }
 })
+
+test('routes for one canonical model follow the provider priority order', () => {
+  // PROVIDER_PRIORITY is typed over ProviderKind, so a new provider fails to
+  // compile until it is ranked. This pins the resulting order through the
+  // public API: every provider sharing a canonical key, ranked as documented.
+  const expected: AvailableModel['provider'][] = [
+    'claude',
+    'codex',
+    'gemini',
+    'opencode',
+    'kimi',
+    'pi',
+    'kiro',
+    'aider',
+    'grok',
+    'muse'
+  ]
+
+  const models = expected.map((provider) =>
+    makeModel({
+      provider,
+      modelId: 'claude-sonnet-4-5',
+      displayName: 'Claude Sonnet 4.5',
+      providerLabel: provider,
+      canonicalKey: 'anthropic::claude-sonnet-4-5',
+      canonicalDisplayName: 'Claude Sonnet 4.5'
+    })
+  )
+
+  const canonical = buildCanonicalModels(models)
+  assert.equal(canonical.length, 1)
+  assert.deepEqual(
+    canonical[0].routes.map((route) => route.provider),
+    expected
+  )
+})
+
+test('an unranked provider sorts after every ranked one', () => {
+  // Guards the regression where the fallback equalled muse's priority (9), so
+  // an unknown kind tied with Muse and fell back to alphabetical order.
+  const UNKNOWN = 'brand-new-provider' as AvailableModel['provider']
+  const unknown = makeModel({
+    provider: UNKNOWN,
+    modelId: 'claude-sonnet-4-5',
+    displayName: 'Claude Sonnet 4.5',
+    providerLabel: 'Aardvark CLI',
+    canonicalKey: 'anthropic::claude-sonnet-4-5',
+    canonicalDisplayName: 'Claude Sonnet 4.5'
+  })
+  const muse = makeModel({
+    provider: 'muse',
+    modelId: 'claude-sonnet-4-5',
+    displayName: 'Claude Sonnet 4.5',
+    providerLabel: 'Muse Code',
+    canonicalKey: 'anthropic::claude-sonnet-4-5',
+    canonicalDisplayName: 'Claude Sonnet 4.5'
+  })
+
+  const canonical = buildCanonicalModels([unknown, muse])
+  assert.equal(canonical.length, 1)
+  // "Aardvark CLI" sorts alphabetically before "Muse Code", so alphabetical
+  // tie-breaking would put the unranked provider first.
+  assert.deepEqual(
+    canonical[0].routes.map((route) => route.provider),
+    ['muse', UNKNOWN]
+  )
+})

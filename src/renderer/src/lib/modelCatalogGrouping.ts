@@ -1,4 +1,4 @@
-import type { AvailableModel } from '../types'
+import type { AvailableModel, ProviderKind } from '../types'
 import { getQualifiedModel, isSelectableForPairExecution } from './modelPreferences'
 import { modelIdsEquivalent } from './providerResolution'
 
@@ -53,7 +53,9 @@ export interface ResolvedSelection {
 const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 }
 // Preference order when there is no remembered route: plan-included native routes before
 // pay-as-you-go OpenCode, so the user does not accidentally spend on an API key.
-const PROVIDER_PRIORITY: Record<string, number> = {
+// Typed over ProviderKind so adding a provider to the union fails to compile here
+// instead of silently sorting the new one last.
+const PROVIDER_PRIORITY: Record<ProviderKind, number> = {
   claude: 0,
   codex: 1,
   gemini: 2,
@@ -65,6 +67,10 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   grok: 8,
   muse: 9
 }
+// Sort key for a provider with no rank. Must exceed every real priority so an
+// unrecognised kind lands after the known ones rather than tying with the last
+// one (which previously put it level with Muse).
+const UNRANKED_PROVIDER_ORDER = Number.MAX_SAFE_INTEGER
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 
 /**
@@ -156,8 +162,8 @@ export function buildCanonicalModels(models: AvailableModel[]): CanonicalModel[]
     )
     routes.sort((a, b) => {
       if (a.available !== b.available) return a.available ? -1 : 1
-      const pa = PROVIDER_PRIORITY[a.provider] ?? 9
-      const pb = PROVIDER_PRIORITY[b.provider] ?? 9
+      const pa = PROVIDER_PRIORITY[a.provider] ?? UNRANKED_PROVIDER_ORDER
+      const pb = PROVIDER_PRIORITY[b.provider] ?? UNRANKED_PROVIDER_ORDER
       if (pa !== pb) return pa - pb
       return a.providerLabel.localeCompare(b.providerLabel)
     })

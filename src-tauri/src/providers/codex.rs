@@ -52,8 +52,10 @@ impl Provider for CodexProvider {
         // Sandbox is explicit per role: mentor is read-only (the CLI default),
         // executor needs workspace-write to apply edits in the worktree. It is
         // set through `-c sandbox_mode=` because `codex exec resume` rejects
-        // `--sandbox` (verified against codex-cli 0.157.1), and a resume without
-        // any sandbox setting would fall back to the user's config.toml.
+        // `--sandbox`, and a resume without any sandbox setting would fall back
+        // to the user's config.toml. Re-checked against codex-cli 0.149.1
+        // (2026-09-30): `codex exec resume --help` still offers `-c`/`--model`/
+        // `--json`/`--output-last-message` but no `--sandbox`.
         let sandbox = if request.role == "mentor" {
             "read-only"
         } else {
@@ -176,31 +178,33 @@ impl Provider for CodexProvider {
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // codex exec sets reasoning via `-c model_reasoning_effort=<value>`.
-        // Reasoning levels per `codex debug models` (verified against codex-cli
-        // 0.157.1): every gpt-5.x supports at least low/medium/high/xhigh, and
-        // every gpt-6 model (gpt-6-luna, gpt-reserve) additionally supports
-        // max. The o<digit> prefix (o1, o3, o4, o5, …) keeps the classic three.
-        let id = model_id.strip_prefix("codex/").unwrap_or(model_id);
-        if id.starts_with("gpt-6") {
-            Some(vec![
-                "low".into(),
-                "medium".into(),
-                "high".into(),
-                "xhigh".into(),
-                "max".into(),
-            ])
-        } else if id.starts_with("gpt-5") {
-            Some(vec![
-                "low".into(),
-                "medium".into(),
-                "high".into(),
-                "xhigh".into(),
-            ])
-        } else if is_o_series_model(id) {
-            Some(vec!["low".into(), "medium".into(), "high".into()])
-        } else {
-            None
-        }
+        // The ladder is per-model and moves with the catalog, so ask the CLI
+        // (see `codex_reasoning_levels`) and only guess when it can't answer.
+        crate::provider_registry::codex_reasoning_levels(model_id)
+            .or_else(|| fallback_reasoning_levels(model_id))
+    }
+}
+
+/// Ladder used when the installed `codex` can't be asked (too old for
+/// `debug models`, or a model absent from its catalog).
+///
+/// Deliberately conservative: offering a level the model rejects fails the
+/// turn, while omitting one the model supports only narrows the picker. It
+/// therefore stops at `xhigh` rather than guessing at `max`/`ultra`, which
+/// only some catalog entries carry.
+fn fallback_reasoning_levels(model_id: &str) -> Option<Vec<String>> {
+    let id = model_id.strip_prefix("codex/").unwrap_or(model_id);
+    if id.starts_with("gpt-5") || id.starts_with("gpt-6") {
+        Some(vec![
+            "low".into(),
+            "medium".into(),
+            "high".into(),
+            "xhigh".into(),
+        ])
+    } else if is_o_series_model(id) {
+        Some(vec!["low".into(), "medium".into(), "high".into()])
+    } else {
+        None
     }
 }
 
@@ -328,29 +332,38 @@ mod tests {
     }
 
     #[test]
-    fn codex_offers_reasoning_effort_for_gpt5_and_o_series() {
-        let provider = CodexProvider;
+    fn codex_fallback_ladder_is_conservative_and_prefix_based() {
+        // The fallback only runs when the CLI can't be asked, so it stops at
+        // xhigh rather than guessing at max/ultra.
+        for model in ["gpt-5.5", "gpt-5.6-terra", "gpt-6-luna", "codex/gpt-5.6-sol"] {
+            assert_eq!(
+                fallback_reasoning_levels(model),
+                Some(
+                    ["low", "medium", "high", "xhigh"]
+                        .map(String::from)
+                        .to_vec()
+                ),
+                "fallback ladder for {model}"
+            );
+        }
         assert_eq!(
-            provider.reasoning_effort_levels("gpt-5.5").map(|l| l.len()),
-            Some(4)
+            fallback_reasoning_levels("o3"),
+            Some(["low", "medium", "high"].map(String::from).to_vec())
         );
-        assert_eq!(
-            provider.reasoning_effort_levels("codex/gpt-5.6-terra").map(|l| l.len()),
-            Some(4)
-        );
-        assert_eq!(
-            provider
-                .reasoning_effort_levels("gpt-6-luna")
-                .map(|l| l.len()),
-            Some(5)
-        );
-        assert_eq!(
-            provider
-                .reasoning_effort_levels("codex/gpt-6-luna")
-                .and_then(|l| l.last().cloned()),
-            Some("max".to_string())
-        );
-        assert_eq!(provider.reasoning_effort_levels("o3").map(|l| l.len()), Some(3));
-        assert!(provider.reasoning_effort_levels("gpt-4o").is_none());
+        assert!(fallback_reasoning_levels("gpt-4o").is_none());
+        assert!(fallback_reasoning_levels("codex-ultra-latest").is_none());
+    }
+
+    #[test]
+    fn codex_reasoning_levels_resolve_to_a_real_ladder() {
+        // Whether a `codex` is installed decides the answer, so assert the
+        // shape rather than an exact length: an installed CLI supplies its
+        // catalog, and without one the prefix fallback covers gpt-5* anyway.
+        let levels = CodexProvider
+            .reasoning_effort_levels("gpt-5.6-terra")
+            .expect("gpt-5.6-terra must resolve to a ladder");
+        assert!(!levels.is_empty());
+        assert!(levels.iter().all(|level| !level.is_empty()));
+        assert!(levels.contains(&"low".to_string()));
     }
 }

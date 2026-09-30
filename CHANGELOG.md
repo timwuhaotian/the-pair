@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-09-30
+
+Provider CLI audit: all ten supported CLIs were re-verified — by live runs against the installed binaries wherever they could be installed, and against vendor docs otherwise. This release fixes the one real mismatch it turned up.
+
+### Fixed
+
+- **Codex reasoning-effort levels now come from the CLI, not a hardcoded guess.** The effort ladder was derived from model-name prefixes (`gpt-5…` → four levels, `gpt-6…` → five), but Codex's ladder is per-model and changes with its catalog. On Codex CLI 0.149.1 this was wrong in both directions: `gpt-5.6-terra` was missing `max` and `ultra`, `gpt-5.6-luna` was missing `max`, and `gpt-reserve` matched no prefix rule so its effort control was hidden entirely. Offering a level a model rejects fails the turn, and omitting one only narrows the picker — so the guesser was also capable of breaking runs. The levels are now read from `codex debug models` (probed once per binary, like the existing OpenCode and Pi capability probes), which stays correct as the catalog moves. A conservative prefix-based ladder remains as the fallback for a CLI too old to answer.
+
+### Changed
+
+- **Provider integrations re-verified against the latest CLIs.** Confirmed unchanged by live run: OpenCode 2.0.14 (`run` flags, `#variant` model suffix, `--agent plan` mentor mode); Codex 0.149.1 (`exec`/`exec resume`, `--json`, `--output-last-message`, nested-JSON `turn.failed` errors — note `codex exec resume` still offers no `--sandbox`); Claude Code 2.1.285 (stream-json envelopes, `init.permissionMode`, `result` usage, `--effort`, permission modes); Antigravity 1.2.11 (envelope schema and the `--print` argument rules, including the leading-dash prompt guard); Kimi 2.1.1 (stream-json still carries no usage data); Pi 0.87.0 (`agent_end` schema, and the mentor's `read,grep,find,ls` allowlist matches its actual built-in tool names); Muse Code 1.4.0 (exec envelope, mentor read-only flags, still no usage). Confirmed against vendor docs: Kiro (`chat --no-interactive`, `--trust-tools`, `--effort`); Aider 0.86.2 installed and run — every flag present, no `--json`; Grok Build 1.0.44 — `streaming-messages-json` confirmed as a real, distinct output format. The frontend provider maps (`ProviderKind`, login commands, install URLs, `PROVIDER_PRIORITY`, `inferProviderFromModel`, `stripProviderPrefix`) were cross-checked against the Rust trait and carry no drift.
+- **Provider priority ranking is exhaustively typed.** `PROVIDER_PRIORITY` is now a `Record<ProviderKind, number>`, so adding a provider to the union fails to compile until it is ranked. An unrecognised provider now sorts after every known one instead of tying with the last-ranked (Muse) and falling back to alphabetical order.
+
 ## [2.9.0] - 2026-09-28
 
 Every pair can now do its work in an isolated git worktree on a fresh auto-named branch — off the current branch by default, and rotated per task on request.

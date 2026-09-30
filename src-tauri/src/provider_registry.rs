@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -54,6 +54,8 @@ const FAILED_PROBE_RETRY_AFTER: Duration = Duration::from_secs(30);
 static OPENCODE_VARIANT_SYNTAX: ProbeCache<OpencodeVariantSyntax> =
     ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 static PI_MAX_THINKING_LEVEL_SUPPORT: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
+static CODEX_REASONING_LEVELS: ProbeCache<Arc<CodexReasoningCatalog>> =
+    ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 
 /// The last result of a capability probe for one resolved CLI binary. A
 /// successful probe is kept for the session; a failed one (timeout, crash)
@@ -69,7 +71,7 @@ struct ProbeEntry<T> {
     probed_at: Instant,
 }
 
-impl<T: Copy> ProbeCache<T> {
+impl<T: Clone> ProbeCache<T> {
     const fn new(retry_after: Duration) -> Self {
         Self {
             retry_after,
@@ -82,7 +84,7 @@ impl<T: Copy> ProbeCache<T> {
             let entry = self.entry.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(entry) = entry.as_ref().filter(|entry| entry.binary == binary) {
                 if entry.value.is_some() || entry.probed_at.elapsed() < self.retry_after {
-                    return entry.value;
+                    return entry.value.clone();
                 }
             }
         }
@@ -91,7 +93,7 @@ impl<T: Copy> ProbeCache<T> {
         let value = probe();
         *self.entry.lock().unwrap_or_else(|e| e.into_inner()) = Some(ProbeEntry {
             binary: binary.to_path_buf(),
-            value,
+            value: value.clone(),
             probed_at: Instant::now(),
         });
         value
@@ -302,6 +304,68 @@ fn pi_help_lists_max_thinking_level(help_text: &str) -> bool {
     help_text.contains("--thinking <level>")
         && extract_pi_thinking_levels(help_text)
             .is_some_and(|levels| levels.iter().any(|level| level == "max"))
+}
+
+/// Reasoning levels the installed Codex advertises per model, keyed by slug.
+pub(crate) type CodexReasoningCatalog = HashMap<String, Vec<String>>;
+
+/// The reasoning-effort levels the installed `codex` advertises for `model_id`.
+///
+/// The ladder is per-model and moves with the catalog, so it is read from the
+/// CLI rather than hardcoded: `codex debug models` prints the exact
+/// `supported_reasoning_levels` for every model the account can reach. A
+/// prefix-based guess gets this wrong in both directions — it hides levels the
+/// model does support and offers levels it does not, and the offered one fails
+/// the turn. Verified against codex-cli 0.149.1 (2026-09-30), where
+/// `gpt-5.6-terra` reaches `ultra`, `gpt-5.6-luna` stops at `max`, `gpt-5.5`
+/// stops at `xhigh`, and `gpt-reserve` is not reachable by any prefix rule.
+///
+/// Probed once per binary (see `ProbeCache`); `None` when the CLI is missing,
+/// too old to have `debug models`, or the model is not in its catalog, in which
+/// case the caller falls back to a conservative ladder.
+pub(crate) fn codex_reasoning_levels(model_id: &str) -> Option<Vec<String>> {
+    let command_path = which_binary("codex")?;
+    let slug = model_id.strip_prefix("codex/").unwrap_or(model_id);
+
+    CODEX_REASONING_LEVELS
+        .get_or_probe(&command_path, || {
+            let output = capture_command_output_with_timeout(
+                &command_path,
+                &["debug", "models"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            )?;
+            parse_codex_reasoning_levels(&output)
+        })
+        .and_then(|catalog| catalog.get(slug).cloned())
+        .filter(|levels| !levels.is_empty())
+}
+
+/// Parse `codex debug models` into slug → effort list. Models that advertise
+/// no levels are dropped: they are not selectable for an effort, and keeping
+/// them would hand the caller an empty list it has to special-case.
+fn parse_codex_reasoning_levels(output: &str) -> Option<Arc<CodexReasoningCatalog>> {
+    let models = serde_json::from_str::<serde_json::Value>(output)
+        .ok()?
+        .get("models")?
+        .as_array()?
+        .clone();
+
+    let catalog: CodexReasoningCatalog = models
+        .iter()
+        .filter_map(|model| {
+            let slug = model.get("slug")?.as_str()?;
+            let levels: Vec<String> = model
+                .get("supported_reasoning_levels")?
+                .as_array()?
+                .iter()
+                .filter_map(|level| level.get("effort")?.as_str().map(String::from))
+                .collect();
+            (!levels.is_empty()).then(|| (slug.to_string(), levels))
+        })
+        .collect();
+
+    (!catalog.is_empty()).then(|| Arc::new(catalog))
 }
 
 fn extract_pi_thinking_levels(help_text: &str) -> Option<Vec<String>> {
@@ -2026,6 +2090,61 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
     use uuid::Uuid;
+
+    #[test]
+    fn codex_model_catalog_parses_per_model_ladders() {
+        // Shape captured verbatim from `codex debug models` (codex-cli
+        // 0.149.1, 2026-09-30): each model carries its own
+        // `supported_reasoning_levels`, and the ladders genuinely differ —
+        // terra reaches `ultra`, luna stops at `max`, 5.5 stops at `xhigh`.
+        let output = r#"{"models":[
+            {"slug":"gpt-5.6-terra","supported_reasoning_levels":[
+                {"effort":"low"},{"effort":"medium"},{"effort":"high"},
+                {"effort":"xhigh"},{"effort":"max"},{"effort":"ultra"}]},
+            {"slug":"gpt-5.6-luna","supported_reasoning_levels":[
+                {"effort":"low"},{"effort":"medium"},{"effort":"high"},
+                {"effort":"xhigh"},{"effort":"max"}]},
+            {"slug":"gpt-5.5","supported_reasoning_levels":[
+                {"effort":"low"},{"effort":"medium"},{"effort":"high"},
+                {"effort":"xhigh"}]}
+        ]}"#;
+
+        let catalog = parse_codex_reasoning_levels(output).expect("catalog should parse");
+        let ladder = |slug: &str| {
+            catalog
+                .get(slug)
+                .map(|levels| levels.iter().map(String::as_str).collect::<Vec<_>>())
+        };
+        assert_eq!(
+            ladder("gpt-5.6-terra"),
+            Some(vec!["low", "medium", "high", "xhigh", "max", "ultra"])
+        );
+        assert_eq!(
+            ladder("gpt-5.6-luna"),
+            Some(vec!["low", "medium", "high", "xhigh", "max"])
+        );
+        assert_eq!(catalog.get("gpt-5.5").map(Vec::len), Some(4));
+        assert!(catalog.get("gpt-reserve").is_none());
+    }
+
+    #[test]
+    fn codex_model_catalog_drops_models_without_levels_and_bad_json() {
+        // A model with no usable ladder is not selectable for an effort; it is
+        // dropped rather than surfaced as an empty list.
+        let output = r#"{"models":[
+            {"slug":"gpt-5.5","supported_reasoning_levels":[{"effort":"low"}]},
+            {"slug":"no-levels","supported_reasoning_levels":[]},
+            {"slug":"missing-field"}
+        ]}"#;
+        let catalog = parse_codex_reasoning_levels(output).expect("catalog should parse");
+        assert_eq!(catalog.len(), 1);
+        assert!(catalog.get("no-levels").is_none());
+        assert!(catalog.get("missing-field").is_none());
+
+        assert!(parse_codex_reasoning_levels("not json").is_none());
+        assert!(parse_codex_reasoning_levels(r#"{"models":[]}"#).is_none());
+        assert!(parse_codex_reasoning_levels("{}").is_none());
+    }
 
     #[test]
     fn opencode_help_detects_variant_syntax() {
