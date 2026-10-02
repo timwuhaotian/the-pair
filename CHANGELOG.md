@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.2] - 2026-10-02
+
+Follow-up provider CLI audit, again driven by live runs against the installed binaries. The previous audit (2.9.1) verified the flags each adapter sends; this one caught the places where the CLIs had quietly changed behaviour underneath them. Eight broken behaviours fixed, each reproduced before the fix and covered by a regression test.
+
+### Fixed
+
+- **Codex: any handoff message starting with `-` killed the turn before it started.** The prompt is a bare positional, so a leading `- ` (a markdown bullet or a `---` diff header — routine in handoff text) was read as a flag and aborted with `error: unexpected argument`. The message is now passed after a `--` separator.
+- **Codex: a pair in a plain (non-git) directory could never start a turn.** Codex refuses to run outside a git work tree without `--skip-git-repo-check`, exiting 1 before any JSON event. Pairs default to the user's own directory, which the app never validates as a repo. The flag is now always passed (it is global, so `exec resume` accepts it too).
+- **OpenCode: every turn's reply included mid-turn narration.** `run --format json` no longer emits the closing `step_finish` event, so the code that picks the final step's text never matched anything and every OpenCode reply fell through to a fallback that joins _all_ text fragments — the other agent received "I'll run that command." style narration glued onto the answer.
+- **OpenCode: a repo that disables the `plan` agent broke every mentor turn.** OpenCode reads `opencode.json` / `.opencode/` from its working directory, but the app only checked the global config, so `--agent plan` was still passed and 2.x answers that with `Agent not found: "plan"`. The pair's directory is now part of the check.
+- **Claude: the model picker could go empty.** Model discovery scraped `claude --help` for `claude-…` ids, but 2.1.287's help lists bare aliases only — the string `claude-` appears nowhere in it, so a fresh install showed no Claude models at all. The CLI's own cached catalog (`~/.claude/cache/model-catalog/*.json`) is now read instead.
+- **Antigravity: a turn with every tool action refused looked like a clean success.** agy reports refused actions in `denied_actions` while still returning `status: "SUCCESS"`, an empty response and exit code 0 — the pair saw a finished turn with an empty handoff. Refusals are now surfaced as the turn's error. A genuine error still wins over the refusal notice.
+- **Antigravity: prompts starting with `-` were corrupted.** The leading-newline workaround was based on a flag-parsing assumption that no longer holds — `--print` takes the next argument verbatim — so the newline just became part of the message. The workaround is gone.
+- **Muse: the effort picker offered a level that fails the turn.** The ladder was one-size-fits-all, but `muse-spark-1.2` rejects `max` outright (API error 400). The ladder is now per-model, and `ultra` is dropped entirely — it silently resolves to the untiered lane on every catalogued model. Muse config lookup also honours `XDG_CONFIG_HOME` / `MUSE_AUTH_PATH` the way the shipped launcher does, so Linux users with a custom config root are no longer told Muse is not signed in.
+- **Grok: a failed turn reset the token counter to zero.** A failed turn's `result` event carries an all-zero `usage` sentinel ("read an all-zero usage as 'unknown', not 'free'" — the CLI's own docs), which was treated as the final count and overwrote the real tokens seen during the turn. The auto-approval flag also moved from the hidden `--yolo` alias to its documented spelling `--always-approve`, so nothing breaks if the alias is dropped.
+- **Aider: most built-in fallback model ids did not exist.** Five of the seven seeded ids (`claude-sonnet-5`, `claude-opus-5`, `gpt-5.4`, `gpt-5.4-mini`, `gemini-2.5-pro`) appear nowhere in aider 0.86.2's model catalog, so aider ran them on stock defaults with the warning suppressed. The seeds are now ids the shipped catalog actually contains.
+- **Pi: an expired credential looked like a healthy install.** `pi --list-models` prints its whole static catalog regardless of credentials, so detection treated a stale or expired login as ready and then every turn failed. Readiness now comes from `pi auth check`, and models whose provider is not ready drop out of the picker.
+- **OpenCode: `minimax-coding-plan` / `minimax-cn-coding-plan` models can use reasoning variants.** Both providers serve `MiniMax-M3#thinking` / `#none`; they were excluded from the variant offer, so the effort control was hidden for those subscriptions.
+- **`npm run coverage:rust` was broken.** It used a `rustc` flag the installed toolchain rejects and pinned llvm tool paths that Homebrew's rust does not ship. Both fixed; the llvm tools are now found wherever they actually live.
+
 ## [2.9.1] - 2026-09-30
 
 Provider CLI audit: all ten supported CLIs were re-verified — by live runs against the installed binaries wherever they could be installed, and against vendor docs otherwise. This release fixes the one real mismatch it turned up.
