@@ -1,4 +1,4 @@
-//! Where OpenCode keeps its global config and credentials.
+//! Where OpenCode and Muse keep their global config and credentials.
 //!
 //! This mirrors opencode's own resolution (its bundled `xdg-basedir` logic),
 //! which is the same on every platform, Windows included:
@@ -116,6 +116,36 @@ pub fn opencode_auth_path() -> Option<PathBuf> {
     prefer_existing(primary, legacy_windows_path(OPENCODE_AUTH_FILE))
 }
 
+/// Where the `muse` launcher looks for its config: `${XDG_CONFIG_HOME:-~/.config}/muse`.
+///
+/// The shipped launcher resolves its credential file as
+/// `credential_path="${MUSE_AUTH_PATH:-$XDG_CONFIG_HOME/muse/auth.json}"`, so
+/// `MUSE_AUTH_PATH` overrides the credentials location only — `settings.json`
+/// always sits in the config dir.
+pub fn muse_config_dir(home: Option<&Path>) -> Option<PathBuf> {
+    build_muse_config_dir(env_path("XDG_CONFIG_HOME").as_deref(), home)
+}
+
+pub fn muse_auth_path(home: Option<&Path>) -> Option<PathBuf> {
+    if let Some(override_path) = env_path("MUSE_AUTH_PATH") {
+        return Some(override_path);
+    }
+    build_muse_config_dir(env_path("XDG_CONFIG_HOME").as_deref(), home)
+        .map(|dir| dir.join("auth.json"))
+}
+
+pub fn build_muse_config_dir(
+    xdg_config_home: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    Some(
+        xdg_config_home
+            .map(Path::to_path_buf)
+            .or_else(|| home.map(|home| home.join(".config")))?
+            .join("muse"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,6 +176,56 @@ mod tests {
             ),
             Some(PathBuf::from("/custom/opencode-config/opencode.json"))
         );
+    }
+
+    #[test]
+    fn muse_config_dir_honors_xdg_config_home() {
+        let home = Some(Path::new("/Users/alex"));
+        assert_eq!(
+            build_muse_config_dir(None, home),
+            Some(PathBuf::from("/Users/alex/.config/muse"))
+        );
+        assert_eq!(
+            build_muse_config_dir(Some(Path::new("/xdg/config")), home),
+            Some(PathBuf::from("/xdg/config/muse"))
+        );
+        assert_eq!(build_muse_config_dir(None, None), None);
+    }
+
+    #[test]
+    fn muse_auth_path_prefers_the_muse_auth_path_override() {
+        // The launcher resolves `credential_path="${MUSE_AUTH_PATH:-…}"`, so
+        // the override wins and the XDG dir no longer applies to auth.json.
+        let _guard = crate::test_env::lock_env();
+        let saved = std::env::var_os("MUSE_AUTH_PATH");
+        let saved_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("MUSE_AUTH_PATH", "/custom/creds.json");
+        std::env::remove_var("XDG_CONFIG_HOME");
+
+        assert_eq!(
+            muse_auth_path(Some(Path::new("/Users/alex"))),
+            Some(PathBuf::from("/custom/creds.json"))
+        );
+        // settings.json is unaffected by the credentials override.
+        assert_eq!(
+            muse_config_dir(Some(Path::new("/Users/alex"))),
+            Some(PathBuf::from("/Users/alex/.config/muse"))
+        );
+
+        std::env::remove_var("MUSE_AUTH_PATH");
+        assert_eq!(
+            muse_auth_path(Some(Path::new("/Users/alex"))),
+            Some(PathBuf::from("/Users/alex/.config/muse/auth.json"))
+        );
+
+        match saved {
+            Some(value) => std::env::set_var("MUSE_AUTH_PATH", value),
+            None => std::env::remove_var("MUSE_AUTH_PATH"),
+        }
+        match saved_xdg {
+            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
     }
 
     #[test]

@@ -86,12 +86,16 @@ impl ProviderAdapter {
         Ok(provider.runtime_spec())
     }
 
-    pub fn build_turn_command(
+    /// Build the turn command with the working directory the process will run
+    /// in. OpenCode reads `opencode.json` / `.opencode/` from its cwd, so the
+    /// adapter needs it to honor a project that disables the `plan` agent.
+    pub fn build_turn_command_in(
         request: ProviderTurnRequest<'_>,
+        working_dir: Option<&std::path::Path>,
     ) -> Result<ProviderTurnCommand, String> {
         let provider = crate::providers::provider_for_kind(request.provider_kind)
             .ok_or_else(|| format!("No provider registered for {:?}", request.provider_kind))?;
-        Ok(provider.build_turn_command(&request))
+        Ok(provider.build_turn_command_in(&request, working_dir))
     }
 
     pub fn infer_provider_kind(model: &str) -> ProviderKind {
@@ -162,7 +166,7 @@ mod tests {
 
     #[test]
     fn codex_resume_command_captures_last_message_file() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Codex,
             model: "gpt-4o-mini",
             session_id: Some("session-123"),
@@ -170,7 +174,7 @@ mod tests {
             pair_id: "pair-1",
             message: "hello world",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(command.executable, "codex");
@@ -180,6 +184,7 @@ mod tests {
                 "exec".to_string(),
                 "resume".to_string(),
                 "session-123".to_string(),
+                "--skip-git-repo-check".to_string(),
                 "--model".to_string(),
                 "gpt-4o-mini".to_string(),
                 "-c".to_string(),
@@ -192,6 +197,7 @@ mod tests {
                     .expect("codex should capture last message")
                     .to_string_lossy()
                     .into_owned(),
+                "--".to_string(),
                 "hello world".to_string()
             ]
         );
@@ -199,7 +205,7 @@ mod tests {
 
     #[test]
     fn claude_command_uses_stream_json_and_resume_flags() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Claude,
             model: "sonnet",
             session_id: Some("claude-session"),
@@ -207,7 +213,7 @@ mod tests {
             pair_id: "pair-1",
             message: "plan the work",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(command.executable, "claude");
@@ -232,7 +238,7 @@ mod tests {
 
     #[test]
     fn gemini_mentor_args_use_plan_mode() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "Gemini 3.5 Flash (Low)",
             session_id: None,
@@ -240,7 +246,7 @@ mod tests {
             pair_id: "pair-1",
             message: "explain the current diff",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(command.executable, "agy");
@@ -253,7 +259,7 @@ mod tests {
 
     #[test]
     fn gemini_executor_args_use_accept_edits_and_skip_permissions() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "Gemini 3.5 Flash (Low)",
             session_id: None,
@@ -261,7 +267,7 @@ mod tests {
             pair_id: "pair-1",
             message: "explain the current diff",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(command.executable, "agy");
@@ -273,8 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn gemini_agy_prepends_newline_for_leading_dash_prompt() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+    fn gemini_agy_passes_a_leading_dash_prompt_through_untouched() {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "Gemini 3.5 Flash (Low)",
             session_id: None,
@@ -282,15 +288,15 @@ mod tests {
             pair_id: "pair-1",
             message: "- Do the next step",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(
             command.args.last().expect("prompt is last"),
-            "\n- Do the next step"
+            "- Do the next step"
         );
 
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "Gemini 3.5 Flash (Low)",
             session_id: None,
@@ -298,7 +304,7 @@ mod tests {
             pair_id: "pair-1",
             message: "Plan the refactor",
             reasoning_effort: None,
-        })
+        }, None)
         .unwrap();
 
         assert_eq!(
@@ -458,7 +464,7 @@ mod tests {
         ];
         for (kind, model, flag, expected) in cases {
             for role in ["mentor", "executor"] {
-                let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+                let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
                     provider_kind: kind,
                     model,
                     session_id: None,
@@ -466,7 +472,7 @@ mod tests {
                     pair_id: "pair-1",
                     message: "do the work",
                     reasoning_effort: None,
-                })
+                }, None)
                 .unwrap();
                 let idx = command
                     .args
@@ -480,7 +486,7 @@ mod tests {
 
     #[test]
     fn claude_command_passes_effort_flag_when_reasoning_effort_is_set() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Claude,
             model: "sonnet",
             session_id: None,
@@ -488,7 +494,7 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        })
+        }, None)
         .unwrap();
 
         let effort_idx = command
@@ -508,7 +514,7 @@ mod tests {
         // `--thinking-budget` flag is rejected by agy outright and must
         // never be emitted. `high` is now expected as the value of the new
         // `--effort` flag.
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Gemini,
             model: "gemini-2.5-pro",
             session_id: None,
@@ -516,7 +522,7 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        })
+        }, None)
         .unwrap();
 
         assert!(!command.args.contains(&"--thinking-budget".to_string()));
@@ -531,7 +537,7 @@ mod tests {
 
     #[test]
     fn codex_command_injects_reasoning_effort_via_config_override() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Codex,
             model: "o3",
             session_id: None,
@@ -539,7 +545,7 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("medium"),
-        })
+        }, None)
         .unwrap();
 
         assert!(command.args.contains(&"-c".to_string()));
@@ -551,7 +557,7 @@ mod tests {
 
     #[test]
     fn opencode_command_omits_unsupported_reasoning_effort() {
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+        let command = ProviderAdapter::build_turn_command_in(ProviderTurnRequest {
             provider_kind: ProviderKind::Opencode,
             model: "example/model",
             session_id: None,
@@ -559,7 +565,7 @@ mod tests {
             pair_id: "pair-1",
             message: "do the work",
             reasoning_effort: Some("high"),
-        })
+        }, None)
         .unwrap();
 
         assert!(!command.args.contains(&"--reasoning-effort".to_string()));

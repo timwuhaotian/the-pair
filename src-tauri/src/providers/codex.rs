@@ -42,6 +42,14 @@ impl Provider for CodexProvider {
             args.push("resume".into());
             args.push(sid.into());
         }
+        // The Pair runs a pair in the user's own directory by default, and that
+        // directory is not validated as a git repo. Without this flag codex
+        // refuses to start a turn anywhere outside a git work tree:
+        // "Not inside a trusted directory and --skip-git-repo-check was not
+        // specified." (exit 1, on stderr, before any JSON event). The flag is
+        // `global`, so it is accepted by `exec resume` too. Re-checked against
+        // codex-cli 0.149.1 and 0.160.0.
+        args.push("--skip-git-repo-check".into());
         // Strip provider prefix if present (e.g. "codex/model-id" → "model-id").
         let model = request
             .model
@@ -79,6 +87,12 @@ impl Provider for CodexProvider {
         args.push("--json".into());
         args.push("--output-last-message".into());
         args.push(last_message_path.to_string_lossy().into_owned());
+        // `prompt` is declared as a bare `Option<String>` positional, so clap
+        // reads a leading `-` as a flag and aborts before the turn starts
+        // ("error: unexpected argument '- ' found"). Handoff text routinely
+        // opens with a markdown bullet or a `---` diff header, so separate the
+        // message explicitly.
+        args.push("--".into());
         args.push(request.message.into());
 
         ProviderTurnCommand {
@@ -122,8 +136,9 @@ impl Provider for CodexProvider {
     }
 
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
-        // Only `turn.failed` is terminal; standalone `error` events are also
-        // emitted for transient reconnects that the CLI recovers from.
+        // A standalone `error` event is critical, not a transient reconnect —
+        // but the CLI always re-surfaces it on the following `turn.failed`, so
+        // parsing only the terminal event reports it exactly once.
         if event.get("type").and_then(|v| v.as_str()) != Some("turn.failed") {
             return None;
         }
@@ -232,6 +247,7 @@ mod tests {
                 "exec".to_string(),
                 "resume".to_string(),
                 "session-123".to_string(),
+                "--skip-git-repo-check".to_string(),
                 "--model".to_string(),
                 "gpt-4o-mini".to_string(),
                 "-c".to_string(),
@@ -244,9 +260,53 @@ mod tests {
                     .expect("codex should capture last message")
                     .to_string_lossy()
                     .into_owned(),
+                "--".to_string(),
                 "hello world".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn codex_prompt_starting_with_dash_is_separated_from_flags() {
+        // A handoff message routinely opens with a markdown bullet or a `---`
+        // diff header; as a bare positional clap reads the leading `-` as a
+        // flag and aborts the turn before it starts.
+        let provider = CodexProvider;
+        let command = provider.build_turn_command(&ProviderTurnRequest {
+            provider_kind: ProviderKind::Codex,
+            model: "gpt-4o-mini",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "- Fix A\n- Fix B",
+            reasoning_effort: None,
+        });
+
+        let sep = command.args.iter().position(|a| a == "--").unwrap();
+        assert_eq!(
+            command.args[sep + 1],
+            "- Fix A\n- Fix B",
+            "message must follow the `--` separator"
+        );
+    }
+
+    #[test]
+    fn codex_skips_the_git_repo_check() {
+        // Pairs default to the user's own directory, which is not required to
+        // be a git repo; without this codex exits 1 before emitting any event.
+        for role in ["mentor", "executor"] {
+            let provider = CodexProvider;
+            let command = provider.build_turn_command(&ProviderTurnRequest {
+                provider_kind: ProviderKind::Codex,
+                model: "gpt-4o-mini",
+                session_id: None,
+                role,
+                pair_id: "pair-1",
+                message: "hello",
+                reasoning_effort: None,
+            });
+            assert!(command.args.contains(&"--skip-git-repo-check".to_string()));
+        }
     }
 
     #[test]

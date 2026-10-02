@@ -111,7 +111,11 @@ impl Provider for GeminiProvider {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if status == "SUCCESS" {
-            return None;
+            // A turn whose every action was refused still reports `SUCCESS`
+            // with an empty `response` and exit code 0 (agy 1.1.27+ reports
+            // the refusals in `denied_actions`). Left unchecked the turn looks
+            // clean and hands the other agent an empty string.
+            return describe_denied_actions(event);
         }
         let detail = event
             .pointer("/result/error")
@@ -162,6 +166,38 @@ impl Provider for GeminiProvider {
 
 // ── agy-specific helpers ───────────────────────────────────────────────────
 
+/// Summarize `result.denied_actions` — the tool calls agy refused to run.
+///
+/// agy soft-denies anything it cannot auto-approve in headless mode (shell
+/// commands, most notably) and reports them here with a `SUCCESS` status and an
+/// empty `response`, so a wholly-refused turn would otherwise look clean.
+fn describe_denied_actions(event: &Value) -> Option<String> {
+    let denied = event
+        .pointer("/result/denied_actions")
+        .and_then(|v| v.as_array())?;
+    if denied.is_empty() {
+        return None;
+    }
+
+    let names: Vec<String> = denied
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .get("display_name")
+                .or_else(|| entry.get("action"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if names.is_empty() {
+        return Some(format!(
+            "agy denied {} tool action(s)",
+            denied.len()
+        ));
+    }
+    Some(format!("agy denied tool actions: {}", names.join(", ")))
+}
+
 /// Build the `agy` CLI args for a single turn.
 ///
 /// - **Mentor** (read-only planning): `--mode plan` restricts the agent to
@@ -171,10 +207,9 @@ impl Provider for GeminiProvider {
 /// - **Reasoning effort**: `--effort <low|medium|high|max>` (`max` added in
 ///   agy 1.2.11, verified 2026-09-26). Omitted when the caller passes `None`;
 ///   the legacy `--thinking-budget` flag was never supported on `agy` and is
-///   rejected outright, so we don't fall back to it. Note: agy model slugs
-///   already encode effort (`gemini-3.8-flash-high`), and passing `--effort`
-///   alongside such a slug is rejected as a conflict — which is why Gemini
-///   models don't offer separate effort levels in the model picker.
+///   rejected outright, so we don't fall back to it. Gemini models still don't
+///   offer separate effort levels in the picker because their slugs already
+///   encode effort (`gemini-3.8-flash-high`).
 /// - **Session**: `--conversation <id>` resumes the conversation captured from
 ///   the `init` event of an earlier turn.
 ///
@@ -188,13 +223,10 @@ pub fn build_agy_args(
     reasoning_effort: Option<&str>,
     session_id: Option<&str>,
 ) -> Vec<String> {
-    // agy uses Go's flag package, which treats an argv element starting with "-"
-    // as a flag - prepend a newline to keep the first byte as '\n'.
-    let prompt = if message.starts_with('-') {
-        format!("\n{}", message)
-    } else {
-        message.to_string()
-    };
+    // `--print` is a value-taking flag, so it swallows the next argv element
+    // verbatim whatever it starts with (agy even prints a dedicated diagnostic
+    // when it has to guess). No leading-dash guard is needed.
+    let prompt = message.to_string();
 
     let mut args: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
 
@@ -290,18 +322,14 @@ mod tests {
     }
 
     #[test]
-    fn agy_prepends_newline_for_leading_dash_prompt() {
+    fn agy_passes_a_leading_dash_prompt_through_untouched() {
+        // `--print` takes the next argv element verbatim, so no guard is needed
+        // and prefixing a newline would just corrupt the prompt.
         let args = build_agy_args("gemini-3.8-flash-low", "- Do the next step", "executor", None, None);
-        assert_eq!(
-            args.last().expect("prompt is last"),
-            "\n- Do the next step"
-        );
+        assert_eq!(args.last().expect("prompt is last"), "- Do the next step");
 
         let args = build_agy_args("gemini-3.8-flash-low", "Plan the refactor", "executor", None, None);
-        assert_eq!(
-            args.last().expect("prompt is last"),
-            "Plan the refactor"
-        );
+        assert_eq!(args.last().expect("prompt is last"), "Plan the refactor");
     }
 
     #[test]
@@ -482,10 +510,70 @@ mod tests {
             Some("invalid model selection \"nope\"")
         );
 
-        let no_message = json!({"event": "result", "result": {"status": "CANCELLED"}});
+        // agy spells it CANCELED (statuses: SUCCESS, ERROR, CANCELED,
+        // INTERRUPTED, INVALID, WAITING, RUNNING).
+        let no_message = json!({"event": "result", "result": {"status": "CANCELED"}});
         assert_eq!(
             provider.extract_error_detail(&no_message).as_deref(),
-            Some("agy turn ended with status CANCELLED")
+            Some("agy turn ended with status CANCELED")
+        );
+    }
+
+    #[test]
+    fn agy_refused_actions_are_not_a_clean_success() {
+        // Captured from agy 1.2.14: every action refused, yet status SUCCESS,
+        // response empty, exit code 0.
+        let provider = GeminiProvider;
+        let refused = json!({
+            "event": "result",
+            "result": {
+                "status": "SUCCESS",
+                "response": "",
+                "denied_actions": [{"action": "command", "display_name": "RunCommand"}]
+            }
+        });
+        assert_eq!(
+            provider.extract_error_detail(&refused).as_deref(),
+            Some("agy denied tool actions: RunCommand")
+        );
+
+        let no_refusals = json!({
+            "event": "result",
+            "result": {"status": "SUCCESS", "response": "done", "denied_actions": []}
+        });
+        assert!(provider.extract_error_detail(&no_refusals).is_none());
+
+        // Entries without a name still report that something was refused.
+        let unnamed = json!({
+            "event": "result",
+            "result": {"status": "SUCCESS", "response": "", "denied_actions": [{}]}
+        });
+        assert_eq!(
+            provider.extract_error_detail(&unnamed).as_deref(),
+            Some("agy denied 1 tool action(s)")
+        );
+
+        // Only `result` events carry denials.
+        let step = json!({
+            "event": "step_update",
+            "denied_actions": [{"action": "command", "display_name": "RunCommand"}]
+        });
+        assert!(provider.extract_error_detail(&step).is_none());
+
+        // A failed turn keeps its real error even when it also carries
+        // denied actions — the error says why the turn died.
+        let failed = json!({
+            "event": "result",
+            "result": {
+                "status": "ERROR",
+                "response": "",
+                "error": "quota exceeded",
+                "denied_actions": [{"action": "command", "display_name": "RunCommand"}]
+            }
+        });
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("quota exceeded")
         );
     }
 }

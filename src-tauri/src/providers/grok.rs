@@ -15,7 +15,8 @@ use serde_json::Value;
 /// ~10 ms stream fragments that cannot be trimmed and re-joined safely.
 /// Verified against Grok Build 1.0.40 and the xai-org/grok-build headless
 /// documentation (2026-09-23): `-p <prompt>`, `-m <model>`, `--resume <id>`,
-/// `--reasoning-effort <level>`, `--yolo`, and the read-only `--tools` allowlist.
+/// `--reasoning-effort <level>`, `--always-approve`, and the read-only
+/// `--tools` allowlist.
 /// Re-checked against Grok Build 1.0.44 (2026-09-30), where `grok --help` lists
 /// `plain | json | streaming-json | streaming-messages-json` and still accepts
 /// every flag above. `streaming-messages-json` is confirmed to be the right
@@ -66,7 +67,10 @@ impl Provider for GrokProvider {
             // Headless turns must never block on interactive permission
             // prompts; both roles run with auto-approval. The mentor's
             // read-only guarantee comes from the tool allowlist below.
-            "--yolo".into(),
+            // `--yolo` still works but is a hidden alias absent from
+            // `grok --help`; `--always-approve` is the documented spelling
+            // (verified 1.0.44), so nothing breaks if the alias is dropped.
+            "--always-approve".into(),
         ];
         if request.role == "mentor" {
             // Grok's documented read-only tool allowlist (internal tool IDs,
@@ -96,7 +100,16 @@ impl Provider for GrokProvider {
 
         let (usage_obj, is_final) = match event_type {
             // `result` is the terminal line and carries the turn's full spend.
-            "result" => (event.get("usage")?, true),
+            // On a failed turn the object is present but every bucket is 0 —
+            // the Messages API has no marker for "unknown", so grok emits zeros
+            // (verified 1.0.44). Treating those as Final would clobber the
+            // tokens already accumulated from the `assistant` events.
+            "result" => {
+                if event.get("is_error").and_then(|v| v.as_bool()) == Some(true) {
+                    return None;
+                }
+                (event.get("usage")?, true)
+            }
             // One `assistant` message per model response, before the `result`.
             "assistant" => (event.get("message")?.get("usage")?, false),
             _ => return None,
@@ -280,7 +293,7 @@ mod tests {
                 "streaming-messages-json".to_string(),
                 "-m".to_string(),
                 "grok-4.6".to_string(),
-                "--yolo".to_string(),
+                "--always-approve".to_string(),
             ]
         );
         assert!(command.last_message_path.is_none());
@@ -461,6 +474,26 @@ mod tests {
 
         let init = json!({"type": "system", "subtype": "init"});
         assert!(provider.extract_token_usage(&init).is_none());
+    }
+
+    #[test]
+    fn grok_ignores_the_zeroed_usage_on_a_failed_result() {
+        // Captured from grok 1.0.44: a failed turn still emits a `result`
+        // whose usage object is present and entirely zero. Reporting it as
+        // Final would replace the tokens already seen on `assistant` events.
+        let provider = GrokProvider;
+        let failed = json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0
+            }
+        });
+        assert!(provider.extract_token_usage(&failed).is_none());
     }
 
     #[test]

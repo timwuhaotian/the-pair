@@ -492,9 +492,11 @@ fn extract_session_id(event: &serde_json::Value) -> Option<String> {
         .get("sessionID")
         .and_then(|s| s.as_str())
         .or_else(|| event.get("session_id").and_then(|s| s.as_str()))
-        // Grok Build (`grok --output-format streaming-json`) reports the
-        // resumable session as camelCase `sessionId` on the terminal `end`
-        // event; `grok --resume <id>` takes exactly this value.
+        // Grok Build reports the resumable session as camelCase `sessionId` on
+        // the terminal `end` event of its `streaming-json` format. The adapter
+        // actually runs `streaming-messages-json`, where the id is snake_case
+        // `session_id` and leads every line including `system`/`init`; both
+        // spellings are matched so either format resumes correctly.
         .or_else(|| event.get("sessionId").and_then(|s| s.as_str()))
         // Codex (`codex exec --json`) exposes its resumable session as
         // `thread_id` on the `thread.started` event; `codex exec resume <id>`
@@ -687,12 +689,7 @@ impl OpencodeStepTexts {
         }
     }
 
-    fn final_answer(&self) -> Option<String> {
-        let message_id = self.order.iter().rev().find(|id| {
-            self.finish_reasons
-                .get(*id)
-                .is_some_and(|reason| reason != "tool-calls")
-        })?;
+    fn message_text(&self, message_id: &str) -> Option<String> {
         let text = self
             .texts
             .get(message_id)?
@@ -702,6 +699,31 @@ impl OpencodeStepTexts {
             .collect::<Vec<_>>()
             .join("\n");
         (!text.is_empty()).then_some(text)
+    }
+
+    fn final_answer(&self) -> Option<String> {
+        let message_id = self
+            .order
+            .iter()
+            .rev()
+            .find(|id| {
+                self.finish_reasons
+                    .get(*id)
+                    .is_some_and(|reason| reason != "tool-calls")
+            })
+            // Verified against opencode 2.0.14 (2026-10-02): `run` in
+            // non-interactive mode drops the closing `step_finish` once the
+            // execution is final, so a real stream ends with `text` and no
+            // finish reason at all. Without this fallback every OpenCode turn
+            // fell through to `collapse_candidates`, handing the next agent
+            // mid-turn narration joined with the answer.
+            .or_else(|| {
+                self.order
+                    .iter()
+                    .rev()
+                    .find(|id| self.message_text(id).is_some())
+            })?;
+        self.message_text(message_id)
     }
 }
 
@@ -2219,15 +2241,18 @@ impl ProcessSpawner {
             return Ok(());
         }
 
-        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
-            provider_kind,
-            model,
-            session_id,
-            role: &role,
-            pair_id: &pair_id,
-            message: &message,
-            reasoning_effort,
-        })?;
+        let command = ProviderAdapter::build_turn_command_in(
+            ProviderTurnRequest {
+                provider_kind,
+                model,
+                session_id,
+                role: &role,
+                pair_id: &pair_id,
+                message: &message,
+                reasoning_effort,
+            },
+            Some(std::path::Path::new(&ctx.directory)),
+        )?;
         let spec = ProviderAdapter::runtime_spec(provider_kind)?;
         let codex_last_message_path = command.last_message_path;
 
@@ -2795,12 +2820,27 @@ mod tests {
 
     #[test]
     fn extract_session_id_reads_grok_camel_case_session_id() {
-        // Grok Build's streaming-json `end` event reports the resumable
-        // session as camelCase `sessionId`.
+        // The legacy `streaming-json` format reports the resumable session as
+        // camelCase `sessionId` on the terminal `end` event.
         let event = json!({
             "type": "end",
             "stopReason": "end_turn",
             "sessionId": "abc123"
+        });
+
+        assert_eq!(extract_session_id(&event).as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn extract_session_id_reads_grok_streaming_messages_init() {
+        // `streaming-messages-json` — the format the adapter runs — leads with
+        // a `system`/`init` line carrying snake_case `session_id`.
+        let event = json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": "abc123",
+            "apiKeySource": "user",
+            "model": "grok-4.6"
         });
 
         assert_eq!(extract_session_id(&event).as_deref(), Some("abc123"));
@@ -3749,6 +3789,30 @@ mod tests {
         assert_eq!(usage.output_tokens, 15);
         assert_eq!(usage.input_tokens, Some(130));
         assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn opencode_2x_reply_ignores_narration_when_the_final_step_finish_is_dropped() {
+        // Event stream captured from `opencode run --format json` 2.0.14
+        // (2026-10-02): the closing `step_finish` of the last step is never
+        // emitted, so no message carries a non-`tool-calls` finish reason. The
+        // reply must still be the final step's text, not narration + answer.
+        let events = [
+            json!({"type": "step_start", "part": {"messageID": "msg_1", "type": "step-start"}}),
+            json!({"type": "text", "part": {"id": "p1", "messageID": "msg_1", "type": "text", "text": "I'll run that command for you."}}),
+            json!({"type": "tool_use", "part": {"messageID": "msg_1", "type": "tool", "tool": "bash"}}),
+            json!({"type": "step_finish", "part": {"messageID": "msg_1", "type": "step-finish", "reason": "tool-calls", "tokens": {"input": 27869, "output": 34}}}),
+            json!({"type": "step_start", "part": {"messageID": "msg_2", "type": "step-start"}}),
+            json!({"type": "text", "part": {"id": "p2", "messageID": "msg_2", "type": "text", "text": "DONE"}}),
+        ];
+        let mut collector = TurnOutputCollector::new(ProviderKind::Opencode, true);
+        for event in &events {
+            collector.observe_json(event);
+        }
+
+        let (text, terminal) = collector.finish(None);
+        assert_eq!(text, "DONE");
+        assert!(terminal, "a captured final step counts as a terminal success");
     }
 
     #[test]

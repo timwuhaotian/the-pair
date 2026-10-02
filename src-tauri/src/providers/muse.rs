@@ -25,11 +25,45 @@ use serde_json::Value;
 ///   agent still allows bash.
 pub struct MuseProvider;
 
-/// Effort ladder accepted by the Meta provider (default `high`). `muse exec
-/// --help` also lists `none`, but Muse Code 1.3.0 rejects it before any model
-/// call: "--reasoning-effort none is not supported with --provider meta".
-const MUSE_REASONING_EFFORTS: &[&str] =
-    &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+/// Effort ladder shared by every Muse model (default `high`).
+///
+/// The ladder is per-model and a level a model does not declare is rejected
+/// outright: muse-spark-1.2 answers `--reasoning-effort max` with
+/// "reasoning_effort 'max' is not supported for model 'muse-spark-1.2'.
+/// Supported values: [minimal, low, medium, high, xhigh]" (verified on Muse
+/// Code 1.4.2). `muse exec --help` also lists `none`, but the CLI rejects it
+/// before any model call ("not supported with --provider meta"). `ultra` is
+/// not a real tier — it resolves to the untiered lane on every catalogued
+/// model — so it is not offered.
+const MUSE_REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+
+/// muse-spark-1.3 and later accept `max` on top of the shared ladder. Anything
+/// unknown falls back to the shared ladder only: offering a subset narrows the
+/// picker, offering a level a model rejects fails the turn.
+const MUSE_MAX_EFFORT_FROM_MINOR: u32 = 3;
+
+/// The minor version encoded in a model id (`muse-spark-1.3-contributor` → 3).
+fn muse_model_minor(model_id: &str) -> Option<u32> {
+    model_id
+        .strip_prefix("muse/")
+        .unwrap_or(model_id)
+        .split('-')
+        .find_map(|segment| {
+            let (_, minor) = segment.split_once('.')?;
+            minor.parse::<u32>().ok()
+        })
+}
+
+fn muse_effort_levels(model_id: &str) -> Vec<String> {
+    let mut levels: Vec<String> = MUSE_REASONING_EFFORTS
+        .iter()
+        .map(|level| level.to_string())
+        .collect();
+    if muse_model_minor(model_id).is_some_and(|minor| minor >= MUSE_MAX_EFFORT_FROM_MINOR) {
+        levels.push("max".to_string());
+    }
+    levels
+}
 
 impl Provider for MuseProvider {
     fn kind(&self) -> ProviderKind {
@@ -186,8 +220,8 @@ impl Provider for MuseProvider {
         "Muse Code login".into()
     }
 
-    fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
-        Some(MUSE_REASONING_EFFORTS.iter().map(|e| e.to_string()).collect())
+    fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
+        Some(muse_effort_levels(model_id))
     }
 
     fn login_command(&self) -> Option<String> {
@@ -386,7 +420,34 @@ mod tests {
             .expect("muse supports reasoning effort");
         assert_eq!(
             levels,
-            vec!["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+            vec!["minimal", "low", "medium", "high", "xhigh", "max"]
+        );
+    }
+
+    #[test]
+    fn reasoning_effort_ladder_is_per_model() {
+        // muse-spark-1.2 rejects `max` outright, so it must not be offered.
+        let levels = MuseProvider
+            .reasoning_effort_levels("muse-spark-1.2")
+            .expect("muse supports reasoning effort");
+        assert_eq!(
+            levels,
+            vec!["minimal", "low", "medium", "high", "xhigh"]
+        );
+
+        // The frontend qualifies stored ids with the provider.
+        assert_eq!(
+            MuseProvider.reasoning_effort_levels("muse/muse-spark-1.2"),
+            Some(levels.clone())
+        );
+        assert_eq!(
+            MuseProvider.reasoning_effort_levels("muse-spark-1.3-contributor"),
+            MuseProvider.reasoning_effort_levels("muse-spark-1.3")
+        );
+        // An unknown model gets the shared ladder, never a guess.
+        assert_eq!(
+            MuseProvider.reasoning_effort_levels("muse-spark-latest"),
+            Some(levels)
         );
     }
 

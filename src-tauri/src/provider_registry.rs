@@ -946,6 +946,8 @@ fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>
         }
     }
 
+    collect_claude_model_ids_from_catalog_cache(&home.join(".claude/cache/model-catalog"), &mut model_ids);
+
     let history_predicate = |value: &str| is_claude_model_id(value);
     collect_model_ids_from_recent_files(
         &home.join(".claude/projects"),
@@ -958,6 +960,50 @@ fn discover_claude_model_ids(home: &std::path::Path, command_path: Option<&Path>
     );
 
     model_ids
+}
+
+/// Read the model catalog the CLI itself caches at
+/// `~/.claude/cache/model-catalog/*.json`.
+///
+/// This is now the only complete source of model ids: as of claude-code
+/// 2.1.287 the `--model` help block advertises bare aliases only ("Provide an
+/// alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')") and the
+/// string `claude-` appears nowhere in `claude --help`, so scanning help
+/// returns nothing. The catalog carries the full id list under
+/// `catalog.config.models[].id`.
+fn collect_claude_model_ids_from_catalog_cache(
+    cache_dir: &std::path::Path,
+    model_ids: &mut Vec<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(catalog) = safe_read_json::<serde_json::Value>(&path) else {
+            continue;
+        };
+        let Some(models) = catalog
+            .pointer("/catalog/config/models")
+            .and_then(|models| models.as_array())
+        else {
+            continue;
+        };
+        for model in models {
+            if model.get("visibility").and_then(|v| v.as_str()) == Some("hide") {
+                continue;
+            }
+            if let Some(id) = model.get("id").and_then(|v| v.as_str()) {
+                if is_claude_model_id(id) && is_plausible_model_id(id) {
+                    push_unique_model_id(model_ids, id);
+                }
+            }
+        }
+    }
 }
 
 fn capture_claude_help_text(home: &std::path::Path, command_path: &Path) -> Option<String> {
@@ -1500,13 +1546,28 @@ impl ProviderRegistry {
         let pi_bin = which_binary("pi");
         let installed = pi_bin.is_some();
         let models = if let Some(ref bin) = pi_bin {
-            discover_pi_models(bin)
+            let discovered = discover_pi_models(bin);
+            // `pi --list-models` prints the whole static catalog regardless of
+            // credentials (verified 0.87.0), so ask the CLI which providers are
+            // actually usable instead of assuming a non-empty catalog means the
+            // user is signed in — an expired refresh token still lists models
+            // and then fails every turn with `stopReason: "error"`.
+            let ready_providers: Vec<String> = pi_model_providers(&discovered)
+                .into_iter()
+                .filter(|provider| pi_provider_is_ready(bin, provider))
+                .collect();
+            discovered
+                .into_iter()
+                .map(|mut model| {
+                    let provider = model.source_provider.clone().unwrap_or_default();
+                    model.runnable = ready_providers.contains(&provider);
+                    model
+                })
+                .collect::<Vec<_>>()
         } else {
             Vec::new()
         };
-        // Pi exposes available models only after at least one provider is
-        // configured, so a non-empty catalog means the user is authenticated.
-        let authenticated = !models.is_empty();
+        let authenticated = models.iter().any(|model| model.runnable);
 
         DetectedProviderProfile {
             kind: ProviderKind::Pi,
@@ -1690,15 +1751,10 @@ fn parse_antigravity_model_lines(output: &str) -> Vec<DetectedModelOption> {
 /// `[models."<alias>"]` section is a runnable `--model` value; `display_name`
 /// keys inside a section provide the human-readable label.
 /// Model ids Muse Code is known to serve. Muse ships no `models list`
-/// subcommand and silently accepts unknown `--model` values (a bogus id still
-/// completes a run), so the catalog cannot be probed from the CLI. These two
-/// ids are seeded and then unioned with whatever the user has configured, so a
-/// newer model appears as soon as they select it in Muse itself.
+/// subcommand, so the catalog cannot be probed from the CLI. These two ids are
+/// seeded and then unioned with whatever the user has configured, so a newer
+/// model appears as soon as they select it in Muse itself.
 const MUSE_SEED_MODELS: &[&str] = &["muse-spark-1.3", "muse-spark-1.2"];
-
-fn muse_settings_path(home: &std::path::Path) -> PathBuf {
-    home.join(".config/muse/settings.json")
-}
 
 #[derive(Deserialize)]
 struct MuseSettings {
@@ -1722,7 +1778,8 @@ fn muse_authenticated(home: &std::path::Path) -> bool {
         return true;
     }
 
-    safe_read_json::<MuseAuth>(home.join(".config/muse/auth.json"))
+    crate::config_paths::muse_auth_path(Some(home))
+        .and_then(safe_read_json::<MuseAuth>)
         .is_some_and(|auth| !auth.providers.is_empty())
 }
 
@@ -1741,7 +1798,9 @@ fn muse_model_option(model_id: &str) -> DetectedModelOption {
 /// Seed catalog unioned with the user's configured model. The configured model
 /// leads so the picker defaults to what Muse itself would use.
 fn discover_muse_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
-    let configured = safe_read_json::<MuseSettings>(muse_settings_path(home))
+    let configured = crate::config_paths::muse_config_dir(Some(home))
+        .map(|dir| dir.join("settings.json"))
+        .and_then(safe_read_json::<MuseSettings>)
         .and_then(|settings| settings.model)
         .map(|model| model.trim().to_string())
         .filter(|model| !model.is_empty());
@@ -1923,6 +1982,43 @@ fn discover_pi_models(pi_bin: &Path) -> Vec<DetectedModelOption> {
     parse_pi_list_models(&output)
 }
 
+/// Distinct providers behind a `pi --list-models` catalog, in table order.
+fn pi_model_providers(models: &[DetectedModelOption]) -> Vec<String> {
+    let mut providers: Vec<String> = Vec::new();
+    for model in models {
+        let Some(provider) = model.source_provider.as_deref() else {
+            continue;
+        };
+        if !providers.iter().any(|existing| existing == provider) {
+            providers.push(provider.to_string());
+        }
+    }
+    providers
+}
+
+/// Whether `pi auth check --provider <provider> --json` reports `"ready"`.
+fn pi_provider_is_ready(pi_bin: &Path, provider: &str) -> bool {
+    let Some(output) = capture_command_output_with_timeout(
+        pi_bin,
+        &["auth", "check", "--provider", provider, "--json"],
+        &homedir(),
+        CLI_PROBE_TIMEOUT,
+    ) else {
+        // Without an answer, leave the model runnable rather than hiding it on
+        // a transient CLI hiccup.
+        return true;
+    };
+    parse_pi_auth_status(&output).unwrap_or(true)
+}
+
+fn parse_pi_auth_status(output: &str) -> Option<bool> {
+    serde_json::from_str::<serde_json::Value>(output)
+        .ok()?
+        .get("status")
+        .and_then(|v| v.as_str())
+        .map(|status| status == "ready")
+}
+
 /// Parse the `pi --list-models` table. Rows are only trusted after the
 /// `provider  model …` header, so notices like "No models available" and any
 /// banner text above the table never become model ids.
@@ -2053,15 +2149,17 @@ fn discover_aider_models(home: &std::path::Path) -> Vec<DetectedModelOption> {
     }
 
     // 2. Static fallback: common models users are likely to have keys for.
-    // Only added if the config didn't already list them. The IDs resolve in
-    // aider-chat 0.86.2's model metadata.
+    // Only added if the config didn't already list them. Every id is present
+    // in aider-chat 0.86.2's `aider/resources/model-settings.yml`, so aider
+    // applies its per-model settings (context window, edit format, repo map)
+    // instead of silently running on stock defaults.
     let fallbacks = [
-        "claude-sonnet-5",
-        "claude-opus-5",
+        "claude-sonnet-4-5",
+        "claude-opus-4-6",
         "claude-haiku-4-5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gemini-2.5-pro",
+        "gpt-5.2",
+        // Gemini ids carry their provider prefix in aider's catalog.
+        "gemini/gemini-2.5-pro",
         // litellm has no provider for the bare `deepseek-coder-v3`; this is
         // the DeepSeek id aider-chat 0.86.2 knows.
         "deepseek/deepseek-chat",
@@ -2257,6 +2355,69 @@ mod tests {
     }
 
     #[test]
+    fn claude_help_no_longer_advertises_model_ids() {
+        // Verified against claude-code 2.1.287 (2026-10-02): the `--model`
+        // block lists bare aliases only, and `claude-` appears nowhere in
+        // `claude --help`, so help scanning yields an empty catalog.
+        let help = "\
+  --model <model>                       Model for the current session. Provide
+                                        an alias for the latest model (e.g.
+                                        'fable', 'opus', or 'sonnet') or a
+                                        model's full name.
+";
+        let predicate = |value: &str| is_claude_model_id(value) && is_plausible_model_id(value);
+        let mut ids = Vec::new();
+        collect_model_ids_from_help_line(help, &predicate, &mut ids);
+        assert!(ids.is_empty(), "aliases are not model ids: {ids:?}");
+    }
+
+    #[test]
+    fn claude_models_come_from_the_cli_catalog_cache() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let cache_dir = temp_home.join(".claude/cache/model-catalog");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(
+            cache_dir.join("catalog.json"),
+            r#"{
+              "catalog": {
+                "config": {
+                  "models": [
+                    { "id": "claude-opus-5-5" },
+                    { "id": "claude-sonnet-5-5" },
+                    { "id": "claude-retired-1", "visibility": "hide" },
+                    { "id": "sonnet" }
+                  ]
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let mut ids = Vec::new();
+        collect_claude_model_ids_from_catalog_cache(&cache_dir, &mut ids);
+        assert_eq!(
+            ids,
+            vec!["claude-opus-5-5".to_string(), "claude-sonnet-5-5".to_string()],
+            "hidden entries and bare aliases are filtered out"
+        );
+
+        let mut missing = Vec::new();
+        collect_claude_model_ids_from_catalog_cache(&temp_home.join("nope"), &mut missing);
+        assert!(missing.is_empty(), "a missing cache dir is not an error");
+
+        // Non-JSON files, unparseable JSON, and catalogs without a model list
+        // are skipped rather than failing detection — the result is unchanged.
+        std::fs::write(cache_dir.join("notes.txt"), "claude-not-a-model").unwrap();
+        std::fs::write(cache_dir.join("broken.json"), "{not json").unwrap();
+        std::fs::write(cache_dir.join("other.json"), r#"{"catalog":{}}"#).unwrap();
+        let mut with_junk = Vec::new();
+        collect_claude_model_ids_from_catalog_cache(&cache_dir, &mut with_junk);
+        assert_eq!(with_junk, ids, "unreadable files must not add or drop models");
+
+        std::fs::remove_dir_all(&temp_home).ok();
+    }
+
+    #[test]
     fn discover_aider_models_keeps_colons_in_configured_model_ids() {
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_home).expect("failed to create temp home");
@@ -2313,6 +2474,53 @@ mod tests {
         assert_eq!(models[1].source_provider.as_deref(), Some("zai"));
 
         assert!(parse_pi_list_models("No models available. Configure a provider.\n").is_empty());
+    }
+
+    #[test]
+    fn pi_auth_status_drives_which_models_are_runnable() {
+        // `pi --list-models` prints the static catalog whatever the credential
+        // state, so readiness has to come from `pi auth check` (pi 0.87.0).
+        assert_eq!(parse_pi_auth_status(r#"{"status":"ready","provider":"zai","authType":"api_key"}"#), Some(true));
+        assert_eq!(
+            parse_pi_auth_status(r#"{"status":"invalid","provider":"anthropic","reason":"invalid_state"}"#),
+            Some(false)
+        );
+        assert_eq!(parse_pi_auth_status("not json"), None);
+        assert_eq!(parse_pi_auth_status(r#"{"provider":"zai"}"#), None);
+
+        let models = vec![
+            DetectedModelOption {
+                model_id: "anthropic/claude-opus-5".to_string(),
+                display_name: "anthropic/claude-opus-5".to_string(),
+                source_provider: Some("anthropic".to_string()),
+                family: None,
+                subscription_label: "pi".to_string(),
+                supports_pair_execution: true,
+                runnable: true,
+            },
+            DetectedModelOption {
+                model_id: "zai/glm-5.2".to_string(),
+                display_name: "zai/glm-5.2".to_string(),
+                source_provider: Some("zai".to_string()),
+                family: None,
+                subscription_label: "pi".to_string(),
+                supports_pair_execution: true,
+                runnable: true,
+            },
+            DetectedModelOption {
+                model_id: "zai/glm-4.5-air".to_string(),
+                display_name: "zai/glm-4.5-air".to_string(),
+                source_provider: Some("zai".to_string()),
+                family: None,
+                subscription_label: "pi".to_string(),
+                supports_pair_execution: true,
+                runnable: true,
+            },
+        ];
+
+        // One probe per provider, not per model.
+        assert_eq!(pi_model_providers(&models), vec!["anthropic", "zai"]);
+        assert!(pi_model_providers(&[]).is_empty());
     }
 
     #[test]
@@ -3447,7 +3655,7 @@ exit 0
             profile
                 .current_models
                 .iter()
-                .any(|m| m.model_id == "gpt-5.4"),
+                .any(|m| m.model_id == "gpt-5.2"),
             "Aider should include static fallback models for BYOK"
         );
     }
@@ -3535,5 +3743,76 @@ exit 0
             profile.current_models.is_empty(),
             "Aider should not list models when not authenticated"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_pi_marks_models_whose_provider_is_not_ready() {
+        // `pi --list-models` prints the static catalog whatever the credential
+        // state, so an expired Anthropic token used to look like a healthy Pi
+        // install and then failed every turn with `stopReason: "error"`.
+        let _guard = crate::test_env::lock_env();
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let bin_dir = temp_home.join(".local/bin");
+        fs::create_dir_all(&bin_dir).expect("failed to create temp bin dir");
+
+        write_executable_script(
+            &bin_dir,
+            "pi",
+            r#"#!/bin/sh
+if [ "$1" = "--list-models" ]; then
+  printf 'provider              model                  context  max-out\n'
+  printf 'anthropic             claude-opus-5          200K     128K\n'
+  printf 'zai                   glm-5.2                128K     96K\n'
+  exit 0
+fi
+if [ "$1" = "auth" ] && [ "$2" = "check" ]; then
+  case "$*" in
+    *anthropic*) echo '{"status":"invalid","provider":"anthropic","reason":"invalid_state"}' ;;
+    *)           echo '{"status":"ready","provider":"zai","authType":"api_key"}' ;;
+  esac
+  exit 0
+fi
+exit 1
+"#,
+        );
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), original_path.as_deref().unwrap_or_default().to_string_lossy()));
+
+        let profile = ProviderRegistry::detect_pi();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let _ = fs::remove_dir_all(&temp_home);
+
+        assert!(profile.installed);
+        // Ready because `zai` is usable, even though `anthropic` is not.
+        assert!(profile.authenticated);
+        assert!(profile.runnable);
+
+        let anthropic = profile
+            .current_models
+            .iter()
+            .find(|m| m.model_id == "anthropic/claude-opus-5")
+            .expect("catalog should still list every model");
+        assert!(!anthropic.runnable, "invalid provider must not be selectable");
+
+        let zai = profile
+            .current_models
+            .iter()
+            .find(|m| m.model_id == "zai/glm-5.2")
+            .expect("ready provider should stay listed");
+        assert!(zai.runnable);
     }
 }

@@ -28,7 +28,9 @@ const MINIMAX_M3_REASONING_VARIANTS: &[ReasoningVariant] = &[
 fn reasoning_variants_for_model(model_id: &str) -> Option<&'static [ReasoningVariant]> {
     let (source_provider, source_model) = model_id.split_once('/')?;
     let supported_provider = source_provider.eq_ignore_ascii_case("minimax")
-        || source_provider.eq_ignore_ascii_case("minimax-cn");
+        || source_provider.eq_ignore_ascii_case("minimax-cn")
+        || source_provider.eq_ignore_ascii_case("minimax-coding-plan")
+        || source_provider.eq_ignore_ascii_case("minimax-cn-coding-plan");
     (supported_provider && source_model.eq_ignore_ascii_case("MiniMax-M3"))
         .then_some(MINIMAX_M3_REASONING_VARIANTS)
 }
@@ -330,10 +332,20 @@ impl Provider for OpenCodeProvider {
     }
 
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand {
-        // Only a mentor turn asks for the plan agent. The request carries no
-        // working directory, so project-level config (`opencode.json` or
-        // `.opencode/` in the pair's directory) isn't consulted here.
-        let plan_disabled = request.role == "mentor" && plan_agent_disabled(None);
+        self.build_turn_command_in(request, None)
+    }
+
+    fn build_turn_command_in(
+        &self,
+        request: &ProviderTurnRequest,
+        working_dir: Option<&Path>,
+    ) -> ProviderTurnCommand {
+        // Only a mentor turn asks for the plan agent. OpenCode loads
+        // `opencode.json[c]` and `.opencode/` from its working directory, so the
+        // same check has to see the pair's directory: a project that disables
+        // the plan agent makes every `--agent plan` run fail with
+        // `Agent not found: "plan"` (verified against opencode 2.0.14).
+        let plan_disabled = request.role == "mentor" && plan_agent_disabled(working_dir);
         build_opencode_turn_command(
             request,
             crate::provider_registry::opencode_variant_syntax(),
@@ -689,7 +701,7 @@ mod tests {
         );
         assert_eq!(
             provider.reasoning_effort_levels("minimax-cn-coding-plan/MiniMax-M3"),
-            None
+            Some(vec!["adaptive".to_string(), "disabled".to_string()])
         );
         assert_eq!(
             provider.reasoning_effort_levels("fireworks-ai/accounts/fireworks/models/minimax-m3"),
@@ -905,6 +917,81 @@ mod tests {
                 ("inline content", true),
             ]
         );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn opencode_mentor_drops_plan_agent_when_the_pair_directory_disables_it() {
+        // OpenCode loads config from its cwd, so a project that disables the
+        // plan agent must also drop `--agent plan` here — otherwise every
+        // mentor turn fails with `Agent not found: "plan"`.
+        const KEYS: [&str; 5] = [
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+        ];
+        let _guard = crate::test_env::lock_env();
+        let saved: Vec<(&str, Option<std::ffi::OsString>)> = KEYS
+            .iter()
+            .map(|key| (*key, std::env::var_os(key)))
+            .collect();
+        let root = std::env::temp_dir().join(format!("the-pair-oc-dir-{}", uuid::Uuid::new_v4()));
+        let project = root.join("repo");
+        std::fs::create_dir_all(&project).unwrap();
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("XDG_CONFIG_HOME", root.join("xdg"));
+        for key in [
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+        ] {
+            std::env::remove_var(key);
+        }
+
+        let provider = OpenCodeProvider;
+        let request = ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "minimax/MiniMax-M3",
+            session_id: None,
+            role: "mentor",
+            pair_id: "pair-1",
+            message: "plan the work",
+            reasoning_effort: None,
+        };
+        let mut results = Vec::new();
+
+        let enabled = provider.build_turn_command_in(&request, Some(&project));
+        results.push(enabled.args.contains(&"--agent".to_string()));
+
+        std::fs::write(
+            project.join("opencode.json"),
+            r#"{"agents":{"plan":{"disabled":true}}}"#,
+        )
+        .unwrap();
+        let disabled = provider.build_turn_command_in(&request, Some(&project));
+        results.push(disabled.args.contains(&"--agent".to_string()));
+        assert_eq!(disabled.args.last().unwrap(), "plan the work");
+
+        // Without a working directory the project config is out of scope, so
+        // the plan agent stays in play (global dirs point at the temp root).
+        results.push(
+            provider
+                .build_turn_command(&request)
+                .args
+                .contains(&"--agent".to_string()),
+        );
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(results, vec![true, false, true]);
     }
 
     #[test]

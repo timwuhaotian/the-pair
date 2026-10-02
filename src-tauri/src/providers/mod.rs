@@ -61,6 +61,17 @@ pub trait Provider: Send + Sync {
     /// Build the CLI command for a single turn.
     fn build_turn_command(&self, request: &ProviderTurnRequest) -> ProviderTurnCommand;
 
+    /// Same, with the working directory the process will run in. The default
+    /// ignores it; a provider whose CLI reads project config from its cwd
+    /// (OpenCode) overrides this.
+    fn build_turn_command_in(
+        &self,
+        request: &ProviderTurnRequest,
+        _working_dir: Option<&std::path::Path>,
+    ) -> ProviderTurnCommand {
+        self.build_turn_command(request)
+    }
+
     // ── Event Parsing ─────────────────────────────────────────────────────
 
     /// Extract token usage from a JSON event. Return `None` if the event
