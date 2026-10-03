@@ -2635,12 +2635,43 @@ name = "bare table, not an alias"
         home
     }
 
+    /// The muse resolver prefers `$XDG_CONFIG_HOME` and honours
+    /// `$MUSE_AUTH_PATH` (CI runners export the former), so a test passing an
+    /// explicit home must clear both for that home to actually be used.
+    /// Returns the values to hand to `restore_env`.
+    fn pin_muse_env() -> Vec<(&'static str, Option<OsString>)> {
+        remove_env_keys(&["XDG_CONFIG_HOME", "MUSE_AUTH_PATH"])
+    }
+
+    fn remove_env_keys(keys: &[&'static str]) -> Vec<(&'static str, Option<OsString>)> {
+        let saved = keys
+            .iter()
+            .map(|key| (*key, std::env::var_os(key)))
+            .collect();
+        for key in keys {
+            std::env::remove_var(key);
+        }
+        saved
+    }
+
+    fn restore_env(saved: &[(&'static str, Option<OsString>)]) {
+        for (key, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
     #[test]
     fn discover_muse_models_falls_back_to_the_seed_catalog() {
         // Muse ships no `models list` and accepts unknown ids silently, so the
         // seed is the only catalog available without user config.
+        let _guard = crate::test_env::lock_env();
+        let saved = pin_muse_env();
         let home = muse_temp_home(None);
         let models = discover_muse_models(&home);
+        restore_env(&saved);
 
         let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
         assert_eq!(ids, vec!["muse-spark-1.3", "muse-spark-1.2"]);
@@ -2653,10 +2684,13 @@ name = "bare table, not an alias"
     fn discover_muse_models_puts_the_configured_model_first() {
         // A model the user selected in Muse itself must appear even though it
         // is not in the seed — that is the whole point of reading settings.
+        let _guard = crate::test_env::lock_env();
+        let saved = pin_muse_env();
         let home = muse_temp_home(Some(
             r#"{"schema_version":1,"provider":"meta","model":"muse-spark-9.9","reasoning_effort":"xhigh"}"#,
         ));
         let models = discover_muse_models(&home);
+        restore_env(&saved);
 
         let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
         assert_eq!(
@@ -2669,8 +2703,11 @@ name = "bare table, not an alias"
 
     #[test]
     fn discover_muse_models_does_not_duplicate_a_configured_seed_model() {
+        let _guard = crate::test_env::lock_env();
+        let saved = pin_muse_env();
         let home = muse_temp_home(Some(r#"{"model":"muse-spark-1.3"}"#));
         let models = discover_muse_models(&home);
+        restore_env(&saved);
 
         let ids: Vec<&str> = models.iter().map(|m| m.model_id.as_str()).collect();
         assert_eq!(ids, vec!["muse-spark-1.3", "muse-spark-1.2"]);
@@ -2681,6 +2718,7 @@ name = "bare table, not an alias"
     #[test]
     fn muse_authentication_accepts_api_key_or_stored_credentials() {
         let _guard = crate::test_env::lock_env();
+        let saved = pin_muse_env();
         let home = muse_temp_home(None);
 
         // Neither signal present.
@@ -2712,6 +2750,7 @@ name = "bare table, not an alias"
         .expect("failed to rewrite muse auth");
         assert!(!muse_authenticated(&home));
 
+        restore_env(&saved);
         fs::remove_dir_all(&home).ok();
     }
 

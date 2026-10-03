@@ -925,8 +925,13 @@ mod tests {
         // OpenCode loads config from its cwd, so a project that disables the
         // plan agent must also drop `--agent plan` here — otherwise every
         // mentor turn fails with `Agent not found: "plan"`.
-        const KEYS: [&str; 5] = [
+        //
+        // A stub `opencode` on PATH makes the variant-syntax probe
+        // deterministic: `--agent plan` is only sent when the installed CLI
+        // understands the `#variant` model suffix, and CI has no real binary.
+        const KEYS: [&str; 6] = [
             "HOME",
+            "PATH",
             "XDG_CONFIG_HOME",
             "OPENCODE_CONFIG_DIR",
             "OPENCODE_CONFIG",
@@ -939,9 +944,20 @@ mod tests {
             .collect();
         let root = std::env::temp_dir().join(format!("the-pair-oc-dir-{}", uuid::Uuid::new_v4()));
         let project = root.join("repo");
+        let bin_dir = root.join("bin");
         std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        write_stub_opencode(&bin_dir);
         std::env::set_var("HOME", root.join("home"));
         std::env::set_var("XDG_CONFIG_HOME", root.join("xdg"));
+        std::env::set_var(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin_dir.display(),
+                std::env::var_os("PATH").unwrap_or_default().to_string_lossy()
+            ),
+        );
         for key in [
             "OPENCODE_CONFIG_DIR",
             "OPENCODE_CONFIG",
@@ -992,6 +1008,31 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
 
         assert_eq!(results, vec![true, false, true]);
+    }
+
+    /// A stand-in `opencode` whose `run --help` advertises the 2.x
+    /// `provider/model#variant` suffix, so `opencode_variant_syntax()` resolves
+    /// to `Suffix` on machines without the real CLI (CI).
+    #[cfg(not(target_os = "windows"))]
+    fn write_stub_opencode(bin_dir: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = bin_dir.join("opencode");
+        std::fs::write(
+            &path,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"run\" ] && [ \"$2\" = \"--help\" ]; then\n\
+             \techo '  --model, -m string   Model to use in the format provider/model#variant'\n\
+             \texit 0\n\
+             fi\n\
+             exit 1\n",
+        )
+        .expect("failed to write stub opencode");
+        let mut perms = std::fs::metadata(&path)
+            .expect("failed to read stub opencode metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("failed to make stub opencode executable");
     }
 
     #[test]
