@@ -10,6 +10,8 @@
  */
 import './setup-dom.ts'
 import './mock-ipc.ts'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { I18nextProvider } from 'react-i18next'
