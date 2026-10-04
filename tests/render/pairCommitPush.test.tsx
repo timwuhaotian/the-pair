@@ -169,3 +169,27 @@ test('Push: hidden when the pair has no known branch', async () => {
   // Commit still works without a branch.
   assert.ok(screen.getByTestId('ops-commit-btn'))
 })
+
+test('Commit: success detail auto-clears after a few seconds', async () => {
+  setLocale()
+  renderPanel(makePair())
+
+  fireEvent.change(screen.getByTestId('ops-commit-input'), { target: { value: 'work' } })
+  fireEvent.click(screen.getByTestId('ops-commit-btn'))
+  assert.ok(await screen.findByText(/Committed abc1234/))
+
+  // Fast-forward the auto-clear timer; the detail must disappear.
+  await new Promise((resolve) => setTimeout(resolve, 4500))
+  await waitFor(() => assert.equal(screen.queryByTestId('ops-commit-detail'), null))
+})
+
+test('Push: success detail auto-clears after a few seconds', async () => {
+  setLocale()
+  renderPanel(makePair())
+
+  fireEvent.click(screen.getByTestId('ops-push-btn'))
+  assert.ok(await screen.findByText(/Pushed the-pair\/pair-ui/))
+
+  await new Promise((resolve) => setTimeout(resolve, 4500))
+  await waitFor(() => assert.equal(screen.queryByTestId('ops-push-detail'), null))
+})
