@@ -55,6 +55,13 @@ interface Window {
     }
     repo: {
       getFileDiff: (directory: string, filePath: string, status: string) => Promise<string>
+      commitChanges: (
+        directory: string,
+        message: string
+      ) => Promise<{ sha: string; filesCommitted: number }>
+      pushChanges: (
+        directory: string
+      ) => Promise<{ branch: string; remote: string; upToDate: boolean }>
     }
     skill: {
       discover: (

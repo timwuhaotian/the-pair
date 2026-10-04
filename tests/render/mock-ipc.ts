@@ -83,8 +83,31 @@ export const state: MockState = {
   failRepoCheck: false
 }
 
-mockIPC((cmd) => {
+export interface MockCommitPush {
+  commit?: { sha: string; filesCommitted: number } | { error: string }
+  push?: { branch: string; remote: string; upToDate: boolean } | { error: string }
+  calls: Array<{ cmd: string; args: unknown }>
+}
+
+export const commitPush: MockCommitPush = { calls: [] }
+
+mockIPC((cmd, args) => {
+  commitPush.calls.push({ cmd: cmd as string, args: args as unknown })
   switch (cmd) {
+    case 'git_commit_changes': {
+      const result = commitPush.commit ?? { sha: 'abc1234', filesCommitted: 1 }
+      if ('error' in result) throw new Error(result.error)
+      return result
+    }
+    case 'git_push_changes': {
+      const result = commitPush.push ?? {
+        branch: 'the-pair/pair-ui',
+        remote: 'origin',
+        upToDate: false
+      }
+      if ('error' in result) throw new Error(result.error)
+      return result
+    }
     case 'config_get_cached_models':
     case 'config_get_models':
       return models

@@ -1,6 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Loader2, Pause, Play, RotateCcw, SlidersHorizontal, Zap } from 'lucide-react'
+import {
+  Check,
+  CloudUpload,
+  GitCommitHorizontal,
+  Loader2,
+  Pause,
+  Play,
+  RotateCcw,
+  SlidersHorizontal,
+  Zap
+} from 'lucide-react'
 import { cn, extractErrorMessage } from '../lib/utils'
 import { usePairStore, type Pair } from '../store/usePairStore'
 import { TaskHistoryPanel } from './TaskHistoryPanel'
@@ -53,6 +63,80 @@ function PairOperationsPanel({
   const diffRequestRef = useRef(0)
   const [isRetrying, setIsRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
+
+  // Commit + push state for the Modified Files section. Statuses auto-clear
+  // like saveStatus so a stale "committed abc123" doesn't linger next run.
+  const [commitMessage, setCommitMessage] = useState('')
+  const [commitStatus, setCommitStatus] = useState<'idle' | 'committing' | 'success' | 'error'>(
+    'idle'
+  )
+  const [commitDetail, setCommitDetail] = useState<string | null>(null)
+  const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'success' | 'error'>('idle')
+  const [pushDetail, setPushDetail] = useState<string | null>(null)
+  const commitStatusRef = useRef(commitStatus)
+  commitStatusRef.current = commitStatus
+  const pushStatusRef = useRef(pushStatus)
+  pushStatusRef.current = pushStatus
+
+  const pushBranch = pair.worktreeBranch ?? pair.branch ?? null
+  const hasChanges = pair.gitTracking.available && pair.modifiedFiles.length > 0
+
+  const handleCommit = async (): Promise<void> => {
+    if (commitStatus === 'committing' || !hasChanges) return
+    const message = commitMessage.trim()
+    if (!message) return
+    setCommitStatus('committing')
+    setCommitDetail(null)
+    try {
+      const outcome = await window.api.repo.commitChanges(pair.directory, message)
+      setCommitDetail(t('pair.committed', { sha: outcome.sha }))
+      setCommitStatus('success')
+      setCommitMessage('')
+    } catch (err) {
+      setCommitDetail(extractErrorMessage(err, t('pair.commitFailed')))
+      setCommitStatus('error')
+    }
+  }
+
+  const handlePush = async (): Promise<void> => {
+    if (pushStatus === 'pushing' || !pushBranch) return
+    setPushStatus('pushing')
+    setPushDetail(null)
+    try {
+      const outcome = await window.api.repo.pushChanges(pair.directory)
+      setPushDetail(
+        outcome.upToDate
+          ? t('pair.pushedUpToDate', { branch: outcome.branch })
+          : t('pair.pushed', { branch: outcome.branch })
+      )
+      setPushStatus('success')
+    } catch (err) {
+      setPushDetail(extractErrorMessage(err, t('pair.pushFailed')))
+      setPushStatus('error')
+    }
+  }
+
+  useEffect(() => {
+    if (commitStatus !== 'success' && commitStatus !== 'error') return
+    const timer = setTimeout(() => {
+      if (commitStatusRef.current === 'success' || commitStatusRef.current === 'error') {
+        setCommitStatus('idle')
+        setCommitDetail(null)
+      }
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [commitStatus])
+
+  useEffect(() => {
+    if (pushStatus !== 'success' && pushStatus !== 'error') return
+    const timer = setTimeout(() => {
+      if (pushStatusRef.current === 'success' || pushStatusRef.current === 'error') {
+        setPushStatus('idle')
+        setPushDetail(null)
+      }
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [pushStatus])
 
   const effectiveMentorModel = pair.pendingMentorModel ?? pair.mentorModel
   const effectiveExecutorModel = pair.pendingExecutorModel ?? pair.executorModel
@@ -472,35 +556,118 @@ function PairOperationsPanel({
         <SectionHeader label={t('pair.modifiedFiles')} />
         {!pair.gitTracking.available ? (
           <div className="text-[10px] state-running">! {t('pair.gitUnavailable')}</div>
-        ) : pair.modifiedFiles.length === 0 ? (
-          <div className="text-[10px] text-muted-foreground-faint">
-            — {t('pair.noModifiedFiles')}
-          </div>
         ) : (
-          <div className="space-y-px">
-            {pair.modifiedFiles.map((file) => (
-              <button
-                key={file.path}
-                onClick={() => handleFileClick(file)}
-                title={file.path}
-                className="flex w-full items-baseline gap-2 truncate text-left text-[10px] text-muted-foreground hover:bg-foreground/[0.05] px-1 -mx-1 rounded-sm transition-colors"
-              >
-                <span
+          <>
+            {pair.modifiedFiles.length === 0 ? (
+              <div className="text-[10px] text-muted-foreground-faint">
+                — {t('pair.noModifiedFiles')}
+              </div>
+            ) : (
+              <div className="space-y-px">
+                {pair.modifiedFiles.map((file) => (
+                  <button
+                    key={file.path}
+                    onClick={() => handleFileClick(file)}
+                    title={file.path}
+                    className="flex w-full items-baseline gap-2 truncate text-left text-[10px] text-muted-foreground hover:bg-foreground/[0.05] px-1 -mx-1 rounded-sm transition-colors"
+                  >
+                    <span
+                      className={cn(
+                        'shrink-0 tabular-nums w-[1ch]',
+                        file.status === 'A' && 'state-done',
+                        file.status === 'M' && 'state-running',
+                        file.status === 'D' && 'state-error',
+                        file.status === 'R' && 'role-executor',
+                        file.status === '??' && 'text-muted-foreground-faint'
+                      )}
+                    >
+                      {file.status === '??' ? '?' : file.status}
+                    </span>
+                    <span className="truncate">{file.displayPath}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5 pt-1">
+              <div className="flex gap-1.5">
+                <input
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleCommit()
+                  }}
+                  placeholder={t('pair.commitPlaceholder')}
+                  aria-label={t('pair.commitMessage')}
+                  disabled={!hasChanges || commitStatus === 'committing'}
+                  data-testid="ops-commit-input"
+                  className="min-w-0 flex-1 border border-border bg-background px-1.5 py-1 text-[10px] text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/40 focus:outline-none disabled:opacity-50"
+                />
+                <GlassButton
+                  variant="secondary"
+                  size="sm"
+                  icon={
+                    commitStatus === 'committing' ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <GitCommitHorizontal size={11} />
+                    )
+                  }
+                  onClick={() => void handleCommit()}
+                  disabled={!hasChanges || !commitMessage.trim() || commitStatus === 'committing'}
+                  title={t('pair.commitActionHint')}
+                  data-testid="ops-commit-btn"
+                >
+                  {t('pair.commit')}
+                </GlassButton>
+              </div>
+              {commitDetail && (commitStatus === 'success' || commitStatus === 'error') && (
+                <div
+                  role={commitStatus === 'error' ? 'alert' : 'status'}
+                  data-testid="ops-commit-detail"
                   className={cn(
-                    'shrink-0 tabular-nums w-[1ch]',
-                    file.status === 'A' && 'state-done',
-                    file.status === 'M' && 'state-running',
-                    file.status === 'D' && 'state-error',
-                    file.status === 'R' && 'role-executor',
-                    file.status === '??' && 'text-muted-foreground-faint'
+                    'text-[10px] leading-relaxed [overflow-wrap:anywhere]',
+                    commitStatus === 'success' ? 'state-done' : 'state-error'
                   )}
                 >
-                  {file.status === '??' ? '?' : file.status}
-                </span>
-                <span className="truncate">{file.displayPath}</span>
-              </button>
-            ))}
-          </div>
+                  {commitStatus === 'success' ? `✓ ${commitDetail}` : `✗ ${commitDetail}`}
+                </div>
+              )}
+              {pushBranch && (
+                <>
+                  <GlassButton
+                    variant="secondary"
+                    size="sm"
+                    icon={
+                      pushStatus === 'pushing' ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <CloudUpload size={11} />
+                      )
+                    }
+                    onClick={() => void handlePush()}
+                    disabled={pushStatus === 'pushing'}
+                    title={t('pair.pushActionHint', { branch: pushBranch })}
+                    data-testid="ops-push-btn"
+                    className="self-start"
+                  >
+                    {t('pair.pushTo', { branch: pushBranch })}
+                  </GlassButton>
+                  {pushDetail && (pushStatus === 'success' || pushStatus === 'error') && (
+                    <div
+                      role={pushStatus === 'error' ? 'alert' : 'status'}
+                      data-testid="ops-push-detail"
+                      className={cn(
+                        'text-[10px] leading-relaxed [overflow-wrap:anywhere]',
+                        pushStatus === 'success' ? 'state-done' : 'state-error'
+                      )}
+                    >
+                      {pushStatus === 'success' ? `✓ ${pushDetail}` : `✗ ${pushDetail}`}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
         )}
       </div>
 

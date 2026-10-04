@@ -62,6 +62,27 @@ async fn git_get_file_diff(
     .map_err(|e| format!("Diff task failed: {}", e))?
 }
 
+#[tauri::command]
+async fn git_commit_changes(
+    directory: String,
+    message: String,
+) -> Result<git_tracker::CommitOutcome, String> {
+    // Off the main thread: add/commit can take a lock and walk the tree.
+    tauri::async_runtime::spawn_blocking(move || {
+        git_tracker::commit_changes(&directory, &message)
+    })
+    .await
+    .map_err(|e| format!("Commit task failed: {}", e))?
+}
+
+#[tauri::command]
+async fn git_push_changes(directory: String) -> Result<git_tracker::PushOutcome, String> {
+    // Off the main thread: network round-trips must not block the UI.
+    tauri::async_runtime::spawn_blocking(move || git_tracker::push_changes(&directory, "origin"))
+        .await
+        .map_err(|e| format!("Push task failed: {}", e))?
+}
+
 fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     let app_menu = SubmenuBuilder::new(app, "The Pair")
         .text("check_updates", "Check for Updates...")
@@ -173,7 +194,9 @@ pub fn run() {
             skill_discovery::skill_refresh,
             app_restart,
             show_main_window,
-            git_get_file_diff
+            git_get_file_diff,
+            git_commit_changes,
+            git_push_changes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -28,6 +28,7 @@ export interface MockState {
     worktreePath: string
     worktreeBranch: string
   }
+  snapshots?: unknown[]
 }
 
 /** Loads the app with the Tauri IPC layer mocked and the given state enabled. */
