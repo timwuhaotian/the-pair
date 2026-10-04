@@ -278,6 +278,151 @@ fn read_untracked_file(
 
 pub struct GitTracker;
 
+/// Outcome of committing a pair workspace's tracked changes.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CommitOutcome {
+    pub sha: String,
+    pub files_committed: usize,
+}
+
+/// Outcome of pushing a pair workspace's branch to its remote.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PushOutcome {
+    pub branch: String,
+    pub remote: String,
+    pub up_to_date: bool,
+}
+
+/// Upper bound on a commit message: long agent summaries stay intact, but an
+/// unbounded `-m` argument could blow past OS arg limits.
+const MAX_COMMIT_MESSAGE_CHARS: usize = 10_000;
+
+/// Stages the files `collect_modified_files` reports (minus regenerable
+/// untracked directories, which are excluded the same way the tracker polls)
+/// and commits them with `message`. Returns the new short SHA.
+pub fn commit_changes(directory: &str, message: &str) -> Result<CommitOutcome, String> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err("Commit message is empty".to_string());
+    }
+    if message.chars().count() > MAX_COMMIT_MESSAGE_CHARS {
+        return Err(format!(
+            "Commit message exceeds {MAX_COMMIT_MESSAGE_CHARS} characters"
+        ));
+    }
+    let files = GitTracker::collect_modified_files(directory)
+        .ok_or_else(|| "Not a git repository".to_string())?;
+    if files.is_empty() {
+        return Err("Nothing to commit".to_string());
+    }
+
+    let collapsed = collapsed_status(directory)?;
+    let untracked_dirs = untracked_dirs_in_porcelain_z(&collapsed);
+    let excludes: Vec<String> = untracked_dirs
+        .iter()
+        .filter(|dir| is_regenerable_dir(dir))
+        .take(MAX_STATUS_EXCLUDES)
+        .map(|dir| exclude_pathspec(dir))
+        .collect();
+
+    run_git(directory, &["add", "-A"], &excludes, "git add failed")?;
+    // The staged set is exactly the reported files: regenerable directories
+    // were already filtered out of that list, so the excludes only keep git
+    // from walking them.
+    let files_committed = files.len();
+
+    // Hooks stay enabled: user-side checks (lint, tests) must still run.
+    run_git(
+        directory,
+        &["commit", "-m", message],
+        &[],
+        "git commit failed",
+    )?;
+
+    let sha = run_git(directory, &["rev-parse", "--short", "HEAD"], &[], "git rev-parse failed")?;
+    Ok(CommitOutcome {
+        sha: sha.trim().to_string(),
+        files_committed,
+    })
+}
+
+/// Pushes the workspace's current branch to `remote` (default `origin`),
+/// setting upstream when the branch has none. Detached HEADs can't be pushed.
+pub fn push_changes(directory: &str, remote: &str) -> Result<PushOutcome, String> {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        return Err("Remote name is empty".to_string());
+    }
+    let branch = run_git(directory, &["branch", "--show-current"], &[], "git branch failed")?;
+    let branch = branch.trim().to_string();
+    if branch.is_empty() {
+        return Err("Cannot push a detached HEAD — check out a branch first".to_string());
+    }
+    let output = run_git(
+        directory,
+        &["push", "-u", remote, &branch],
+        &[],
+        "git push failed",
+    )?;
+    let combined = output.to_lowercase();
+    Ok(PushOutcome {
+        branch,
+        remote: remote.to_string(),
+        up_to_date: combined.contains("up to date") || combined.contains("up-to-date"),
+    })
+}
+
+/// One `git status --porcelain=v1 -z --untracked-files=normal` poll, for the
+/// wholly-untracked-directory list the commit staging excludes.
+fn collapsed_status(directory: &str) -> Result<Vec<u8>, String> {
+    git_command()
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("git status failed: {}", e))
+        .and_then(|output| {
+            if output.status.success() {
+                Ok(output.stdout)
+            } else {
+                Err(format!(
+                    "git status failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ))
+            }
+        })
+}
+
+/// Runs `git <args> [-- <pathspecs>]` in `directory`; on failure returns
+/// `context: <stderr>`. Stdout and stderr are both returned on success
+/// (callers trim) because progress reporting like `git push`'s
+/// "Everything up-to-date" goes to stderr.
+fn run_git(
+    directory: &str,
+    args: &[&str],
+    pathspecs: &[String],
+    context: &str,
+) -> Result<String, String> {
+    let mut command = git_command();
+    command.args(args);
+    if !pathspecs.is_empty() {
+        command.arg("--");
+        command.args(pathspecs);
+    }
+    let output = command
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("{context}: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("{context}: {}", stderr.trim()));
+    }
+    let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok(combined)
+}
+
 impl GitTracker {
     /// Lists the working-tree changes of `directory`, or `None` when git isn't
     /// available there. Safe to call without holding any pair-state lock.
@@ -778,5 +923,131 @@ mod tests {
         fs::create_dir_all(temp.root.join("nested-repo")).unwrap();
         let err = GitTracker::get_file_diff(temp.dir(), "nested-repo", "??").expect_err("dir");
         assert!(err.contains("directory"), "{}", err);
+    }
+
+    #[test]
+    fn commit_changes_stages_tracked_edits_and_new_files() {
+        let temp = TempRepo::new("commit");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+        fs::write(temp.root.join("new.txt"), "new\n").unwrap();
+
+        let outcome = commit_changes(temp.dir(), "the-pair: test commit").expect("commit");
+        assert_eq!(outcome.sha.len(), 7);
+        assert_eq!(outcome.files_committed, 2);
+        assert!(
+            GitTracker::collect_modified_files(temp.dir())
+                .expect("status runs")
+                .is_empty()
+        );
+
+        let log = Command::new("git")
+            .args(["log", "-1", "--format=%s"])
+            .current_dir(&temp.root)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&log.stdout).trim(),
+            "the-pair: test commit"
+        );
+    }
+
+    #[test]
+    fn commit_changes_skips_untracked_regenerable_directories() {
+        let temp = TempRepo::new("commit-skip");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+        fs::create_dir_all(temp.root.join("node_modules/pkg")).unwrap();
+        fs::write(temp.root.join("node_modules/pkg/index.js"), "x").unwrap();
+
+        let outcome = commit_changes(temp.dir(), "work").expect("commit");
+        assert_eq!(outcome.files_committed, 1);
+
+        let remaining = GitTracker::collect_modified_files(temp.dir()).expect("status runs");
+        assert!(remaining.is_empty(), "{:?}", remaining);
+
+        // The regenerable directory was never committed.
+        let ls = Command::new("git")
+            .args(["ls-tree", "-r", "--name-only", "HEAD"])
+            .current_dir(&temp.root)
+            .output()
+            .unwrap();
+        let tracked = String::from_utf8_lossy(&ls.stdout).into_owned();
+        assert!(!tracked.contains("node_modules"), "{}", tracked);
+    }
+
+    #[test]
+    fn commit_changes_rejects_empty_message_and_clean_tree() {
+        let temp = TempRepo::new("commit-err");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        let err = commit_changes(temp.dir(), "   ").expect_err("blank message");
+        assert!(err.contains("empty"), "{}", err);
+
+        let err = commit_changes(temp.dir(), "work").expect_err("clean tree");
+        assert!(err.contains("Nothing to commit"), "{}", err);
+
+        let long = "x".repeat(MAX_COMMIT_MESSAGE_CHARS + 1);
+        let err = commit_changes(temp.dir(), &long).expect_err("oversize message");
+        assert!(err.contains("exceeds"), "{}", err);
+    }
+
+    #[test]
+    fn push_changes_pushes_branch_and_reports_up_to_date() {
+        let temp = TempRepo::new("push");
+        let remote_dir = temp.root.with_extension("remote.git");
+        let output = Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(&remote_dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        temp.git(&["remote", "add", "origin", remote_dir.to_str().unwrap()]);
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        let branch = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&temp.root)
+            .output()
+            .unwrap();
+        let branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+
+        let outcome = push_changes(temp.dir(), "origin").expect("push");
+        assert_eq!(outcome.branch, branch);
+        assert_eq!(outcome.remote, "origin");
+        assert!(!outcome.up_to_date);
+
+        let outcome = push_changes(temp.dir(), "origin").expect("second push");
+        assert!(outcome.up_to_date);
+
+        let _ = fs::remove_dir_all(&remote_dir);
+    }
+
+    #[test]
+    fn push_changes_rejects_detached_head_and_unknown_remote() {
+        let temp = TempRepo::new("push-err");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        let err = push_changes(temp.dir(), "nope").expect_err("unknown remote");
+        assert!(err.contains("git push failed"), "{}", err);
+
+        temp.git(&["checkout", "-q", "--detach", "HEAD"]);
+        let err = push_changes(temp.dir(), "origin").expect_err("detached HEAD");
+        assert!(err.contains("detached HEAD"), "{}", err);
+
+        let err = push_changes(temp.dir(), "  ").expect_err("blank remote");
+        assert!(err.contains("empty"), "{}", err);
     }
 }
