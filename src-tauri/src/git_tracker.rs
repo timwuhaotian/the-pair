@@ -320,10 +320,11 @@ pub fn commit_changes(directory: &str, message: &str) -> Result<CommitOutcome, S
 
     let collapsed = collapsed_status(directory)?;
     let untracked_dirs = untracked_dirs_in_porcelain_z(&collapsed);
+    // No cap here, unlike the poll: `git add -A` has no second filter, so
+    // every regenerable dir must be excluded or it gets committed.
     let excludes: Vec<String> = untracked_dirs
         .iter()
         .filter(|dir| is_regenerable_dir(dir))
-        .take(MAX_STATUS_EXCLUDES)
         .map(|dir| exclude_pathspec(dir))
         .collect();
 
@@ -997,6 +998,39 @@ mod tests {
         assert!(remaining.is_empty(), "{:?}", remaining);
 
         // The regenerable directory was never committed.
+        let ls = Command::new("git")
+            .args(["ls-tree", "-r", "--name-only", "HEAD"])
+            .current_dir(&temp.root)
+            .output()
+            .unwrap();
+        let tracked = String::from_utf8_lossy(&ls.stdout).into_owned();
+        assert!(!tracked.contains("node_modules"), "{}", tracked);
+    }
+
+    #[test]
+    fn commit_changes_excludes_every_regenerable_dir_beyond_the_status_cap() {
+        let temp = TempRepo::new("commit-many-excludes");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        for index in 0..=(MAX_STATUS_EXCLUDES) {
+            let pkg = temp.root.join(format!("pkg{index}"));
+            fs::create_dir_all(&pkg).unwrap();
+            fs::write(pkg.join("pkg.txt"), "x").unwrap();
+        }
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+
+        // One wholly-untracked regenerable directory per tracked package,
+        // one more than the status-poll exclude cap.
+        for index in 0..=(MAX_STATUS_EXCLUDES) {
+            let dir = temp.root.join(format!("pkg{index}/node_modules"));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("index.js"), "x").unwrap();
+        }
+
+        let outcome = commit_changes(temp.dir(), "work").expect("commit");
+        assert_eq!(outcome.files_committed, 1);
+
         let ls = Command::new("git")
             .args(["ls-tree", "-r", "--name-only", "HEAD"])
             .current_dir(&temp.root)
