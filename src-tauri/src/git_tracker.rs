@@ -280,6 +280,7 @@ pub struct GitTracker;
 
 /// Outcome of committing a pair workspace's tracked changes.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitOutcome {
     pub sha: String,
     pub files_committed: usize,
@@ -287,6 +288,7 @@ pub struct CommitOutcome {
 
 /// Outcome of pushing a pair workspace's branch to its remote.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PushOutcome {
     pub branch: String,
     pub remote: String,
@@ -923,6 +925,28 @@ mod tests {
         fs::create_dir_all(temp.root.join("nested-repo")).unwrap();
         let err = GitTracker::get_file_diff(temp.dir(), "nested-repo", "??").expect_err("dir");
         assert!(err.contains("directory"), "{}", err);
+    }
+
+    #[test]
+    fn outcome_structs_serialize_camel_case_for_ipc() {
+        let commit =
+            serde_json::to_value(CommitOutcome {
+                sha: "abc1234".into(),
+                files_committed: 2,
+            })
+            .unwrap();
+        assert_eq!(commit["sha"], "abc1234");
+        assert_eq!(commit["filesCommitted"], 2);
+        assert!(commit.get("files_committed").is_none());
+
+        let push = serde_json::to_value(PushOutcome {
+            branch: "feature".into(),
+            remote: "origin".into(),
+            up_to_date: true,
+        })
+        .unwrap();
+        assert_eq!(push["upToDate"], true);
+        assert!(push.get("up_to_date").is_none());
     }
 
     #[test]
