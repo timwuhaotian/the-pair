@@ -18,6 +18,17 @@ export interface TauriPair {
   worktreePath?: string
 }
 
+export interface CommitOutcome {
+  sha: string
+  filesCommitted: number
+}
+
+export interface PushOutcome {
+  branch: string
+  remote: string
+  upToDate: boolean
+}
+
 /**
  * True inside the Tauri webview. `window.__TAURI__` only exists with
  * `app.withGlobalTauri`, which this app does not enable, so detect the runtime
@@ -80,6 +91,12 @@ export const tauriApi = {
     },
     getFileDiff: async (directory: string, filePath: string, status: string): Promise<string> => {
       return await invokeTauri('git_get_file_diff', { directory, filePath, status })
+    },
+    commitChanges: async (directory: string, message: string): Promise<CommitOutcome> => {
+      return await invokeTauri('git_commit_changes', { directory, message })
+    },
+    pushChanges: async (directory: string): Promise<PushOutcome> => {
+      return await invokeTauri('git_push_changes', { directory })
     }
   },
   insights: {

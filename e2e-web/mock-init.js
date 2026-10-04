@@ -111,6 +111,10 @@
         return []
       case 'list_recoverable_sessions':
         return []
+      case 'git_commit_changes':
+        return { sha: 'abc1234', filesCommitted: 1 }
+      case 'git_push_changes':
+        return { branch: 'the-pair/pair-e2e', remote: 'origin', upToDate: false }
       default:
         return undefined
     }

@@ -65,7 +65,18 @@ const api = {
   },
   repo: {
     getFileDiff: (directory: string, filePath: string, status: string) =>
-      invoke('git_get_file_diff', { directory, filePath, status }) as Promise<string>
+      invoke('git_get_file_diff', { directory, filePath, status }) as Promise<string>,
+    commitChanges: (directory: string, message: string) =>
+      invoke('git_commit_changes', { directory, message }) as Promise<{
+        sha: string
+        filesCommitted: number
+      }>,
+    pushChanges: (directory: string) =>
+      invoke('git_push_changes', { directory }) as Promise<{
+        branch: string
+        remote: string
+        upToDate: boolean
+      }>
   },
   skill: {
     discover: (projectDir?: string) =>
