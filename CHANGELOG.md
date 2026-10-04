@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-10-04
+
+Commit and push a pair's work without leaving the app. The Modified Files panel gains Commit and Push buttons, so a finished run no longer forces a terminal round-trip to land its work.
+
+### Added
+
+- **Commit a pair workspace from the Modified Files panel.** A new Commit button stages everything the tracker already shows — tracked edits plus new files — and commits with a message you type inline. Untracked regenerable directories (`node_modules/`, build output, and friends) are excluded from staging with the same rules the file list uses, so what the panel shows is exactly what gets committed. The result (short SHA and file count) is confirmed in the panel. An empty message or a clean tree is rejected with a clear error instead of a confusing git failure.
+- **Push the pair's branch to its remote, on any branch.** A new Push button (labelled with the branch name) runs `git push -u` for the current branch — worktree branches included, so pairs working on isolated `the-pair/…` branches can publish their work the same way. An already-up-to-date push is reported as success rather than an error; detached-HEAD and missing-remote failures surface git's own message verbatim.
+- **Commit and Push buttons on the pair detail page** alongside the existing modified-files list, localized in all four languages (en/ja/ko/zh).
+
 ## [2.9.2] - 2026-10-02
 
 Follow-up provider CLI audit, again driven by live runs against the installed binaries. The previous audit (2.9.1) verified the flags each adapter sends; this one caught the places where the CLIs had quietly changed behaviour underneath them. Eight broken behaviours fixed, each reproduced before the fix and covered by a regression test.

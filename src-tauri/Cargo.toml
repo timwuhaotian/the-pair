@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.9.2"
+version = "2.10.0"
 description = "The Pair desktop orchestrator for dual AI agents"
 authors = ["timwuhaotian"]
 license = "Apache-2.0"
