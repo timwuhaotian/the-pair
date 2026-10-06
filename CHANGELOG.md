@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.1] - 2026-10-07
+
+Provider CLI audit against the latest releases — Claude Code 2.1.291, Codex 0.160.1, OpenCode 2.0.24, Antigravity 1.3.0, Pi 1.0.4, Kimi 2.1.1, Grok Build 1.0.46, Muse Code 1.4.3, Kiro 2.28.0 and Aider 0.86.2 — driven by live runs wherever the CLI could be installed. Every fix below was reproduced first and is covered by a regression test built from captured CLI output.
+
+### Fixed
+
+- **Claude: a handoff message starting with `-` killed the turn.** The message is a bare positional, so a markdown bullet or a `---` diff header was read as an unknown option and the CLI exited 1 before any output. It is now passed after `--`.
+- **Claude: the effort picker offered levels some models ignore.** Haiku 4.5 ignores `--effort` entirely and the 4.6 models have no `xhigh`. Levels now come per model from the CLI's own cached model catalog, with the full ladder as the fallback for uncatalogued models.
+- **Claude: a bad-model error was shown twice.** The CLI emits the error as a synthetic assistant message before the errored result; that message is no longer kept as reply text.
+- **Codex: token usage of resumed turns grew with every turn.** From Codex 0.154.0, `turn.completed.usage` on `exec resume` is the thread's running total rather than the turn's own (bisected live: 0.153.4 per-turn, 0.154.0 cumulative), so per-turn counts, timelines and reports overcounted roughly quadratically. The turn's share is now derived from the session's previous total on those versions. The first resumed turn after an app restart still reports the session total once.
+- **Antigravity: the same session-total overcount.** `result.usage` counts the whole conversation on a resumed turn; the turn's usage is now the sum of its per-step usage.
+- **Antigravity: a stale effort setting could fail the turn.** agy rejects `--effort` when it contradicts the tier already in the model id (`gemini-3.8-flash-low` with `--effort high`), so `--effort` is no longer passed for tier-suffixed ids.
+- **Pi: models with an expired login still looked runnable.** The 2.9.2 readiness check never took effect: `pi auth check` reports "not ready" through a non-zero exit, and its JSON answer was discarded with it. The verdict is now read regardless of the exit code. Pi errors also no longer include the whole JavaScript stack trace, and Pi's managed install location (`~/.pi/agent/bin`) is found without a login-shell PATH.
+- **Grok: a failed turn wiped the pair's session.** A turn that fails before its session starts reports an empty session id, which replaced the stored one and made the next turn run `--resume ""`. Blank session ids are now ignored for every provider. Grok detection also honours `GROK_HOME`.
+- **Aider: a failed model call was handed off as a normal reply.** Aider exits 0 when the model call fails and prints the error to stdout; a trailing litellm error is now the turn's error, and aider's startup banner is no longer part of the reply.
+- **Aider: the read-only mentor wrote into the worktree.** Aider appended `.aider*` to `.gitignore` and wrote history files into the repo, which then showed up in the pair's diff and commits. It now runs with `--no-gitignore` and no history files, and its repo-map cache is treated as a regenerable directory.
+- **OpenCode: tool activity always read "Calling tool".** The tool name is now read from where OpenCode puts it.
+
 ## [2.10.0] - 2026-10-04
 
 Commit and push a pair's work without leaving the app. The Modified Files panel gains Commit and Push buttons, so a finished run no longer forces a terminal round-trip to land its work.
