@@ -334,13 +334,16 @@ mod tests {
 
     #[test]
     fn reasoning_effort_levels_offered_for_codex_and_claude() {
-        // Claude Code 2.1.111+ exposes --effort low|medium|high|xhigh|max, so the
-        // control surfaces those values. Antigravity (Gemini) bakes effort into
+        // Claude Code 2.1.111+ exposes --effort low|medium|high|xhigh|max, so an
+        // uncatalogued model surfaces those values. Antigravity (Gemini) bakes effort into
         // the model slug and is omitted on purpose. Opencode delegates to the
         // underlying model. Only Codex o-series honors reasoning via
         // `-c model_reasoning_effort=`.
         assert_eq!(
-            reasoning_effort_levels_for(ProviderKind::Claude, "claude-sonnet-4-6"),
+            // Not in any catalog cache, so this holds on machines with or
+            // without Claude Code installed (catalogued models get their own
+            // per-model ladder — see `claude_catalog_effort_levels`).
+            reasoning_effort_levels_for(ProviderKind::Claude, "claude-uncatalogued-test-model"),
             Some(vec![
                 "low".to_string(),
                 "medium".to_string(),

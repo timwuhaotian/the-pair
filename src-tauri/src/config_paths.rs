@@ -146,10 +146,38 @@ pub fn build_muse_config_dir(
     )
 }
 
+/// Grok Build's config directory: `$GROK_HOME`, else `~/.grok` (Grok Build's
+/// documented override — "`GROK_HOME` | Override config directory (default:
+/// `~/.grok`)"; verified against 1.0.46, which writes `config.toml`,
+/// `auth.json` and `sessions/` there).
+pub fn grok_home_dir(home: Option<&Path>) -> Option<PathBuf> {
+    build_grok_home_dir(env_path("GROK_HOME").as_deref(), home)
+}
+
+pub fn build_grok_home_dir(grok_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
+    grok_home
+        .map(Path::to_path_buf)
+        .or_else(|| home.map(|home| home.join(".grok")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn grok_home_dir_prefers_the_grok_home_override() {
+        let home = Path::new("/Users/alex");
+        assert_eq!(
+            build_grok_home_dir(None, Some(home)),
+            Some(PathBuf::from("/Users/alex/.grok"))
+        );
+        assert_eq!(
+            build_grok_home_dir(Some(Path::new("/srv/grok")), Some(home)),
+            Some(PathBuf::from("/srv/grok"))
+        );
+        assert_eq!(build_grok_home_dir(None, None), None);
+    }
 
     #[test]
     fn config_path_defaults_to_dot_config_on_every_platform() {

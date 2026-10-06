@@ -5,6 +5,7 @@ use crate::acceptance::{
 use crate::message_broker::MessageBroker;
 use crate::provider_adapter::{OutputTransport, ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
+use crate::providers::UsageScope;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AcceptanceNextAction, AcceptanceNextStep, AcceptanceRecord, AcceptanceRisk, AcceptanceVerdict,
@@ -484,37 +485,63 @@ fn extract_session_id(event: &serde_json::Value) -> Option<String> {
     }
     // Pi session header: {"type":"session","version":3,"id":"uuid",...}
     if event.get("type").and_then(|v| v.as_str()) == Some("session") {
-        if let Some(id) = event.get("id").and_then(|s| s.as_str()) {
+        if let Some(id) = event
+            .get("id")
+            .and_then(|s| s.as_str())
+            .filter(|id| !id.trim().is_empty())
+        {
             return Some(id.to_string());
         }
     }
+    // A blank id is no session. Grok Build prints `"session_id": ""` on every
+    // event of a turn that failed before its session started — including one
+    // that was resuming a real session (verified against 1.0.44 and 1.0.46,
+    // 2026-10-06) — and storing it would replace the pair's session and send
+    // `--resume ""` next turn.
+    let non_blank = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .filter(|id| !id.trim().is_empty())
+            .map(str::to_string)
+    };
     event
         .get("sessionID")
-        .and_then(|s| s.as_str())
-        .or_else(|| event.get("session_id").and_then(|s| s.as_str()))
+        .and_then(non_blank)
+        .or_else(|| event.get("session_id").and_then(non_blank))
         // Grok Build reports the resumable session as camelCase `sessionId` on
         // the terminal `end` event of its `streaming-json` format. The adapter
         // actually runs `streaming-messages-json`, where the id is snake_case
         // `session_id` and leads every line including `system`/`init`; both
         // spellings are matched so either format resumes correctly.
-        .or_else(|| event.get("sessionId").and_then(|s| s.as_str()))
+        .or_else(|| event.get("sessionId").and_then(non_blank))
         // Codex (`codex exec --json`) exposes its resumable session as
         // `thread_id` on the `thread.started` event; `codex exec resume <id>`
         // takes exactly this value.
-        .or_else(|| event.get("thread_id").and_then(|s| s.as_str()))
+        .or_else(|| event.get("thread_id").and_then(non_blank))
         .or_else(|| {
             event
                 .get("part")
                 .and_then(|p| p.get("sessionID"))
-                .and_then(|s| s.as_str())
+                .and_then(non_blank)
         })
         .or_else(|| {
             event
                 .get("part")
                 .and_then(|p| p.get("session_id"))
-                .and_then(|s| s.as_str())
+                .and_then(non_blank)
         })
-        .map(|s| s.to_string())
+}
+
+/// The tool a tool event calls, for the activity label. OpenCode's
+/// `tool_use` events carry it as `part.tool` (`"tool": "shell"`, verified
+/// against opencode 2.0.14 and 2.0.24) rather than a top-level `name`.
+fn tool_event_name(event: &serde_json::Value) -> &str {
+    event
+        .get("name")
+        .and_then(|n| n.as_str())
+        .or_else(|| event.pointer("/part/tool").and_then(|n| n.as_str()))
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("tool")
 }
 
 fn push_trimmed(out: &mut Vec<String>, s: &str) {
@@ -711,12 +738,13 @@ impl OpencodeStepTexts {
                     .get(*id)
                     .is_some_and(|reason| reason != "tool-calls")
             })
-            // Verified against opencode 2.0.14 (2026-10-02): `run` in
-            // non-interactive mode drops the closing `step_finish` once the
-            // execution is final, so a real stream ends with `text` and no
-            // finish reason at all. Without this fallback every OpenCode turn
-            // fell through to `collapse_candidates`, handing the next agent
-            // mid-turn narration joined with the answer.
+            // Verified against opencode 2.0.14 and 2.0.24: `run` in
+            // non-interactive mode may drop the closing `step_finish` (events
+            // still in flight when the session finishes are skipped), so a
+            // real stream can end with `text` and no final finish reason.
+            // Without this fallback every OpenCode turn fell through to
+            // `collapse_candidates`, handing the next agent mid-turn
+            // narration joined with the answer.
             .or_else(|| {
                 self.order
                     .iter()
@@ -727,36 +755,111 @@ impl OpencodeStepTexts {
     }
 }
 
-/// Sum per-step usage into the turn total for providers that report usage
-/// per model step (OpenCode `step_finish`); other providers report running or
-/// final totals, which simply replace the previous value.
-fn accumulate_token_usage(
-    provider_kind: ProviderKind,
-    event: &serde_json::Value,
-    previous: Option<&TurnTokenUsage>,
-    usage: TurnTokenUsage,
-) -> TurnTokenUsage {
-    let per_step = provider_kind == ProviderKind::Opencode
-        && (matches!(
-            event.get("type").and_then(|v| v.as_str()),
-            Some("step_finish" | "step-finish")
-        ) || matches!(
-            event
-                .get("part")
-                .and_then(|part| part.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("step-finish" | "step_finish")
-        ));
-    match (per_step, previous) {
-        (true, Some(previous)) => TurnTokenUsage {
-            output_tokens: previous.output_tokens + usage.output_tokens,
-            input_tokens: match (previous.input_tokens, usage.input_tokens) {
-                (Some(a), Some(b)) => Some(a + b),
-                (a, b) => a.or(b),
+/// Folds one turn's usage events into that turn's own usage, according to
+/// what each event covers (`UsageScope`).
+#[derive(Default)]
+struct TurnUsageTracker {
+    usage: Option<TurnTokenUsage>,
+    /// `usage` is a sum of per-step events. It then beats a session total
+    /// reported later in the same turn, which may include earlier turns.
+    summed_steps: bool,
+}
+
+impl TurnUsageTracker {
+    fn observe(
+        &mut self,
+        scope: UsageScope,
+        usage: TurnTokenUsage,
+        session_id: Option<&str>,
+    ) -> TurnTokenUsage {
+        let next = match scope {
+            UsageScope::Turn => usage,
+            UsageScope::Step => match self.usage.as_ref().filter(|_| self.summed_steps) {
+                Some(previous) => TurnTokenUsage {
+                    output_tokens: previous.output_tokens + usage.output_tokens,
+                    input_tokens: match (previous.input_tokens, usage.input_tokens) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        (a, b) => a.or(b),
+                    },
+                    ..usage
+                },
+                None => usage,
             },
-            ..usage
-        },
-        _ => usage,
+            UsageScope::Session => {
+                let baseline = session_id.and_then(|id| SESSION_USAGE_TOTALS.last(id));
+                if let Some(session_id) = session_id {
+                    SESSION_USAGE_TOTALS.record(session_id, &usage);
+                }
+                match self.usage.as_ref().filter(|_| self.summed_steps) {
+                    // The steps already add up to this turn's share; the
+                    // session total only marks it final.
+                    Some(steps) => TurnTokenUsage {
+                        source: usage.source,
+                        last_updated_at: usage.last_updated_at,
+                        ..steps.clone()
+                    },
+                    None => subtract_session_baseline(usage, baseline),
+                }
+            }
+        };
+        self.summed_steps = scope == UsageScope::Step;
+        self.usage = Some(next.clone());
+        next
+    }
+}
+
+/// The last running total each provider session reported, so a resumed turn's
+/// own usage is the difference. In memory only: the first resumed turn after
+/// an app restart has no baseline and reports the session total as-is.
+struct SessionUsageTotals(std::sync::OnceLock<Mutex<HashMap<String, SessionTotal>>>);
+
+/// A session's last reported `(input_tokens, output_tokens)`.
+type SessionTotal = (Option<u64>, u64);
+
+static SESSION_USAGE_TOTALS: SessionUsageTotals = SessionUsageTotals(std::sync::OnceLock::new());
+
+impl SessionUsageTotals {
+    fn totals(&self) -> std::sync::MutexGuard<'_, HashMap<String, SessionTotal>> {
+        self.0
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn last(&self, session_id: &str) -> Option<SessionTotal> {
+        self.totals().get(session_id).copied()
+    }
+
+    fn record(&self, session_id: &str, total: &TurnTokenUsage) {
+        self.totals().insert(
+            session_id.to_string(),
+            (total.input_tokens, total.output_tokens),
+        );
+    }
+}
+
+/// A session total minus the previous one. A total that went down (a new
+/// session behind a reused id, or a CLI that reset its count) is taken as-is.
+fn subtract_session_baseline(
+    total: TurnTokenUsage,
+    baseline: Option<SessionTotal>,
+) -> TurnTokenUsage {
+    let Some((base_input, base_output)) = baseline else {
+        return total;
+    };
+    let input_grew = match (total.input_tokens, base_input) {
+        (Some(input), Some(base)) => input >= base,
+        _ => true,
+    };
+    if total.output_tokens < base_output || !input_grew {
+        return total;
+    }
+    TurnTokenUsage {
+        output_tokens: total.output_tokens - base_output,
+        input_tokens: total
+            .input_tokens
+            .map(|input| input - base_input.unwrap_or(0)),
+        ..total
     }
 }
 
@@ -2411,7 +2514,10 @@ impl ProcessSpawner {
 
             let mut first_output = true;
             let mut collector = TurnOutputCollector::new(provider_kind, parses_json_events);
-            let mut last_token_usage: Option<TurnTokenUsage> = None;
+            let mut turn_usage = TurnUsageTracker::default();
+            // The provider session this turn's events belong to, keying the
+            // running totals of providers that report session-wide usage.
+            let mut turn_session_id: Option<String> = None;
             // Captured when a provider emits a hard turn-level error (e.g. Claude Code
             // `result` with is_error/subtype=error). Surfaced after the stream closes.
             let mut provider_turn_error: Option<String> = None;
@@ -2479,14 +2585,14 @@ impl ProcessSpawner {
                         }
                     }
 
+                    if let Some(sid) = extract_session_id(&event) {
+                        turn_session_id = Some(sid);
+                    }
                     if let Some(usage) = extract_token_usage(provider_kind, &event) {
-                        let usage = accumulate_token_usage(
-                            provider_kind,
-                            &event,
-                            last_token_usage.as_ref(),
-                            usage,
-                        );
-                        last_token_usage = Some(usage.clone());
+                        let scope = provider
+                            .as_ref()
+                            .map_or(UsageScope::Turn, |provider| provider.usage_scope(&event));
+                        let usage = turn_usage.observe(scope, usage, turn_session_id.as_deref());
                         tc.with_broker(|broker| {
                             broker.update_token_usage(&pair_id, &role, usage);
                         });
@@ -2539,8 +2645,7 @@ impl ProcessSpawner {
                     if first_output || is_tool_event {
                         tc.with_broker(|broker| {
                             let (phase, label) = if is_tool_event {
-                                let tool_name =
-                                    event.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
+                                let tool_name = tool_event_name(&event);
                                 broker.add_cognitive_event(
                                     &pair_id,
                                     &role,
@@ -2705,6 +2810,14 @@ impl ProcessSpawner {
             };
 
             let (mut final_output, terminal_success) = collector.finish(final_output_from_file);
+            let mut plain_output_error = None;
+            if !parses_json_events && !terminal_success {
+                if let Some(provider) = provider.as_ref() {
+                    let (reply, error) = provider.split_plain_output(&final_output);
+                    final_output = reply;
+                    plain_output_error = error;
+                }
+            }
 
             let stderr_lines: Vec<String> = stderr_tail
                 .lock()
@@ -2722,11 +2835,13 @@ impl ProcessSpawner {
                 );
             }
 
-            // A hard error reported in the stream wins; otherwise a failed exit
-            // without a terminal success event is the turn's error (the only
-            // failure signal plain-text providers such as aider/kiro have).
+            // A hard error reported in the stream wins, then one a plain-text
+            // provider printed (aider exits 0 on a failed model call);
+            // otherwise a failed exit without a terminal success event is the
+            // turn's error (kiro's only failure signal).
             let turn_error = provider_turn_error
                 .take()
+                .or(plain_output_error)
                 .or_else(|| exit_failure.filter(|_| !terminal_success));
 
             let no_text_output = final_output.trim().is_empty();
@@ -2752,7 +2867,7 @@ impl ProcessSpawner {
                     final_output,
                     no_text_output,
                     turn_error,
-                    token_usage: last_token_usage,
+                    token_usage: turn_usage.usage,
                 },
             )
             .await;
@@ -2816,6 +2931,41 @@ mod tests {
             extract_session_id(&event).as_deref(),
             Some("019d1c0a-0137-73f3-bf4a-88c90739150c")
         );
+    }
+
+    #[test]
+    fn tool_event_name_reads_opencode_part_tool() {
+        let opencode = json!({"type": "tool_use", "part": {"type": "tool", "tool": "shell"}});
+        assert_eq!(tool_event_name(&opencode), "shell");
+        assert_eq!(
+            tool_event_name(&json!({"type": "tool_call", "name": "Read"})),
+            "Read"
+        );
+        assert_eq!(tool_event_name(&json!({"type": "tool_call"})), "tool");
+    }
+
+    #[test]
+    fn extract_session_id_ignores_blank_ids() {
+        // Captured from grok 1.0.44/1.0.46 on a turn that failed before its
+        // session started: every line carries an empty `session_id`.
+        let init =
+            json!({"type": "system", "subtype": "init", "session_id": "", "model": "unknown"});
+        let result = json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "errors": ["Not signed in."],
+            "session_id": ""
+        });
+        assert_eq!(extract_session_id(&init), None);
+        assert_eq!(extract_session_id(&result), None);
+        assert_eq!(
+            extract_session_id(&json!({"type": "session", "id": " "})),
+            None
+        );
+        // A blank top-level id does not shadow a real nested one.
+        let nested = json!({"sessionID": "", "part": {"sessionID": "ses_real"}});
+        assert_eq!(extract_session_id(&nested).as_deref(), Some("ses_real"));
     }
 
     #[test]
@@ -3768,14 +3918,16 @@ mod tests {
         ];
         let mut collector = TurnOutputCollector::new(ProviderKind::Opencode, true);
         let mut usage: Option<TurnTokenUsage> = None;
+        let mut tracker = TurnUsageTracker::default();
         for event in &events {
             collector.observe_json(event);
             if let Some(step) = extract_token_usage(ProviderKind::Opencode, event) {
-                usage = Some(accumulate_token_usage(
+                usage = Some(observe_usage(
+                    &mut tracker,
                     ProviderKind::Opencode,
                     event,
-                    usage.as_ref(),
                     step,
+                    None,
                 ));
             }
         }
@@ -3822,10 +3974,118 @@ mod tests {
             &json!({"type": "assistant", "message": {"usage": {"input_tokens": 10, "output_tokens": 5}}}),
         )
         .unwrap();
+        let mut tracker = TurnUsageTracker::default();
+        let assistant = json!({"type": "assistant"});
+        observe_usage(&mut tracker, ProviderKind::Claude, &assistant, first, None);
         let event = json!({"type": "result", "usage": {"input_tokens": 10, "output_tokens": 9}});
         let second = extract_token_usage(ProviderKind::Claude, &event).unwrap();
-        let merged = accumulate_token_usage(ProviderKind::Claude, &event, Some(&first), second);
+        let merged = observe_usage(&mut tracker, ProviderKind::Claude, &event, second, None);
         assert_eq!(merged.output_tokens, 9);
+    }
+
+    /// Feed one usage event through the tracker the way the stdout loop does.
+    fn observe_usage(
+        tracker: &mut TurnUsageTracker,
+        kind: ProviderKind,
+        event: &serde_json::Value,
+        usage: TurnTokenUsage,
+        session_id: Option<&str>,
+    ) -> TurnTokenUsage {
+        let scope = crate::providers::provider_for_kind(kind)
+            .map_or(UsageScope::Turn, |provider| provider.usage_scope(event));
+        tracker.observe(scope, usage, session_id)
+    }
+
+    fn run_turn(
+        kind: ProviderKind,
+        events: &[serde_json::Value],
+        session_id: &str,
+    ) -> Option<TurnTokenUsage> {
+        let mut tracker = TurnUsageTracker::default();
+        for event in events {
+            if let Some(usage) = extract_token_usage(kind, event) {
+                observe_usage(&mut tracker, kind, event, usage, Some(session_id));
+            }
+        }
+        tracker.usage
+    }
+
+    #[test]
+    fn agy_resumed_turn_usage_is_the_sum_of_its_steps_not_the_conversation_total() {
+        // Captured from agy 1.2.14 (2026-10-06): one conversation, two turns.
+        // The second turn's `result.usage` still counts the first turn.
+        let conversation = format!("agy-test-{}", uuid::Uuid::new_v4());
+        let step = |input: u64, output: u64| json!({"event": "step_update", "step_update": {"usage": {"input_tokens": input, "output_tokens": output}}});
+        let result = |input: u64, output: u64| json!({"event": "result", "result": {"status": "SUCCESS", "usage": {"input_tokens": input, "output_tokens": output}}});
+
+        let first = run_turn(
+            ProviderKind::Gemini,
+            &[step(11832, 1), result(11832, 1)],
+            &conversation,
+        )
+        .unwrap();
+        assert_eq!((first.input_tokens, first.output_tokens), (Some(11832), 1));
+        assert!(matches!(first.source, TokenUsageSource::Final));
+
+        let second = run_turn(
+            ProviderKind::Gemini,
+            &[
+                step(12833, 216),
+                step(13216, 94),
+                step(13376, 164),
+                step(13704, 1),
+                result(64961, 476),
+            ],
+            &conversation,
+        )
+        .unwrap();
+        assert_eq!(
+            (second.input_tokens, second.output_tokens),
+            (Some(53129), 475)
+        );
+        assert!(matches!(second.source, TokenUsageSource::Final));
+
+        // A turn without step usage falls back to the difference between the
+        // conversation totals.
+        let third = run_turn(ProviderKind::Gemini, &[result(78871, 477)], &conversation).unwrap();
+        assert_eq!((third.input_tokens, third.output_tokens), (Some(13910), 1));
+    }
+
+    #[test]
+    fn session_total_usage_is_reduced_to_the_turn_share() {
+        // Codex 0.160.1 `turn.completed` over three turns of one thread
+        // (2026-10-06): a running total, not the turn's own usage.
+        let thread = format!("codex-test-{}", uuid::Uuid::new_v4());
+        let completed = |input: u64, output: u64| json!({"type": "turn.completed", "usage": {"input_tokens": input, "output_tokens": output}});
+        let turn = |input: u64, output: u64| {
+            let event = completed(input, output);
+            let usage = extract_token_usage(ProviderKind::Codex, &event).unwrap();
+            TurnUsageTracker::default().observe(UsageScope::Session, usage, Some(&thread))
+        };
+
+        let shares: Vec<_> = [(30048, 9), (60739, 18), (91450, 27)]
+            .into_iter()
+            .map(|(input, output)| {
+                let usage = turn(input, output);
+                (usage.input_tokens, usage.output_tokens)
+            })
+            .collect();
+        assert_eq!(
+            shares,
+            vec![(Some(30048), 9), (Some(30691), 9), (Some(30711), 9)]
+        );
+
+        // A total that went down is a fresh count, taken as-is.
+        let reset = turn(100, 2);
+        assert_eq!((reset.input_tokens, reset.output_tokens), (Some(100), 2));
+
+        // Without a session id there is no baseline to subtract.
+        let usage = extract_token_usage(ProviderKind::Codex, &completed(500, 5)).unwrap();
+        let anonymous = TurnUsageTracker::default().observe(UsageScope::Session, usage, None);
+        assert_eq!(
+            (anonymous.input_tokens, anonymous.output_tokens),
+            (Some(500), 5)
+        );
     }
 
     #[test]

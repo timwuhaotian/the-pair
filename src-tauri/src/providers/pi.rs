@@ -138,7 +138,7 @@ impl Provider for PiProvider {
         let detail = last
             .get("errorMessage")
             .and_then(|v| v.as_str())
-            .map(str::trim)
+            .map(strip_pi_stack_trace)
             .filter(|s| !s.is_empty())
             .map(String::from)
             .unwrap_or_else(|| format!("pi request {reason}"));
@@ -247,10 +247,42 @@ fn collect_pi_content(content: Option<&Value>, out: &mut Vec<String>) {
     }
 }
 
+/// Pi appends the whole JS stack to auth failures (`…; details=…;
+/// stack=Error: …\n    at postJson (file:///…)`, verified against pi 0.87.0
+/// and 1.0.4). The message before it is what the user can act on.
+fn strip_pi_stack_trace(message: &str) -> &str {
+    let message = message.split("; stack=").next().unwrap_or(message);
+    message.trim().lines().next().unwrap_or("").trim()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn pi_error_detail_drops_the_js_stack_trace() {
+        // Captured from pi 0.87.0 with an expired Anthropic OAuth login.
+        let event = serde_json::json!({
+            "type": "agent_end",
+            "messages": [{
+                "role": "assistant",
+                "stopReason": "error",
+                "errorMessage": "OAuth refresh failed for anthropic: Anthropic token refresh request failed. details=Error: HTTP request failed. status=400; body={\"error\": \"invalid_grant\", \"error_description\": \"Refresh token expired\"}; stack=Error: HTTP request failed.\n    at postJson (file:///opt/homebrew/lib/node_modules/pi/anthropic.js:75:4438)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+            }]
+        });
+        let detail = PiProvider.extract_error_detail(&event).expect("error turn");
+        assert!(detail.ends_with("\"Refresh token expired\"}"), "{detail}");
+        assert!(
+            !detail.contains("stack=") && !detail.contains("    at "),
+            "{detail}"
+        );
+
+        assert_eq!(
+            strip_pi_stack_trace("400: {\"message\":\"Unknown Model\"}"),
+            "400: {\"message\":\"Unknown Model\"}"
+        );
+    }
 
     #[test]
     fn pi_command_uses_json_mode_with_model() {

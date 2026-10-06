@@ -86,6 +86,19 @@ impl Provider for AiderProvider {
             // offers to pip-install Playwright plus a Chromium build, and
             // `--yes-always` would accept.
             "--no-detect-urls".into(),
+            // Keep aider's bookkeeping out of the worktree. By default it
+            // appends `.aider*` to `.gitignore` and writes chat/input history
+            // files into the repo root — even for the read-only mentor, and
+            // into the diff a pair commits (verified against aider-chat 0.86.2,
+            // 2026-10-06). Each `--message` run is a fresh process that never
+            // restores chat history, so nothing is lost. The remaining
+            // `.aider.tags.cache.v4/` repo-map cache has no flag; it is a
+            // regenerable dir in `git_tracker`.
+            "--no-gitignore".into(),
+            "--chat-history-file".into(),
+            NULL_DEVICE.into(),
+            "--input-history-file".into(),
+            NULL_DEVICE.into(),
         ];
 
         // The mentor is read-only. Ask mode answers questions about the code
@@ -143,6 +156,10 @@ impl Provider for AiderProvider {
         true
     }
 
+    fn split_plain_output(&self, output: &str) -> (String, Option<String>) {
+        split_aider_output(output)
+    }
+
     fn detect(&self) -> DetectedProviderProfile {
         crate::provider_registry::ProviderRegistry::detect_aider()
     }
@@ -177,6 +194,100 @@ impl Provider for AiderProvider {
 }
 
 // ── Aider-specific helpers ──────────────────────────────────────────────────
+
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
+/// Lines aider prints on startup before the reply (aider-chat 0.86.2):
+/// version, models, repo and repo-map summary, and git identity hints.
+const AIDER_BANNER_PREFIXES: &[&str] = &[
+    "Aider v",
+    "Main model:",
+    "Weak model:",
+    "Editor model:",
+    "Model:",
+    "Git repo:",
+    "Repo-map:",
+    "Update git name with:",
+    "Update git email with:",
+    "Added .aider",
+];
+
+/// Separate aider's stdout into the reply and a failed model call.
+///
+/// `aider --message` exits 0 even when the model call fails: litellm errors
+/// are printed to stdout as a block opening with `litellm.<Name>Error:` and
+/// wrapped at 80 columns, followed by a docs URL (verified against aider-chat
+/// 0.86.2 with an invalid API key and an unknown model, 2026-10-06). A
+/// retryable error is followed by `Retrying in …` and, if the retry works, by
+/// the reply — so only an error block that ends the output fails the turn.
+fn split_aider_output(output: &str) -> (String, Option<String>) {
+    let mut lines = output.lines().peekable();
+    while lines.peek().is_some_and(|line| {
+        let line = line.trim();
+        line.is_empty()
+            || AIDER_BANNER_PREFIXES
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+    }) {
+        lines.next();
+    }
+
+    let mut blocks: Vec<Vec<&str>> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            if !current.is_empty() {
+                blocks.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(line);
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+
+    let is_error = |block: &[&str]| {
+        block.first().is_some_and(|line| {
+            line.trim_start()
+                .strip_prefix("litellm.")
+                .and_then(|rest| rest.split_once(':'))
+                .is_some_and(|(name, _)| name.ends_with("Error"))
+        })
+    };
+    let is_followup = |block: &[&str]| {
+        block.iter().all(|line| {
+            let line = line.trim();
+            line.starts_with("https://") || line.starts_with("Retrying in ")
+        })
+    };
+
+    let mut reply: Vec<String> = Vec::new();
+    let mut last_error: Option<String> = None;
+    let mut after_error = false;
+    for block in &blocks {
+        if is_error(block) {
+            let detail = block
+                .iter()
+                .map(|line| line.trim())
+                .filter(|line| !line.starts_with("Retrying in "))
+                .collect::<Vec<_>>()
+                .join(" ");
+            last_error = Some(detail);
+            after_error = true;
+        } else if after_error && is_followup(block) {
+            continue;
+        } else {
+            reply.push(block.join("\n"));
+            last_error = None;
+            after_error = false;
+        }
+    }
+    (reply.join("\n\n"), last_error)
+}
 
 fn push_trimmed(out: &mut Vec<String>, s: &str) {
     let trimmed = s.trim();
@@ -240,7 +351,12 @@ mod tests {
                 "--no-check-update".to_string(),
                 "--no-show-release-notes".to_string(),
                 "--no-analytics".to_string(),
-                "--no-detect-urls".to_string()
+                "--no-detect-urls".to_string(),
+                "--no-gitignore".to_string(),
+                "--chat-history-file".to_string(),
+                NULL_DEVICE.to_string(),
+                "--input-history-file".to_string(),
+                NULL_DEVICE.to_string()
             ]
         );
         // The executor keeps aider's default edit mode.
@@ -248,6 +364,64 @@ mod tests {
         // Aider streams plain text; the orchestrator reads it via Stdio, not a
         // sentinel last-message file.
         assert!(command.last_message_path.is_none());
+    }
+
+    #[test]
+    fn aider_failed_model_call_is_a_turn_error_not_a_reply() {
+        // Captured from aider-chat 0.86.2 with an invalid OpenAI key: exit 0.
+        let output = "\
+Update git name with: git config user.name \"Your Name\"
+Update git email with: git config user.email \"you@example.com\"
+Aider v0.86.2
+Main model: gpt-5.2 with diff edit format
+Weak model: gpt-5-nano
+Git repo: .git with 0 files
+Repo-map: using 4096 tokens, auto refresh
+
+litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect
+API key provided: sk-invalid. You can find your API key at
+https://platform.openai.com/account/api-keys.
+The API provider is not able to authenticate you. Check your API key.
+
+https://platform.openai.com/account/api-keys
+";
+        let (reply, error) = AiderProvider.split_plain_output(output);
+        assert_eq!(reply, "");
+        let error = error.expect("a failed model call is an error");
+        assert!(
+            error.starts_with("litellm.AuthenticationError: "),
+            "{error}"
+        );
+        assert!(error.ends_with("Check your API key."), "{error}");
+    }
+
+    #[test]
+    fn aider_reply_drops_the_banner_and_survives_a_retried_error() {
+        let output = "\
+Aider v0.86.2
+Model: claude-sonnet-4-5 with diff edit format
+Git repo: .git with 3 files
+Repo-map: using 1024 tokens, auto refresh
+
+litellm.RateLimitError: RateLimitError: AnthropicException - overloaded
+The API provider has rate limited you. Try again later or check your quotas.
+Retrying in 0.2 seconds...
+
+https://docs.litellm.ai/docs/providers
+
+The parser is fixed.
+
+Model: the tests pass now.
+";
+        let (reply, error) = AiderProvider.split_plain_output(output);
+        assert_eq!(
+            error, None,
+            "a retry that produced a reply is not a failure"
+        );
+        assert_eq!(reply, "The parser is fixed.\n\nModel: the tests pass now.");
+
+        let (plain, none) = AiderProvider.split_plain_output("Just an answer.\n");
+        assert_eq!((plain.as_str(), none), ("Just an answer.", None));
     }
 
     #[test]

@@ -33,8 +33,9 @@ pub struct MuseProvider;
 /// Supported values: [minimal, low, medium, high, xhigh]" (verified on Muse
 /// Code 1.4.2). `muse exec --help` also lists `none`, but the CLI rejects it
 /// before any model call ("not supported with --provider meta"). `ultra` is
-/// not a real tier — it resolves to the untiered lane on every catalogued
-/// model — so it is not offered.
+/// gated server-side and normally closed — Muse Code 1.4.3 prints "reasoning
+/// effort ultra is not available (gate ultra_reasoning_effort is closed);
+/// using xhigh" and runs at `xhigh` — so it is not offered.
 const MUSE_REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 
 /// muse-spark-1.3 and later accept `max` on top of the shared ladder. Anything

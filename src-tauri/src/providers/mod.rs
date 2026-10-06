@@ -19,6 +19,19 @@ use std::sync::Arc;
 
 use crate::types::TurnTokenUsage;
 
+/// What the numbers on one usage event cover, which decides how the spawner
+/// folds a turn's usage events into that turn's own usage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageScope {
+    /// The turn so far (a running or final total): replaces earlier values.
+    Turn,
+    /// One model step: summed with the turn's earlier steps.
+    Step,
+    /// The provider session so far, including every earlier turn it resumed:
+    /// the turn's share is what it added since the session's last total.
+    Session,
+}
+
 /// The central abstraction for a CLI provider. Each supported CLI tool (opencode,
 /// codex, claude, gemini, ...) implements this trait in its own module file.
 ///
@@ -78,6 +91,12 @@ pub trait Provider: Send + Sync {
     /// doesn't contain usage data.
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage>;
 
+    /// What the usage on `event` covers (see `UsageScope`). Only consulted for
+    /// events `extract_token_usage` returned usage for.
+    fn usage_scope(&self, _event: &Value) -> UsageScope {
+        UsageScope::Turn
+    }
+
     /// Provider-specific JSON candidate extraction. Return `Some(vec)` to
     /// override the generic text extraction, or `None` to fall through to
     /// the default.
@@ -114,6 +133,14 @@ pub trait Provider: Send + Sync {
     /// Whether to suppress plain-output line logging.
     fn suppress_plain_output_logging(&self) -> bool {
         false
+    }
+
+    /// Split a plain-text provider's stdout into the reply and the error the
+    /// CLI reported in it, for CLIs that print failures to stdout and still
+    /// exit 0. Only consulted when no terminal success event was seen.
+    /// Default: the whole output is the reply.
+    fn split_plain_output(&self, output: &str) -> (String, Option<String>) {
+        (output.to_string(), None)
     }
 
     // ── Detection ─────────────────────────────────────────────────────────

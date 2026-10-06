@@ -141,6 +141,8 @@ When the user says **"update agents"**, audit every supported provider's CLI int
    - `build_turn_command()` — flags, arg order, flag syntax
    - `runtime_spec()` — transport/session/permission strategy if changed
    - `extract_token_usage()` / `collect_json_candidates()` / `extract_error_detail()` — JSON event schema
+   - `usage_scope()` — whether a usage event covers one step, the turn, or the whole resumed session (agy's `result` and Codex ≥ 0.154's `turn.completed` are session totals; check with two resumed turns, not one)
+   - `split_plain_output()` — for plain-text CLIs that print failures to stdout and still exit 0 (aider)
    - `detect_*()` — auth detection, model discovery commands
    - Frontend maps in `providerSetup.ts`, `providerResolution.ts`, `modelCatalogGrouping.ts`
 

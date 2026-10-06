@@ -230,6 +230,7 @@ mod tests {
                 "plan".to_string(),
                 "--resume".to_string(),
                 "claude-session".to_string(),
+                "--".to_string(),
                 "plan the work".to_string()
             ]
         );

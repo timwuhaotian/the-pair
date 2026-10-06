@@ -9,8 +9,11 @@ use serde_json::Value;
 
 /// Kiro CLI (`kiro-cli`) — AWS's spec-driven terminal coding agent.
 /// Uses `kiro-cli chat --no-interactive` for plain-text stdout output.
-/// Verified against kiro-cli 2.23.0 (2026-09-23): `chat --model <MODEL>`
-/// selects the model (unknown ids are rejected). Headless
+/// `chat --model <MODEL>` selects the model — on the default (V2) engine only
+/// from kiro-cli 2.26.1, which fixed `--model` being ignored by
+/// `--no-interactive` runs. Unknown ids are not rejected: V2 passes them to the
+/// backend and V3 warns on stderr and keeps the account default (kiro.dev
+/// docs, re-checked against kiro-cli 2.28.0 on 2026-10-06). Headless
 /// `--agent-engine v2 --output-format stream-json` (v2 is now the default
 /// engine) is available but its event format is undocumented, so the
 /// plain-text transport is kept; switching to the structured stream would
@@ -83,8 +86,9 @@ impl Provider for KiroProvider {
         let mut args: Vec<String> = vec!["chat".into(), "--no-interactive".into(), trust];
 
         // Pairs saved before 2.8.1 may hold a whole `--list-models` table row
-        // as their model id; Kiro rejects unknown ids, so only a real model
-        // token is forwarded and anything else keeps the account default.
+        // as their model id. Kiro forwards an unknown id to the backend rather
+        // than rejecting it, so only a real model token is passed and anything
+        // else keeps the account default.
         if !model.is_empty() && !model.contains(char::is_whitespace) {
             args.push("--model".into());
             args.push(model.into());

@@ -61,6 +61,11 @@ impl Provider for ClaudeProvider {
             args.push("--effort".into());
             args.push(level.into());
         }
+        // The message is a bare positional, so one starting with `-` (a markdown
+        // bullet or a `---` diff header, routine in handoff text) is parsed as an
+        // unknown option and the turn exits 1 before any JSON event. `--` ends
+        // option parsing (verified against claude-code 2.1.291).
+        args.push("--".into());
         args.push(request.message.into());
 
         ProviderTurnCommand {
@@ -281,10 +286,17 @@ impl Provider for ClaudeProvider {
         Some("https://claude.ai/download".into())
     }
 
-    fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
-        // Verified against claude-code 2.1.283 (2026-09-26): --effort accepts
-        // {low, medium, high, xhigh, max}. Older installs (pre-2.1.111) reject
-        // the flag outright; callers should hide the picker for those.
+    fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
+        // The ladder is per-model, so the CLI's cached model catalog wins: it
+        // drops `xhigh` for the 4.6 models and hides the control for Haiku,
+        // which ignores `--effort`.
+        let model_id = model_id.strip_prefix("claude/").unwrap_or(model_id);
+        if let Some(levels) = crate::provider_registry::claude_catalog_effort_levels(model_id) {
+            return (!levels.is_empty()).then_some(levels);
+        }
+        // Uncatalogued model (or no cache yet): the full set `--effort` accepts
+        // (verified against claude-code 2.1.291). Older installs (pre-2.1.111)
+        // reject the flag outright; callers should hide the picker for those.
         Some(vec![
             "low".into(),
             "medium".into(),
@@ -328,6 +340,17 @@ fn extract_claude_final_output(event: &Value) -> Option<String> {
 fn collect_claude_assistant_text_blocks(event: &Value, out: &mut Vec<String>) {
     let event_type = event.get("type").and_then(|value| value.as_str());
     if event_type != Some("assistant") {
+        return;
+    }
+    // API failures arrive first as a synthetic assistant message whose text is
+    // the error (`"model": "<synthetic>"`, `"is_api_error_message": true`), then
+    // again on the errored `result`. `extract_error_detail` reports the latter;
+    // keeping this one too would show the error twice.
+    if event
+        .get("is_api_error_message")
+        .and_then(|value| value.as_bool())
+        == Some(true)
+    {
         return;
     }
 
@@ -380,6 +403,7 @@ mod tests {
                 "plan".to_string(),
                 "--resume".to_string(),
                 "claude-session".to_string(),
+                "--".to_string(),
                 "plan the work".to_string()
             ]
         );
@@ -482,5 +506,64 @@ mod tests {
             Some("There's an issue with the selected model.")
         );
         assert_eq!(provider.collect_json_candidates(&result), Some(vec![]));
+    }
+
+    #[test]
+    fn claude_synthetic_api_error_message_is_not_reply_text() {
+        let provider = ClaudeProvider;
+        // Captured from claude-code 2.1.291 with an unknown --model: this
+        // precedes the errored `result` carrying the same text.
+        let synthetic = serde_json::json!({
+            "type": "assistant",
+            "is_api_error_message": true,
+            "error": "model_not_found",
+            "message": {
+                "model": "<synthetic>",
+                "content": [{"type": "text", "text": "There's an issue with the selected model."}]
+            }
+        });
+        assert_eq!(provider.collect_json_candidates(&synthetic), Some(vec![]));
+
+        let real = serde_json::json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "ok"}]}
+        });
+        assert_eq!(
+            provider.collect_json_candidates(&real),
+            Some(vec!["ok".to_string()])
+        );
+    }
+
+    #[test]
+    fn claude_message_starting_with_a_dash_follows_the_option_terminator() {
+        let provider = ClaudeProvider;
+        for message in ["- bullet first", "--- a/src/main.rs"] {
+            let command = provider.build_turn_command(&ProviderTurnRequest {
+                provider_kind: ProviderKind::Claude,
+                model: "sonnet",
+                session_id: None,
+                role: "executor",
+                pair_id: "pair-1",
+                message,
+                reasoning_effort: Some("high"),
+            });
+            let n = command.args.len();
+            assert_eq!(command.args[n - 2], "--");
+            assert_eq!(command.args[n - 1], message);
+        }
+    }
+
+    #[test]
+    fn claude_uncatalogued_model_offers_the_full_effort_ladder() {
+        assert_eq!(
+            ClaudeProvider.reasoning_effort_levels("claude/claude-not-a-real-model-x"),
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "xhigh".to_string(),
+                "max".to_string(),
+            ])
+        );
     }
 }

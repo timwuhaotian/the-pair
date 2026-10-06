@@ -97,6 +97,8 @@ pub(crate) fn fallback_path_dirs(
         dirs.push(home.join(".volta/bin"));
         dirs.push(home.join(".opencode/bin"));
         dirs.push(home.join(".kimi-code/bin"));
+        // pi.dev's managed installer (recommended by `pi update` since 1.0.1).
+        dirs.push(home.join(".pi/agent/bin"));
     }
 
     if is_windows {
@@ -832,7 +834,8 @@ mod tests {
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.volta/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.opencode/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/alex/.kimi-code/bin")));
-        assert_eq!(dirs.len(), 10);
+        assert!(dirs.contains(&PathBuf::from("/Users/alex/.pi/agent/bin")));
+        assert_eq!(dirs.len(), 11);
     }
 
     #[test]

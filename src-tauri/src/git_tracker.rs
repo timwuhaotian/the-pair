@@ -49,6 +49,9 @@ pub(crate) const REGENERABLE_DIRS: &[&str] = &[
     "DerivedData",
     ".dart_tool",
     "vendor/bundle",
+    // Aider's repo-map cache, written into the repo root on every run
+    // (aider-chat 0.86.2) with no flag to move it.
+    ".aider.tags.cache.v4",
 ];
 
 /// True when the repo-relative directory `dir` (`/`-separated, an optional

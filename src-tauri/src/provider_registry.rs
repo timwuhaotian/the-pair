@@ -56,6 +56,7 @@ static OPENCODE_VARIANT_SYNTAX: ProbeCache<OpencodeVariantSyntax> =
 static PI_MAX_THINKING_LEVEL_SUPPORT: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 static CODEX_REASONING_LEVELS: ProbeCache<Arc<CodexReasoningCatalog>> =
     ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
+static CODEX_SESSION_USAGE: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 
 /// The last result of a capability probe for one resolved CLI binary. A
 /// successful probe is kept for the session; a failed one (timeout, crash)
@@ -244,6 +245,25 @@ fn capture_command_output_with_timeout(
     String::from_utf8(output.stdout).ok()
 }
 
+/// Like `capture_command_output_with_timeout`, but keeps stdout whatever the
+/// exit status: for probes that report a negative answer through a non-zero
+/// exit *and* a machine-readable stdout. `None` only when the command could
+/// not run or timed out.
+fn capture_command_stdout_any_status(
+    command_path: &Path,
+    args: &[&str],
+    home: &std::path::Path,
+    timeout: Duration,
+) -> Option<String> {
+    let mut command = Command::new(command_path);
+    command.args(args);
+    prepare_cli_command(&mut command, home);
+
+    let output = run_with_timeout(command, timeout)?;
+    output.status?;
+    String::from_utf8(output.stdout).ok()
+}
+
 fn opencode_variant_syntax_from_help(help_text: &str) -> OpencodeVariantSyntax {
     // OpenCode 2.x advertises the variant suffix in the `--model` help text
     // ("Model to use in the format provider/model#variant"); 1.x has neither
@@ -339,6 +359,50 @@ pub(crate) fn codex_reasoning_levels(model_id: &str) -> Option<Vec<String>> {
         })
         .and_then(|catalog| catalog.get(slug).cloned())
         .filter(|levels| !levels.is_empty())
+}
+
+/// First Codex release whose `turn.completed.usage` keeps counting across
+/// `exec resume`. Bisected live (2026-10-06, three turns of one thread each):
+/// 0.152.1, 0.153.0 and 0.153.4 report each turn's own usage (output 5/5/5);
+/// 0.154.0, 0.155.0, 0.156.0, 0.158.0 and 0.160.1 report the thread's running
+/// total (output 5/10/15).
+const CODEX_SESSION_USAGE_SINCE: (u32, u32, u32) = (0, 154, 0);
+
+/// Whether the installed `codex` reports a resumed thread's usage as the
+/// thread's running total rather than the turn's own (see
+/// `CODEX_SESSION_USAGE_SINCE`). Probed once per binary from `codex --version`;
+/// `false` when the CLI is missing or the version cannot be read, which keeps
+/// the pre-0.153 per-turn reading.
+pub(crate) fn codex_reports_session_usage() -> bool {
+    let Some(command_path) = which_binary("codex") else {
+        return false;
+    };
+    CODEX_SESSION_USAGE
+        .get_or_probe(&command_path, || {
+            let output = capture_command_output_with_timeout(
+                &command_path,
+                &["--version"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            )?;
+            parse_codex_version(&output).map(|version| version >= CODEX_SESSION_USAGE_SINCE)
+        })
+        .unwrap_or(false)
+}
+
+/// `codex-cli 0.160.1` → (0, 160, 1). Pre-release suffixes are ignored.
+fn parse_codex_version(output: &str) -> Option<(u32, u32, u32)> {
+    output.split_whitespace().find_map(|token| {
+        let mut parts = token.trim_start_matches('v').splitn(3, '.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch_digits: String = parts
+            .next()?
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        Some((major, minor, patch_digits.parse().ok()?))
+    })
 }
 
 /// Parse `codex debug models` into slug → effort list. Models that advertise
@@ -1006,6 +1070,54 @@ fn collect_claude_model_ids_from_catalog_cache(
     }
 }
 
+/// The `--effort` levels the Claude Code model catalog lists for `model_id`.
+///
+/// The ladder is per-model (verified against claude-code 2.1.291, 2026-10-06):
+/// `claude-opus-4-6` / `claude-sonnet-4-6` stop at `high`→`max` with no
+/// `xhigh` (the CLI silently falls back to `high`), and Haiku 4.5 carries
+/// `thinking.type: "none"` — `--effort` is accepted but ignored
+/// (`per_turn_effort_active: false` in the init event).
+///
+/// Returns `None` when the catalog is missing or does not list the model (the
+/// caller falls back to the full ladder), and `Some(vec![])` when the model is
+/// catalogued without an effort control.
+pub(crate) fn claude_catalog_effort_levels(model_id: &str) -> Option<Vec<String>> {
+    read_claude_catalog_effort_levels(&homedir().join(".claude/cache/model-catalog"), model_id)
+}
+
+fn read_claude_catalog_effort_levels(
+    cache_dir: &std::path::Path,
+    model_id: &str,
+) -> Option<Vec<String>> {
+    let entries = std::fs::read_dir(cache_dir).ok()?;
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .filter_map(|path| safe_read_json::<serde_json::Value>(&path))
+        .find_map(|catalog| {
+            let model = catalog
+                .pointer("/catalog/config/models")?
+                .as_array()?
+                .iter()
+                .find(|model| model.get("id").and_then(|v| v.as_str()) == Some(model_id))?;
+            let thinking = model.get("thinking")?;
+            match thinking.get("type").and_then(|v| v.as_str())? {
+                "none" => Some(Vec::new()),
+                "effort" => Some(
+                    thinking
+                        .get("effort_options")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|option| option.get("id")?.as_str().map(String::from))
+                        .collect(),
+                ),
+                // An unknown control type says nothing about `--effort`.
+                _ => None,
+            }
+        })
+}
+
 fn capture_claude_help_text(home: &std::path::Path, command_path: &Path) -> Option<String> {
     capture_command_output_with_timeout(command_path, &["--help"], home, CLI_PROBE_TIMEOUT)
 }
@@ -1378,6 +1490,9 @@ impl ProviderRegistry {
         let authenticated = auth_path.exists();
         let subscription_label = "subscription-backed".to_string();
         let models = if installed {
+            // Warm the version probe here so a turn's usage handling, which
+            // runs on the async stdout loop, finds it cached.
+            codex_reports_session_usage();
             build_detected_models(
                 discover_codex_model_ids(&homedir),
                 "openai",
@@ -1678,15 +1793,19 @@ impl ProviderRegistry {
         let installed = which_binary_exists("grok");
         let homedir = homedir();
 
-        // Grok Build caches OAuth credentials in `~/.grok/auth.json`; headless
-        // environments can instead authenticate with `XAI_API_KEY`.
-        let authenticated = homedir.join(".grok/auth.json").exists()
+        let grok_dir = crate::config_paths::grok_home_dir(Some(&homedir))
+            .unwrap_or_else(|| homedir.join(".grok"));
+
+        // Grok Build caches OAuth credentials in `$GROK_HOME/auth.json`
+        // (default `~/.grok`); headless environments can instead authenticate
+        // with `XAI_API_KEY`.
+        let authenticated = grok_dir.join("auth.json").exists()
             || std::env::var("XAI_API_KEY")
                 .map(|v| !v.trim().is_empty())
                 .unwrap_or(false);
 
         let models = if installed {
-            grok_model_options(&homedir)
+            grok_model_options(&grok_dir)
         } else {
             Vec::new()
         };
@@ -1751,9 +1870,13 @@ fn parse_antigravity_model_lines(output: &str) -> Vec<DetectedModelOption> {
 /// `[models."<alias>"]` section is a runnable `--model` value; `display_name`
 /// keys inside a section provide the human-readable label.
 /// Model ids Muse Code is known to serve. Muse ships no `models list`
-/// subcommand, so the catalog cannot be probed from the CLI. These two ids are
-/// seeded and then unioned with whatever the user has configured, so a newer
-/// model appears as soon as they select it in Muse itself.
+/// subcommand; the catalog is only reachable over `muse serve`'s JSON-RPC
+/// `model/list`, which on 1.4.3 also lists `muse-spark-1.3-contributor` and
+/// `muse-spark-1.2-contributor`. Those are left out on purpose: their terms
+/// allow the content to be used for product improvement, which a pair should
+/// not opt into silently. These two ids are seeded and then unioned with
+/// whatever the user has configured, so a newer model appears as soon as they
+/// select it in Muse itself.
 const MUSE_SEED_MODELS: &[&str] = &["muse-spark-1.3", "muse-spark-1.2"];
 
 #[derive(Deserialize)]
@@ -1880,9 +2003,10 @@ fn parse_kimi_model_aliases(content: &str) -> Vec<DetectedModelOption> {
 
 /// Build Grok Build's model list: the built-in models (Grok Build 1.0.40's
 /// bundled `default_models.json`, default `grok-4.6`) plus any custom models
-/// declared in `~/.grok/config.toml`. Custom `[model.<alias>]` sections are
-/// addressed by alias through `-m`; `name` provides the display label.
-fn grok_model_options(home: &std::path::Path) -> Vec<DetectedModelOption> {
+/// declared in `$GROK_HOME/config.toml` (default `~/.grok`). Custom
+/// `[model.<alias>]` sections are addressed by alias through `-m`; `name`
+/// provides the display label.
+fn grok_model_options(grok_dir: &std::path::Path) -> Vec<DetectedModelOption> {
     let mut models: Vec<DetectedModelOption> = [("grok-4.6", "Grok 4.6"), ("grok-4.5", "Grok 4.5")]
         .into_iter()
         .map(|(model_id, display_name)| DetectedModelOption {
@@ -1896,7 +2020,7 @@ fn grok_model_options(home: &std::path::Path) -> Vec<DetectedModelOption> {
         })
         .collect();
 
-    if let Ok(content) = fs::read_to_string(home.join(".grok/config.toml")) {
+    if let Ok(content) = fs::read_to_string(grok_dir.join("config.toml")) {
         for model in parse_grok_config_models(&content) {
             if !models.iter().any(|m| m.model_id == model.model_id) {
                 models.push(model);
@@ -1997,8 +2121,12 @@ fn pi_model_providers(models: &[DetectedModelOption]) -> Vec<String> {
 }
 
 /// Whether `pi auth check --provider <provider> --json` reports `"ready"`.
+///
+/// A provider that is not ready still prints its JSON verdict, but exits
+/// non-zero (`"invalid"` → 2, `"not_ready"` → 1; verified against pi 0.87.0
+/// and 1.0.4, 2026-10-06), so the exit status must not discard the answer.
 fn pi_provider_is_ready(pi_bin: &Path, provider: &str) -> bool {
-    let Some(output) = capture_command_output_with_timeout(
+    let Some(output) = capture_command_stdout_any_status(
         pi_bin,
         &["auth", "check", "--provider", provider, "--json"],
         &homedir(),
@@ -2418,6 +2546,122 @@ mod tests {
     }
 
     #[test]
+    fn codex_version_parser_reads_semver_and_gates_session_usage() {
+        assert_eq!(parse_codex_version("codex-cli 0.160.1"), Some((0, 160, 1)));
+        assert_eq!(
+            parse_codex_version("codex-cli 0.153.0-alpha.5\n"),
+            Some((0, 153, 0))
+        );
+        assert_eq!(parse_codex_version("codex-cli"), None);
+        assert_eq!(
+            parse_codex_version("WARNING: config\ncodex-cli 0.149.1"),
+            Some((0, 149, 1))
+        );
+        assert!((0, 153, 4) < CODEX_SESSION_USAGE_SINCE);
+        assert!((0, 154, 0) >= CODEX_SESSION_USAGE_SINCE);
+        assert!((0, 160, 1) >= CODEX_SESSION_USAGE_SINCE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pi_readiness_reads_the_verdict_from_a_non_zero_exit() {
+        let bin_dir = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&bin_dir).unwrap();
+        // Mirrors pi 0.87.0/1.0.4: the JSON verdict is printed either way and
+        // the exit status says whether the provider is ready.
+        let pi = write_executable_script(
+            &bin_dir,
+            "pi",
+            r#"#!/bin/sh
+case "$4" in
+  zai) echo '{"status":"ready","provider":"zai"}'; exit 0 ;;
+  anthropic) echo '{"status":"invalid","provider":"anthropic","reason":"invalid_state"}'; exit 2 ;;
+  nosuch) echo '{"status":"not_ready","provider":"nosuch","reason":"provider_not_found"}'; exit 1 ;;
+  *) echo 'boom' >&2; exit 3 ;;
+esac
+"#,
+        );
+
+        assert!(pi_provider_is_ready(&pi, "zai"));
+        assert!(
+            !pi_provider_is_ready(&pi, "anthropic"),
+            "expired credentials are not ready"
+        );
+        assert!(!pi_provider_is_ready(&pi, "nosuch"));
+        assert!(
+            pi_provider_is_ready(&pi, "other"),
+            "no parseable verdict leaves the provider runnable"
+        );
+
+        fs::remove_dir_all(&bin_dir).ok();
+    }
+
+    #[test]
+    fn claude_effort_levels_come_from_the_cli_catalog_cache() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let cache_dir = temp_home.join(".claude/cache/model-catalog");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(cache_dir.join("broken.json"), "{not json").unwrap();
+        // Shapes captured from claude-code 2.1.291's catalog cache.
+        std::fs::write(
+            cache_dir.join("catalog.json"),
+            r#"{
+              "catalog": {
+                "config": {
+                  "models": [
+                    { "id": "claude-opus-5-5", "thinking": { "type": "effort", "effort_options": [
+                      { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }, { "id": "max" }
+                    ] } },
+                    { "id": "claude-sonnet-4-6", "thinking": { "type": "effort", "effort_options": [
+                      { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "max" }
+                    ] } },
+                    { "id": "claude-haiku-4-5-20251001", "thinking": { "type": "none" } },
+                    { "id": "claude-no-thinking-key" },
+                    { "id": "claude-future-control", "thinking": { "type": "budget" } }
+                  ]
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let levels = |id: &str| read_claude_catalog_effort_levels(&cache_dir, id);
+        assert_eq!(
+            levels("claude-opus-5-5"),
+            Some(
+                vec!["low", "medium", "high", "xhigh", "max"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect()
+            )
+        );
+        assert_eq!(
+            levels("claude-sonnet-4-6"),
+            Some(
+                vec!["low", "medium", "high", "max"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect()
+            ),
+            "4.6 models have no xhigh"
+        );
+        assert_eq!(
+            levels("claude-haiku-4-5-20251001"),
+            Some(vec![]),
+            "Haiku ignores --effort"
+        );
+        assert_eq!(levels("claude-no-thinking-key"), None);
+        assert_eq!(levels("claude-future-control"), None);
+        assert_eq!(levels("claude-not-catalogued"), None);
+        assert_eq!(
+            read_claude_catalog_effort_levels(&temp_home.join("nope"), "claude-opus-5-5"),
+            None
+        );
+
+        std::fs::remove_dir_all(&temp_home).ok();
+    }
+
+    #[test]
     fn discover_aider_models_keeps_colons_in_configured_model_ids() {
         let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_home).expect("failed to create temp home");
@@ -2665,8 +2909,8 @@ name = "bare table, not an alias"
 
     #[test]
     fn discover_muse_models_falls_back_to_the_seed_catalog() {
-        // Muse ships no `models list` and accepts unknown ids silently, so the
-        // seed is the only catalog available without user config.
+        // Muse ships no `models list` subcommand, so the seed is the only
+        // catalog available without user config.
         let _guard = crate::test_env::lock_env();
         let saved = pin_muse_env();
         let home = muse_temp_home(None);

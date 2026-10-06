@@ -135,6 +135,21 @@ impl Provider for CodexProvider {
         })
     }
 
+    fn usage_scope(&self, _event: &Value) -> super::UsageScope {
+        // `turn.completed.usage` is the thread's running total. Before 0.154
+        // a resumed thread restarted that total at zero, so it equalled the
+        // turn's own usage; from 0.154 the accumulated total is restored on
+        // resume, so on `exec resume` it includes every earlier turn
+        // (verified live: output 5/5/5 over three turns of one thread on
+        // 0.153.4, 5/10/15 on 0.154.0 and 0.160.1 — see
+        // `CODEX_SESSION_USAGE_SINCE`).
+        if crate::provider_registry::codex_reports_session_usage() {
+            super::UsageScope::Session
+        } else {
+            super::UsageScope::Turn
+        }
+    }
+
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
         // A standalone `error` event is critical, not a transient reconnect —
         // but the CLI always re-surfaces it on the following `turn.failed`, so

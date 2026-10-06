@@ -58,6 +58,19 @@ impl Provider for GeminiProvider {
         }
     }
 
+    fn usage_scope(&self, event: &Value) -> super::UsageScope {
+        // Each `step_update.usage` covers one model call. `result.usage` is
+        // the conversation's running total: on a turn resumed with
+        // `--conversation` it still counts every earlier turn (verified live
+        // against agy 1.2.14 and 1.3.0, 2026-10-06 — turn 2's result was
+        // 64961/476 = turn 1's 11832/1 + its own steps' 53129/475), so the
+        // turn's usage is the sum of its steps.
+        match event.get("event").and_then(|v| v.as_str()) {
+            Some("step_update") => super::UsageScope::Step,
+            _ => super::UsageScope::Session,
+        }
+    }
+
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
         let (usage, is_final) = match event.get("event").and_then(|v| v.as_str())? {
             "result" => (event.get("result")?.get("usage")?, true),
@@ -205,11 +218,14 @@ fn describe_denied_actions(event: &Value) -> Option<String> {
 /// - **Executor** (code writing): `--mode accept-edits` allows file edits,
 ///   and `--dangerously-skip-permissions` auto-approves tool calls.
 /// - **Reasoning effort**: `--effort <low|medium|high|max>` (`max` added in
-///   agy 1.2.11, verified 2026-09-26). Omitted when the caller passes `None`;
-///   the legacy `--thinking-budget` flag was never supported on `agy` and is
-///   rejected outright, so we don't fall back to it. Gemini models still don't
-///   offer separate effort levels in the picker because their slugs already
-///   encode effort (`gemini-3.8-flash-high`).
+///   agy 1.2.11, verified 2026-09-26). Omitted when the caller passes `None`,
+///   and when the model id already ends in an effort tier
+///   (`gemini-3.8-flash-high`, which is every id `agy models` lists): agy
+///   rejects any `--effort` that differs from the id's own tier ("--model
+///   gemini-3.8-flash-low conflicts with --effort=high", exit 1 — verified
+///   against agy 1.2.14 and 1.3.0, 2026-10-06), so the id's tier wins. The
+///   legacy `--thinking-budget` flag was never supported on `agy` and is
+///   rejected outright, so we don't fall back to it.
 /// - **Session**: `--conversation <id>` resumes the conversation captured from
 ///   the `init` event of an earlier turn.
 ///
@@ -246,7 +262,7 @@ pub fn build_agy_args(
         args.push("--dangerously-skip-permissions".into());
     }
 
-    if let Some(effort) = reasoning_effort {
+    if let Some(effort) = reasoning_effort.filter(|_| !model_has_effort_tier(model)) {
         args.push("--effort".into());
         args.push(effort.into());
     }
@@ -257,6 +273,16 @@ pub fn build_agy_args(
     args.push(prompt);
 
     args
+}
+
+/// Whether the model id pins its own effort (`gemini-3.8-flash-high`).
+fn model_has_effort_tier(model: &str) -> bool {
+    model.rsplit_once('-').is_some_and(|(_, tier)| {
+        matches!(
+            tier,
+            "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+        )
+    })
 }
 
 fn push_trimmed(out: &mut Vec<String>, s: &str) {
@@ -338,7 +364,7 @@ mod tests {
         // legacy `--thinking-budget` flag is rejected outright by agy, so we
         // never emit it.
         let args = build_agy_args(
-            "gemini-3.8-flash-low",
+            "gemini-3.8-flash",
             "do the work",
             "executor",
             Some("high"),
@@ -351,6 +377,31 @@ mod tests {
         assert_eq!(args[effort_idx + 1], "high");
         assert!(!args.contains(&"--thinking-budget".to_string()));
         assert!(!args.contains(&"32768".to_string()));
+    }
+
+    #[test]
+    fn agy_omits_effort_when_the_model_id_pins_its_tier() {
+        // agy 1.2.14/1.3.0 fail the turn when `--effort` contradicts the id's
+        // own tier, so a stale or restored effort must not reach the CLI.
+        for model in [
+            "gemini-3.8-flash-low",
+            "gemini-3.1-pro-high",
+            "gpt-oss-120b-medium",
+        ] {
+            let args = build_agy_args(model, "do the work", "executor", Some("max"), None);
+            assert!(!args.contains(&"--effort".to_string()), "{model}: {args:?}");
+        }
+        let args = build_agy_args(
+            "claude-opus-4-6-thinking",
+            "x",
+            "executor",
+            Some("high"),
+            None,
+        );
+        assert!(
+            args.contains(&"--effort".to_string()),
+            "no tier suffix: {args:?}"
+        );
     }
 
     #[test]

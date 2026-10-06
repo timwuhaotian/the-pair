@@ -353,6 +353,22 @@ impl Provider for OpenCodeProvider {
         )
     }
 
+    fn usage_scope(&self, event: &Value) -> super::UsageScope {
+        let is_step_finish = |value: Option<&Value>| {
+            matches!(
+                value.and_then(|v| v.as_str()),
+                Some("step_finish" | "step-finish")
+            )
+        };
+        if is_step_finish(event.get("type"))
+            || is_step_finish(event.get("part").and_then(|part| part.get("type")))
+        {
+            super::UsageScope::Step
+        } else {
+            super::UsageScope::Turn
+        }
+    }
+
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
         // `run --format json` emits one `step_finish` event per model step.
         // Its `part.tokens` holds `{input, output, reasoning, cache: {read,
@@ -360,14 +376,13 @@ impl Provider for OpenCodeProvider {
         // is the sum over its steps. Providers are stateless per event, so
         // the spawner has to do that summing; each step is reported as-is here.
         //
-        // Caveat: 2.x (verified live on 2.0.14; unchanged through 2.0.18 —
-        // `run/noninteractive.ts` sets `finalizing` once the execution ends
-        // and then skips every non-`session.execution.*` event) never prints
-        // the final step's `step_finish`; only intermediate `tool-calls`
-        // steps arrive. 1.x (verified live on 1.18.32) does print the final
-        // `reason: "stop"` one. So on 2.x the turn total misses the last
-        // step and the source stays Live. Parsing stays as-is: correct for
-        // 1.x and forward-compatible if 2.x restores the event.
+        // Caveat: 2.x may drop the final step's `step_finish`. Once the
+        // session finishes, `run/noninteractive.ts` skips every event still
+        // in flight, so whether the closing `reason: "stop"` step arrives is a
+        // race (verified live on 2.0.14 and 2.0.24: single-step turns usually
+        // print it, multi-step tool turns usually end on `text`). 1.x
+        // (verified live on 1.18.32) always prints it. When it is dropped the
+        // turn total misses the last step and the source stays Live.
         if let Some(part) = event.get("part") {
             let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
             if part_type == "step-finish" || part_type == "step_finish" {
