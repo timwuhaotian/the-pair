@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.2] - 2026-10-10
+
+Provider CLI audit against opencode 2.0.14, codex-cli 0.149.1 (changelog to 0.162.1), claude-code 2.1.295/2.1.296, agy 1.3.0–1.3.3, kimi-code 2.1.1, pi 0.87.0 (changelog to 1.1.0), kiro-cli 2.29.0, aider-chat 0.86.2, grok-build 1.0.44–1.0.46 and Muse Code 1.4.4. Eight integrations matched their CLIs exactly; two fixes below, both covered by regression tests.
+
+### Fixed
+
+- **Pi: the read-only mentor could run MCP tools.** Since pi 1.0.4, `--tools` keeps MCP tools enabled unless an entry starts with `mcp__`, so the mentor's `read,grep,find,ls` allowlist no longer blocked MCP servers' tools. Mentor turns now also pass `--no-mcp` on CLIs that support it (probed from `pi --help`, so older installs are unaffected).
+- **Pi: a retried run's tokens were counted twice.** An `agent_end` flagged `willRetry` is superseded by the retry's own `agent_end`, but its usage was recorded as Final first. Superseded runs are now skipped, matching how their text and errors were already handled.
+- **OpenCode: a hyphenated step event didn't clear a transient error.** `clears_turn_error` matched `step_finish` but not the `step-finish` spelling the parser accepts elsewhere, so a retried 2.x transport error could stick through recovery output.
+
 ## [2.10.1] - 2026-10-07
 
 Provider CLI audit against the latest releases — Claude Code 2.1.291, Codex 0.160.1, OpenCode 2.0.24, Antigravity 1.3.0, Pi 1.0.4, Kimi 2.1.1, Grok Build 1.0.46, Muse Code 1.4.3, Kiro 2.28.0 and Aider 0.86.2 — driven by live runs wherever the CLI could be installed. Every fix below was reproduced first and is covered by a regression test built from captured CLI output.

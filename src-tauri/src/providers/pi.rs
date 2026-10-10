@@ -61,9 +61,16 @@ impl Provider for PiProvider {
         }
 
         // Pi has no sandbox; its documented read-only mode is a tool allowlist.
+        // Since pi 1.0.4 `--tools` keeps MCP tools enabled unless an entry
+        // starts with `mcp__`, so the mentor additionally passes `--no-mcp`
+        // (probed, since older CLIs hard-fail on the unknown flag) to keep the
+        // read-only guarantee when MCP servers are configured.
         if request.role == "mentor" {
             args.push("--tools".into());
             args.push("read,grep,find,ls".into());
+            if crate::provider_registry::pi_supports_no_mcp_flag() {
+                args.push("--no-mcp".into());
+            }
         }
 
         args.push(prompt);
@@ -78,6 +85,12 @@ impl Provider for PiProvider {
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
         // `message_end` reports one assistant message (live); `agent_end`
         // repeats the whole turn, so its assistant usages sum to the final count.
+        // An `agent_end` flagged `willRetry` is superseded by the retry's own
+        // `agent_end` — ignore it here, as `final_assistant_message` does for
+        // text/errors, or the retried run's Final usage would be counted twice.
+        if event.get("willRetry").and_then(|v| v.as_bool()) == Some(true) {
+            return None;
+        }
         let (messages, is_final): (Vec<&Value>, bool) =
             match event.get("type").and_then(|v| v.as_str())? {
                 "message_end" => (event.get("message").into_iter().collect(), false),
@@ -435,6 +448,32 @@ mod tests {
     }
 
     #[test]
+    fn pi_ignores_usage_on_a_superseded_will_retry_run() {
+        // An `agent_end` flagged `willRetry` is superseded by the retry's own
+        // `agent_end`; its usage must not be recorded as Final first.
+        let provider = PiProvider;
+        let retrying = json!({
+            "type": "agent_end",
+            "willRetry": true,
+            "messages": [
+                {"role": "assistant", "usage": {"input": 100, "output": 10, "cacheRead": 0, "cacheWrite": 0}}
+            ]
+        });
+        assert!(provider.extract_token_usage(&retrying).is_none());
+
+        let settled = json!({
+            "type": "agent_end",
+            "willRetry": false,
+            "messages": [
+                {"role": "assistant", "usage": {"input": 100, "output": 10, "cacheRead": 0, "cacheWrite": 0}}
+            ]
+        });
+        let usage = provider.extract_token_usage(&settled).expect("settled usage");
+        assert_eq!(usage.input_tokens, Some(100));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
     fn pi_input_tokens_include_cache_buckets() {
         let provider = PiProvider;
         let agent_end = json!({
@@ -506,6 +545,12 @@ mod tests {
         assert_eq!(mentor.args[sid + 1], "0199a1b2-c3d4");
         let tools = mentor.args.iter().position(|a| a == "--tools").unwrap();
         assert_eq!(mentor.args[tools + 1], "read,grep,find,ls");
+        // `--no-mcp` is added only on pi CLIs whose `--help` advertises it
+        // (>= 1.0.4); pin that expectation to the runtime probe.
+        assert_eq!(
+            mentor.args.iter().any(|a| a == "--no-mcp"),
+            crate::provider_registry::pi_supports_no_mcp_flag()
+        );
         assert_eq!(mentor.args.last().unwrap(), "\n@review the diff");
 
         let executor = provider.build_turn_command(&ProviderTurnRequest {

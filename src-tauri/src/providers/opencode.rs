@@ -506,7 +506,7 @@ impl Provider for OpenCodeProvider {
         // further output means the turn recovered.
         matches!(
             event.get("type").and_then(|v| v.as_str()),
-            Some("text") | Some("step_finish")
+            Some("text") | Some("step_finish") | Some("step-finish")
         )
     }
 
@@ -1109,6 +1109,8 @@ mod tests {
         let text = serde_json::json!({"type": "text", "part": {"text": "done"}});
         assert!(provider.extract_error_detail(&text).is_none());
         assert!(provider.clears_turn_error(&text));
+        let hyphenated = serde_json::json!({"type": "step-finish"});
+        assert!(provider.clears_turn_error(&hyphenated));
         assert!(!provider.clears_turn_error(&v2));
     }
 }

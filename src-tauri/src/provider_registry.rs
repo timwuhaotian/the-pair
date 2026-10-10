@@ -54,6 +54,7 @@ const FAILED_PROBE_RETRY_AFTER: Duration = Duration::from_secs(30);
 static OPENCODE_VARIANT_SYNTAX: ProbeCache<OpencodeVariantSyntax> =
     ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 static PI_MAX_THINKING_LEVEL_SUPPORT: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
+static PI_NO_MCP_SUPPORT: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 static CODEX_REASONING_LEVELS: ProbeCache<Arc<CodexReasoningCatalog>> =
     ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
 static CODEX_SESSION_USAGE: ProbeCache<bool> = ProbeCache::new(FAILED_PROBE_RETRY_AFTER);
@@ -324,6 +325,38 @@ fn pi_help_lists_max_thinking_level(help_text: &str) -> bool {
     help_text.contains("--thinking <level>")
         && extract_pi_thinking_levels(help_text)
             .is_some_and(|levels| levels.iter().any(|level| level == "max"))
+}
+
+/// Whether the installed `pi` CLI accepts `--no-mcp` (disables MCP tools for
+/// one run).
+///
+/// Since pi 1.0.4 `--tools` keeps MCP tools unless an entry starts with
+/// `mcp__`, so the mentor's `--tools read,grep,find,ls` allowlist no longer
+/// implies a read-only mentor on its own: any user-configured MCP server's
+/// tools (which can write) stay enabled. `--no-mcp` (added in the same
+/// release) turns MCP off for the run and restores the guarantee. Probed from
+/// `pi --help` (once per binary, see `ProbeCache`) so older installs that
+/// would hard-fail on the unknown flag never receive it.
+pub(crate) fn pi_supports_no_mcp_flag() -> bool {
+    let Some(command_path) = which_binary("pi") else {
+        return false;
+    };
+
+    PI_NO_MCP_SUPPORT
+        .get_or_probe(&command_path, || {
+            capture_command_output_with_timeout(
+                &command_path,
+                &["--help"],
+                &homedir(),
+                CLI_PROBE_TIMEOUT,
+            )
+            .map(|help_text| pi_help_lists_no_mcp_flag(&help_text))
+        })
+        .unwrap_or(false)
+}
+
+fn pi_help_lists_no_mcp_flag(help_text: &str) -> bool {
+    help_text.contains("--no-mcp")
 }
 
 /// Reasoning levels the installed Codex advertises per model, keyed by slug.
@@ -3517,6 +3550,16 @@ exit 0
             "  --thinking <level>   Set thinking level: off, minimal, low, medium, high, xhigh\n"
         ));
         assert!(!pi_help_lists_max_thinking_level("pi [options]\n"));
+    }
+
+    #[test]
+    fn pi_no_mcp_flag_detection_reads_the_help_text() {
+        assert!(pi_help_lists_no_mcp_flag(
+            "--tools <list>  ...\n  --no-mcp  Disable MCP tools for this run\n"
+        ));
+        assert!(!pi_help_lists_no_mcp_flag(
+            "  --thinking <level>   Set thinking level: off, minimal, low, medium, high, xhigh, max\n"
+        ));
     }
 
     #[cfg(target_os = "windows")]
