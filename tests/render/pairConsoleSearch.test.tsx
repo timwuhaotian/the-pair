@@ -679,6 +679,24 @@ test('the app-level open-search event opens the search bar', () => {
   assert.ok(screen.getByTestId('console-search-input'))
 })
 
+test('the open-search event never steals focus from the clear-history confirm', () => {
+  renderConsole()
+  fireEvent.click(screen.getByTestId('console-clear-btn'))
+  const dialog = screen.getByTestId('confirm-modal-cancel').closest('[role="dialog"]')
+  assert.ok(dialog, 'the clear-history confirm is open')
+  assert.ok(dialog.contains(document.activeElement), 'ConfirmModal autofocuses into itself')
+
+  fireEvent(window, new window.CustomEvent('app:console:open-search'))
+
+  assert.ok(screen.getByTestId('confirm-modal-cancel'), 'the confirm stays open')
+  assert.equal(
+    screen.queryByTestId('console-search-input') === null,
+    true,
+    'the search bar never opens over the confirm'
+  )
+  assert.ok(dialog.contains(document.activeElement), 'focus stays inside the aria-modal dialog')
+})
+
 test('search matches whitespace-collapsed rendered text, not raw markdown spacing', () => {
   // Agent prose arrives CLI-wrapped: soft line breaks and runs of spaces that
   // normal-flow markdown renders as single spaces. The phrase the reader sees

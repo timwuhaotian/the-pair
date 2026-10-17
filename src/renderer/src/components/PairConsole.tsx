@@ -263,9 +263,13 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // preventDefault, listed in the shortcuts sheet) and reaches the console
   // through this event. flushSync commits the input before the frame's rAF
   // fires — a default-priority update from this raw listener could otherwise
-  // land after it, leaving the ref null and the input unfocused.
+  // land after it, leaving the ref null and the input unfocused. The clear-
+  // history confirm is this component's own aria-modal dialog; App's modal
+  // flags structurally cannot see it, so the listener itself must decline
+  // while it is open rather than pull focus out of the dialog.
   useEffect(() => {
     const openSearch = (): void => {
+      if (confirmClear) return
       flushSync(() => {
         setSearchOpen(true)
       })
@@ -273,7 +277,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     }
     window.addEventListener('app:console:open-search', openSearch)
     return () => window.removeEventListener('app:console:open-search', openSearch)
-  }, [])
+  }, [confirmClear])
 
   useEffect(() => {
     const el = scrollRef.current
