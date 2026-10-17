@@ -2,6 +2,7 @@
 
 Date: 2026-10-17
 Status: approved (auto-mode decision; user may amend — see "Open decision")
+Revised: 2026-10-18 — body updated to as-built names after PR #12 review
 
 ## Goal
 
@@ -68,20 +69,25 @@ ranges are sorted, non-overlapping, within bounds.
 
 ### Modified: `PairConsole.tsx`
 
-- State: `searchOpen`, `searchQuery`, `activeMatchOrdinal` (index into the
-  flat list of matching message ids).
-- Derived: `searchMessages = filterMessagesByQuery(roleFiltered, query)`,
-  then existing `collapseWithDropCounts` pipeline unchanged.
+- State: `searchOpen`, `searchQuery` (deferred as `listQuery` so typing
+  stays responsive), `activeMatchId` (anchored to the matched message's
+  id, not an index into the match list).
+- Derived: `roleFilteredMessages` runs the existing
+  `collapseWithDropCounts` pipeline first (unchanged), then the search
+  filter keeps `deduplicatedConsoleMessages` entries where
+  `countSearchHighlights(msg, query) > 0` — so which drafts collapse
+  never depends on the query, and the final's drop marker survives.
 - Renders search input row in header when open: input, `N matches` label,
   prev/next buttons, close button. `data-testid`s:
   `console-search-input`, `console-search-count`, `console-search-prev`,
   `console-search-next`, `console-search-close`, `console-search-toggle`.
-- Keyboard: `Cmd/Ctrl+F` opens (handled locally in the console; the app
-  already forwards cmd-key shortcuts from text fields — see 2.11.1 note),
+- Keyboard: `Cmd/Ctrl+F` is registered in `App.tsx`'s global shortcut map,
+  guarded by `canOpenConsoleSearch` (never while a modal is open), and
+  dispatches `app:console:open-search`, which the console listens for;
   `Esc` closes+clears, Enter/Shift+Enter in input cycle.
 - Cycling: computes matching message ids in display order; on cycle,
   `document.getElementById('console-msg-' + id)?.scrollIntoView({ block: 'center' })`
-  and sets `activeMessageId`, passed to `MessageCard` for outline.
+  and sets `activeMatchId`, passed to `MessageCard` for outline.
 - Live turn card (`TurnCardView`) is not searched/filtered (in-flight text;
   out of scope, matches "transcript" = finalized messages).
 
@@ -90,11 +96,12 @@ ranges are sorted, non-overlapping, within bounds.
 - `MessageCard` accepts optional `searchQuery?: string` and
   `isActiveMatch?: boolean`; forwards query to `MarkdownContent`, adds
   `id={'console-msg-' + msg.id}` anchor and active outline class.
-- `MarkdownContent` accepts optional `searchQuery`. When non-empty, a
-  `text` renderer in the components map splits text nodes on
-  `findMatchRanges` and wraps matches in `<mark>`. Components map becomes
-  a factory keyed by query (memoized per query) — default export behavior
-  without query is byte-identical to today.
+- `MarkdownContent` accepts optional `searchQuery`. When non-empty, the
+  `rehypeHighlight({ query })` rehype plugin (`lib/rehypeHighlight.ts`)
+  splits hast text nodes on `findMatchRanges` and wraps matches in
+  `<mark>` — react-markdown v10 has no per-node `text` renderer, so
+  highlighting runs at the hast stage. Without a query the plugin list
+  is empty — behavior is unchanged from today.
 
 ### i18n
 
