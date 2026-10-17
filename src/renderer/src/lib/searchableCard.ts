@@ -38,15 +38,57 @@ interface RenderedText {
 // on long transcripts.
 const renderedTextsByMessage = new WeakMap<Message, RenderedText[]>()
 
-// Footnote definitions only reach the DOM when a footnoteReference points at
-// them (mdast→hast renders referenced ones in the footer section, drops the
-// rest), so the walk needs the referenced identifier set up front.
-function collectFootnoteIdentifiers(node: MdastNode, out: Set<string>): void {
-  if (node.type === 'footnoteReference' && node.identifier) {
-    out.add(node.identifier.toUpperCase())
-    return
+// Footnote definitions only reach the DOM through the footer, which the
+// mdast→hast walk fills from references that themselves render: root-level
+// definitions are dropped from the flow, table rows cap at the header width
+// (so references in excess cells never convert), and the footer loop
+// re-scans as it converts each rendered definition (so chains resolve
+// transitively). Mirror that with a walk over render-reachable nodes plus a
+// worklist over the definitions it pulls in.
+function collectRenderedFootnoteIds(tree: MdastNode): Set<string> {
+  // First definition per label wins — footnoteById keeps the first.
+  const firstDefById = new Map<string, MdastNode>()
+  const indexDefinitions = (node: MdastNode): void => {
+    if (node.type === 'footnoteDefinition' && node.identifier) {
+      const id = node.identifier.toUpperCase()
+      if (!firstDefById.has(id)) firstDefById.set(id, node)
+    }
+    for (const child of node.children ?? []) indexDefinitions(child)
   }
-  for (const child of node.children ?? []) collectFootnoteIdentifiers(child, out)
+  indexDefinitions(tree)
+
+  const rendered = new Set<string>()
+  // Definition subtrees are skipped here: their content only converts when
+  // the footer renders them, which the worklist below drives.
+  const walkReferences = (node: MdastNode): void => {
+    if (node.type === 'footnoteReference' && node.identifier) {
+      rendered.add(node.identifier.toUpperCase())
+      return
+    }
+    if (node.type === 'footnoteDefinition') return
+    if (node.type === 'table') {
+      const width = node.children?.[0]?.children?.length ?? 0
+      for (const row of node.children ?? []) {
+        for (const cell of row.children?.slice(0, width) ?? []) walkReferences(cell)
+      }
+      return
+    }
+    for (const child of node.children ?? []) walkReferences(child)
+  }
+  walkReferences(tree)
+
+  const expanded = new Set<string>()
+  const queue = [...rendered]
+  while (queue.length > 0) {
+    const id = queue.shift()
+    if (id === undefined || expanded.has(id)) continue
+    expanded.add(id)
+    const def = firstDefById.get(id)
+    if (!def) continue
+    for (const child of def.children ?? []) walkReferences(child)
+    for (const discovered of rendered) if (!expanded.has(discovered)) queue.push(discovered)
+  }
+  return rendered
 }
 
 // text/inlineCode/code/html are the mdast nodes whose values reach the DOM as
@@ -90,8 +132,7 @@ function renderedSearchTexts(msg: Message): RenderedText[] {
   const cached = renderedTextsByMessage.get(msg)
   if (cached) return cached
   const tree = markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode
-  const footnoteIds = new Set<string>()
-  collectFootnoteIdentifiers(tree, footnoteIds)
+  const footnoteIds = collectRenderedFootnoteIds(tree)
   const out: RenderedText[] = []
   collectTextNodes(tree, out, footnoteIds)
   renderedTextsByMessage.set(msg, out)

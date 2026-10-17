@@ -124,6 +124,35 @@ test('countSearchHighlights counts referenced footnote definitions (rendered in 
   assert.equal(countSearchHighlights(makeMessage({ content }), 'See the note'), 1)
 })
 
+test('countSearchHighlights ignores footnotes referenced only inside unreferenced definitions', () => {
+  // The [^2] reference lives inside the [^1] definition, which itself is
+  // unreferenced and never renders — so [^2] never converts and its
+  // definition never lands in the footer.
+  const content = 'foo bar\n\n[^1]: defines one[^2]\n\n[^2]: the parsernote'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 0)
+})
+
+test('countSearchHighlights ignores footnotes referenced only in dropped table cells', () => {
+  // The third body cell (past the header width) never converts, so the
+  // reference it holds cannot pull [^1] into the footer.
+  const content = '| a | b |\n| --- | --- |\n| x | y | [^1] |\n\n[^1]: the parsernote'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 0)
+})
+
+test('countSearchHighlights counts footnotes referenced from rendered footnotes', () => {
+  // The footer converts each rendered definition in reference order and
+  // picks up references found inside them, so the chain renders end to end.
+  const content = 'see[^1]\n\n[^1]: then[^2]\n\n[^2]: the parsernote'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 1)
+})
+
+test('countSearchHighlights expands the first definition per footnote label', () => {
+  // footnoteById keeps the first definition of a duplicate label, so only
+  // that one's references can pull further definitions into the footer.
+  const content = 'see[^1]\n\n[^1]: then[^2]\n\n[^1]: dup body\n\n[^2]: the parsernote'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 1)
+})
+
 test('countSearchHighlights counts GFM autolinked URLs (rendered as link text)', () => {
   assert.equal(
     countSearchHighlights(makeMessage({ content: 'see https://example.com/github now' }), 'github'),

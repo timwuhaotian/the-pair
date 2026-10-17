@@ -227,3 +227,26 @@ test('MarkdownContent matches code-block text with its literal whitespace', () =
   assert.equal(marks[0]?.textContent, 'stepOne()\nstepTwo()')
   assert.ok(marks[0]?.closest('pre'), 'mark stays inside the code block')
 })
+
+test('MarkdownContent renders no marks for a footnote reached only via an unreferenced definition', () => {
+  // The [^2] reference sits inside the [^1] definition, which never
+  // renders, so [^2] never converts and its definition never lands in the
+  // footer. Pins the renderer behavior searchableCard mirrors.
+  const content = 'foo bar\n\n[^1]: defines one[^2]\n\n[^2]: the parsernote'
+  const { container } = render(<MarkdownContent content={content} searchQuery="parsernote" />)
+  assert.equal(container.querySelectorAll('mark').length, 0)
+})
+
+test('MarkdownContent renders no marks for a footnote referenced only in a dropped table cell', () => {
+  const content = '| a | b |\n| --- | --- |\n| x | y | [^1] |\n\n[^1]: the parsernote'
+  const { container } = render(<MarkdownContent content={content} searchQuery="parsernote" />)
+  assert.equal(container.querySelectorAll('mark').length, 0)
+})
+
+test('MarkdownContent renders a footnote referenced from another rendered footnote', () => {
+  // The footer loop re-scans footnoteOrder as it converts each rendered
+  // definition, so references inside rendered footnotes render transitively.
+  const content = 'see[^1]\n\n[^1]: then[^2]\n\n[^2]: the parsernote'
+  const { container } = render(<MarkdownContent content={content} searchQuery="parsernote" />)
+  assert.equal(container.querySelectorAll('mark').length, 1)
+})
