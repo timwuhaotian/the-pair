@@ -679,6 +679,32 @@ test('the app-level open-search event opens the search bar', () => {
   assert.ok(screen.getByTestId('console-search-input'))
 })
 
+test('search matches whitespace-collapsed rendered text, not raw markdown spacing', () => {
+  // Agent prose arrives CLI-wrapped: soft line breaks and runs of spaces that
+  // normal-flow markdown renders as single spaces. The phrase the reader sees
+  // and selects must match, and the mark wraps the raw span it renders from.
+  const messages = [
+    makeMessage({ id: 'm1', content: 'The parser  was   correct overall' }),
+    makeMessage({ id: 'm2', content: 'parser\nwas correct too', iteration: 2 })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser was correct' } })
+
+  assert.equal(screen.getByTestId('console-search-count').textContent, '2 matches')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.ok(document.getElementById('console-msg-m2'))
+  const marks = document.querySelectorAll('mark')
+  assert.equal(marks.length, 2)
+  assert.equal(marks[0].textContent, 'parser  was   correct')
+  assert.equal(marks[1].textContent, 'parser\nwas correct')
+})
+
 test('IME Enter and Escape confirm/cancel the composition, not the search', () => {
   renderConsole()
   fireEvent.click(screen.getByTestId('console-search-toggle'))

@@ -49,6 +49,26 @@ test('findMatchRanges matches a query whose lowercase form changes length', () =
   assert.equal(text.slice(ranges[0]![0], ranges[0]![1]), 'İ')
 })
 
+test('findMatchRanges collapses whitespace runs and soft breaks like the rendered text', () => {
+  // Normal-flow markdown collapses runs of spaces and soft line breaks to a
+  // single visible space, so the query the reader types off the card must
+  // match the collapsed text. The range spans the full raw whitespace it
+  // replaces, so <mark> wraps the whole rendered phrase.
+  const spaced = findMatchRanges('The parser  was   correct overall', 'parser was correct')
+  assert.deepEqual(spaced, [[4, 25]])
+  assert.equal(
+    'The parser  was   correct overall'.slice(spaced[0]![0], spaced[0]![1]),
+    'parser  was   correct'
+  )
+
+  const soft = findMatchRanges('parser\nwas correct', 'parser was correct')
+  assert.deepEqual(soft, [[0, 18]])
+  assert.equal('parser\nwas correct'.slice(soft[0]![0], soft[0]![1]), 'parser\nwas correct')
+
+  // Whitespace collapses on the query side too, both ways.
+  assert.deepEqual(findMatchRanges('parser was correct', 'parser   was'), [[0, 10]])
+})
+
 test('countOccurrences counts matches', () => {
   assert.equal(countOccurrences('parser PARSER', 'parser'), 2)
   assert.equal(countOccurrences('abc', ''), 0)
