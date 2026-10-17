@@ -11,12 +11,13 @@ import { GlassButton } from './ui/GlassButton'
 import { isPairActive } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { MessageCard } from './MessageCard'
+import { countSearchHighlights } from '../lib/searchableCard'
 import { TurnCardView } from './TurnCardView'
 import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseWithDropCounts } from '../lib/consoleMessages'
-import { countOccurrences, filterMessagesByQuery, nextMatchIndex } from '../lib/consoleSearch'
+import { filterMessagesByQuery, nextMatchIndex } from '../lib/consoleSearch'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
@@ -105,15 +106,25 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     [roleFilteredMessages, searching, searchQuery]
   )
 
-  const matchCount = useMemo(() => {
-    if (!searching) return 0
-    return consoleMessages.reduce((n, m) => n + countOccurrences(m.content, searchQuery), 0)
-  }, [consoleMessages, searching, searchQuery])
-
   const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
     const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(consoleMessages)
     return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
   }, [consoleMessages])
+
+  // Count and cycle only over matches that render as highlighted, anchored
+  // cards — after dedup, so collapsed-away messages never inflate the count
+  // and Enter never lands on a message with no `console-msg-<id>` element.
+  const searchMatches = useMemo(() => {
+    if (!searching) return [] as Array<{ id: string; count: number }>
+    return deduplicatedConsoleMessages
+      .map((m) => ({ id: m.id, count: countSearchHighlights(m, searchQuery) }))
+      .filter((x) => x.count > 0)
+  }, [deduplicatedConsoleMessages, searching, searchQuery])
+
+  const matchCount = useMemo(
+    () => searchMatches.reduce((n, x) => n + x.count, 0),
+    [searchMatches]
+  )
 
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages
@@ -124,10 +135,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     }
   }, [pair.messages, viewingRun])
 
-  const matchingMessageIds = useMemo(
-    () => (searching ? deduplicatedConsoleMessages.map((m) => m.id) : []),
-    [deduplicatedConsoleMessages, searching]
-  )
+  const matchingMessageIds = useMemo(() => searchMatches.map((x) => x.id), [searchMatches])
   const activeMessageId =
     matchOrdinal >= 0 && matchOrdinal < matchingMessageIds.length
       ? matchingMessageIds[matchOrdinal]

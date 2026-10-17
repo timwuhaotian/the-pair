@@ -2,9 +2,10 @@ import React, { memo, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { cn, stripSystemPrompt } from '../lib/utils'
+import { cn } from '../lib/utils'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
 import { isTechnicalHandoff } from '../lib/timeline'
+import { displayContentForMessage } from '../lib/searchableCard'
 import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
 import { TerminalBlock } from './terminal/TerminalBlock'
@@ -62,10 +63,7 @@ export const MessageCard = memo(function MessageCard({
   const isSystem = msg.type === 'handoff'
   const isHuman = msg.from === 'human'
 
-  const displayContent =
-    isHuman || isTechnicalHandoff(msg.content)
-      ? stripSystemPrompt(msg.content.trim())
-      : msg.content.trim()
+  const displayContent = displayContentForMessage(msg)
 
   const isAcceptance =
     msg.type === 'acceptance' ||

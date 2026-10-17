@@ -133,6 +133,60 @@ test('Enter cycles the active match; Esc closes and restores the transcript', ()
   assert.equal(document.querySelectorAll('mark').length, 0)
 })
 
+test('search does not count or cycle to the human mission banner', () => {
+  const messages = [
+    makeMessage({
+      id: 'h1',
+      content: 'Fix the parser bug',
+      from: 'human',
+      type: 'feedback',
+      iteration: 0
+    }),
+    makeMessage({ id: 'm1', content: 'parser plan', from: 'mentor', type: 'plan' })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  // Only the mentor card renders a highlighted, anchored match.
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.equal(document.getElementById('console-msg-h1'), null)
+  assert.equal(document.querySelectorAll('mark').length, 1)
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+})
+
+test('search count ignores messages collapsed away by dedup', () => {
+  const messages = [
+    makeMessage({ id: 'a', content: 'parser draft', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'b', content: 'parser final', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'c', content: 'parser done', from: 'executor', iteration: 2 })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  assert.equal(document.getElementById('console-msg-a'), null, 'collapsed draft not rendered')
+  assert.equal(screen.getByTestId('console-search-count').textContent, '2 matches')
+  assert.equal(document.querySelectorAll('mark').length, 2)
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-b')?.className.includes('outline'))
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-c')?.className.includes('outline'))
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })
