@@ -32,7 +32,9 @@ string, a file name, or a phrase the user remembers.
 - No regex, no fuzzy matching, no whole-word toggle.
 - No cross-pair / global search (hub, activity).
 - No search persistence, history, or saved queries.
-- No Rust/tauri changes. No new dependency.
+- No Rust/tauri changes. No new packages land in the tree — `remark-parse`
+  and `unified` are promoted from transitive (via react-markdown) to direct
+  dependencies for AST-based counting in `searchableCard.ts`.
 - No highlight inside code blocks beyond text-node marking (text-node
   marking covers them automatically where react-markdown emits text).
 
