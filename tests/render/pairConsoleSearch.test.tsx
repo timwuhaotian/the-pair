@@ -915,6 +915,52 @@ test('a parked press on a query with no final matches activates nothing', async 
   })
 })
 
+test('two cycle presses parked during one lag compose, not overwrite', async () => {
+  scrollTargets.length = 0
+  // Final 'parser' list is [e1, e2]; two Enters must skip the first hit and
+  // land on e2, exactly as the same two presses after catch-up would.
+  const messages = [
+    makeMessage({ id: 'm0', content: 'parse tree notes', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser one', from: 'executor' }),
+    makeMessage({ id: 'e2', content: 'parser two', from: 'executor', iteration: 2 })
+  ]
+  await withConcurrentConsole(messages, async (openSearch) => {
+    const input = await openSearch()
+    typeNative(input, 'pars')
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '3 matches',
+        'interim query committed'
+      )
+    )
+
+    typeNative(input, 'parser')
+    await settleUrgent()
+    assert.ok(
+      document.getElementById('console-msg-m0'),
+      'the deferred list lags the query at keypress time'
+    )
+    keyDownNative(input, { key: 'Enter' })
+    keyDownNative(input, { key: 'Enter' })
+    await settleUrgent()
+
+    await waitFor(() => {
+      assert.ok(
+        document.getElementById('console-msg-e2')?.className.includes('outline'),
+        'two parked Enters land on the second match of the final list'
+      )
+      assert.equal(
+        document.getElementById('console-msg-e1')?.className.includes('outline'),
+        false,
+        'the first match was skipped, as the reader pressed twice'
+      )
+    })
+    assert.equal(scrollTargets.length, 1, 'one scroll to the final activation')
+    assert.ok(scrollTargets[0].closest('#console-msg-e2'), 'scroll aims inside the active card')
+  })
+})
+
 test('a parked cycle press dies with a run switch, never applied to the new run', async () => {
   scrollTargets.length = 0
   // The archived run's a1 matches 'parser' — the parked press must never

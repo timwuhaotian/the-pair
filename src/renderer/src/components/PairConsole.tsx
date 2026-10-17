@@ -87,10 +87,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // Bumped on every cycle call, even when the active match doesn't change (a
   // single match), so the scroll effect below re-runs on every press.
   const [matchCycle, setMatchCycle] = useState(0)
-  // A cycle key pressed while the deferred list lags the typed query is
-  // parked here (see cycleMatch) and applied by the render where the list
-  // catches up, so the press never indexes the stale list.
-  const [pendingMatchDir, setPendingMatchDir] = useState<1 | -1 | null>(null)
+  // Cycle keys pressed while the deferred list lags the typed query are
+  // parked here as a signed step count (see cycleMatch) and replayed by the
+  // render where the list catches up, so presses never index the stale list
+  // and a fast double-press composes instead of keeping only the last one.
+  const [pendingMatchSteps, setPendingMatchSteps] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
@@ -131,10 +132,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     setActiveMatchId(null)
     // A parked press belongs to the scope it was pressed in, so it dies with
     // the old scope too. A query catch-up is safe to clear here as well: the
-    // parked press replays later in this same render pass and supersedes the
+    // parked presses replay later in this same render pass and supersede the
     // reset, while a run or pair switch lands on a render where the deferred
     // query still lags, so the replay below never fires for it.
-    setPendingMatchDir(null)
+    setPendingMatchSteps(0)
   }
 
   const roleFilteredMessages = useMemo(() => {
@@ -192,15 +193,19 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const matchingMessageIds = useMemo(() => searchMatches.map((x) => x.id), [searchMatches])
 
-  // The render where the deferred list catches up applies a parked press to
-  // the final list. Render-time for the same reason as the scope reset
-  // above: an effect would commit one paint where the keypress the reader
-  // made outlined nothing. The reset above already cleared the anchor in
-  // this same pass; the parked press intentionally supersedes it.
-  if (pendingMatchDir !== null && listQuery === searchQuery) {
-    const dir = pendingMatchDir
-    setPendingMatchDir(null)
-    const next = nextMatchIndex(-1, matchingMessageIds.length, dir)
+  // The render where the deferred list catches up applies the parked presses
+  // to the final list, replaying each step from the list's start — the anchor
+  // reset above cleared where the reader was, so a composed press lands where
+  // the same presses from scratch would. Render-time for the same reason as
+  // the scope reset above: an effect would commit one paint where the
+  // keypresses the reader made outlined nothing.
+  if (pendingMatchSteps !== 0 && listQuery === searchQuery) {
+    const dir: 1 | -1 = pendingMatchSteps > 0 ? 1 : -1
+    setPendingMatchSteps(0)
+    let next = -1
+    for (let step = 0; step < Math.abs(pendingMatchSteps); step++) {
+      next = nextMatchIndex(next, matchingMessageIds.length, dir)
+    }
     setActiveMatchId(next >= 0 ? matchingMessageIds[next] : null)
     setMatchCycle((cycle) => cycle + 1)
   }
@@ -219,7 +224,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       // and the scope reset above would then drop the activation — park the
       // press instead and let the caught-up render apply it.
       if (listQuery !== searchQuery) {
-        setPendingMatchDir(dir)
+        setPendingMatchSteps((steps) => steps + dir)
         return
       }
       // An anchored card no longer in the list resolves to index -1, so
@@ -250,7 +255,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     setSearchOpen(false)
     setSearchQuery('')
     setActiveMatchId(null)
-    setPendingMatchDir(null)
+    setPendingMatchSteps(0)
   }, [])
 
   // Cmd/Ctrl+F opens transcript search while this console is mounted. The key
@@ -675,7 +680,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 // press parked on the lagging list belongs to the unfiltered
                 // list the same way and dies with the switch.
                 setActiveMatchId(null)
-                setPendingMatchDir(null)
+                setPendingMatchSteps(0)
               }}
               counts={messageCounts}
             />
