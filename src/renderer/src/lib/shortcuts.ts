@@ -43,6 +43,36 @@ export function isCommandShortcut(e: KeyboardEvent, shortcut: ShortcutDef): bool
   )
 }
 
+/** Modal surfaces rendered by App that can sit over the console when Cmd/Ctrl+F fires. */
+export interface ConsoleSearchBlockers {
+  createPairOpen: boolean
+  assignTaskOpen: boolean
+  pairSettingsOpen: boolean
+  paletteOpen: boolean
+  shortcutsOpen: boolean
+  confirmDeletePairOpen: boolean
+  confirmClearSessionOpen: boolean
+  updateModalOpen: boolean
+}
+
+/**
+ * True when the transcript-search shortcut may dispatch. Every aria-modal
+ * dialog App renders over the console blocks it — the console listener would
+ * flush the search bar open and rAF-focus its input behind the dialog —
+ * including the ConfirmModals and update modal, which the console-side
+ * guards structurally cannot see.
+ */
+export function canOpenConsoleSearch(
+  hasSelectedPair: boolean,
+  blockers: ConsoleSearchBlockers
+): boolean {
+  if (!hasSelectedPair) return false
+  for (const open of Object.values(blockers)) {
+    if (open) return false
+  }
+  return true
+}
+
 export function isInputFocused(e: KeyboardEvent): boolean {
   const target = e.target as HTMLElement
   if (!target) return false

@@ -15,14 +15,14 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { canStartUpdateCheck } from './components/updateView'
+import { canStartUpdateCheck, shouldShowUpdateModal } from './components/updateView'
 import { isPairActive, isPairBusy } from './lib/pairStatus'
 import { extractErrorMessage } from './lib/utils'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
 import { ShortcutsModal } from './components/ShortcutsModal'
-import type { ShortcutDef } from './lib/shortcuts'
+import { canOpenConsoleSearch, type ShortcutDef } from './lib/shortcuts'
 import {
   buildPaletteActions,
   buildPairJumpActions,
@@ -152,6 +152,9 @@ function App(): React.ReactNode {
   const setReleaseBody = useUpdateStore((state) => state.setReleaseBody)
   const setUpdate = useUpdateStore((state) => state.setUpdate)
   const setShowModal = useUpdateStore((state) => state.setShowModal)
+  const updateModalVisible = useUpdateStore((state) =>
+    shouldShowUpdateModal(state.showModal, state.phase)
+  )
   const displayToast = useUpdateStore((state) => state.displayToast)
   const updateRef = useRef<Update | null>(null)
 
@@ -450,12 +453,16 @@ function App(): React.ReactNode {
         // listener would flush the search bar open and move focus out of the
         // dialog, leaving the reader typing behind a surface they can't see.
         condition: () =>
-          selectedPair !== null &&
-          !isCreatePairOpen &&
-          !isAssignTaskOpen &&
-          !isPairSettingsOpen &&
-          !isPaletteOpen &&
-          !isShortcutsOpen
+          canOpenConsoleSearch(selectedPair !== null, {
+            createPairOpen: isCreatePairOpen,
+            assignTaskOpen: isAssignTaskOpen,
+            pairSettingsOpen: isPairSettingsOpen,
+            paletteOpen: isPaletteOpen,
+            shortcutsOpen: isShortcutsOpen,
+            confirmDeletePairOpen: pendingDeletePair !== null,
+            confirmClearSessionOpen: pendingClearPair !== null,
+            updateModalOpen: updateModalVisible
+          })
       },
       {
         key: '[',
@@ -505,7 +512,10 @@ function App(): React.ReactNode {
       isAssignTaskOpen,
       isPairSettingsOpen,
       isPaletteOpen,
-      isShortcutsOpen
+      isShortcutsOpen,
+      pendingDeletePair,
+      pendingClearPair,
+      updateModalVisible
     ]
   )
 
