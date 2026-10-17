@@ -46,16 +46,22 @@ through existing components; no store change.
 
 ### New unit: `src/renderer/src/lib/consoleSearch.ts`
 
-Pure, framework-free, unit-testable:
+Pure, framework-free, unit-testable. As shipped:
 
-- `filterMessagesByQuery<T extends { content: string }>(messages, query)`
-  — trimmed, case-insensitive substring filter; empty query returns input
-  unchanged (same reference).
-- `findMatchRanges(text, query)` — all non-overlapping `[start, end)`
-  ranges, case-insensitive; empty query returns `[]`.
-- `countOccurrences(text, query)` — `findMatchRanges(...).length`.
+- `normalizeQuery(query)` — trimmed, lowercased query.
+- `findMatchRanges(text, query, options?)` — all non-overlapping
+  `[start, end)` ranges, case-insensitive; whitespace collapses by
+  default, `literal: true` matches it exact (code under `<pre>`);
+  empty query returns `[]`.
+- `countOccurrences(text, query, options?)` — `findMatchRanges(...).length`.
 - `nextMatchIndex(current, total, dir)` — wrap-around index arithmetic
   for Enter/Shift+Enter cycling; `total <= 0` returns `-1`.
+
+This module works on plain text only — it does not filter or count
+messages. Per-message counting over the rendered markdown is AST-based
+(`remark-parse`) in `searchableCard.ts` (`countSearchHighlights`), and
+the filter that keeps messages with a nonzero count is applied in
+`PairConsole.tsx` over `deduplicatedConsoleMessages`.
 
 Invariants owned here: matching is substring + case-insensitive only;
 ranges are sorted, non-overlapping, within bounds.
