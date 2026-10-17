@@ -13,7 +13,7 @@ import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach, beforeEach } from 'node:test'
 import { I18nextProvider } from 'react-i18next'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
 import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
@@ -588,7 +588,16 @@ test('IME Enter and Escape confirm/cancel the composition, not the search', () =
 // after dispatch, the deferred re-render only lands on a later scheduler
 // task, and waiting a single microtask leaves the stale list in place
 // exactly like a fast real keystroke.
-const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 10))
+//
+// Two rules keep that honest on a loaded shared runner:
+// - Every parked press is preceded by a DOM check that a match of the interim
+//   query only is still listed, proving the press landed on the lagging list;
+//   a harness that ever flushes the deferred value inside the urgent microtask
+//   fails there instead of exercising the caught-up path for the wrong reason.
+// - The catch-up is awaited with waitFor, never a fixed delay: the commit that
+//   outlines the card and the passive effect that records its scroll are
+//   separate scheduler tasks, and CI showed a 10ms timer can expire between
+//   them while the outline had already landed.
 const settleUrgent = async (): Promise<void> => {
   await Promise.resolve()
 }
@@ -625,7 +634,7 @@ async function withConcurrentConsole(
         <PairConsole pair={makePair(messages)} />
       </I18nextProvider>
     )
-    await settle()
+    await waitFor(() => assert.ok(container.querySelector('[data-testid="console-search-toggle"]')))
     await run(openSearch)
   } finally {
     root.unmount()
@@ -645,11 +654,21 @@ test('Enter pressed while the deferred list lags applies to the final query, not
   await withConcurrentConsole(messages, async (openSearch) => {
     const input = await openSearch()
     typeNative(input, 'pars')
-    await settle()
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '2 matches',
+        'interim query committed'
+      )
+    )
 
     typeNative(input, 'parser')
     // Urgent commit only: the deferred list still holds the 'pars' matches.
     await settleUrgent()
+    assert.ok(
+      document.getElementById('console-msg-m1'),
+      'the deferred list lags the query at keypress time'
+    )
     keyDownNative(input, { key: 'Enter' })
     await settleUrgent()
 
@@ -660,34 +679,48 @@ test('Enter pressed while the deferred list lags applies to the final query, not
     )
     assert.equal(scrollTargets.length, 0, 'nothing scrolls off the stale list')
 
-    await settle()
+    await waitFor(() => {
+      assert.ok(
+        document.getElementById('console-msg-e1')?.className.includes('outline'),
+        'the final query first match is outlined once the list catches up'
+      )
+      assert.equal(scrollTargets.length, 1, 'one scroll once the list catches up')
+    })
     assert.equal(document.getElementById('console-msg-m1'), null, 'stale match filtered out')
-    assert.ok(
-      document.getElementById('console-msg-e1')?.className.includes('outline'),
-      'the final query first match is outlined once the list catches up'
-    )
-    assert.equal(scrollTargets.length, 1, 'one scroll once the list catches up')
     assert.ok(scrollTargets[0].closest('#console-msg-e1'), 'scroll aims inside the active card')
   })
 })
 
 test('a parked Shift+Enter activates the last match of the final list', async () => {
   scrollTargets.length = 0
+  // m0 matches the 'pars' prefix but not the final 'parser' query: it makes
+  // the lag observable in the DOM, since e1 and e2 match both queries.
   const messages = [
+    makeMessage({ id: 'm0', content: 'parse tree notes', from: 'mentor', type: 'plan' }),
     makeMessage({ id: 'e1', content: 'parser fixed', from: 'executor' }),
     makeMessage({ id: 'e2', content: 'parser verified', from: 'executor', iteration: 2 })
   ]
   await withConcurrentConsole(messages, async (openSearch) => {
     const input = await openSearch()
     typeNative(input, 'pars')
-    await settle()
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '3 matches',
+        'interim query committed'
+      )
+    )
 
     typeNative(input, 'parser')
     await settleUrgent()
+    assert.ok(
+      document.getElementById('console-msg-m0'),
+      'the deferred list lags the query at keypress time'
+    )
     keyDownNative(input, { key: 'Enter', shiftKey: true })
     await settleUrgent()
 
-    for (const id of ['e1', 'e2']) {
+    for (const id of ['m0', 'e1', 'e2']) {
       assert.equal(
         document.getElementById(`console-msg-${id}`)?.className.includes('outline'),
         false,
@@ -695,17 +728,19 @@ test('a parked Shift+Enter activates the last match of the final list', async ()
       )
     }
 
-    await settle()
-    assert.ok(
-      document.getElementById('console-msg-e2')?.className.includes('outline'),
-      'parked Shift+Enter lands on the last match of the final list'
-    )
+    await waitFor(() => {
+      assert.ok(
+        document.getElementById('console-msg-e2')?.className.includes('outline'),
+        'parked Shift+Enter lands on the last match of the final list'
+      )
+      assert.ok(scrollTargets[0]?.closest('#console-msg-e2'), 'scroll aims inside the active card')
+    })
     assert.equal(
       document.getElementById('console-msg-e1')?.className.includes('outline'),
       false,
       'the first match stays inactive'
     )
-    assert.ok(scrollTargets[0].closest('#console-msg-e2'))
+    assert.equal(document.getElementById('console-msg-m0'), null, 'stale match filtered out')
   })
 })
 
@@ -721,17 +756,28 @@ test('a parked press on a query with no final matches activates nothing', async 
   await withConcurrentConsole(messages, async (openSearch) => {
     const input = await openSearch()
     typeNative(input, 'parse')
-    await settle()
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '2 matches',
+        'interim query committed'
+      )
+    )
 
     typeNative(input, 'parser none')
     await settleUrgent()
+    assert.ok(
+      document.getElementById('console-msg-m1'),
+      'the deferred list lags the query at keypress time'
+    )
     keyDownNative(input, { key: 'Enter' })
     await settleUrgent()
 
-    await settle()
-    assert.equal(
-      document.querySelector('[data-testid="console-search-count"]')?.textContent,
-      'No matches'
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        'No matches'
+      )
     )
     for (const id of ['m1', 'e1']) {
       assert.equal(
