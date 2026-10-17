@@ -64,6 +64,29 @@ test('findMatchRanges treats query literally, not as regex', () => {
   assert.deepEqual(findMatchRanges('a.c aqc', 'a.c'), [[0, 3]])
 })
 
+test('findMatchRanges keeps offsets aligned when lowercasing changes length', () => {
+  // U+0130 lowercases to two code units; ranges must index the original string.
+  const text = 'İİ parser'
+  const ranges = findMatchRanges(text, 'parser')
+  assert.deepEqual(ranges, [[3, 9]])
+  assert.equal(text.slice(ranges[0]![0], ranges[0]![1]), 'parser')
+})
+
+test('findMatchRanges matches a query whose lowercase form changes length', () => {
+  const text = 'a İ b'
+  const ranges = findMatchRanges(text, 'İ')
+  assert.equal(ranges.length, 1)
+  assert.equal(text.slice(ranges[0]![0], ranges[0]![1]), 'İ')
+})
+
+test('filterMessagesByQuery uses the same matching as findMatchRanges', () => {
+  const list = [{ id: 'u', content: 'İİ parser' }]
+  assert.deepEqual(
+    filterMessagesByQuery(list, 'parser').map((m) => m.id),
+    ['u']
+  )
+})
+
 test('countOccurrences counts matches', () => {
   assert.equal(countOccurrences('parser PARSER', 'parser'), 2)
   assert.equal(countOccurrences('abc', ''), 0)

@@ -14,22 +14,29 @@ export function filterMessagesByQuery<T extends { content: string }>(
 ): T[] {
   const q = normalizeQuery(query)
   if (!q) return messages
-  return messages.filter((m) => m.content.toLowerCase().includes(q))
+  return messages.filter((m) => findMatchRanges(m.content, query).length > 0)
 }
 
-/** All non-overlapping [start, end) ranges of the query in text, case-insensitive. */
+/**
+ * All non-overlapping [start, end) ranges of the query in text, case-insensitive.
+ * Each window is lowercased on its own so the ranges always index the original
+ * string — `toLowerCase()` is not length-preserving (e.g. U+0130 expands).
+ */
 export function findMatchRanges(text: string, query: string): Array<[number, number]> {
   const q = normalizeQuery(query)
-  if (!q || !text) return []
-  const haystack = text.toLowerCase()
+  const window = query.trim().length
+  if (!q || !text || window === 0) return []
   const ranges: Array<[number, number]> = []
   let from = 0
-  for (;;) {
-    const start = haystack.indexOf(q, from)
-    if (start === -1) return ranges
-    ranges.push([start, start + q.length])
-    from = start + q.length
+  while (from + window <= text.length) {
+    if (text.slice(from, from + window).toLowerCase() === q) {
+      ranges.push([from, from + window])
+      from += window
+    } else {
+      from += 1
+    }
   }
+  return ranges
 }
 
 export function countOccurrences(text: string, query: string): number {
