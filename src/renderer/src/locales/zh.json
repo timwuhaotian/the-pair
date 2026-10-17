@@ -463,6 +463,7 @@
     "showShortcuts": "显示快捷键",
     "toggleSidebar": "切换侧边栏",
     "commandPalette": "命令面板",
+    "searchTranscript": "搜索对话记录",
     "goBack": "返回 Pairs",
     "goPairs": "前往 Pairs",
     "goActivity": "前往动态",

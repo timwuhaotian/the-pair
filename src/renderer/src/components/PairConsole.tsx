@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, Search, Square, Trash2, X, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
@@ -176,17 +177,21 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     setMatchOrdinal(-1)
   }, [])
 
-  // Cmd/Ctrl+F opens transcript search while this console is mounted.
+  // Cmd/Ctrl+F opens transcript search while this console is mounted. The key
+  // itself is registered in App.tsx's shortcut map (exact platform modifier,
+  // preventDefault, listed in the shortcuts sheet) and reaches the console
+  // through this event. flushSync commits the input before the frame's rAF
+  // fires — a default-priority update from this raw listener could otherwise
+  // land after it, leaving the ref null and the input unfocused.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
+    const openSearch = (): void => {
+      flushSync(() => {
         setSearchOpen(true)
-        requestAnimationFrame(() => searchInputRef.current?.focus())
-      }
+      })
+      requestAnimationFrame(() => searchInputRef.current?.focus())
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('app:console:open-search', openSearch)
+    return () => window.removeEventListener('app:console:open-search', openSearch)
   }, [])
 
   useEffect(() => {

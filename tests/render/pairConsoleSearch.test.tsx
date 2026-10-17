@@ -2,7 +2,7 @@
  * Component tests for PairConsole transcript search:
  *   - Toggle opens the search bar; typing filters messages + shows count.
  *   - Enter cycles: active message gets the outline; Esc closes + restores.
- *   - Cmd+F opens the search bar.
+ *   - The app-level Cmd/Ctrl+F event opens the search bar.
  */
 import './setup-dom.ts'
 import './mock-ipc.ts'
@@ -377,9 +377,12 @@ test('switching the role filter while searching resets the active match instead 
   assert.equal(scrollTargets.length, 3)
 })
 
-test('Cmd+F opens the search bar', () => {
+test('the app-level open-search event opens the search bar', () => {
   renderConsole()
-  fireEvent.keyDown(window, { key: 'f', metaKey: true })
+  // Cmd/Ctrl+F is matched in App.tsx's shortcut map (exact platform modifier,
+  // preventDefault) and dispatched here; the console just listens. The event
+  // must come from the jsdom window — Node's global CustomEvent is rejected.
+  fireEvent(window, new window.CustomEvent('app:console:open-search'))
   assert.ok(screen.getByTestId('console-search-input'))
 })
 

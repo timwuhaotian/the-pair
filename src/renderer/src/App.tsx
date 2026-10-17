@@ -440,6 +440,15 @@ function App(): React.ReactNode {
         description: t('shortcuts.commandPalette')
       },
       {
+        key: 'f',
+        modifiers: [cmdKey],
+        handler: () => {
+          window.dispatchEvent(new CustomEvent('app:console:open-search'))
+        },
+        description: t('shortcuts.searchTranscript'),
+        condition: () => selectedPair !== null
+      },
+      {
         key: '[',
         modifiers: [cmdKey],
         handler: () => {
