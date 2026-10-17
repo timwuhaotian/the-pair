@@ -34,7 +34,9 @@ function walk(node: HastNode, query: string): void {
   if (!node.children || (node.tagName && SKIP_TAGS.has(node.tagName))) return
   const next: HastNode[] = []
   for (const child of node.children) {
-    if (child.type === 'text' && typeof child.value === 'string') {
+    // `raw` nodes are inline HTML; react-markdown's post step (which runs
+    // after rehype plugins) renders them as literal text, so match them here.
+    if ((child.type === 'text' || child.type === 'raw') && typeof child.value === 'string') {
       next.push(...splitText(child.value, query))
     } else {
       walk(child, query)
@@ -47,8 +49,9 @@ function walk(node: HastNode, query: string): void {
 /**
  * Rehype plugin factory: wraps search matches in hast <mark> elements.
  * Runs on the hast tree react-markdown builds, so it covers every rendered
- * text node uniformly — including inline code and fenced blocks, where file
- * names and error strings usually live. Only script/style subtrees are skipped.
+ * text node uniformly — including inline code, fenced blocks, and raw inline
+ * HTML, where file names, error strings, and unbackticked tag names usually
+ * live. Only script/style subtrees are skipped.
  */
 export function rehypeHighlight(options: { query: string }): () => (tree: HastNode) => void {
   return () => (tree) => {

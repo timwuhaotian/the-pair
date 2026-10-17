@@ -81,11 +81,22 @@ test('countSearchHighlights counts fenced code but not the fence info string', (
   assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
 })
 
-test('countSearchHighlights ignores matches inside raw HTML, keeps text around it', () => {
-  // The attribute value never renders; the text node after the tag does.
+test('countSearchHighlights counts raw HTML because react-markdown renders it literally', () => {
+  // Without skipHtml, react-markdown's post step turns the tag into literal
+  // text on screen — so both the tag spelling and the text after it match.
   const content = 'see <span title="parser tag">x</span> parser now'
-  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser tag'), 0)
-  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser tag'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 2)
+})
+
+test('countSearchHighlights counts unbackticked generics and JSX tags in agent prose', () => {
+  // CommonMark parses these as inline HTML; they render literally, so search
+  // must find them there too. A query spanning the text/HTML node boundary
+  // still never matches — <mark> wraps single nodes.
+  const content = 'Wrapped the list in <MessageCard> and returned Array<string> now'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'MessageCard'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'string'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'Array<string>'), 0)
 })
 
 test('countSearchHighlights counts GFM autolinked URLs (rendered as link text)', () => {

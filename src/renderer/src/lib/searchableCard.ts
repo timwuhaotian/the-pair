@@ -31,11 +31,17 @@ const markdownParser = unified().use(remarkParse).use(remarkGfm)
 // on long transcripts.
 const renderedTextsByMessage = new WeakMap<Message, string[]>()
 
-// text/inlineCode/code are the mdast nodes whose values become hast text
-// nodes; everything else (link URLs, fence info strings, raw HTML, image alt)
+// text/inlineCode/code/html are the mdast nodes whose values reach the DOM as
+// literal text — react-markdown (without skipHtml) turns inline HTML into text
+// in its post step. Everything else (link URLs, fence info strings, image alt)
 // renders as markup or attributes, never as highlightable text.
 function collectTextNodes(node: MdastNode, out: string[]): void {
-  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'code') {
+  if (
+    node.type === 'text' ||
+    node.type === 'inlineCode' ||
+    node.type === 'code' ||
+    node.type === 'html'
+  ) {
     if (node.value) out.push(node.value)
     return
   }

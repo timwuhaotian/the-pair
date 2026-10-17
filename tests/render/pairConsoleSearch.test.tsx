@@ -300,6 +300,34 @@ test('search never un-hides a message collapsed away by dedup', () => {
   assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
 })
 
+test('search finds unbackticked JSX tags that render literally', () => {
+  const messages = [
+    makeMessage({
+      id: 'm1',
+      content: 'Wrapped the list in <MessageCard> and returned Array<string> now'
+    })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+
+  // CommonMark parses these as inline HTML and react-markdown renders them
+  // literally — search must find and highlight them there, not drop the card.
+  fireEvent.change(input, { target: { value: 'MessageCard' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.equal(document.querySelectorAll('mark').length, 1)
+
+  fireEvent.change(input, { target: { value: 'string' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.equal(document.querySelectorAll('mark').length, 1)
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })
