@@ -43,7 +43,15 @@ function typeLabel(type: Message['type']): string {
   }
 }
 
-export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }): React.ReactNode {
+export const MessageCard = memo(function MessageCard({
+  msg,
+  searchQuery,
+  isActiveMatch = false
+}: {
+  msg: Message
+  searchQuery?: string
+  isActiveMatch?: boolean
+}): React.ReactNode {
   const { t } = useTranslation()
   // Single expansion state covers both cognitive steps and long-body collapse.
   // When a message has both kinds of hidden content, users used to face two
@@ -123,9 +131,14 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
     <TerminalBlock
       role={role}
       state="done"
+      id={`console-msg-${msg.id}`}
       timestamp={msg.startedAt ?? msg.timestamp}
       badges={typeTag}
       accentBorder
+      className={cn(
+        'rounded-sm transition-shadow',
+        isActiveMatch && 'outline outline-1 outline-state-running/60'
+      )}
       meta={
         <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {duration && <span className="tabular-nums">{duration}</span>}
@@ -189,7 +202,7 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
         {isAcceptance ? (
           <AcceptanceMessageBody content={displayContent} />
         ) : (
-          <MarkdownContent content={displayContent} />
+          <MarkdownContent content={displayContent} searchQuery={searchQuery} />
         )}
         {!detailsExpanded && showCollapse && (
           <button

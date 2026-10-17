@@ -22,6 +22,8 @@ interface TerminalBlockProps {
   /** Show a blinking caret at end of body. */
   caret?: boolean
   className?: string
+  /** DOM id for scroll targeting (e.g. transcript search cycling). */
+  id?: string
   /** No-animation render (useful inside virtualized lists). */
   flat?: boolean
   /** Show a left accent border in the role's color. */
@@ -74,6 +76,7 @@ export function TerminalBlock({
   children,
   caret = false,
   className,
+  id,
   flat = false,
   accentBorder = false
 }: TerminalBlockProps): React.ReactNode {
@@ -95,6 +98,7 @@ export function TerminalBlock({
   return (
     <Wrap
       {...wrapProps}
+      id={id}
       className={cn(
         'font-mono text-[12px] leading-relaxed',
         accentBorder && 'border-l-4 pl-3',

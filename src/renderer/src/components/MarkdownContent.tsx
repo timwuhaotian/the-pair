@@ -1,8 +1,9 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { openExternalUrl } from '../lib/externalLinks'
+import { rehypeHighlight } from '../lib/rehypeHighlight'
 
 /**
  * Hoisted to module scope so the object identity stays stable across renders.
@@ -85,6 +86,16 @@ const MARKDOWN_COMPONENTS: Components = {
   em: ({ children }) => <em className="not-italic text-foreground/85">{children}</em>
 }
 
+function buildComponents(searchQuery?: string): Components {
+  if (!searchQuery?.trim()) return MARKDOWN_COMPONENTS
+  return {
+    ...MARKDOWN_COMPONENTS,
+    mark: ({ children }) => (
+      <mark className="bg-state-running/30 text-foreground rounded-[2px] px-px">{children}</mark>
+    )
+  }
+}
+
 /**
  * Terminal-flavored markdown renderer. No serif body fonts, no decorative
  * radii — everything reads as a typed log entry. Inline + block code keep
@@ -95,12 +106,23 @@ const MARKDOWN_COMPONENTS: Components = {
  * changes.
  */
 export const MarkdownContent = memo(function MarkdownContent({
-  content
+  content,
+  searchQuery
 }: {
   content: string
+  searchQuery?: string
 }): React.ReactNode {
+  const components = useMemo(() => buildComponents(searchQuery), [searchQuery])
+  const rehypePlugins = useMemo(
+    () => (searchQuery?.trim() ? [rehypeHighlight({ query: searchQuery })] : []),
+    [searchQuery]
+  )
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components}
+    >
       {content}
     </ReactMarkdown>
   )
