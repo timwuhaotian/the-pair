@@ -9,9 +9,9 @@ export function normalizeQuery(query: string): string {
 
 /** Messages whose content contains the query. Empty query returns the input unchanged. */
 export function filterMessagesByQuery<T extends { content: string }>(
-  messages: readonly T[],
+  messages: T[],
   query: string
-): readonly T[] {
+): T[] {
   const q = normalizeQuery(query)
   if (!q) return messages
   return messages.filter((m) => m.content.toLowerCase().includes(q))

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Square, Trash2, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, Square, Trash2, X, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { cn, extractErrorMessage, formatIterations } from '../lib/utils'
 import { usePairStore, type Message, type Pair, type TurnCard } from '../store/usePairStore'
@@ -16,6 +16,7 @@ import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseWithDropCounts } from '../lib/consoleMessages'
+import { countOccurrences, filterMessagesByQuery, nextMatchIndex } from '../lib/consoleSearch'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
@@ -65,6 +66,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [fileContexts, setFileContexts] = useState<FileContexts>(new Map())
   const [skillContexts, setSkillContexts] = useState<SkillContexts>(new Map())
   const [confirmClear, setConfirmClear] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [matchOrdinal, setMatchOrdinal] = useState(-1)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
@@ -87,11 +92,23 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
   const isViewingArchived = viewingRun !== null
 
-  const consoleMessages = useMemo(() => {
+  const roleFilteredMessages = useMemo(() => {
     const messages = viewingRun ? viewingRun.messages : pair.messages
     if (messageFilter === 'all') return messages
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
+
+  const searching = searchOpen && searchQuery.trim().length > 0
+  const consoleMessages = useMemo(
+    () =>
+      searching ? filterMessagesByQuery(roleFilteredMessages, searchQuery) : roleFilteredMessages,
+    [roleFilteredMessages, searching, searchQuery]
+  )
+
+  const matchCount = useMemo(() => {
+    if (!searching) return 0
+    return consoleMessages.reduce((n, m) => n + countOccurrences(m.content, searchQuery), 0)
+  }, [consoleMessages, searching, searchQuery])
 
   const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
     const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(consoleMessages)
@@ -106,6 +123,52 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       all: allMessages.length
     }
   }, [pair.messages, viewingRun])
+
+  const matchingMessageIds = useMemo(
+    () => (searching ? deduplicatedConsoleMessages.map((m) => m.id) : []),
+    [deduplicatedConsoleMessages, searching]
+  )
+  const activeMessageId =
+    matchOrdinal >= 0 && matchOrdinal < matchingMessageIds.length
+      ? matchingMessageIds[matchOrdinal]
+      : null
+
+  const cycleMatch = useCallback(
+    (dir: 1 | -1): void => {
+      const next = nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir)
+      setMatchOrdinal(next)
+      const id = next >= 0 ? matchingMessageIds[next] : undefined
+      if (id) {
+        document
+          .getElementById(`console-msg-${id}`)
+          ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    },
+    [matchOrdinal, matchingMessageIds]
+  )
+
+  const closeSearch = useCallback((): void => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    setMatchOrdinal(-1)
+  }, [])
+
+  // Cmd/Ctrl+F opens transcript search while this console is mounted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        requestAnimationFrame(() => searchInputRef.current?.focus())
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    setMatchOrdinal(-1)
+  }, [searchQuery, pair.id, viewingRunId])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -179,13 +242,25 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       nodes.push(
         <div key={msg.id} className={cn('flex', alignClass)}>
           <div className={cn(maxWidthClass)}>
-            <MessageCard msg={msg} />
+            <MessageCard
+              msg={msg}
+              searchQuery={searching ? searchQuery : undefined}
+              isActiveMatch={searching && msg.id === activeMessageId}
+            />
           </div>
         </div>
       )
     }
     return nodes
-  }, [deduplicatedConsoleMessages, dropCountByMessageId, pair.maxIterations, t])
+  }, [
+    deduplicatedConsoleMessages,
+    dropCountByMessageId,
+    pair.maxIterations,
+    t,
+    searching,
+    searchQuery,
+    activeMessageId
+  ])
 
   const handleClearMessages = (): void => {
     // Same confirm as the toolbar/palette path (App.tsx) — never wipe a
@@ -510,8 +585,84 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               <Trash2 size={12} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(true)
+              requestAnimationFrame(() => searchInputRef.current?.focus())
+            }}
+            title={t('console.searchOpen')}
+            aria-label={t('console.searchOpen')}
+            data-testid="console-search-toggle"
+            className="p-0.5 text-muted-foreground-faint hover:text-foreground transition-colors cursor-pointer"
+          >
+            <Search size={12} />
+          </button>
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-background px-4 font-mono text-[11px] text-muted-foreground">
+          <Search size={11} aria-hidden className="shrink-0 text-muted-foreground-faint" />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                closeSearch()
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                cycleMatch(e.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder={t('console.searchPlaceholder')}
+            aria-label={t('console.searchPlaceholder')}
+            data-testid="console-search-input"
+            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground-faint"
+          />
+          {searchQuery.trim() && (
+            <span data-testid="console-search-count" className="shrink-0 tabular-nums">
+              {matchCount > 0
+                ? t('console.searchMatches', { count: matchCount })
+                : t('console.searchNoMatches')}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => cycleMatch(-1)}
+            disabled={matchingMessageIds.length === 0}
+            aria-label={t('console.searchPrev')}
+            title={t('console.searchPrev')}
+            data-testid="console-search-prev"
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
+          >
+            <ChevronUp size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => cycleMatch(1)}
+            disabled={matchingMessageIds.length === 0}
+            aria-label={t('console.searchNext')}
+            title={t('console.searchNext')}
+            data-testid="console-search-next"
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
+          >
+            <ChevronDown size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={closeSearch}
+            aria-label={t('console.searchClose')}
+            title={t('console.searchClose')}
+            data-testid="console-search-close"
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Message area */}
       <div className="relative flex min-h-0 flex-1 flex-col">
