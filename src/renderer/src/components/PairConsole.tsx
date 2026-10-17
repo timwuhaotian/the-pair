@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Square, Trash2, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, Square, Trash2, X, XCircle } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { cn, extractErrorMessage, formatIterations } from '../lib/utils'
 import { usePairStore, type Message, type Pair, type TurnCard } from '../store/usePairStore'
@@ -11,16 +12,18 @@ import { GlassButton } from './ui/GlassButton'
 import { isPairActive } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { MessageCard } from './MessageCard'
+import { countSearchHighlights } from '../lib/searchableCard'
 import { TurnCardView } from './TurnCardView'
 import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseWithDropCounts } from '../lib/consoleMessages'
+import { nextMatchIndex } from '../lib/consoleSearch'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
 import { composeFinalSpec, type SkillContexts } from '../lib/skillMentions'
-import { isSubmitEnter } from './keyboard'
+import { isImeKeyEvent, isSubmitEnter } from './keyboard'
 import { useCompositionTracker } from './useCompositionTracker'
 import {
   isNearBottom,
@@ -65,6 +68,31 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [fileContexts, setFileContexts] = useState<FileContexts>(new Map())
   const [skillContexts, setSkillContexts] = useState<SkillContexts>(new Map())
   const [confirmClear, setConfirmClear] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  // The transcript list lags one keystroke behind the input on purpose.
+  // Filtering, match counting, and re-highlighting every matching card through
+  // react-markdown is expensive at transcript scale, and running it
+  // synchronously per character makes the input itself janky. The deferred
+  // value keeps the urgent input render cheap and lets the list catch up.
+  const listQuery = useDeferredValue(searchQuery)
+  // The active match is anchored by message id, not by index into the match
+  // list: while a run is live the list can change under the same (pair, run,
+  // query) scope — a revised final supersedes the active card, a new match
+  // appends. A kept index would silently re-resolve to a different card and
+  // outline + scroll to it with no cycle press; an anchored id keeps pointing
+  // at the card the reader chose and deactivates when that card leaves the
+  // list.
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null)
+  // Bumped on every cycle call, even when the active match doesn't change (a
+  // single match), so the scroll effect below re-runs on every press.
+  const [matchCycle, setMatchCycle] = useState(0)
+  // Cycle keys pressed while the deferred list lags the typed query are
+  // parked here as a signed step count (see cycleMatch) and replayed by the
+  // render where the list catches up, so presses never index the stale list
+  // and a fast double-press composes instead of keeping only the last one.
+  const [pendingMatchSteps, setPendingMatchSteps] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
@@ -87,16 +115,72 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
   const isViewingArchived = viewingRun !== null
 
-  const consoleMessages = useMemo(() => {
+  // The active match belongs to the match list of one (pair, run, query).
+  // When any of those change the anchor must be cleared in that same commit:
+  // an effect only resets it after the commit, leaving one render where the
+  // stale anchor outlines and scrolls to a card the reader never cycled to.
+  // Resetting during render re-renders before anything is committed. Query
+  // edits come from this component, but run/pair switches arrive from
+  // siblings through the store, so no single event handler can batch the
+  // reset — the scope check here covers every source. Scoped to the deferred
+  // query, which is what the match list derives from, so the anchor only
+  // resets when the list does.
+  const matchScope = `${pair.id}::${viewingRun?.id ?? 'live'}::${listQuery}`
+  const [cycledMatchScope, setCycledMatchScope] = useState(matchScope)
+  if (cycledMatchScope !== matchScope) {
+    setCycledMatchScope(matchScope)
+    setActiveMatchId(null)
+    // A parked press belongs to the scope it was pressed in, so it dies with
+    // the old scope too. A query catch-up is safe to clear here as well: the
+    // parked presses replay later in this same render pass and supersede the
+    // reset, while a run or pair switch lands on a render where the deferred
+    // query still lags, so the replay below never fires for it.
+    setPendingMatchSteps(0)
+  }
+
+  const roleFilteredMessages = useMemo(() => {
     const messages = viewingRun ? viewingRun.messages : pair.messages
     if (messageFilter === 'all') return messages
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
 
+  const searching = searchOpen && listQuery.trim().length > 0
+  // Dedup before the search filter, so which drafts collapse never depends on
+  // the query: search keeps the same finals as the unsearched view, a draft
+  // hidden without a query stays hidden with one, and the final's drop marker
+  // survives.
   const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
-    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(consoleMessages)
+    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(roleFilteredMessages)
     return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
-  }, [consoleMessages])
+  }, [roleFilteredMessages])
+
+  // Count and cycle only over matches that render as highlighted, anchored
+  // cards, so collapsed-away messages never inflate the count and Enter never
+  // lands on a message with no `console-msg-<id>` element. The count also
+  // decides listing — the same rendered-text count that drives the badge and
+  // Enter cycling, so a message whose only raw-source hit is a link URL or
+  // another non-rendered syntax never stays listed without a highlight — and
+  // counting once here keeps the per-keystroke pass single.
+  const searchMatches = useMemo(() => {
+    if (!searching) return [] as Array<{ id: string; count: number }>
+    const out: Array<{ id: string; count: number }> = []
+    for (const m of deduplicatedConsoleMessages) {
+      const count = countSearchHighlights(m, listQuery)
+      if (count > 0) out.push({ id: m.id, count })
+    }
+    return out
+  }, [deduplicatedConsoleMessages, searching, listQuery])
+
+  const matchIds = useMemo(() => new Set(searchMatches.map((x) => x.id)), [searchMatches])
+  const consoleMessages = useMemo(
+    () =>
+      searching
+        ? deduplicatedConsoleMessages.filter((m) => matchIds.has(m.id))
+        : deduplicatedConsoleMessages,
+    [deduplicatedConsoleMessages, searching, matchIds]
+  )
+
+  const matchCount = useMemo(() => searchMatches.reduce((n, x) => n + x.count, 0), [searchMatches])
 
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages
@@ -106,6 +190,94 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       all: allMessages.length
     }
   }, [pair.messages, viewingRun])
+
+  const matchingMessageIds = useMemo(() => searchMatches.map((x) => x.id), [searchMatches])
+
+  // The render where the deferred list catches up applies the parked presses
+  // to the final list, replaying each step from the list's start — the anchor
+  // reset above cleared where the reader was, so a composed press lands where
+  // the same presses from scratch would. Render-time for the same reason as
+  // the scope reset above: an effect would commit one paint where the
+  // keypresses the reader made outlined nothing.
+  if (pendingMatchSteps !== 0 && listQuery === searchQuery) {
+    const dir: 1 | -1 = pendingMatchSteps > 0 ? 1 : -1
+    setPendingMatchSteps(0)
+    let next = -1
+    for (let step = 0; step < Math.abs(pendingMatchSteps); step++) {
+      next = nextMatchIndex(next, matchingMessageIds.length, dir)
+    }
+    setActiveMatchId(next >= 0 ? matchingMessageIds[next] : null)
+    setMatchCycle((cycle) => cycle + 1)
+  }
+
+  // A card superseded out of the match list (a live final superseding the
+  // active one) deactivates here, in the same render that removes it — no
+  // stale outline survives and nothing scrolls. When the anchored card stays
+  // listed, appends around it never move the activation.
+  const activeMessageId =
+    activeMatchId !== null && matchIds.has(activeMatchId) ? activeMatchId : null
+
+  const cycleMatch = useCallback(
+    (dir: 1 | -1): void => {
+      // The deferred list can lag the typed query by a keystroke. Cycling it
+      // would outline and scroll to a card the final query may not match,
+      // and the scope reset above would then drop the activation — park the
+      // press instead and let the caught-up render apply it.
+      if (listQuery !== searchQuery) {
+        setPendingMatchSteps((steps) => steps + dir)
+        return
+      }
+      // An anchored card no longer in the list resolves to index -1, so
+      // cycling from it restarts from the list's first (or, backwards, last)
+      // match.
+      const current = activeMatchId !== null ? matchingMessageIds.indexOf(activeMatchId) : -1
+      const next = nextMatchIndex(current, matchingMessageIds.length, dir)
+      setActiveMatchId(next >= 0 ? matchingMessageIds[next] : null)
+      setMatchCycle((cycle) => cycle + 1)
+    },
+    [activeMatchId, matchingMessageIds, listQuery, searchQuery]
+  )
+
+  // Scroll from an effect, after React commits the new active card: the card
+  // lifts its 280px clip and the previously active card collapses in that
+  // same commit, so the smooth scroll must pick its destination from the
+  // final layout, not the pre-commit one. Aim at the first highlight — the
+  // card's top edge can leave a match deep in a long card off-screen.
+  useEffect(() => {
+    if (!activeMessageId) return
+    const card = document.getElementById(`console-msg-${activeMessageId}`)
+    if (!card) return
+    const target = card.querySelector('mark') ?? card
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [activeMessageId, matchCycle])
+
+  const closeSearch = useCallback((): void => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    setActiveMatchId(null)
+    setPendingMatchSteps(0)
+  }, [])
+
+  // Cmd/Ctrl+F opens transcript search while this console is mounted. The key
+  // itself is registered in App.tsx's shortcut map (exact platform modifier,
+  // preventDefault, listed in the shortcuts sheet) and reaches the console
+  // through this event. flushSync commits the input before the frame's rAF
+  // fires — a default-priority update from this raw listener could otherwise
+  // land after it, leaving the ref null and the input unfocused. The clear-
+  // history confirm is this component's own aria-modal dialog; App's modal
+  // flags structurally cannot see it, so the listener itself must decline
+  // while it is open rather than pull focus out of the dialog.
+  useEffect(() => {
+    const openSearch = (): void => {
+      if (confirmClear) return
+      flushSync(() => {
+        setSearchOpen(true)
+      })
+      requestAnimationFrame(() => searchInputRef.current?.focus())
+    }
+    window.addEventListener('app:console:open-search', openSearch)
+    return () => window.removeEventListener('app:console:open-search', openSearch)
+  }, [confirmClear])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -125,13 +297,22 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     if (el) el.scrollTop = el.scrollHeight
   }, [isViewingArchived])
 
-  // Follow new output only while the reader is already at the bottom, and never
-  // while reading an archived run.
+  // Follow new output only while the reader is already at the bottom, never
+  // while reading an archived run, and never mid-search: an Enter-scrolled
+  // match within the stick threshold of the filtered list's bottom leaves
+  // stickToBottom on, and every streamed message would otherwise yank the
+  // reader off the outlined match until they scroll by hand.
   useEffect(() => {
-    if (isViewingArchived || !stickToBottomRef.current) return
+    if (isViewingArchived || searching || !stickToBottomRef.current) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [isViewingArchived, pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+  }, [
+    isViewingArchived,
+    searching,
+    pair.status,
+    pair.messages.length,
+    pair.currentTurnCard?.updatedAt
+  ])
 
   // The live turn card belongs to the live run only; compare against the
   // unfiltered live transcript so a role filter can't hide it.
@@ -142,7 +323,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const renderedChat = useMemo(() => {
     const nodes: React.ReactNode[] = []
     let lastIteration = -1
-    for (const msg of deduplicatedConsoleMessages) {
+    for (const msg of consoleMessages) {
       const iter = msg.iteration
       if (iter > 0 && iter !== lastIteration) {
         nodes.push(
@@ -179,13 +360,25 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       nodes.push(
         <div key={msg.id} className={cn('flex', alignClass)}>
           <div className={cn(maxWidthClass)}>
-            <MessageCard msg={msg} />
+            <MessageCard
+              msg={msg}
+              searchQuery={searching ? listQuery : undefined}
+              isActiveMatch={searching && msg.id === activeMessageId}
+            />
           </div>
         </div>
       )
     }
     return nodes
-  }, [deduplicatedConsoleMessages, dropCountByMessageId, pair.maxIterations, t])
+  }, [
+    consoleMessages,
+    dropCountByMessageId,
+    pair.maxIterations,
+    t,
+    searching,
+    listQuery,
+    activeMessageId
+  ])
 
   const handleClearMessages = (): void => {
     // Same confirm as the toolbar/palette path (App.tsx) — never wipe a
@@ -482,7 +675,17 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           {!isViewingArchived && (
             <MessageFilterBar
               activeFilter={messageFilter}
-              onFilterChange={setMessageFilter}
+              onFilterChange={(filter) => {
+                setMessageFilter(filter)
+                // The anchor belongs to the role-filtered match list: reset
+                // it in the same batched commit as the filter change, or the
+                // stale anchor would briefly point at (and scroll to) a card
+                // in the new list that the reader never cycled to. A cycle
+                // press parked on the lagging list belongs to the unfiltered
+                // list the same way and dies with the switch.
+                setActiveMatchId(null)
+                setPendingMatchSteps(0)
+              }}
               counts={messageCounts}
             />
           )}
@@ -510,8 +713,87 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               <Trash2 size={12} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(true)
+              requestAnimationFrame(() => searchInputRef.current?.focus())
+            }}
+            title={t('console.searchOpen')}
+            aria-label={t('console.searchOpen')}
+            data-testid="console-search-toggle"
+            className="p-0.5 text-muted-foreground-faint hover:text-foreground transition-colors cursor-pointer"
+          >
+            <Search size={12} />
+          </button>
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-background px-4 font-mono text-[11px] text-muted-foreground">
+          <Search size={11} aria-hidden className="shrink-0 text-muted-foreground-faint" />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // The Enter that confirms an IME candidate and the Escape that
+              // cancels one belong to the composition, not the search.
+              if (isImeKeyEvent(e)) return
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                closeSearch()
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                cycleMatch(e.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder={t('console.searchPlaceholder')}
+            aria-label={t('console.searchPlaceholder')}
+            data-testid="console-search-input"
+            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground-faint"
+          />
+          {searchQuery.trim() && (
+            <span data-testid="console-search-count" className="shrink-0 tabular-nums">
+              {matchCount > 0
+                ? t('console.searchMatches', { count: matchCount })
+                : t('console.searchNoMatches')}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => cycleMatch(-1)}
+            disabled={matchingMessageIds.length === 0}
+            aria-label={t('console.searchPrev')}
+            title={t('console.searchPrev')}
+            data-testid="console-search-prev"
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
+          >
+            <ChevronUp size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => cycleMatch(1)}
+            disabled={matchingMessageIds.length === 0}
+            aria-label={t('console.searchNext')}
+            title={t('console.searchNext')}
+            data-testid="console-search-next"
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
+          >
+            <ChevronDown size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={closeSearch}
+            aria-label={t('console.searchClose')}
+            title={t('console.searchClose')}
+            data-testid="console-search-close"
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Message area */}
       <div className="relative flex min-h-0 flex-1 flex-col">

@@ -5,6 +5,8 @@ import {
   formatShortcutLabel,
   formatShortcutParts,
   isInputFocused,
+  canOpenConsoleSearch,
+  type ConsoleSearchBlockers,
   type ShortcutDef
 } from '../src/renderer/src/lib/shortcuts.ts'
 
@@ -171,5 +173,37 @@ describe('isInputFocused', () => {
 
   it('returns false when target is null', () => {
     assert.strictEqual(isInputFocused({ target: null } as KeyboardEvent), false)
+  })
+})
+
+const noBlockers: ConsoleSearchBlockers = {
+  createPairOpen: false,
+  assignTaskOpen: false,
+  pairSettingsOpen: false,
+  paletteOpen: false,
+  shortcutsOpen: false,
+  confirmDeletePairOpen: false,
+  confirmClearSessionOpen: false,
+  updateModalOpen: false
+}
+
+describe('canOpenConsoleSearch', () => {
+  it('allows the shortcut with a selected pair and nothing over the console', () => {
+    assert.strictEqual(canOpenConsoleSearch(true, noBlockers), true)
+  })
+
+  it('blocks without a selected pair', () => {
+    assert.strictEqual(canOpenConsoleSearch(false, noBlockers), false)
+  })
+
+  it('blocks while any modal over the console is open', () => {
+    const keys = Object.keys(noBlockers) as Array<keyof ConsoleSearchBlockers>
+    for (const key of keys) {
+      assert.strictEqual(
+        canOpenConsoleSearch(true, { ...noBlockers, [key]: true }),
+        false,
+        `expected ${key} to block the search shortcut`
+      )
+    }
   })
 })

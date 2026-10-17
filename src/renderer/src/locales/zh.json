@@ -372,7 +372,15 @@
     "showReportOnly": "显示完整报告",
     "hideDetails": "隐藏详情",
     "submitFailed": "任务启动失败",
-    "stopFailed": "无法停止当前轮次"
+    "stopFailed": "无法停止当前轮次",
+    "searchOpen": "搜索对话记录",
+    "searchPlaceholder": "搜索对话记录...",
+    "searchMatches_one": "{{count}} 处匹配",
+    "searchMatches_other": "{{count}} 处匹配",
+    "searchNoMatches": "无匹配",
+    "searchPrev": "上一个匹配",
+    "searchNext": "下一个匹配",
+    "searchClose": "关闭搜索"
   },
   "skills": {
     "popoverTitle": "技能",
@@ -455,6 +463,7 @@
     "showShortcuts": "显示快捷键",
     "toggleSidebar": "切换侧边栏",
     "commandPalette": "命令面板",
+    "searchTranscript": "搜索对话记录",
     "goBack": "返回 Pairs",
     "goPairs": "前往 Pairs",
     "goActivity": "前往动态",

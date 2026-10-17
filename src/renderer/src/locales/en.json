@@ -372,7 +372,15 @@
     "earlierMessagesDropped_one": "+ {{count}} earlier message hidden",
     "earlierMessagesDropped_other": "+ {{count}} earlier messages hidden",
     "submitFailed": "Failed to start the task",
-    "stopFailed": "Failed to stop the turn"
+    "stopFailed": "Failed to stop the turn",
+    "searchOpen": "Search transcript",
+    "searchPlaceholder": "Search transcript...",
+    "searchMatches_one": "{{count}} match",
+    "searchMatches_other": "{{count}} matches",
+    "searchNoMatches": "No matches",
+    "searchPrev": "Previous match",
+    "searchNext": "Next match",
+    "searchClose": "Close search"
   },
   "skills": {
     "popoverTitle": "skills",
@@ -455,6 +463,7 @@
     "showShortcuts": "Show Shortcuts",
     "toggleSidebar": "Toggle Sidebar",
     "commandPalette": "Command Palette",
+    "searchTranscript": "Search Transcript",
     "goBack": "Back to Pairs",
     "goPairs": "Go to Pairs",
     "goActivity": "Go to Activity",

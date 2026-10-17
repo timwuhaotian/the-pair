@@ -362,7 +362,15 @@
     "showReportOnly": "レポート全文を表示",
     "hideDetails": "詳細を非表示",
     "submitFailed": "タスクを開始できませんでした",
-    "stopFailed": "ターンを停止できませんでした"
+    "stopFailed": "ターンを停止できませんでした",
+    "searchOpen": "トランスクリプトを検索",
+    "searchPlaceholder": "トランスクリプトを検索...",
+    "searchMatches_one": "{{count}} 件の一致",
+    "searchMatches_other": "{{count}} 件の一致",
+    "searchNoMatches": "一致なし",
+    "searchPrev": "前の一致",
+    "searchNext": "次の一致",
+    "searchClose": "検索を閉じる"
   },
   "skills": {
     "popoverTitle": "スキル",
@@ -445,6 +453,7 @@
     "showShortcuts": "ショートカットを表示",
     "toggleSidebar": "サイドバーの表示切替",
     "commandPalette": "コマンドパレット",
+    "searchTranscript": "トランスクリプトを検索",
     "goBack": "ペアに戻る",
     "goPairs": "ペアへ移動",
     "goActivity": "アクティビティへ移動",

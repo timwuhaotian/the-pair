@@ -2,9 +2,10 @@ import React, { memo, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { cn, stripSystemPrompt } from '../lib/utils'
+import { cn } from '../lib/utils'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
 import { isTechnicalHandoff } from '../lib/timeline'
+import { displayContentForMessage } from '../lib/searchableCard'
 import { MarkdownContent } from './MarkdownContent'
 import { AcceptanceMessageBody } from './AcceptanceMessageBody'
 import { TerminalBlock } from './terminal/TerminalBlock'
@@ -43,7 +44,15 @@ function typeLabel(type: Message['type']): string {
   }
 }
 
-export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }): React.ReactNode {
+export const MessageCard = memo(function MessageCard({
+  msg,
+  searchQuery,
+  isActiveMatch = false
+}: {
+  msg: Message
+  searchQuery?: string
+  isActiveMatch?: boolean
+}): React.ReactNode {
   const { t } = useTranslation()
   // Single expansion state covers both cognitive steps and long-body collapse.
   // When a message has both kinds of hidden content, users used to face two
@@ -54,10 +63,7 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
   const isSystem = msg.type === 'handoff'
   const isHuman = msg.from === 'human'
 
-  const displayContent =
-    isHuman || isTechnicalHandoff(msg.content)
-      ? stripSystemPrompt(msg.content.trim())
-      : msg.content.trim()
+  const displayContent = displayContentForMessage(msg)
 
   const isAcceptance =
     msg.type === 'acceptance' ||
@@ -91,6 +97,11 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
   )
   const showCollapse = displayContent.length > CONTENT_COLLAPSE_THRESHOLD
   const hasExpandable = hasSteps || showCollapse
+  // The active search match must be visible: a match below the collapse fold
+  // would otherwise scroll into view still clipped. Lift only the 280px body
+  // clip while active and leave the toggle and the steps panel to
+  // detailsExpanded, so the control never fights the search override.
+  const bodyClipped = showCollapse && !detailsExpanded && !isActiveMatch
 
   // Label for the unified toggle reflects exactly what's hidden behind it.
   const expandLabel = ((): string => {
@@ -123,9 +134,14 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
     <TerminalBlock
       role={role}
       state="done"
+      id={`console-msg-${msg.id}`}
       timestamp={msg.startedAt ?? msg.timestamp}
       badges={typeTag}
       accentBorder
+      className={cn(
+        'rounded-sm transition-shadow',
+        isActiveMatch && 'outline outline-1 outline-state-running/60'
+      )}
       meta={
         <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {duration && <span className="tabular-nums">{duration}</span>}
@@ -133,8 +149,10 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
         </span>
       }
     >
-      {/* Unified expand control — covers cognitive steps and/or long-body collapse */}
-      {hasExpandable && (
+      {/* Unified expand control — covers cognitive steps and/or long-body collapse.
+          Hidden on the active match when it would have no effect (no steps and
+          the body clip is already lifted). */}
+      {hasExpandable && (hasSteps || !isActiveMatch) && (
         <div className="mb-1.5">
           <button
             onClick={() => setDetailsExpanded((v) => !v)}
@@ -183,15 +201,15 @@ export const MessageCard = memo(function MessageCard({ msg }: { msg: Message }):
       <div
         className={cn(
           'text-[12px] leading-relaxed',
-          !detailsExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
+          bodyClipped && 'max-h-[280px] overflow-hidden relative'
         )}
       >
         {isAcceptance ? (
           <AcceptanceMessageBody content={displayContent} />
         ) : (
-          <MarkdownContent content={displayContent} />
+          <MarkdownContent content={displayContent} searchQuery={searchQuery} />
         )}
-        {!detailsExpanded && showCollapse && (
+        {bodyClipped && (
           <button
             onClick={() => setDetailsExpanded(true)}
             className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent cursor-pointer flex items-end justify-center pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground/80 transition-colors"

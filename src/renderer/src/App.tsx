@@ -15,14 +15,14 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { canStartUpdateCheck } from './components/updateView'
+import { canStartUpdateCheck, shouldShowUpdateModal } from './components/updateView'
 import { isPairActive, isPairBusy } from './lib/pairStatus'
 import { extractErrorMessage } from './lib/utils'
 import { Dashboard } from './components/Dashboard'
 import { preloadSounds } from './lib/sound'
 import { useShortcuts } from './hooks/useShortcuts'
 import { ShortcutsModal } from './components/ShortcutsModal'
-import type { ShortcutDef } from './lib/shortcuts'
+import { canOpenConsoleSearch, type ShortcutDef } from './lib/shortcuts'
 import {
   buildPaletteActions,
   buildPairJumpActions,
@@ -152,6 +152,9 @@ function App(): React.ReactNode {
   const setReleaseBody = useUpdateStore((state) => state.setReleaseBody)
   const setUpdate = useUpdateStore((state) => state.setUpdate)
   const setShowModal = useUpdateStore((state) => state.setShowModal)
+  const updateModalVisible = useUpdateStore((state) =>
+    shouldShowUpdateModal(state.showModal, state.phase)
+  )
   const displayToast = useUpdateStore((state) => state.displayToast)
   const updateRef = useRef<Update | null>(null)
 
@@ -440,6 +443,28 @@ function App(): React.ReactNode {
         description: t('shortcuts.commandPalette')
       },
       {
+        key: 'f',
+        modifiers: [cmdKey],
+        handler: () => {
+          window.dispatchEvent(new CustomEvent('app:console:open-search'))
+        },
+        description: t('shortcuts.searchTranscript'),
+        // Never while a modal dialog is open over the console: the console
+        // listener would flush the search bar open and move focus out of the
+        // dialog, leaving the reader typing behind a surface they can't see.
+        condition: () =>
+          canOpenConsoleSearch(selectedPair !== null, {
+            createPairOpen: isCreatePairOpen,
+            assignTaskOpen: isAssignTaskOpen,
+            pairSettingsOpen: isPairSettingsOpen,
+            paletteOpen: isPaletteOpen,
+            shortcutsOpen: isShortcutsOpen,
+            confirmDeletePairOpen: pendingDeletePair !== null,
+            confirmClearSessionOpen: pendingClearPair !== null,
+            updateModalOpen: updateModalVisible
+          })
+      },
+      {
         key: '[',
         modifiers: [cmdKey],
         handler: () => {
@@ -482,7 +507,15 @@ function App(): React.ReactNode {
       toggleSidebar,
       selectSection,
       goHub,
-      openPalette
+      openPalette,
+      isCreatePairOpen,
+      isAssignTaskOpen,
+      isPairSettingsOpen,
+      isPaletteOpen,
+      isShortcutsOpen,
+      pendingDeletePair,
+      pendingClearPair,
+      updateModalVisible
     ]
   )
 

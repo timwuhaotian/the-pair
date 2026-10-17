@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "2.11.3",
+  "version": "2.12.0",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Open-source AI pair programming desktop app with Mentor and Executor agents for cross-validated AI code review",
@@ -103,6 +103,8 @@
     "react-i18next": "^17.0.6",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.2",
     "tailwindcss-animate": "^1.0.7",

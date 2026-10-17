@@ -362,7 +362,15 @@
     "showReportOnly": "전체 보고서 보기",
     "hideDetails": "세부 정보 숨기기",
     "submitFailed": "작업을 시작하지 못했습니다",
-    "stopFailed": "턴을 중지하지 못했습니다"
+    "stopFailed": "턴을 중지하지 못했습니다",
+    "searchOpen": "대화 기록 검색",
+    "searchPlaceholder": "대화 기록 검색...",
+    "searchMatches_one": "일치 {{count}}개",
+    "searchMatches_other": "일치 {{count}}개",
+    "searchNoMatches": "일치 없음",
+    "searchPrev": "이전 일치",
+    "searchNext": "다음 일치",
+    "searchClose": "검색 닫기"
   },
   "skills": {
     "popoverTitle": "스킬",
@@ -445,6 +453,7 @@
     "showShortcuts": "단축키 표시",
     "toggleSidebar": "사이드바 토글",
     "commandPalette": "명령 팔레트",
+    "searchTranscript": "대화 기록 검색",
     "goBack": "페어로 돌아가기",
     "goPairs": "페어로 이동",
     "goActivity": "활동으로 이동",
