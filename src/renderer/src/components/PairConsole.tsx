@@ -288,13 +288,22 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     if (el) el.scrollTop = el.scrollHeight
   }, [isViewingArchived])
 
-  // Follow new output only while the reader is already at the bottom, and never
-  // while reading an archived run.
+  // Follow new output only while the reader is already at the bottom, never
+  // while reading an archived run, and never mid-search: an Enter-scrolled
+  // match within the stick threshold of the filtered list's bottom leaves
+  // stickToBottom on, and every streamed message would otherwise yank the
+  // reader off the outlined match until they scroll by hand.
   useEffect(() => {
-    if (isViewingArchived || !stickToBottomRef.current) return
+    if (isViewingArchived || searching || !stickToBottomRef.current) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [isViewingArchived, pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+  }, [
+    isViewingArchived,
+    searching,
+    pair.status,
+    pair.messages.length,
+    pair.currentTurnCard?.updatedAt
+  ])
 
   // The live turn card belongs to the live run only; compare against the
   // unfiltered live transcript so a role filter can't hide it.

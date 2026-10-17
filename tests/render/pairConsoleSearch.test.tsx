@@ -600,6 +600,57 @@ test('a live append that keeps the active card anchors the activation by id', ()
   assert.equal(scrollTargets.length, 3)
 })
 
+test('live output does not yank the reader off an active search match', () => {
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parser plan', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'm2', content: 'unrelated note', from: 'executor', iteration: 2 })
+  ]
+  const view = render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+
+  // jsdom's scroller reports 0/0; record writes against a tall stub instead.
+  const scroller = view.container.querySelector<HTMLElement>('div.overflow-y-auto')
+  assert.ok(scroller)
+  const writes: number[] = []
+  Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 5000 })
+  Object.defineProperty(scroller, 'scrollTop', {
+    configurable: true,
+    get: () => (writes.length > 0 ? writes[writes.length - 1] : 0),
+    set: (value: number) => {
+      writes.push(value)
+    }
+  })
+
+  // A streamed append while the match is active must not snap to the bottom.
+  view.rerender(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole
+        pair={makePair([
+          ...messages,
+          makeMessage({ id: 'm3', content: 'parser shipped', from: 'executor', iteration: 3 })
+        ])}
+      />
+    </I18nextProvider>
+  )
+  assert.ok(
+    document.getElementById('console-msg-m1')?.className.includes('outline'),
+    'the active match stays active across the append'
+  )
+  assert.deepEqual(writes, [], 'no auto-follow write while a search is active')
+
+  // Closing the search returns the console to live following.
+  fireEvent.click(screen.getByTestId('console-search-close'))
+  assert.deepEqual(writes, [5000], 'follow resumes at the bottom once search closes')
+})
+
 test('cycling with no matches never activates or scrolls', () => {
   scrollTargets.length = 0
   const messages = [makeMessage({ id: 'm1', content: 'unrelated note' })]
