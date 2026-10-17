@@ -245,3 +245,28 @@ test('Cmd+F opens the search bar', () => {
   fireEvent.keyDown(window, { key: 'f', metaKey: true })
   assert.ok(screen.getByTestId('console-search-input'))
 })
+
+test('IME Enter and Escape confirm/cancel the composition, not the search', () => {
+  renderConsole()
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  // WebKit fires the candidate-confirming Enter with keyCode 229 after
+  // compositionend, so isComposing is false; only keyCode identifies it.
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, isComposing: false })
+  assert.ok(
+    !document.getElementById('console-msg-m1')?.className.includes('outline'),
+    'IME Enter does not activate a match'
+  )
+
+  fireEvent.keyDown(input, { key: 'Escape', keyCode: 229, isComposing: false })
+  assert.ok(screen.getByTestId('console-search-input'), 'IME Escape does not close search')
+  assert.equal(screen.getByTestId('console-search-count').textContent, '3 matches')
+
+  // The same keys outside a composition still act on the search.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+  fireEvent.keyDown(input, { key: 'Escape' })
+  assert.equal(screen.queryByTestId('console-search-input'), null)
+})

@@ -22,7 +22,7 @@ import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
 import { composeFinalSpec, type SkillContexts } from '../lib/skillMentions'
-import { isSubmitEnter } from './keyboard'
+import { isImeKeyEvent, isSubmitEnter } from './keyboard'
 import { useCompositionTracker } from './useCompositionTracker'
 import {
   isNearBottom,
@@ -625,6 +625,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
+              // The Enter that confirms an IME candidate and the Escape that
+              // cancels one belong to the composition, not the search.
+              if (isImeKeyEvent(e)) return
               if (e.key === 'Escape') {
                 e.preventDefault()
                 closeSearch()
