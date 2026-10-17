@@ -107,6 +107,37 @@ test('countSearchHighlights does not count a query spanning two text nodes', () 
   )
 })
 
+test('countSearchHighlights stays warm across passes over long transcripts', () => {
+  // PairConsole walks every role-filtered message on each keystroke, twice
+  // (pre-dedup filter + post-dedup count). The parse cache must keep that
+  // walk warm no matter how many distinct bodies the run has — the old
+  // >400-entries clear() wiped the hot set mid-pass, forcing a full remark
+  // reparse on every keystroke (~450ms at 450 realistic bodies).
+  const body = (i: number): string => {
+    const para = `Paragraph ${i} about the parser with \`inline-${i}\` code and a zqneedle mention. `
+    let out = ''
+    for (let k = 0; k < 50; k++) out += para
+    return `${out}\n\n\`\`\`ts\nconst v${i} = compute(${i}) // zqneedle in code\n\`\`\`\n`
+  }
+  const messages = Array.from({ length: 450 }, (_, i) =>
+    makeMessage({ id: `long-${i}`, content: body(i) })
+  )
+
+  const pass = (): number[] => messages.map((m) => countSearchHighlights(m, 'zqneedle'))
+
+  const coldStart = performance.now()
+  const coldCounts = pass()
+  const coldMs = performance.now() - coldStart
+  const warmStart = performance.now()
+  const warmCounts = pass()
+  const warmMs = performance.now() - warmStart
+
+  assert.deepEqual(coldCounts, warmCounts)
+  assert.ok(coldCounts.every((c) => c === 51))
+  // Cold pays the remark parses; warm must be cache hits, not a reparse.
+  assert.ok(warmMs < coldMs / 2, `warm pass ${warmMs.toFixed(1)}ms vs cold ${coldMs.toFixed(1)}ms`)
+})
+
 test('displayContentForMessage strips system prompts like MessageCard', () => {
   assert.equal(displayContentForMessage(makeMessage({ content: '  parser plan  ' })), 'parser plan')
   assert.equal(

@@ -25,7 +25,11 @@ interface MdastNode {
 // exactly the ones rehypeHighlight wraps in <mark>.
 const markdownParser = unified().use(remarkParse).use(remarkGfm)
 
-const renderedTextCache = new Map<string, string[]>()
+// Keyed on the Message object: the store never mutates messages in place
+// (it replaces them), so entries live exactly as long as the message and GC
+// bounds the cache — no size cap, no clear() that wipes the hot set mid-pass
+// on long transcripts.
+const renderedTextsByMessage = new WeakMap<Message, string[]>()
 
 // text/inlineCode/code are the mdast nodes whose values become hast text
 // nodes; everything else (link URLs, fence info strings, raw HTML, image alt)
@@ -39,13 +43,12 @@ function collectTextNodes(node: MdastNode, out: string[]): void {
 }
 
 /** The text values this markdown renders — the only places a match can highlight. */
-function renderedSearchTexts(content: string): string[] {
-  const cached = renderedTextCache.get(content)
+function renderedSearchTexts(msg: Message): string[] {
+  const cached = renderedTextsByMessage.get(msg)
   if (cached) return cached
   const out: string[] = []
-  collectTextNodes(markdownParser.parse(content) as unknown as MdastNode, out)
-  if (renderedTextCache.size > 400) renderedTextCache.clear()
-  renderedTextCache.set(content, out)
+  collectTextNodes(markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode, out)
+  renderedTextsByMessage.set(msg, out)
   return out
 }
 
@@ -70,8 +73,5 @@ export function countSearchHighlights(msg: Message, query: string): number {
   ) {
     return 0
   }
-  return renderedSearchTexts(displayContent).reduce(
-    (n, text) => n + countOccurrences(text, query),
-    0
-  )
+  return renderedSearchTexts(msg).reduce((n, text) => n + countOccurrences(text, query), 0)
 }
