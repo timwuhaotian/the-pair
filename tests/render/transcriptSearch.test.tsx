@@ -32,6 +32,23 @@ test('MarkdownContent wraps query matches in <mark>', () => {
   assert.ok(container.textContent?.includes('Fix the'))
 })
 
+test('MarkdownContent highlights matches inside inline code', () => {
+  const { container } = render(
+    <MarkdownContent content="Edited `src/parser.ts` and ran tests" searchQuery="parser.ts" />
+  )
+  const marks = container.querySelectorAll('mark')
+  assert.equal(marks.length, 1)
+  assert.equal(marks[0]?.textContent, 'parser.ts')
+  assert.ok(marks[0]?.closest('code'), 'mark stays inside the code element')
+})
+
+test('MarkdownContent highlights matches inside fenced code blocks', () => {
+  const { container } = render(
+    <MarkdownContent content={'```\nparser failed\n```'} searchQuery="parser" />
+  )
+  assert.equal(container.querySelectorAll('mark').length, 1)
+})
+
 test('MarkdownContent without a query renders no marks', () => {
   const { container } = render(<MarkdownContent content="Fix the Parser bug" />)
   assert.equal(container.querySelectorAll('mark').length, 0)

@@ -8,7 +8,7 @@ interface HastNode {
   children?: HastNode[]
 }
 
-const SKIP_TAGS = new Set(['code', 'pre', 'script', 'style'])
+const SKIP_TAGS = new Set(['script', 'style'])
 
 /** Split a hast text value into text/element nodes wrapping matches in <mark>. */
 function splitText(value: string, query: string): HastNode[] {
@@ -47,7 +47,8 @@ function walk(node: HastNode, query: string): void {
 /**
  * Rehype plugin factory: wraps search matches in hast <mark> elements.
  * Runs on the hast tree react-markdown builds, so it covers every rendered
- * text node uniformly. Code/pre subtrees are skipped.
+ * text node uniformly — including inline code and fenced blocks, where file
+ * names and error strings usually live. Only script/style subtrees are skipped.
  */
 export function rehypeHighlight(options: { query: string }): () => (tree: HastNode) => void {
   return () => (tree) => {
