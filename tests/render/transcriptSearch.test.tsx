@@ -82,6 +82,32 @@ test('MessageCard anchors at console-msg-<id> and outlines the active match', ()
   assert.equal(container.querySelectorAll('mark').length, 2)
 })
 
+test('MessageCard expands a collapsed long body when it is the active match', () => {
+  void i18n.changeLanguage('en')
+  const longMessage: Message = {
+    ...baseMessage,
+    id: 'msg-long',
+    content: `parser intro ${'x'.repeat(1300)} parser tail end`
+  }
+  const { container, rerender } = render(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={longMessage} searchQuery="parser" />
+    </I18nextProvider>
+  )
+  const anchor = container.querySelector('#console-msg-msg-long')
+  assert.ok(anchor)
+  // Collapsed: the prose wrapper clips to 280px while not active.
+  assert.ok(anchor.innerHTML.includes('max-h-[280px]'), 'collapsed before activation')
+
+  rerender(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={longMessage} searchQuery="parser" isActiveMatch />
+    </I18nextProvider>
+  )
+  assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'expanded while active')
+  assert.equal(container.querySelectorAll('mark').length, 2)
+})
+
 test('MessageCard without search props has the anchor but no outline or marks', () => {
   void i18n.changeLanguage('en')
   const { container } = render(

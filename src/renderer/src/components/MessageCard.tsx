@@ -99,10 +99,13 @@ export const MessageCard = memo(function MessageCard({
   )
   const showCollapse = displayContent.length > CONTENT_COLLAPSE_THRESHOLD
   const hasExpandable = hasSteps || showCollapse
+  // The active search match must be visible: a match below the collapse
+  // fold would otherwise scroll into view still clipped.
+  const effectiveExpanded = detailsExpanded || isActiveMatch
 
   // Label for the unified toggle reflects exactly what's hidden behind it.
   const expandLabel = ((): string => {
-    if (detailsExpanded) return t('console.hideDetails')
+    if (effectiveExpanded) return t('console.hideDetails')
     if (hasSteps && showCollapse) {
       return t('console.showDetailsBoth', { count: cognitiveEvents.length })
     }
@@ -155,10 +158,10 @@ export const MessageCard = memo(function MessageCard({
               'group flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em]',
               'text-muted-foreground-faint hover:text-foreground/80 transition-colors'
             )}
-            aria-expanded={detailsExpanded}
+            aria-expanded={effectiveExpanded}
           >
-            <span className="text-muted-foreground-faint">{detailsExpanded ? '└─' : '├─'}</span>
-            {detailsExpanded ? (
+            <span className="text-muted-foreground-faint">{effectiveExpanded ? '└─' : '├─'}</span>
+            {effectiveExpanded ? (
               <ChevronDown size={10} className="text-muted-foreground-faint translate-y-px" />
             ) : (
               <ChevronRight size={10} className="text-muted-foreground-faint translate-y-px" />
@@ -167,7 +170,7 @@ export const MessageCard = memo(function MessageCard({
           </button>
           {hasSteps && (
             <AnimatePresence initial={false}>
-              {detailsExpanded && (
+              {effectiveExpanded && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
@@ -196,7 +199,7 @@ export const MessageCard = memo(function MessageCard({
       <div
         className={cn(
           'text-[12px] leading-relaxed',
-          !detailsExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
+          !effectiveExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
         )}
       >
         {isAcceptance ? (
@@ -204,7 +207,7 @@ export const MessageCard = memo(function MessageCard({
         ) : (
           <MarkdownContent content={displayContent} searchQuery={searchQuery} />
         )}
-        {!detailsExpanded && showCollapse && (
+        {!effectiveExpanded && showCollapse && (
           <button
             onClick={() => setDetailsExpanded(true)}
             className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent cursor-pointer flex items-end justify-center pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground/80 transition-colors"
