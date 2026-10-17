@@ -328,6 +328,55 @@ test('search finds unbackticked JSX tags that render literally', () => {
   assert.equal(document.querySelectorAll('mark').length, 1)
 })
 
+test('switching the role filter while searching resets the active match instead of jumping', () => {
+  scrollTargets.length = 0
+  // One mentor + executor message per iteration: dedup keeps all four, so the
+  // match list is [m1, e1, m2, e2] under "all".
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parser plan one', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser exec one', from: 'executor' }),
+    makeMessage({
+      id: 'm2',
+      content: 'parser plan two',
+      from: 'mentor',
+      type: 'plan',
+      iteration: 2
+    }),
+    makeMessage({ id: 'e2', content: 'parser exec two', from: 'executor', iteration: 2 })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-e1')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 2)
+
+  // Narrowing to mentor changes the match list to [m1, m2]: the stale ordinal
+  // would outline m2 and scroll to it with no key pressed.
+  fireEvent.click(screen.getByTestId('filter-mentor'))
+  assert.equal(scrollTargets.length, 2, 'filter switch never scrolls')
+  for (const id of ['m1', 'm2', 'e1', 'e2']) {
+    assert.ok(
+      !document.getElementById(`console-msg-${id}`)?.className.includes('outline'),
+      `${id} not outlined after the filter switch`
+    )
+  }
+
+  // Cycling restarts from the first match of the filtered list.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+  assert.ok(!document.getElementById('console-msg-m2')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 3)
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })

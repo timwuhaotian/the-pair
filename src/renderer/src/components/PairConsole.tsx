@@ -580,7 +580,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           {!isViewingArchived && (
             <MessageFilterBar
               activeFilter={messageFilter}
-              onFilterChange={setMessageFilter}
+              onFilterChange={(filter) => {
+                setMessageFilter(filter)
+                // The ordinal indexes the role-filtered match list: reset it in
+                // the same batched commit as the filter change, or the stale
+                // index would briefly point at (and scroll to) a card in the
+                // new list that the reader never cycled to.
+                setMatchOrdinal(-1)
+              }}
               counts={messageCounts}
             />
           )}
