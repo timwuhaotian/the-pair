@@ -17,7 +17,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { createRoot, type Root } from 'react-dom/client'
 import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
-import type { Message, Pair } from '../../src/renderer/src/store/usePairStore.ts'
+import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
+import type { Message, Pair, PairRunSummary } from '../../src/renderer/src/store/usePairStore.ts'
 
 // jsdom lacks scrollIntoView. Tests assert on the recorded targets.
 const scrollTargets: Element[] = []
@@ -89,6 +90,10 @@ const MESSAGES = [
   }),
   makeMessage({ id: 'm3', content: 'parser done, Parser verified', from: 'executor' })
 ]
+
+function makePairWithRuns(messages: Message[], archivedRun: PairRunSummary): Pair {
+  return { ...makePair(messages), runHistory: [archivedRun] }
+}
 
 function renderConsole(): void {
   render(
@@ -681,13 +686,15 @@ function keyDownNative(el: Element, init: { key: string; shiftKey?: boolean }): 
 
 async function withConcurrentConsole(
   messages: Message[],
-  run: (openSearch: () => Promise<HTMLInputElement>) => Promise<void>
+  run: (openSearch: () => Promise<HTMLInputElement>) => Promise<void>,
+  opts?: { pair?: Pair }
 ): Promise<void> {
   const actEnv = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root: Root = createRoot(container)
+  const pair = opts?.pair ?? makePair(messages)
   const openSearch = async (): Promise<HTMLInputElement> => {
     container.querySelector<HTMLButtonElement>('[data-testid="console-search-toggle"]')?.click()
     await settleUrgent()
@@ -698,7 +705,7 @@ async function withConcurrentConsole(
   try {
     root.render(
       <I18nextProvider i18n={i18n}>
-        <PairConsole pair={makePair(messages)} />
+        <PairConsole pair={pair} />
       </I18nextProvider>
     )
     await waitFor(() => assert.ok(container.querySelector('[data-testid="console-search-toggle"]')))
@@ -854,5 +861,141 @@ test('a parked press on a query with no final matches activates nothing', async 
       )
     }
     assert.equal(scrollTargets.length, 0, 'a parked press on no matches never scrolls')
+  })
+})
+
+test('a parked cycle press dies with a run switch, never applied to the new run', async () => {
+  scrollTargets.length = 0
+  // The archived run's a1 matches 'parser' — the parked press must never
+  // reach it: no press was made in that run.
+  const liveMessages = [
+    makeMessage({ id: 'm1', content: 'parse tree notes', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser fixed', from: 'executor' })
+  ]
+  const archivedRun: PairRunSummary = {
+    id: 'run-arch',
+    spec: 'archived task',
+    status: 'Finished',
+    startedAt: 1000,
+    finishedAt: 2000,
+    mentorModel: 'grok:fast',
+    executorModel: 'grok:fast',
+    iterations: 1,
+    messages: [makeMessage({ id: 'a1', content: 'parser archived detail', from: 'executor' })]
+  }
+  await withConcurrentConsole(
+    liveMessages,
+    async (openSearch) => {
+      const input = await openSearch()
+      typeNative(input, 'pars')
+      await waitFor(() =>
+        assert.equal(
+          document.querySelector('[data-testid="console-search-count"]')?.textContent,
+          '2 matches',
+          'interim query committed'
+        )
+      )
+
+      typeNative(input, 'parser')
+      await settleUrgent()
+      assert.ok(
+        document.getElementById('console-msg-m1'),
+        'the deferred list lags the query at keypress time'
+      )
+      keyDownNative(input, { key: 'Enter' })
+      await settleUrgent()
+
+      // Switch to the archived run while the deferred list still lags.
+      usePairStore.getState().setViewingRunId('run-arch')
+
+      await waitFor(() => {
+        assert.ok(document.getElementById('console-msg-a1'), 'archived run rendered')
+        assert.equal(
+          document.querySelector('[data-testid="console-search-count"]')?.textContent,
+          '1 match',
+          'deferred query caught up inside the archived run'
+        )
+      })
+      assert.equal(
+        document.getElementById('console-msg-a1')?.className.includes('outline'),
+        false,
+        'the parked press never activates a match of the run it was not pressed in'
+      )
+      assert.equal(scrollTargets.length, 0, 'nothing scrolls into the archived run')
+
+      // Cycling in the archived run restarts from its own first match.
+      keyDownNative(input, { key: 'Enter' })
+      await waitFor(() => {
+        assert.ok(
+          document.getElementById('console-msg-a1')?.className.includes('outline'),
+          'a fresh press in the archived run activates its match'
+        )
+        assert.equal(scrollTargets.length, 1)
+      })
+    },
+    { pair: makePairWithRuns(liveMessages, archivedRun) }
+  )
+
+  usePairStore.getState().setViewingRunId(null)
+})
+
+test('a parked cycle press dies with a role-filter switch, never applied to the filtered list', async () => {
+  scrollTargets.length = 0
+  // Under "all" the 'parser' list is [m1, e1]; the parked press was made
+  // against it and must not re-target whatever the mentor filter leaves.
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parser plan', from: 'mentor', type: 'plan' }),
+    makeMessage({
+      id: 'm0',
+      content: 'parse tree notes',
+      from: 'mentor',
+      type: 'plan',
+      iteration: 2
+    })
+  ]
+  await withConcurrentConsole(messages, async (openSearch) => {
+    const input = await openSearch()
+    typeNative(input, 'pars')
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '2 matches',
+        'interim query committed'
+      )
+    )
+
+    typeNative(input, 'parser')
+    await settleUrgent()
+    assert.ok(
+      document.getElementById('console-msg-m0'),
+      'the deferred list lags the query at keypress time'
+    )
+    keyDownNative(input, { key: 'Enter' })
+    await settleUrgent()
+
+    document.querySelector<HTMLButtonElement>('[data-testid="filter-mentor"]')?.click()
+
+    await waitFor(() =>
+      assert.equal(
+        document.querySelector('[data-testid="console-search-count"]')?.textContent,
+        '1 match',
+        'deferred query caught up under the mentor filter'
+      )
+    )
+    assert.equal(
+      document.getElementById('console-msg-m1')?.className.includes('outline'),
+      false,
+      'the parked press never activates a match of the filtered list'
+    )
+    assert.equal(scrollTargets.length, 0, 'nothing scrolls after the filter switch')
+
+    keyDownNative(input, { key: 'Enter' })
+    await waitFor(() => {
+      assert.ok(
+        document.getElementById('console-msg-m1')?.className.includes('outline'),
+        'a fresh press under the filter activates its match'
+      )
+      assert.equal(scrollTargets.length, 1)
+    })
   })
 })

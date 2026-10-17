@@ -129,6 +129,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   if (cycledMatchScope !== matchScope) {
     setCycledMatchScope(matchScope)
     setActiveMatchId(null)
+    // A parked press belongs to the scope it was pressed in, so it dies with
+    // the old scope too. A query catch-up is safe to clear here as well: the
+    // parked press replays later in this same render pass and supersedes the
+    // reset, while a run or pair switch lands on a render where the deferred
+    // query still lags, so the replay below never fires for it.
+    setPendingMatchDir(null)
   }
 
   const roleFilteredMessages = useMemo(() => {
@@ -656,8 +662,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 // The anchor belongs to the role-filtered match list: reset
                 // it in the same batched commit as the filter change, or the
                 // stale anchor would briefly point at (and scroll to) a card
-                // in the new list that the reader never cycled to.
+                // in the new list that the reader never cycled to. A cycle
+                // press parked on the lagging list belongs to the unfiltered
+                // list the same way and dies with the switch.
                 setActiveMatchId(null)
+                setPendingMatchDir(null)
               }}
               counts={messageCounts}
             />
