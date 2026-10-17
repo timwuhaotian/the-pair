@@ -18,6 +18,7 @@ export function displayContentForMessage(msg: Message): string {
 interface MdastNode {
   type: string
   value?: string
+  identifier?: string
   children?: MdastNode[]
 }
 
@@ -31,11 +32,22 @@ const markdownParser = unified().use(remarkParse).use(remarkGfm)
 // on long transcripts.
 const renderedTextsByMessage = new WeakMap<Message, string[]>()
 
+// Footnote definitions only reach the DOM when a footnoteReference points at
+// them (mdast→hast renders referenced ones in the footer section, drops the
+// rest), so the walk needs the referenced identifier set up front.
+function collectFootnoteIdentifiers(node: MdastNode, out: Set<string>): void {
+  if (node.type === 'footnoteReference' && node.identifier) {
+    out.add(node.identifier.toUpperCase())
+    return
+  }
+  for (const child of node.children ?? []) collectFootnoteIdentifiers(child, out)
+}
+
 // text/inlineCode/code/html are the mdast nodes whose values reach the DOM as
 // literal text — react-markdown (without skipHtml) turns inline HTML into text
 // in its post step. Everything else (link URLs, fence info strings, image alt)
 // renders as markup or attributes, never as highlightable text.
-function collectTextNodes(node: MdastNode, out: string[]): void {
+function collectTextNodes(node: MdastNode, out: string[], footnoteIds: Set<string>): void {
   if (
     node.type === 'text' ||
     node.type === 'inlineCode' ||
@@ -45,15 +57,33 @@ function collectTextNodes(node: MdastNode, out: string[]): void {
     if (node.value) out.push(node.value)
     return
   }
-  for (const child of node.children ?? []) collectTextNodes(child, out)
+  // An unreferenced footnote definition never renders — its text must not
+  // count, or a card would list with nothing highlightable inside it.
+  if (node.type === 'footnoteDefinition' && !footnoteIds.has(String(node.identifier).toUpperCase()))
+    return
+  // Body rows past the header width never render either: the hast table-row
+  // handler caps every row at the header row's cell count.
+  if (node.type === 'table') {
+    const width = node.children?.[0]?.children?.length ?? 0
+    for (const row of node.children ?? []) {
+      for (const cell of row.children?.slice(0, width) ?? []) {
+        collectTextNodes(cell, out, footnoteIds)
+      }
+    }
+    return
+  }
+  for (const child of node.children ?? []) collectTextNodes(child, out, footnoteIds)
 }
 
 /** The text values this markdown renders — the only places a match can highlight. */
 function renderedSearchTexts(msg: Message): string[] {
   const cached = renderedTextsByMessage.get(msg)
   if (cached) return cached
+  const tree = markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode
+  const footnoteIds = new Set<string>()
+  collectFootnoteIdentifiers(tree, footnoteIds)
   const out: string[] = []
-  collectTextNodes(markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode, out)
+  collectTextNodes(tree, out, footnoteIds)
   renderedTextsByMessage.set(msg, out)
   return out
 }

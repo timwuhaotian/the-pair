@@ -99,6 +99,31 @@ test('countSearchHighlights counts unbackticked generics and JSX tags in agent p
   assert.equal(countSearchHighlights(makeMessage({ content }), 'Array<string>'), 0)
 })
 
+test('countSearchHighlights ignores table cells beyond the header width', () => {
+  // mdast-util-to-hast renders only header-count cells per body row (the row
+  // handler caps children at align.length), so excess cell text never reaches
+  // the DOM — counting it would list a card with nothing highlightable.
+  const content = '| file | status |\n| --- | --- |\n| `parser.ts` | ok | failed | extra |'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'ok'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'failed'), 0)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'extra'), 0)
+})
+
+test('countSearchHighlights ignores unreferenced footnote definitions', () => {
+  // The hast footer only emits definitions a footnoteReference points at, so
+  // an unreferenced definition's paragraph never renders.
+  const content = 'Note: the parser needs an options bag.\n\n[^1]: parser detail here'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'detail'), 0)
+})
+
+test('countSearchHighlights counts referenced footnote definitions (rendered in the footer)', () => {
+  const content = 'See the note[^1] about options.\n\n[^1]: parser detail here'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser detail'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'See the note'), 1)
+})
+
 test('countSearchHighlights counts GFM autolinked URLs (rendered as link text)', () => {
   assert.equal(
     countSearchHighlights(makeMessage({ content: 'see https://example.com/github now' }), 'github'),

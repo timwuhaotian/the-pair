@@ -331,6 +331,73 @@ test('search finds unbackticked JSX tags that render literally', () => {
   assert.equal(document.querySelectorAll('mark').length, 1)
 })
 
+test('search count, filtered list and highlights agree for excess table cells', () => {
+  // GFM tables render only header-count cells per body row: the dropped cell
+  // text must not keep the card listed with nothing highlighted.
+  const messages = [
+    makeMessage({
+      id: 'm1',
+      content: '| file | status |\n| --- | --- |\n| `parser.ts` | ok | failed | extra |'
+    })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+
+  fireEvent.change(input, { target: { value: 'extra' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
+  assert.equal(document.getElementById('console-msg-m1'), null, 'card filtered out')
+  assert.equal(document.querySelectorAll('mark').length, 0)
+
+  fireEvent.change(input, { target: { value: 'ok' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.equal(document.querySelectorAll('mark').length, 1)
+})
+
+test('search count, filtered list and highlights agree for footnote definitions', () => {
+  // Only referenced definitions render (in the hast footer); an unreferenced
+  // one's text must not be counted, a referenced one's must.
+  const messages = [
+    makeMessage({
+      id: 'm1',
+      content: 'Note: the parser needs an options bag.\n\n[^1]: parser detail here'
+    }),
+    makeMessage({
+      id: 'm2',
+      content: 'See the note[^1] about options.\n\n[^1]: parser detail here',
+      iteration: 2
+    })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+
+  // The unreferenced definition under m1 stays uncounted: 1 body hit only.
+  fireEvent.change(input, { target: { value: 'parser' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '2 matches')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.ok(document.getElementById('console-msg-m2'))
+  assert.equal(document.querySelectorAll('mark').length, 2)
+
+  // A query hitting only the unreferenced definition's text finds nothing.
+  fireEvent.change(input, { target: { value: 'detail here' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.equal(document.getElementById('console-msg-m1'), null, 'unreferenced footnote not listed')
+  assert.ok(document.getElementById('console-msg-m2'), 'referenced footnote listed')
+  const marks = document.querySelectorAll('mark')
+  assert.equal(marks.length, 1)
+  assert.ok(marks[0].closest('#console-msg-m2'), 'footer hit highlighted on the referencing card')
+})
+
 test('switching the role filter while searching resets the active match instead of jumping', () => {
   scrollTargets.length = 0
   // One mentor + executor message per iteration: dedup keeps all four, so the
