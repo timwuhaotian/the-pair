@@ -70,6 +70,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [matchOrdinal, setMatchOrdinal] = useState(-1)
+  // Bumped on every cycle call, even when the ordinal doesn't change (a single
+  // match), so the scroll effect below re-runs on every press.
+  const [matchCycle, setMatchCycle] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
@@ -146,6 +149,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const cycleMatch = useCallback(
     (dir: 1 | -1): void => {
       setMatchOrdinal(nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir))
+      setMatchCycle((cycle) => cycle + 1)
     },
     [matchOrdinal, matchingMessageIds]
   )
@@ -161,7 +165,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     if (!card) return
     const target = card.querySelector('mark') ?? card
     target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [activeMessageId])
+  }, [activeMessageId, matchCycle])
 
   const closeSearch = useCallback((): void => {
     setSearchOpen(false)

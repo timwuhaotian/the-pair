@@ -240,6 +240,36 @@ test('Enter scrolls the first highlight of the active card into view', () => {
   assert.equal(scrollTargets.length, 2, 'closing search does not scroll')
 })
 
+test('re-pressing Enter on a single match scrolls again after scrolling away', () => {
+  scrollTargets.length = 0
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parser plan', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'm2', content: 'unrelated note', from: 'executor', iteration: 2 })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.equal(scrollTargets.length, 1, 'first activation scrolls')
+
+  // One match means the ordinal (and the active id) never changes; every
+  // press must still re-scroll the reader back to it.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.equal(scrollTargets.length, 2, 'Enter re-scrolls the same match')
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+  assert.equal(scrollTargets.length, 3, 'Shift+Enter re-scrolls the same match')
+  fireEvent.click(screen.getByTestId('console-search-next'))
+  assert.equal(scrollTargets.length, 4, 'the ▼ button re-scrolls the same match')
+  fireEvent.click(screen.getByTestId('console-search-prev'))
+  assert.equal(scrollTargets.length, 5, 'the ▲ button re-scrolls the same match')
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })
