@@ -270,6 +270,36 @@ test('re-pressing Enter on a single match scrolls again after scrolling away', (
   assert.equal(scrollTargets.length, 5, 'the ▲ button re-scrolls the same match')
 })
 
+test('search never un-hides a message collapsed away by dedup', () => {
+  // Mentor draft `a` is superseded by `b` in the same iteration, so dedup
+  // keeps only `b` — and that must hold whether or not the query matches `b`.
+  const messages = [
+    makeMessage({ id: 'a', content: 'parser draft', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'b', content: 'final plan', from: 'mentor', type: 'plan' })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  assert.equal(document.getElementById('console-msg-a'), null, 'draft collapsed without search')
+
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+
+  // Only the draft contains "parser": it stays hidden and the search reports
+  // no matches rather than resurrecting the collapsed draft.
+  fireEvent.change(input, { target: { value: 'parser' } })
+  assert.equal(document.getElementById('console-msg-a'), null, 'draft stays collapsed in search')
+  assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
+
+  // When the final message matches, the drop marker still reports the draft.
+  fireEvent.change(input, { target: { value: 'final' } })
+  assert.ok(document.getElementById('console-msg-b'))
+  assert.ok(screen.getByText('+ 1 earlier message hidden'))
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })

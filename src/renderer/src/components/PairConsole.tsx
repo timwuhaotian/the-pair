@@ -103,31 +103,34 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }, [pair.messages, viewingRun, messageFilter])
 
   const searching = searchOpen && searchQuery.trim().length > 0
+  // Dedup before the search filter, so which drafts collapse never depends on
+  // the query: search keeps the same finals as the unsearched view, a draft
+  // hidden without a query stays hidden with one, and the final's drop marker
+  // survives.
+  const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
+    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(roleFilteredMessages)
+    return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
+  }, [roleFilteredMessages])
+
   // Filter on the same rendered-text count that drives the badge and Enter
   // cycling, so a message whose only raw-source hit is a link URL or another
   // non-rendered syntax never stays listed without a highlight.
   const consoleMessages = useMemo(
     () =>
       searching
-        ? roleFilteredMessages.filter((m) => countSearchHighlights(m, searchQuery) > 0)
-        : roleFilteredMessages,
-    [roleFilteredMessages, searching, searchQuery]
+        ? deduplicatedConsoleMessages.filter((m) => countSearchHighlights(m, searchQuery) > 0)
+        : deduplicatedConsoleMessages,
+    [deduplicatedConsoleMessages, searching, searchQuery]
   )
 
-  const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
-    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(consoleMessages)
-    return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
-  }, [consoleMessages])
-
   // Count and cycle only over matches that render as highlighted, anchored
-  // cards — after dedup, so collapsed-away messages never inflate the count
-  // and Enter never lands on a message with no `console-msg-<id>` element.
+  // cards — the search-filtered list, so collapsed-away messages never
+  // inflate the count and Enter never lands on a message with no
+  // `console-msg-<id>` element.
   const searchMatches = useMemo(() => {
     if (!searching) return [] as Array<{ id: string; count: number }>
-    return deduplicatedConsoleMessages
-      .map((m) => ({ id: m.id, count: countSearchHighlights(m, searchQuery) }))
-      .filter((x) => x.count > 0)
-  }, [deduplicatedConsoleMessages, searching, searchQuery])
+    return consoleMessages.map((m) => ({ id: m.id, count: countSearchHighlights(m, searchQuery) }))
+  }, [consoleMessages, searching, searchQuery])
 
   const matchCount = useMemo(() => searchMatches.reduce((n, x) => n + x.count, 0), [searchMatches])
 
@@ -225,7 +228,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const renderedChat = useMemo(() => {
     const nodes: React.ReactNode[] = []
     let lastIteration = -1
-    for (const msg of deduplicatedConsoleMessages) {
+    for (const msg of consoleMessages) {
       const iter = msg.iteration
       if (iter > 0 && iter !== lastIteration) {
         nodes.push(
@@ -273,7 +276,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     }
     return nodes
   }, [
-    deduplicatedConsoleMessages,
+    consoleMessages,
     dropCountByMessageId,
     pair.maxIterations,
     t,
