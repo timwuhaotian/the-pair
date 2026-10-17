@@ -80,6 +80,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // Bumped on every cycle call, even when the ordinal doesn't change (a single
   // match), so the scroll effect below re-runs on every press.
   const [matchCycle, setMatchCycle] = useState(0)
+  // A cycle key pressed while the deferred list lags the typed query is
+  // parked here (see cycleMatch) and applied by the render where the list
+  // catches up, so the press never indexes the stale list.
+  const [pendingMatchDir, setPendingMatchDir] = useState<1 | -1 | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
@@ -173,6 +177,19 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }, [pair.messages, viewingRun])
 
   const matchingMessageIds = useMemo(() => searchMatches.map((x) => x.id), [searchMatches])
+
+  // The render where the deferred list catches up applies a parked press to
+  // the final list. Render-time for the same reason as the scope reset
+  // above: an effect would commit one paint where the keypress the reader
+  // made outlined nothing. The reset above already cleared the ordinal in
+  // this same pass; the parked press intentionally supersedes it.
+  if (pendingMatchDir !== null && listQuery === searchQuery) {
+    const dir = pendingMatchDir
+    setPendingMatchDir(null)
+    setMatchOrdinal(nextMatchIndex(-1, matchingMessageIds.length, dir))
+    setMatchCycle((cycle) => cycle + 1)
+  }
+
   const activeMessageId =
     matchOrdinal >= 0 && matchOrdinal < matchingMessageIds.length
       ? matchingMessageIds[matchOrdinal]
@@ -180,10 +197,18 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const cycleMatch = useCallback(
     (dir: 1 | -1): void => {
+      // The deferred list can lag the typed query by a keystroke. Cycling it
+      // would outline and scroll to a card the final query may not match,
+      // and the scope reset above would then drop the activation — park the
+      // press instead and let the caught-up render apply it.
+      if (listQuery !== searchQuery) {
+        setPendingMatchDir(dir)
+        return
+      }
       setMatchOrdinal(nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir))
       setMatchCycle((cycle) => cycle + 1)
     },
-    [matchOrdinal, matchingMessageIds]
+    [matchOrdinal, matchingMessageIds, listQuery, searchQuery]
   )
 
   // Scroll from an effect, after React commits the new active card: the card
@@ -203,6 +228,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     setSearchOpen(false)
     setSearchQuery('')
     setMatchOrdinal(-1)
+    setPendingMatchDir(null)
   }, [])
 
   // Cmd/Ctrl+F opens transcript search while this console is mounted. The key

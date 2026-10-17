@@ -3,6 +3,8 @@
  *   - Toggle opens the search bar; typing filters messages + shows count.
  *   - Enter cycles: active message gets the outline; Esc closes + restores.
  *   - The app-level Cmd/Ctrl+F event opens the search bar.
+ *   - Enter pressed while the deferred list lags the typed query waits for
+ *     the list instead of cycling the stale one (concurrent root, no act).
  */
 import './setup-dom.ts'
 import './mock-ipc.ts'
@@ -12,6 +14,7 @@ import assert from 'node:assert/strict'
 import test, { afterEach, beforeEach } from 'node:test'
 import { I18nextProvider } from 'react-i18next'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createRoot, type Root } from 'react-dom/client'
 import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
 import type { Message, Pair } from '../../src/renderer/src/store/usePairStore.ts'
@@ -458,4 +461,132 @@ test('IME Enter and Escape confirm/cancel the composition, not the search', () =
   assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
   fireEvent.keyDown(input, { key: 'Escape' })
   assert.equal(screen.queryByTestId('console-search-input'), null)
+})
+
+// The deferred search list lags the typed query by one commit. fireEvent
+// wraps every event in act, which flushes the deferred value and hides that
+// lag — so these tests drive a concurrent root with native events instead:
+// discrete events (input/keydown) commit their urgent update in a microtask
+// after dispatch, the deferred re-render only lands on a later scheduler
+// task, and waiting a single microtask leaves the stale list in place
+// exactly like a fast real keystroke.
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 10))
+const settleUrgent = async (): Promise<void> => {
+  await Promise.resolve()
+}
+
+function typeNative(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+  setter?.call(input, value)
+  input.dispatchEvent(new window.Event('input', { bubbles: true }))
+}
+
+function keyDownNative(el: Element, init: { key: string; shiftKey?: boolean }): void {
+  el.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, ...init }))
+}
+
+async function withConcurrentConsole(
+  messages: Message[],
+  run: (openSearch: () => Promise<HTMLInputElement>) => Promise<void>
+): Promise<void> {
+  const actEnv = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root: Root = createRoot(container)
+  const openSearch = async (): Promise<HTMLInputElement> => {
+    container.querySelector<HTMLButtonElement>('[data-testid="console-search-toggle"]')?.click()
+    await settleUrgent()
+    const input = container.querySelector<HTMLInputElement>('[data-testid="console-search-input"]')
+    assert.ok(input, 'search bar rendered after the toggle click')
+    return input
+  }
+  try {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <PairConsole pair={makePair(messages)} />
+      </I18nextProvider>
+    )
+    await settle()
+    await run(openSearch)
+  } finally {
+    root.unmount()
+    container.remove()
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      actEnv ?? true
+  }
+}
+
+test('Enter pressed while the deferred list lags applies to the final query, not the stale one', async () => {
+  scrollTargets.length = 0
+  // m1 matches the 'pars' prefix but not the final 'parser' query.
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parse tree notes', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser fixed', from: 'executor' })
+  ]
+  await withConcurrentConsole(messages, async (openSearch) => {
+    const input = await openSearch()
+    typeNative(input, 'pars')
+    await settle()
+
+    typeNative(input, 'parser')
+    // Urgent commit only: the deferred list still holds the 'pars' matches.
+    await settleUrgent()
+    keyDownNative(input, { key: 'Enter' })
+    await settleUrgent()
+
+    assert.equal(
+      document.getElementById('console-msg-m1')?.className.includes('outline'),
+      false,
+      'Enter never activates a match of the stale list'
+    )
+    assert.equal(scrollTargets.length, 0, 'nothing scrolls off the stale list')
+
+    await settle()
+    assert.equal(document.getElementById('console-msg-m1'), null, 'stale match filtered out')
+    assert.ok(
+      document.getElementById('console-msg-e1')?.className.includes('outline'),
+      'the final query first match is outlined once the list catches up'
+    )
+    assert.equal(scrollTargets.length, 1, 'one scroll once the list catches up')
+    assert.ok(scrollTargets[0].closest('#console-msg-e1'), 'scroll aims inside the active card')
+  })
+})
+
+test('a parked Shift+Enter activates the last match of the final list', async () => {
+  scrollTargets.length = 0
+  const messages = [
+    makeMessage({ id: 'e1', content: 'parser fixed', from: 'executor' }),
+    makeMessage({ id: 'e2', content: 'parser verified', from: 'executor', iteration: 2 })
+  ]
+  await withConcurrentConsole(messages, async (openSearch) => {
+    const input = await openSearch()
+    typeNative(input, 'pars')
+    await settle()
+
+    typeNative(input, 'parser')
+    await settleUrgent()
+    keyDownNative(input, { key: 'Enter', shiftKey: true })
+    await settleUrgent()
+
+    for (const id of ['e1', 'e2']) {
+      assert.equal(
+        document.getElementById(`console-msg-${id}`)?.className.includes('outline'),
+        false,
+        `${id} not outlined while the press is parked`
+      )
+    }
+
+    await settle()
+    assert.ok(
+      document.getElementById('console-msg-e2')?.className.includes('outline'),
+      'parked Shift+Enter lands on the last match of the final list'
+    )
+    assert.equal(
+      document.getElementById('console-msg-e1')?.className.includes('outline'),
+      false,
+      'the first match stays inactive'
+    )
+    assert.ok(scrollTargets[0].closest('#console-msg-e2'))
+  })
 })
