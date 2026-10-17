@@ -429,6 +429,124 @@ test('editing the query after cycling resets the active match instead of jumping
   assert.equal(scrollTargets.length, 3)
 })
 
+test('a live append that supersedes the active match deactivates it instead of re-indexing', () => {
+  scrollTargets.length = 0
+  // Match list [p1, p2, p3] under "parser"; the run is live, and a revised
+  // executor result for the same iteration is about to supersede p2.
+  const messages = [
+    makeMessage({ id: 'p1', content: 'parser plan', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'p2', content: 'parser fixed', from: 'executor' }),
+    makeMessage({ id: 'p3', content: 'parser verified', from: 'executor', iteration: 2 })
+  ]
+  const view = render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-p2')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 2)
+
+  // p2b supersedes p2 in dedup while the (pair, run, query) scope is
+  // unchanged: a kept index would resolve to p3 in [p1, p3, p2b] and
+  // outline + scroll to it with no cycle press. The store always hands the
+  // console a fresh messages array, so the rerender does too.
+  const afterAppend = [
+    ...messages,
+    makeMessage({ id: 'p2b', content: 'parser fixed, revised', from: 'executor' })
+  ]
+  view.rerender(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(afterAppend)} />
+    </I18nextProvider>
+  )
+
+  assert.equal(document.getElementById('console-msg-p2'), null, 'superseded card collapsed away')
+  assert.equal(scrollTargets.length, 2, 'the append never scrolls')
+  for (const id of ['p1', 'p2b', 'p3']) {
+    assert.ok(
+      !document.getElementById(`console-msg-${id}`)?.className.includes('outline'),
+      `${id} not outlined after the append`
+    )
+  }
+
+  // Cycling restarts from the first match of the revised list.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-p1')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 3)
+})
+
+test('a live append that keeps the active card anchors the activation by id', () => {
+  scrollTargets.length = 0
+  const messages = [
+    makeMessage({ id: 'p1', content: 'parser plan', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'p2', content: 'parser fixed', from: 'executor' }),
+    makeMessage({ id: 'p3', content: 'parser verified', from: 'executor', iteration: 2 })
+  ]
+  const view = render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-p2')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 2)
+
+  // A new iteration's result appends without touching p2: the match list
+  // grows to [p1, p2, p3, p4], and the activation must stay on the card the
+  // reader cycled to rather than whatever now sits at the old index.
+  const afterAppend = [
+    ...messages,
+    makeMessage({ id: 'p4', content: 'parser shipped', from: 'executor', iteration: 3 })
+  ]
+  view.rerender(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(afterAppend)} />
+    </I18nextProvider>
+  )
+
+  assert.equal(scrollTargets.length, 2, 'the append never scrolls')
+  assert.ok(
+    document.getElementById('console-msg-p2')?.className.includes('outline'),
+    'activation stays anchored to the same card'
+  )
+
+  // Enter advances from the anchor within the grown list.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-p3')?.className.includes('outline'))
+  assert.ok(!document.getElementById('console-msg-p2')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 3)
+})
+
+test('cycling with no matches never activates or scrolls', () => {
+  scrollTargets.length = 0
+  const messages = [makeMessage({ id: 'm1', content: 'unrelated note' })]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+  assert.ok(!document.getElementById('console-msg-m1')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 0)
+})
+
 test('the app-level open-search event opens the search bar', () => {
   renderConsole()
   // Cmd/Ctrl+F is matched in App.tsx's shortcut map (exact platform modifier,
@@ -588,5 +706,40 @@ test('a parked Shift+Enter activates the last match of the final list', async ()
       'the first match stays inactive'
     )
     assert.ok(scrollTargets[0].closest('#console-msg-e2'))
+  })
+})
+
+test('a parked press on a query with no final matches activates nothing', async () => {
+  scrollTargets.length = 0
+  // 'parse' matches m1; the final query matches nothing. The press parks on
+  // the lagging list and must resolve against the empty final list rather
+  // than activate anything or scroll.
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parse tree notes', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser fixed', from: 'executor' })
+  ]
+  await withConcurrentConsole(messages, async (openSearch) => {
+    const input = await openSearch()
+    typeNative(input, 'parse')
+    await settle()
+
+    typeNative(input, 'parser none')
+    await settleUrgent()
+    keyDownNative(input, { key: 'Enter' })
+    await settleUrgent()
+
+    await settle()
+    assert.equal(
+      document.querySelector('[data-testid="console-search-count"]')?.textContent,
+      'No matches'
+    )
+    for (const id of ['m1', 'e1']) {
+      assert.equal(
+        document.getElementById(`console-msg-${id}`),
+        null,
+        `${id} filtered out entirely with no matches`
+      )
+    }
+    assert.equal(scrollTargets.length, 0, 'a parked press on no matches never scrolls')
   })
 })

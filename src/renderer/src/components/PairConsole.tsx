@@ -76,9 +76,16 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // synchronously per character makes the input itself janky. The deferred
   // value keeps the urgent input render cheap and lets the list catch up.
   const listQuery = useDeferredValue(searchQuery)
-  const [matchOrdinal, setMatchOrdinal] = useState(-1)
-  // Bumped on every cycle call, even when the ordinal doesn't change (a single
-  // match), so the scroll effect below re-runs on every press.
+  // The active match is anchored by message id, not by index into the match
+  // list: while a run is live the list can change under the same (pair, run,
+  // query) scope — a revised final supersedes the active card, a new match
+  // appends. A kept index would silently re-resolve to a different card and
+  // outline + scroll to it with no cycle press; an anchored id keeps pointing
+  // at the card the reader chose and deactivates when that card leaves the
+  // list.
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null)
+  // Bumped on every cycle call, even when the active match doesn't change (a
+  // single match), so the scroll effect below re-runs on every press.
   const [matchCycle, setMatchCycle] = useState(0)
   // A cycle key pressed while the deferred list lags the typed query is
   // parked here (see cycleMatch) and applied by the render where the list
@@ -107,20 +114,21 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
   const isViewingArchived = viewingRun !== null
 
-  // The ordinal indexes the match list of one (pair, run, query). When any of
-  // those change it must be -1 in that same commit: an effect only resets it
-  // after the commit, leaving one render where the stale index outlines and
-  // scrolls to a card the reader never cycled to. Resetting during render
-  // re-renders before anything is committed. Query edits come from this
-  // component, but run/pair switches arrive from siblings through the store,
-  // so no single event handler can batch the reset — the scope check here
-  // covers every source. Scoped to the deferred query, which is what the
-  // match list derives from, so the ordinal only resets when the list does.
+  // The active match belongs to the match list of one (pair, run, query).
+  // When any of those change the anchor must be cleared in that same commit:
+  // an effect only resets it after the commit, leaving one render where the
+  // stale anchor outlines and scrolls to a card the reader never cycled to.
+  // Resetting during render re-renders before anything is committed. Query
+  // edits come from this component, but run/pair switches arrive from
+  // siblings through the store, so no single event handler can batch the
+  // reset — the scope check here covers every source. Scoped to the deferred
+  // query, which is what the match list derives from, so the anchor only
+  // resets when the list does.
   const matchScope = `${pair.id}::${viewingRun?.id ?? 'live'}::${listQuery}`
   const [cycledMatchScope, setCycledMatchScope] = useState(matchScope)
   if (cycledMatchScope !== matchScope) {
     setCycledMatchScope(matchScope)
-    setMatchOrdinal(-1)
+    setActiveMatchId(null)
   }
 
   const roleFilteredMessages = useMemo(() => {
@@ -181,19 +189,22 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // The render where the deferred list catches up applies a parked press to
   // the final list. Render-time for the same reason as the scope reset
   // above: an effect would commit one paint where the keypress the reader
-  // made outlined nothing. The reset above already cleared the ordinal in
+  // made outlined nothing. The reset above already cleared the anchor in
   // this same pass; the parked press intentionally supersedes it.
   if (pendingMatchDir !== null && listQuery === searchQuery) {
     const dir = pendingMatchDir
     setPendingMatchDir(null)
-    setMatchOrdinal(nextMatchIndex(-1, matchingMessageIds.length, dir))
+    const next = nextMatchIndex(-1, matchingMessageIds.length, dir)
+    setActiveMatchId(next >= 0 ? matchingMessageIds[next] : null)
     setMatchCycle((cycle) => cycle + 1)
   }
 
+  // A card superseded out of the match list (a live final superseding the
+  // active one) deactivates here, in the same render that removes it — no
+  // stale outline survives and nothing scrolls. When the anchored card stays
+  // listed, appends around it never move the activation.
   const activeMessageId =
-    matchOrdinal >= 0 && matchOrdinal < matchingMessageIds.length
-      ? matchingMessageIds[matchOrdinal]
-      : null
+    activeMatchId !== null && matchIds.has(activeMatchId) ? activeMatchId : null
 
   const cycleMatch = useCallback(
     (dir: 1 | -1): void => {
@@ -205,10 +216,15 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         setPendingMatchDir(dir)
         return
       }
-      setMatchOrdinal(nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir))
+      // An anchored card no longer in the list resolves to index -1, so
+      // cycling from it restarts from the list's first (or, backwards, last)
+      // match.
+      const current = activeMatchId !== null ? matchingMessageIds.indexOf(activeMatchId) : -1
+      const next = nextMatchIndex(current, matchingMessageIds.length, dir)
+      setActiveMatchId(next >= 0 ? matchingMessageIds[next] : null)
       setMatchCycle((cycle) => cycle + 1)
     },
-    [matchOrdinal, matchingMessageIds, listQuery, searchQuery]
+    [activeMatchId, matchingMessageIds, listQuery, searchQuery]
   )
 
   // Scroll from an effect, after React commits the new active card: the card
@@ -227,7 +243,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const closeSearch = useCallback((): void => {
     setSearchOpen(false)
     setSearchQuery('')
-    setMatchOrdinal(-1)
+    setActiveMatchId(null)
     setPendingMatchDir(null)
   }, [])
 
@@ -637,11 +653,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               activeFilter={messageFilter}
               onFilterChange={(filter) => {
                 setMessageFilter(filter)
-                // The ordinal indexes the role-filtered match list: reset it in
-                // the same batched commit as the filter change, or the stale
-                // index would briefly point at (and scroll to) a card in the
-                // new list that the reader never cycled to.
-                setMatchOrdinal(-1)
+                // The anchor belongs to the role-filtered match list: reset
+                // it in the same batched commit as the filter change, or the
+                // stale anchor would briefly point at (and scroll to) a card
+                // in the new list that the reader never cycled to.
+                setActiveMatchId(null)
               }}
               counts={messageCounts}
             />
