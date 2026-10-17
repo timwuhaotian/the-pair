@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, Search, Square, Trash2, X, XCircle } from 'lucide-react'
@@ -70,6 +70,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [confirmClear, setConfirmClear] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  // The transcript list lags one keystroke behind the input on purpose.
+  // Filtering, match counting, and re-highlighting every matching card through
+  // react-markdown is expensive at transcript scale, and running it
+  // synchronously per character makes the input itself janky. The deferred
+  // value keeps the urgent input render cheap and lets the list catch up.
+  const listQuery = useDeferredValue(searchQuery)
   const [matchOrdinal, setMatchOrdinal] = useState(-1)
   // Bumped on every cycle call, even when the ordinal doesn't change (a single
   // match), so the scroll effect below re-runs on every press.
@@ -104,8 +110,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // re-renders before anything is committed. Query edits come from this
   // component, but run/pair switches arrive from siblings through the store,
   // so no single event handler can batch the reset — the scope check here
-  // covers every source.
-  const matchScope = `${pair.id}::${viewingRun?.id ?? 'live'}::${searchQuery}`
+  // covers every source. Scoped to the deferred query, which is what the
+  // match list derives from, so the ordinal only resets when the list does.
+  const matchScope = `${pair.id}::${viewingRun?.id ?? 'live'}::${listQuery}`
   const [cycledMatchScope, setCycledMatchScope] = useState(matchScope)
   if (cycledMatchScope !== matchScope) {
     setCycledMatchScope(matchScope)
@@ -118,7 +125,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
 
-  const searching = searchOpen && searchQuery.trim().length > 0
+  const searching = searchOpen && listQuery.trim().length > 0
   // Dedup before the search filter, so which drafts collapse never depends on
   // the query: search keeps the same finals as the unsearched view, a draft
   // hidden without a query stays hidden with one, and the final's drop marker
@@ -128,25 +135,31 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
   }, [roleFilteredMessages])
 
-  // Filter on the same rendered-text count that drives the badge and Enter
-  // cycling, so a message whose only raw-source hit is a link URL or another
-  // non-rendered syntax never stays listed without a highlight.
+  // Count and cycle only over matches that render as highlighted, anchored
+  // cards, so collapsed-away messages never inflate the count and Enter never
+  // lands on a message with no `console-msg-<id>` element. The count also
+  // decides listing — the same rendered-text count that drives the badge and
+  // Enter cycling, so a message whose only raw-source hit is a link URL or
+  // another non-rendered syntax never stays listed without a highlight — and
+  // counting once here keeps the per-keystroke pass single.
+  const searchMatches = useMemo(() => {
+    if (!searching) return [] as Array<{ id: string; count: number }>
+    const out: Array<{ id: string; count: number }> = []
+    for (const m of deduplicatedConsoleMessages) {
+      const count = countSearchHighlights(m, listQuery)
+      if (count > 0) out.push({ id: m.id, count })
+    }
+    return out
+  }, [deduplicatedConsoleMessages, searching, listQuery])
+
+  const matchIds = useMemo(() => new Set(searchMatches.map((x) => x.id)), [searchMatches])
   const consoleMessages = useMemo(
     () =>
       searching
-        ? deduplicatedConsoleMessages.filter((m) => countSearchHighlights(m, searchQuery) > 0)
+        ? deduplicatedConsoleMessages.filter((m) => matchIds.has(m.id))
         : deduplicatedConsoleMessages,
-    [deduplicatedConsoleMessages, searching, searchQuery]
+    [deduplicatedConsoleMessages, searching, matchIds]
   )
-
-  // Count and cycle only over matches that render as highlighted, anchored
-  // cards — the search-filtered list, so collapsed-away messages never
-  // inflate the count and Enter never lands on a message with no
-  // `console-msg-<id>` element.
-  const searchMatches = useMemo(() => {
-    if (!searching) return [] as Array<{ id: string; count: number }>
-    return consoleMessages.map((m) => ({ id: m.id, count: countSearchHighlights(m, searchQuery) }))
-  }, [consoleMessages, searching, searchQuery])
 
   const matchCount = useMemo(() => searchMatches.reduce((n, x) => n + x.count, 0), [searchMatches])
 
@@ -283,7 +296,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           <div className={cn(maxWidthClass)}>
             <MessageCard
               msg={msg}
-              searchQuery={searching ? searchQuery : undefined}
+              searchQuery={searching ? listQuery : undefined}
               isActiveMatch={searching && msg.id === activeMessageId}
             />
           </div>
@@ -297,7 +310,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     pair.maxIterations,
     t,
     searching,
-    searchQuery,
+    listQuery,
     activeMessageId
   ])
 
