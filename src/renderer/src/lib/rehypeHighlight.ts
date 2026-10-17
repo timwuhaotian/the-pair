@@ -10,6 +10,17 @@ interface HastNode {
 
 const SKIP_TAGS = new Set(['script', 'style'])
 
+// mdast-util-to-hast synthesizes footnote chrome with no mdast text node
+// behind it: the `sup>a` counter, the `↩` backref, and the footer's sr-only
+// "Footnotes" heading. searchableCard counts mdast text only, so wrapping a
+// match in chrome would render a <mark> that never counts — leave it plain.
+function isGeneratedFootnoteChrome(node: HastNode): boolean {
+  if (node.type !== 'element' || !node.properties) return false
+  if (node.properties.dataFootnoteRef === true) return true
+  if ('dataFootnoteBackref' in node.properties) return true
+  return node.tagName === 'h2' && node.properties.id === 'footnote-label'
+}
+
 /** Split a hast text value into text/element nodes wrapping matches in <mark>. */
 function splitText(value: string, query: string, literal: boolean): HastNode[] {
   const ranges = findMatchRanges(value, query, { literal })
@@ -43,7 +54,7 @@ function walk(node: HastNode, query: string, inPre: boolean): void {
     if ((child.type === 'text' || child.type === 'raw') && typeof child.value === 'string') {
       next.push(...splitText(child.value, query, childInPre))
     } else {
-      walk(child, query, childInPre)
+      if (!isGeneratedFootnoteChrome(child)) walk(child, query, childInPre)
       next.push(child)
     }
   }
@@ -56,7 +67,8 @@ function walk(node: HastNode, query: string, inPre: boolean): void {
  * text node uniformly — including inline code, fenced blocks, and raw inline
  * HTML, where file names, error strings, and unbackticked tag names usually
  * live. Text under <pre> matches whitespace literally; everything else
- * collapses it the way it renders. Only script/style subtrees are skipped.
+ * collapses it the way it renders. Script/style subtrees and generated
+ * footnote chrome are skipped (see isGeneratedFootnoteChrome).
  */
 export function rehypeHighlight(options: { query: string }): () => (tree: HastNode) => void {
   return () => (tree) => {
