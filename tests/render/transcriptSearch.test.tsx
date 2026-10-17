@@ -207,3 +207,23 @@ test('MessageCard without search props has the anchor but no outline or marks', 
   assert.ok(!anchor.className.includes('outline'), 'no outline without active match')
   assert.equal(container.querySelectorAll('mark').length, 0)
 })
+
+test('MarkdownContent does not match a space query across code-block lines', () => {
+  const { container } = render(
+    <MarkdownContent content={'```\nstepOne()\nstepTwo()\n```'} searchQuery="stepOne() stepTwo()" />
+  )
+  assert.equal(container.querySelectorAll('mark').length, 0)
+})
+
+test('MarkdownContent matches code-block text with its literal whitespace', () => {
+  const { container } = render(
+    <MarkdownContent
+      content={'```\nstepOne()\nstepTwo()\n```'}
+      searchQuery={'stepOne()\nstepTwo()'}
+    />
+  )
+  const marks = container.querySelectorAll('mark')
+  assert.equal(marks.length, 1)
+  assert.equal(marks[0]?.textContent, 'stepOne()\nstepTwo()')
+  assert.ok(marks[0]?.closest('pre'), 'mark stays inside the code block')
+})

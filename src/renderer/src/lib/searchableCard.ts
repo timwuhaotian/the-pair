@@ -26,11 +26,17 @@ interface MdastNode {
 // exactly the ones rehypeHighlight wraps in <mark>.
 const markdownParser = unified().use(remarkParse).use(remarkGfm)
 
+/** One mdast text value plus whether it renders with whitespace exact (`<pre>`). */
+interface RenderedText {
+  value: string
+  literal: boolean
+}
+
 // Keyed on the Message object: the store never mutates messages in place
 // (it replaces them), so entries live exactly as long as the message and GC
 // bounds the cache — no size cap, no clear() that wipes the hot set mid-pass
 // on long transcripts.
-const renderedTextsByMessage = new WeakMap<Message, string[]>()
+const renderedTextsByMessage = new WeakMap<Message, RenderedText[]>()
 
 // Footnote definitions only reach the DOM when a footnoteReference points at
 // them (mdast→hast renders referenced ones in the footer section, drops the
@@ -47,14 +53,18 @@ function collectFootnoteIdentifiers(node: MdastNode, out: Set<string>): void {
 // literal text — react-markdown (without skipHtml) turns inline HTML into text
 // in its post step. Everything else (link URLs, fence info strings, image alt)
 // renders as markup or attributes, never as highlightable text.
-function collectTextNodes(node: MdastNode, out: string[], footnoteIds: Set<string>): void {
-  if (
-    node.type === 'text' ||
-    node.type === 'inlineCode' ||
-    node.type === 'code' ||
-    node.type === 'html'
-  ) {
-    if (node.value) out.push(node.value)
+//
+// Whitespace mode mirrors rendering: `code` (fenced/indented blocks) lands in
+// `<pre>`, where newlines and space runs stay exact, so it matches literally.
+// text/inlineCode/html render in normal flow (inline `<code>` gets no
+// white-space override), so they keep collapsed matching.
+function collectTextNodes(node: MdastNode, out: RenderedText[], footnoteIds: Set<string>): void {
+  if (node.type === 'code') {
+    if (node.value) out.push({ value: node.value, literal: true })
+    return
+  }
+  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'html') {
+    if (node.value) out.push({ value: node.value, literal: false })
     return
   }
   // An unreferenced footnote definition never renders — its text must not
@@ -76,13 +86,13 @@ function collectTextNodes(node: MdastNode, out: string[], footnoteIds: Set<strin
 }
 
 /** The text values this markdown renders — the only places a match can highlight. */
-function renderedSearchTexts(msg: Message): string[] {
+function renderedSearchTexts(msg: Message): RenderedText[] {
   const cached = renderedTextsByMessage.get(msg)
   if (cached) return cached
   const tree = markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode
   const footnoteIds = new Set<string>()
   collectFootnoteIdentifiers(tree, footnoteIds)
-  const out: string[] = []
+  const out: RenderedText[] = []
   collectTextNodes(tree, out, footnoteIds)
   renderedTextsByMessage.set(msg, out)
   return out
@@ -109,5 +119,8 @@ export function countSearchHighlights(msg: Message, query: string): number {
   ) {
     return 0
   }
-  return renderedSearchTexts(msg).reduce((n, text) => n + countOccurrences(text, query), 0)
+  return renderedSearchTexts(msg).reduce(
+    (n, text) => n + countOccurrences(text.value, query, { literal: text.literal }),
+    0
+  )
 }

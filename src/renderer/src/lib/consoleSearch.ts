@@ -1,8 +1,14 @@
 /**
  * Pure transcript-search matching: case-insensitive substring only.
  * No regex, no fuzzy — the query is always literal text. Whitespace collapses
- * on both sides, matching how the browser renders it (see findMatchRanges).
+ * on both sides, matching how the browser renders it (see findMatchRanges),
+ * except in literal mode for code under <pre>, where whitespace renders exact.
  */
+
+export interface MatchOptions {
+  /** Match whitespace exactly instead of collapsing runs (code under `<pre>`). */
+  literal?: boolean
+}
 
 export function normalizeQuery(query: string): string {
   return query.trim().toLowerCase()
@@ -17,20 +23,30 @@ export function normalizeQuery(query: string): string {
  * wraps the whole rendered phrase. Each collapsed unit is lowercased on its
  * own so offsets stay aligned — `toLowerCase()` is not length-preserving
  * (e.g. U+0130 expands).
+ *
+ * With `literal: true` nothing collapses on either side: content inside
+ * `<pre>` (fenced/indented code) renders newlines and space runs literally,
+ * so a space-separated query must not match text split across lines there.
  */
-export function findMatchRanges(text: string, query: string): Array<[number, number]> {
-  const q = normalizeQuery(query).replace(/\s+/g, ' ')
+export function findMatchRanges(
+  text: string,
+  query: string,
+  options: MatchOptions = {}
+): Array<[number, number]> {
+  const literal = options.literal === true
+  const q = literal ? normalizeQuery(query) : normalizeQuery(query).replace(/\s+/g, ' ')
   if (!q || !text) return []
 
   // Collapsed text with a per-unit map back to the original string: a
   // whitespace run becomes one ' ' unit spanning the whole run, any other
   // code unit keeps its own offsets (expanding if its lowercase form does).
+  // In literal mode every code unit — whitespace included — maps itself.
   const units: string[] = []
   const unitStart: number[] = []
   const unitEnd: number[] = []
   let i = 0
   while (i < text.length) {
-    if (/\s/.test(text[i]!)) {
+    if (!literal && /\s/.test(text[i]!)) {
       const runStart = i
       do {
         i += 1
@@ -64,8 +80,8 @@ export function findMatchRanges(text: string, query: string): Array<[number, num
   return ranges
 }
 
-export function countOccurrences(text: string, query: string): number {
-  return findMatchRanges(text, query).length
+export function countOccurrences(text: string, query: string, options: MatchOptions = {}): number {
+  return findMatchRanges(text, query, options).length
 }
 
 /** Wrap-around cycling over match ordinals. Returns -1 when there are no matches. */

@@ -183,3 +183,23 @@ test('displayContentForMessage strips system prompts like MessageCard', () => {
     'parser'
   )
 })
+
+test('countSearchHighlights matches code blocks with whitespace exact', () => {
+  const codeBlock = 'Ran:\n```\nstepOne()\nstepTwo()\n```'
+  // A space query is a phrase that visibly does not exist in the block.
+  assert.equal(countSearchHighlights(makeMessage({ content: codeBlock }), 'stepOne() stepTwo()'), 0)
+  // The literal newline query matches the block once.
+  assert.equal(
+    countSearchHighlights(makeMessage({ content: codeBlock }), 'stepOne()\nstepTwo()'),
+    1
+  )
+})
+
+test('countSearchHighlights keeps collapsed matching for prose and inline code', () => {
+  // Inline <code> renders with white-space: normal — a space query typed off
+  // the collapsed visible text still matches the raw double-space value.
+  const inline = 'Ran `stepOne()  stepTwo()` twice'
+  assert.equal(countSearchHighlights(makeMessage({ content: inline }), 'stepOne() stepTwo()'), 1)
+  const prose = 'stepOne()\nstepTwo()'
+  assert.equal(countSearchHighlights(makeMessage({ content: prose }), 'stepOne() stepTwo()'), 1)
+})

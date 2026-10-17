@@ -11,8 +11,8 @@ interface HastNode {
 const SKIP_TAGS = new Set(['script', 'style'])
 
 /** Split a hast text value into text/element nodes wrapping matches in <mark>. */
-function splitText(value: string, query: string): HastNode[] {
-  const ranges = findMatchRanges(value, query)
+function splitText(value: string, query: string, literal: boolean): HastNode[] {
+  const ranges = findMatchRanges(value, query, { literal })
   if (ranges.length === 0) return [{ type: 'text', value }]
   const out: HastNode[] = []
   let cursor = 0
@@ -30,16 +30,20 @@ function splitText(value: string, query: string): HastNode[] {
   return out
 }
 
-function walk(node: HastNode, query: string): void {
+function walk(node: HastNode, query: string, inPre: boolean): void {
   if (!node.children || (node.tagName && SKIP_TAGS.has(node.tagName))) return
+  // Inside <pre> whitespace renders literally (fenced/indented code), so
+  // matches must be literal too. Inline <code> renders with white-space:
+  // normal and keeps collapsed matching, same as searchableCard's count.
+  const childInPre = inPre || node.tagName === 'pre'
   const next: HastNode[] = []
   for (const child of node.children) {
     // `raw` nodes are inline HTML; react-markdown's post step (which runs
     // after rehype plugins) renders them as literal text, so match them here.
     if ((child.type === 'text' || child.type === 'raw') && typeof child.value === 'string') {
-      next.push(...splitText(child.value, query))
+      next.push(...splitText(child.value, query, childInPre))
     } else {
-      walk(child, query)
+      walk(child, query, childInPre)
       next.push(child)
     }
   }
@@ -51,10 +55,11 @@ function walk(node: HastNode, query: string): void {
  * Runs on the hast tree react-markdown builds, so it covers every rendered
  * text node uniformly — including inline code, fenced blocks, and raw inline
  * HTML, where file names, error strings, and unbackticked tag names usually
- * live. Only script/style subtrees are skipped.
+ * live. Text under <pre> matches whitespace literally; everything else
+ * collapses it the way it renders. Only script/style subtrees are skipped.
  */
 export function rehypeHighlight(options: { query: string }): () => (tree: HastNode) => void {
   return () => (tree) => {
-    if (options.query.trim()) walk(tree, options.query)
+    if (options.query.trim()) walk(tree, options.query, false)
   }
 }

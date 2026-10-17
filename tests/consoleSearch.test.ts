@@ -69,6 +69,26 @@ test('findMatchRanges collapses whitespace runs and soft breaks like the rendere
   assert.deepEqual(findMatchRanges('parser was correct', 'parser   was'), [[0, 10]])
 })
 
+test('findMatchRanges literal mode keeps code whitespace exact', () => {
+  // Inside <pre> a newline is a visible newline: a space query must not
+  // match text split across lines, and an exact-whitespace query must.
+  assert.deepEqual(
+    findMatchRanges('stepOne()\nstepTwo()', 'stepOne() stepTwo()', { literal: true }),
+    []
+  )
+  assert.deepEqual(
+    findMatchRanges('stepOne()\nstepTwo()', 'stepOne()\nstepTwo()', { literal: true }),
+    [[0, 19]]
+  )
+  assert.deepEqual(
+    findMatchRanges('run  tests', 'run tests', { literal: true }),
+    [],
+    'a double-space run is not a single visible space in code'
+  )
+  // Prose mode stays collapsed and stays the default.
+  assert.deepEqual(findMatchRanges('parser\nwas correct', 'parser was correct'), [[0, 18]])
+})
+
 test('countOccurrences counts matches', () => {
   assert.equal(countOccurrences('parser PARSER', 'parser'), 2)
   assert.equal(countOccurrences('abc', ''), 0)
