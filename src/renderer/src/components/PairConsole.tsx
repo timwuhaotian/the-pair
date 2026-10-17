@@ -97,6 +97,21 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
   const isViewingArchived = viewingRun !== null
 
+  // The ordinal indexes the match list of one (pair, run, query). When any of
+  // those change it must be -1 in that same commit: an effect only resets it
+  // after the commit, leaving one render where the stale index outlines and
+  // scrolls to a card the reader never cycled to. Resetting during render
+  // re-renders before anything is committed. Query edits come from this
+  // component, but run/pair switches arrive from siblings through the store,
+  // so no single event handler can batch the reset — the scope check here
+  // covers every source.
+  const matchScope = `${pair.id}::${viewingRun?.id ?? 'live'}::${searchQuery}`
+  const [cycledMatchScope, setCycledMatchScope] = useState(matchScope)
+  if (cycledMatchScope !== matchScope) {
+    setCycledMatchScope(matchScope)
+    setMatchOrdinal(-1)
+  }
+
   const roleFilteredMessages = useMemo(() => {
     const messages = viewingRun ? viewingRun.messages : pair.messages
     if (messageFilter === 'all') return messages
@@ -193,10 +208,6 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     window.addEventListener('app:console:open-search', openSearch)
     return () => window.removeEventListener('app:console:open-search', openSearch)
   }, [])
-
-  useEffect(() => {
-    setMatchOrdinal(-1)
-  }, [searchQuery, pair.id, viewingRunId])
 
   useEffect(() => {
     const el = scrollRef.current

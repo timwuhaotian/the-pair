@@ -377,6 +377,55 @@ test('switching the role filter while searching resets the active match instead 
   assert.equal(scrollTargets.length, 3)
 })
 
+test('editing the query after cycling resets the active match instead of jumping', () => {
+  scrollTargets.length = 0
+  // Same shape as the filter-switch test: dedup keeps all four, so the match
+  // list is [m1, e1, m2, e2] under "parser" but only [m2, e2] under "parser.".
+  const messages = [
+    makeMessage({ id: 'm1', content: 'parser plan one', from: 'mentor', type: 'plan' }),
+    makeMessage({ id: 'e1', content: 'parser exec one', from: 'executor' }),
+    makeMessage({
+      id: 'm2',
+      content: 'parser.ts plan two',
+      from: 'mentor',
+      type: 'plan',
+      iteration: 2
+    }),
+    makeMessage({ id: 'e2', content: 'parser.ts exec two', from: 'executor', iteration: 2 })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-e1')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 2)
+
+  // Refining the query: the stale ordinal would point at e2 in the new match
+  // list and outline + scroll to it with no key pressed.
+  fireEvent.change(input, { target: { value: 'parser.' } })
+  assert.equal(scrollTargets.length, 2, 'query edit never scrolls')
+  for (const id of ['m1', 'm2', 'e1', 'e2']) {
+    assert.ok(
+      !document.getElementById(`console-msg-${id}`)?.className.includes('outline'),
+      `${id} not outlined after the query edit`
+    )
+  }
+  assert.equal(screen.getByTestId('console-search-count').textContent, '2 matches')
+
+  // Cycling restarts from the first match of the refined list.
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.ok(document.getElementById('console-msg-m2')?.className.includes('outline'))
+  assert.equal(scrollTargets.length, 3)
+})
+
 test('the app-level open-search event opens the search bar', () => {
   renderConsole()
   // Cmd/Ctrl+F is matched in App.tsx's shortcut map (exact platform modifier,
