@@ -7,16 +7,6 @@ export function normalizeQuery(query: string): string {
   return query.trim().toLowerCase()
 }
 
-/** Messages whose content contains the query. Empty query returns the input unchanged. */
-export function filterMessagesByQuery<T extends { content: string }>(
-  messages: T[],
-  query: string
-): T[] {
-  const q = normalizeQuery(query)
-  if (!q) return messages
-  return messages.filter((m) => findMatchRanges(m.content, query).length > 0)
-}
-
 /**
  * All non-overlapping [start, end) ranges of the query in text, case-insensitive.
  * Each window is lowercased on its own so the ranges always index the original

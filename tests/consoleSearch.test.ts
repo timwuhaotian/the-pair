@@ -3,39 +3,9 @@ import test from 'node:test'
 
 import {
   countOccurrences,
-  filterMessagesByQuery,
   findMatchRanges,
   nextMatchIndex
 } from '../src/renderer/src/lib/consoleSearch.ts'
-
-const msgs = [
-  { id: 'a', content: 'Fix the Parser bug' },
-  { id: 'b', content: 'nothing relevant' },
-  { id: 'c', content: 'parser PARSER Parser' }
-]
-
-test('filterMessagesByQuery matches case-insensitive substring on content', () => {
-  assert.deepEqual(
-    filterMessagesByQuery(msgs, 'parser').map((m) => m.id),
-    ['a', 'c']
-  )
-})
-
-test('filterMessagesByQuery trims the query', () => {
-  assert.deepEqual(
-    filterMessagesByQuery(msgs, '  BUG ').map((m) => m.id),
-    ['a']
-  )
-})
-
-test('filterMessagesByQuery returns the same reference for an empty query', () => {
-  assert.equal(filterMessagesByQuery(msgs, ''), msgs)
-  assert.equal(filterMessagesByQuery(msgs, '   '), msgs)
-})
-
-test('filterMessagesByQuery returns empty when nothing matches', () => {
-  assert.deepEqual(filterMessagesByQuery(msgs, 'zzz'), [])
-})
 
 test('findMatchRanges returns all non-overlapping ranges, case-insensitive', () => {
   assert.deepEqual(findMatchRanges('parser PARSER Parser', 'parser'), [
@@ -77,14 +47,6 @@ test('findMatchRanges matches a query whose lowercase form changes length', () =
   const ranges = findMatchRanges(text, 'İ')
   assert.equal(ranges.length, 1)
   assert.equal(text.slice(ranges[0]![0], ranges[0]![1]), 'İ')
-})
-
-test('filterMessagesByQuery uses the same matching as findMatchRanges', () => {
-  const list = [{ id: 'u', content: 'İİ parser' }]
-  assert.deepEqual(
-    filterMessagesByQuery(list, 'parser').map((m) => m.id),
-    ['u']
-  )
 })
 
 test('countOccurrences counts matches', () => {

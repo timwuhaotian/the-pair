@@ -68,10 +68,51 @@ test('countSearchHighlights excludes structured acceptance bodies', () => {
   assert.equal(countSearchHighlights(makeMessage({ content: verdict }), 'parser'), 0)
 })
 
+test('countSearchHighlights counts link text but not link URLs', () => {
+  const content = 'Edited [parser.ts](src/parser.ts:12) and see [docs](https://example.com/github)'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'github'), 0)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'src/parser'), 0)
+})
+
+test('countSearchHighlights counts fenced code but not the fence info string', () => {
+  const content = '```python\nparser failed\n```'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'python'), 0)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+})
+
+test('countSearchHighlights ignores matches inside raw HTML, keeps text around it', () => {
+  // The attribute value never renders; the text node after the tag does.
+  const content = 'see <span title="parser tag">x</span> parser now'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser tag'), 0)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parser'), 1)
+})
+
+test('countSearchHighlights counts GFM autolinked URLs (rendered as link text)', () => {
+  assert.equal(
+    countSearchHighlights(makeMessage({ content: 'see https://example.com/github now' }), 'github'),
+    1
+  )
+})
+
+test('countSearchHighlights does not count a query spanning two text nodes', () => {
+  // "Edited " and "parser.ts" render as separate text nodes; <mark> wraps one
+  // node at a time, so a query crossing the boundary never highlights.
+  assert.equal(
+    countSearchHighlights(
+      makeMessage({ content: 'Edited [parser.ts](src/parser.ts:12)' }),
+      'd parser'
+    ),
+    0
+  )
+})
+
 test('displayContentForMessage strips system prompts like MessageCard', () => {
   assert.equal(displayContentForMessage(makeMessage({ content: '  parser plan  ' })), 'parser plan')
   assert.equal(
-    displayContentForMessage(makeMessage({ from: 'human', type: 'feedback', content: '  parser  ' })),
+    displayContentForMessage(
+      makeMessage({ from: 'human', type: 'feedback', content: '  parser  ' })
+    ),
     'parser'
   )
 })

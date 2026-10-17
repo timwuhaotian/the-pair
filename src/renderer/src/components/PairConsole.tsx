@@ -17,7 +17,7 @@ import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
 import { collapseWithDropCounts } from '../lib/consoleMessages'
-import { filterMessagesByQuery, nextMatchIndex } from '../lib/consoleSearch'
+import { nextMatchIndex } from '../lib/consoleSearch'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
 import { type FileContexts } from '../lib/fileMentions'
@@ -100,9 +100,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }, [pair.messages, viewingRun, messageFilter])
 
   const searching = searchOpen && searchQuery.trim().length > 0
+  // Filter on the same rendered-text count that drives the badge and Enter
+  // cycling, so a message whose only raw-source hit is a link URL or another
+  // non-rendered syntax never stays listed without a highlight.
   const consoleMessages = useMemo(
     () =>
-      searching ? filterMessagesByQuery(roleFilteredMessages, searchQuery) : roleFilteredMessages,
+      searching
+        ? roleFilteredMessages.filter((m) => countSearchHighlights(m, searchQuery) > 0)
+        : roleFilteredMessages,
     [roleFilteredMessages, searching, searchQuery]
   )
 
@@ -121,10 +126,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       .filter((x) => x.count > 0)
   }, [deduplicatedConsoleMessages, searching, searchQuery])
 
-  const matchCount = useMemo(
-    () => searchMatches.reduce((n, x) => n + x.count, 0),
-    [searchMatches]
-  )
+  const matchCount = useMemo(() => searchMatches.reduce((n, x) => n + x.count, 0), [searchMatches])
 
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages

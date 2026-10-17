@@ -187,6 +187,34 @@ test('search count ignores messages collapsed away by dedup', () => {
   assert.ok(document.getElementById('console-msg-c')?.className.includes('outline'))
 })
 
+test('search count, filtered list and highlights agree for link URLs', () => {
+  const messages = [
+    makeMessage({
+      id: 'm1',
+      content: 'Edited [parser.ts](src/parser.ts:12) and see [docs](https://example.com/github)'
+    })
+  ]
+  render(
+    <I18nextProvider i18n={i18n}>
+      <PairConsole pair={makePair(messages)} />
+    </I18nextProvider>
+  )
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+
+  // The only "github" hit is the link URL, which renders as an href, not text.
+  fireEvent.change(input, { target: { value: 'github' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
+  assert.equal(document.getElementById('console-msg-m1'), null, 'card filtered out')
+  assert.equal(document.querySelectorAll('mark').length, 0)
+
+  // Only the link label renders, so exactly one mark and one counted match.
+  fireEvent.change(input, { target: { value: 'parser' } })
+  assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
+  assert.ok(document.getElementById('console-msg-m1'))
+  assert.equal(document.querySelectorAll('mark').length, 1)
+})
+
 test('Cmd+F opens the search bar', () => {
   renderConsole()
   fireEvent.keyDown(window, { key: 'f', metaKey: true })

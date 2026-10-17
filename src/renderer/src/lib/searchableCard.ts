@@ -1,3 +1,6 @@
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+import remarkGfm from 'remark-gfm'
 import { isAcceptanceRecordContent, isAcceptanceVerdictContent } from './acceptance'
 import { countOccurrences } from './consoleSearch'
 import { isTechnicalHandoff } from './timeline'
@@ -7,9 +10,43 @@ import type { Message } from '../store/usePairStore'
 /** The body MessageCard renders for a message (system prompt stripped where it does so). */
 export function displayContentForMessage(msg: Message): string {
   const isHuman = msg.from === 'human'
-  return isHuman || isTechnicalHandoff(msg.content)
+  return isHuman || isTechnicalHandoff(msg.content.trim())
     ? stripSystemPrompt(msg.content.trim())
     : msg.content.trim()
+}
+
+interface MdastNode {
+  type: string
+  value?: string
+  children?: MdastNode[]
+}
+
+// Same parser config as MarkdownContent, so the text nodes collected here are
+// exactly the ones rehypeHighlight wraps in <mark>.
+const markdownParser = unified().use(remarkParse).use(remarkGfm)
+
+const renderedTextCache = new Map<string, string[]>()
+
+// text/inlineCode/code are the mdast nodes whose values become hast text
+// nodes; everything else (link URLs, fence info strings, raw HTML, image alt)
+// renders as markup or attributes, never as highlightable text.
+function collectTextNodes(node: MdastNode, out: string[]): void {
+  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'code') {
+    if (node.value) out.push(node.value)
+    return
+  }
+  for (const child of node.children ?? []) collectTextNodes(child, out)
+}
+
+/** The text values this markdown renders — the only places a match can highlight. */
+function renderedSearchTexts(content: string): string[] {
+  const cached = renderedTextCache.get(content)
+  if (cached) return cached
+  const out: string[] = []
+  collectTextNodes(markdownParser.parse(content) as unknown as MdastNode, out)
+  if (renderedTextCache.size > 400) renderedTextCache.clear()
+  renderedTextCache.set(content, out)
+  return out
 }
 
 /**
@@ -17,7 +54,9 @@ export function displayContentForMessage(msg: Message): string {
  * Mirrors MessageCard's render branches: only agent messages rendered as a
  * TerminalBlock through MarkdownContent highlight (and carry the
  * `console-msg-<id>` anchor). Human banners, handoffs, technical handoffs,
- * empty bodies, and structured acceptance bodies render none.
+ * empty bodies, and structured acceptance bodies render none. Matches are
+ * counted per rendered text node — <mark> wraps single text nodes, so a
+ * query spanning two nodes never highlights and must not count.
  */
 export function countSearchHighlights(msg: Message, query: string): number {
   if (!query.trim() || msg.from === 'human' || msg.type === 'handoff') return 0
@@ -31,5 +70,8 @@ export function countSearchHighlights(msg: Message, query: string): number {
   ) {
     return 0
   }
-  return countOccurrences(displayContent, query)
+  return renderedSearchTexts(displayContent).reduce(
+    (n, text) => n + countOccurrences(text, query),
+    0
+  )
 }
