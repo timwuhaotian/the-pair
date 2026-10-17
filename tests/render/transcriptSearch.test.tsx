@@ -11,7 +11,7 @@ import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { I18nextProvider } from 'react-i18next'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import i18n from '../../src/renderer/src/i18n.ts'
 import { MarkdownContent } from '../../src/renderer/src/components/MarkdownContent.tsx'
 import { MessageCard } from '../../src/renderer/src/components/MessageCard.tsx'
@@ -106,6 +106,93 @@ test('MessageCard expands a collapsed long body when it is the active match', ()
   )
   assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'expanded while active')
   assert.equal(container.querySelectorAll('mark').length, 2)
+})
+
+test('MessageCard hides the no-op collapse toggle on an active long-body match', async () => {
+  await i18n.changeLanguage('en')
+  // No steps: while active the clip is lifted and nothing is left to toggle.
+  const longMessage: Message = {
+    ...baseMessage,
+    id: 'msg-long',
+    content: `parser intro ${'x'.repeat(1300)} parser tail end`
+  }
+  const { container, rerender } = render(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={longMessage} searchQuery="parser" isActiveMatch />
+    </I18nextProvider>
+  )
+  const anchor = container.querySelector('#console-msg-msg-long')
+  assert.ok(anchor)
+  assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'body unclipped while active')
+  assert.equal(container.querySelectorAll('button').length, 0, 'no toggle, no overlay')
+
+  // Once the match moves on, the card returns to its collapsed default.
+  rerender(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={longMessage} searchQuery="parser" />
+    </I18nextProvider>
+  )
+  assert.ok(anchor.innerHTML.includes('max-h-[280px]'), 'collapsed again after deactivation')
+  assert.ok(screen.getByRole('button', { name: /Show full report/ }), 'toggle restored')
+})
+
+test('MessageCard keeps the details toggle honest on an active match with steps', async () => {
+  await i18n.changeLanguage('en')
+  const msg: Message = {
+    ...baseMessage,
+    id: 'msg-steps',
+    content: `parser intro ${'x'.repeat(1300)} parser tail end`,
+    cognitiveEvents: [
+      {
+        id: 'ev1',
+        timestamp: 1100,
+        role: 'executor',
+        eventType: 'tool_call',
+        toolName: 'edit',
+        description: 'edited parser.ts',
+        status: 'completed'
+      }
+    ]
+  }
+  const { container, rerender } = render(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={msg} searchQuery="parser" isActiveMatch />
+    </I18nextProvider>
+  )
+  const anchor = container.querySelector('#console-msg-msg-steps')
+  assert.ok(anchor)
+  assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'active match lifts the body clip')
+
+  // The toggle stays functional while active: it reveals the hidden steps.
+  const toggle = screen.getByRole('button', { name: /show 1 step/i })
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+  fireEvent.click(toggle)
+  assert.ok(screen.getByRole('button', { name: /Hide details/ }))
+  assert.equal(
+    screen.getByRole('button', { name: /Hide details/ }).getAttribute('aria-expanded'),
+    'true'
+  )
+  assert.ok(anchor.textContent?.includes('edited parser.ts'), 'steps panel opened')
+
+  // Cycling away keeps the card in the state the user chose...
+  rerender(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={msg} searchQuery="parser" />
+    </I18nextProvider>
+  )
+  assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'stays expanded as requested')
+
+  // ...and asking to hide collapses it again, active or not.
+  fireEvent.click(screen.getByRole('button', { name: /Hide details/ }))
+  assert.ok(anchor.innerHTML.includes('max-h-[280px]'), 'collapsed on request')
+  rerender(
+    <I18nextProvider i18n={i18n}>
+      <MessageCard msg={msg} searchQuery="parser" isActiveMatch />
+    </I18nextProvider>
+  )
+  assert.ok(!anchor.innerHTML.includes('max-h-[280px]'), 'clip lifted while active again')
+  const restored = screen.getByRole('button', { name: /Show 1 step/i })
+  assert.equal(restored.getAttribute('aria-expanded'), 'false', 'toggle reflects the chosen state')
 })
 
 test('MessageCard without search props has the anchor but no outline or marks', () => {

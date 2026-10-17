@@ -97,13 +97,15 @@ export const MessageCard = memo(function MessageCard({
   )
   const showCollapse = displayContent.length > CONTENT_COLLAPSE_THRESHOLD
   const hasExpandable = hasSteps || showCollapse
-  // The active search match must be visible: a match below the collapse
-  // fold would otherwise scroll into view still clipped.
-  const effectiveExpanded = detailsExpanded || isActiveMatch
+  // The active search match must be visible: a match below the collapse fold
+  // would otherwise scroll into view still clipped. Lift only the 280px body
+  // clip while active and leave the toggle and the steps panel to
+  // detailsExpanded, so the control never fights the search override.
+  const bodyClipped = showCollapse && !detailsExpanded && !isActiveMatch
 
   // Label for the unified toggle reflects exactly what's hidden behind it.
   const expandLabel = ((): string => {
-    if (effectiveExpanded) return t('console.hideDetails')
+    if (detailsExpanded) return t('console.hideDetails')
     if (hasSteps && showCollapse) {
       return t('console.showDetailsBoth', { count: cognitiveEvents.length })
     }
@@ -147,8 +149,10 @@ export const MessageCard = memo(function MessageCard({
         </span>
       }
     >
-      {/* Unified expand control — covers cognitive steps and/or long-body collapse */}
-      {hasExpandable && (
+      {/* Unified expand control — covers cognitive steps and/or long-body collapse.
+          Hidden on the active match when it would have no effect (no steps and
+          the body clip is already lifted). */}
+      {hasExpandable && (hasSteps || !isActiveMatch) && (
         <div className="mb-1.5">
           <button
             onClick={() => setDetailsExpanded((v) => !v)}
@@ -156,10 +160,10 @@ export const MessageCard = memo(function MessageCard({
               'group flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em]',
               'text-muted-foreground-faint hover:text-foreground/80 transition-colors'
             )}
-            aria-expanded={effectiveExpanded}
+            aria-expanded={detailsExpanded}
           >
-            <span className="text-muted-foreground-faint">{effectiveExpanded ? '└─' : '├─'}</span>
-            {effectiveExpanded ? (
+            <span className="text-muted-foreground-faint">{detailsExpanded ? '└─' : '├─'}</span>
+            {detailsExpanded ? (
               <ChevronDown size={10} className="text-muted-foreground-faint translate-y-px" />
             ) : (
               <ChevronRight size={10} className="text-muted-foreground-faint translate-y-px" />
@@ -168,7 +172,7 @@ export const MessageCard = memo(function MessageCard({
           </button>
           {hasSteps && (
             <AnimatePresence initial={false}>
-              {effectiveExpanded && (
+              {detailsExpanded && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
@@ -197,7 +201,7 @@ export const MessageCard = memo(function MessageCard({
       <div
         className={cn(
           'text-[12px] leading-relaxed',
-          !effectiveExpanded && showCollapse && 'max-h-[280px] overflow-hidden relative'
+          bodyClipped && 'max-h-[280px] overflow-hidden relative'
         )}
       >
         {isAcceptance ? (
@@ -205,7 +209,7 @@ export const MessageCard = memo(function MessageCard({
         ) : (
           <MarkdownContent content={displayContent} searchQuery={searchQuery} />
         )}
-        {!effectiveExpanded && showCollapse && (
+        {bodyClipped && (
           <button
             onClick={() => setDetailsExpanded(true)}
             className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent cursor-pointer flex items-end justify-center pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground/80 transition-colors"
