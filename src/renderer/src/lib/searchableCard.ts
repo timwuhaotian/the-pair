@@ -100,7 +100,12 @@ function collectRenderedFootnoteIds(tree: MdastNode): Set<string> {
 // `<pre>`, where newlines and space runs stay exact, so it matches literally.
 // text/inlineCode/html render in normal flow (inline `<code>` gets no
 // white-space override), so they keep collapsed matching.
-function collectTextNodes(node: MdastNode, out: RenderedText[], footnoteIds: Set<string>): void {
+function collectTextNodes(
+  node: MdastNode,
+  out: RenderedText[],
+  footnoteIds: Set<string>,
+  emittedFootnoteDefs: Set<string>
+): void {
   if (node.type === 'code') {
     if (node.value) out.push({ value: node.value, literal: true })
     return
@@ -109,22 +114,27 @@ function collectTextNodes(node: MdastNode, out: RenderedText[], footnoteIds: Set
     if (node.value) out.push({ value: node.value, literal: false })
     return
   }
-  // An unreferenced footnote definition never renders — its text must not
-  // count, or a card would list with nothing highlightable inside it.
-  if (node.type === 'footnoteDefinition' && !footnoteIds.has(String(node.identifier).toUpperCase()))
-    return
+  // A footnote definition renders only when referenced, and only the first
+  // definition per label does (footnoteById keeps the first) — later
+  // duplicates never reach the footer, so their text must not count.
+  if (node.type === 'footnoteDefinition') {
+    const id = String(node.identifier).toUpperCase()
+    if (!footnoteIds.has(id) || emittedFootnoteDefs.has(id)) return
+    emittedFootnoteDefs.add(id)
+  }
   // Body rows past the header width never render either: the hast table-row
   // handler caps every row at the header row's cell count.
   if (node.type === 'table') {
     const width = node.children?.[0]?.children?.length ?? 0
     for (const row of node.children ?? []) {
       for (const cell of row.children?.slice(0, width) ?? []) {
-        collectTextNodes(cell, out, footnoteIds)
+        collectTextNodes(cell, out, footnoteIds, emittedFootnoteDefs)
       }
     }
     return
   }
-  for (const child of node.children ?? []) collectTextNodes(child, out, footnoteIds)
+  for (const child of node.children ?? [])
+    collectTextNodes(child, out, footnoteIds, emittedFootnoteDefs)
 }
 
 /** The text values this markdown renders — the only places a match can highlight. */
@@ -134,7 +144,7 @@ function renderedSearchTexts(msg: Message): RenderedText[] {
   const tree = markdownParser.parse(displayContentForMessage(msg)) as unknown as MdastNode
   const footnoteIds = collectRenderedFootnoteIds(tree)
   const out: RenderedText[] = []
-  collectTextNodes(tree, out, footnoteIds)
+  collectTextNodes(tree, out, footnoteIds, new Set())
   renderedTextsByMessage.set(msg, out)
   return out
 }

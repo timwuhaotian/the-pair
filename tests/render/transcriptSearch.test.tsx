@@ -250,3 +250,13 @@ test('MarkdownContent renders a footnote referenced from another rendered footno
   const { container } = render(<MarkdownContent content={content} searchQuery="parsernote" />)
   assert.equal(container.querySelectorAll('mark').length, 1)
 })
+
+test('MarkdownContent renders only the first definition of a duplicate footnote label', () => {
+  // footnoteById keeps the first definition per label; the duplicate never
+  // lands in the footer. Pins the renderer behavior searchableCard mirrors.
+  const content = 'ref[^1]\n\n[^1]: alpha note\n\n[^1]: beta note'
+  const alpha = render(<MarkdownContent content={content} searchQuery="alpha" />)
+  assert.equal(alpha.container.querySelectorAll('mark').length, 1)
+  const beta = render(<MarkdownContent content={content} searchQuery="beta" />)
+  assert.equal(beta.container.querySelectorAll('mark').length, 0)
+})

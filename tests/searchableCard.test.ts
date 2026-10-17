@@ -153,6 +153,15 @@ test('countSearchHighlights expands the first definition per footnote label', ()
   assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 1)
 })
 
+test('countSearchHighlights ignores duplicate footnote definitions past the first', () => {
+  // footnoteById keeps the first definition per label; later duplicates
+  // never render, so counting both would overstate the highlights.
+  const content = 'ref[^1]\n\n[^1]: alpha parsernote\n\n[^1]: beta parsernote'
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'parsernote'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'alpha'), 1)
+  assert.equal(countSearchHighlights(makeMessage({ content }), 'beta'), 0)
+})
+
 test('countSearchHighlights counts GFM autolinked URLs (rendered as link text)', () => {
   assert.equal(
     countSearchHighlights(makeMessage({ content: 'see https://example.com/github now' }), 'github'),
