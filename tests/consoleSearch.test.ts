@@ -89,6 +89,24 @@ test('findMatchRanges literal mode keeps code whitespace exact', () => {
   assert.deepEqual(findMatchRanges('parser\nwas correct', 'parser was correct'), [[0, 18]])
 })
 
+test('findMatchRanges lowercases with whole-string case rules', () => {
+  // Greek word-final Σ lowers to ς (U+03C2), not σ — the per-character map
+  // produced σ, so the lowercase a reader copies off the rendered text
+  // ('ος') never matched. normalizeQuery already lowercases the query whole.
+  assert.deepEqual(findMatchRanges('ΟΣ', 'ος'), [[0, 2]])
+  assert.deepEqual(findMatchRanges('success ΟΣ done', 'ος'), [[8, 10]])
+  // Only the word-final Σ lowers to ς; a query matching it must not match
+  // the medial one.
+  assert.deepEqual(findMatchRanges('ΟΣΟΣ', 'ΟΣ'), [[2, 4]])
+})
+
+test('findMatchRanges case-folds astral letters as single characters', () => {
+  // U+10400 DESERET CAPITAL LONG A lowercases to U+10428 across a surrogate
+  // pair — per-code-unit lowering left the capital in place and never matched.
+  assert.deepEqual(findMatchRanges('𐐀', '𐐨'), [[0, 2]])
+  assert.equal('𐐀'.slice(0, 2), '𐐀')
+})
+
 test('countOccurrences counts matches', () => {
   assert.equal(countOccurrences('parser PARSER', 'parser'), 2)
   assert.equal(countOccurrences('abc', ''), 0)

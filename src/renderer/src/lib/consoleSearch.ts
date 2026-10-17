@@ -15,14 +15,47 @@ export function normalizeQuery(query: string): string {
 }
 
 /**
+ * Lowercased units of text[from,to) with offsets back into the original.
+ * The slice is lowercased as one string so context-sensitive mappings apply
+ * (Greek word-final Σ → ς, which per-character lowering loses), while offsets
+ * are re-derived per code point because toLowerCase is not length-preserving
+ * (U+0130 expands to two code units; surrogate pairs fold as one character).
+ * The two views align: default case mapping differs from per-code-point
+ * lowering only by in-place σ→ς substitutions, never by length.
+ */
+function pushLowerUnits(
+  text: string,
+  from: number,
+  to: number,
+  units: string[],
+  unitStart: number[],
+  unitEnd: number[]
+): void {
+  const lowered = text.slice(from, to).toLowerCase()
+  let i = from
+  let k = 0
+  while (i < to) {
+    const cp = text.codePointAt(i)!
+    const cpLen = cp > 0xffff ? 2 : 1
+    const cpLowerLen = String.fromCodePoint(cp).toLowerCase().length
+    for (let u = 0; u < cpLowerLen; u++) {
+      units.push(lowered[k + u]!)
+      unitStart.push(i)
+      unitEnd.push(i + cpLen)
+    }
+    i += cpLen
+    k += cpLowerLen
+  }
+}
+
+/**
  * All non-overlapping [start, end) ranges of the query in text, case-insensitive.
  * Whitespace collapses on both sides the way rendered HTML collapses it — a
  * soft line break and any run of spaces display as one space, so a query typed
  * off the visible text must still match the raw string. Ranges index the
  * original text and span the full whitespace runs they replace, so <mark>
- * wraps the whole rendered phrase. Each collapsed unit is lowercased on its
- * own so offsets stay aligned — `toLowerCase()` is not length-preserving
- * (e.g. U+0130 expands).
+ * wraps the whole rendered phrase. Case folding lowercases each run as one
+ * string (see pushLowerUnits) so whole-string rules survive.
  *
  * With `literal: true` nothing collapses on either side: content inside
  * `<pre>` (fenced/indented code) renders newlines and space runs literally,
@@ -38,31 +71,32 @@ export function findMatchRanges(
   if (!q || !text) return []
 
   // Collapsed text with a per-unit map back to the original string: a
-  // whitespace run becomes one ' ' unit spanning the whole run, any other
-  // code unit keeps its own offsets (expanding if its lowercase form does).
-  // In literal mode every code unit — whitespace included — maps itself.
+  // whitespace run becomes one ' ' unit spanning the whole run; everything
+  // else lowers as whole runs. In literal mode the entire text is one run.
   const units: string[] = []
   const unitStart: number[] = []
   const unitEnd: number[] = []
-  let i = 0
-  while (i < text.length) {
-    if (!literal && /\s/.test(text[i]!)) {
+  if (literal) {
+    pushLowerUnits(text, 0, text.length, units, unitStart, unitEnd)
+  } else {
+    let i = 0
+    while (i < text.length) {
+      if (/\s/.test(text[i]!)) {
+        const runStart = i
+        do {
+          i += 1
+        } while (i < text.length && /\s/.test(text[i]!))
+        units.push(' ')
+        unitStart.push(runStart)
+        unitEnd.push(i)
+        continue
+      }
       const runStart = i
       do {
         i += 1
-      } while (i < text.length && /\s/.test(text[i]!))
-      units.push(' ')
-      unitStart.push(runStart)
-      unitEnd.push(i)
-      continue
+      } while (i < text.length && !/\s/.test(text[i]!))
+      pushLowerUnits(text, runStart, i, units, unitStart, unitEnd)
     }
-    const lower = text[i]!.toLowerCase()
-    for (let u = 0; u < lower.length; u++) {
-      units.push(lower[u]!)
-      unitStart.push(i)
-      unitEnd.push(i + 1)
-    }
-    i += 1
   }
 
   const collapsed = units.join('')
