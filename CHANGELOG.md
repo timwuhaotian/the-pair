@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] - 2026-10-18
+
+Transcript search. The pair console gets a find bar: Cmd/Ctrl+F opens a search field in the console header, typing filters the transcript to matching messages with a live match count, Enter/Shift+Enter cycles between matches with scrolling and an active-match outline, and every hit is highlighted with `<mark>` inside the rendered markdown — prose and code alike. Live runs and archived runs search identically.
+
+### Added
+
+- **Console find bar (Cmd/Ctrl+F).** A search field in the console header (next to the role filter) with match count, prev/next buttons and an Esc-to-close; the shortcut is registered in the app shortcut map and suppressed whenever a modal dialog is open over the console. The query composes with the role filter and empty queries restore the unfiltered transcript exactly.
+- **Rendered-text matching.** Matches are counted and highlighted against the markdown the console actually renders, not the raw source — a hit that only exists in a link URL, footnote definition or unrendered table cell neither lists the message nor inflates the count. Matching is case-insensitive (unicode-safe), collapses whitespace in prose and matches it literally inside code blocks, and generated footnote chrome stays unmarked.
+- **Match cycling.** Enter/Shift+Enter jump to the next/previous matching message, scrolling it into view with a temporary outline. The active match is anchored by message id, so live appends don't shift it; collapsed long bodies expand for the active match and its details toggle stays honest. Cycling keeps working while new messages stream in: presses made during a deferred update replay once the list catches up, and auto-follow resumes only after the search closes. IME composition never triggers a cycle.
+- **Search stays responsive on long transcripts.** List work runs off the keystroke via a deferred query, the markdown parse cache is kept warm across keystrokes, and the transcript dedup pipeline runs before the search filter — so which drafts collapse never depends on the query and drop markers survive searching.
+- **Localization.** The find bar — placeholder, match counts, prev/next/close labels — is translated across en, zh, ja and ko.
+
 ## [2.11.3] - 2026-10-15
 
 Provider maintenance patch: all ten agent CLIs re-audited against their latest releases (opencode 2.0.29, codex 0.162, claude 2.1.300, agy 1.3.5, kimi 2.2.0, pi 1.2.0, grok 1.0.52, kiro-cli 2.31, aider 0.86.2, Muse 1.4.8), with live turn verification for claude, codex and muse. No contract drift beyond the fixes below.
