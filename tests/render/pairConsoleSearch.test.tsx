@@ -16,8 +16,11 @@ import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
 import type { Message, Pair } from '../../src/renderer/src/store/usePairStore.ts'
 
-// jsdom lacks scrollIntoView.
-Element.prototype.scrollIntoView = function (): void {}
+// jsdom lacks scrollIntoView. Tests assert on the recorded targets.
+const scrollTargets: Element[] = []
+Element.prototype.scrollIntoView = function (): void {
+  scrollTargets.push(this)
+}
 
 function makeMessage(overrides: Partial<Message>): Message {
   return {
@@ -213,6 +216,28 @@ test('search count, filtered list and highlights agree for link URLs', () => {
   assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
   assert.ok(document.getElementById('console-msg-m1'))
   assert.equal(document.querySelectorAll('mark').length, 1)
+})
+
+test('Enter scrolls the first highlight of the active card into view', () => {
+  scrollTargets.length = 0
+  renderConsole()
+  fireEvent.click(screen.getByTestId('console-search-toggle'))
+  const input = screen.getByTestId('console-search-input')
+  fireEvent.change(input, { target: { value: 'parser' } })
+  assert.equal(scrollTargets.length, 0, 'no scroll before a match is active')
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.equal(scrollTargets.length, 1, 'one scroll per activation')
+  const target = scrollTargets[0]
+  assert.equal(target.tagName, 'MARK', 'aims at the highlight, not the card')
+  assert.ok(target.closest('#console-msg-m1'), 'highlight inside the active card')
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.equal(scrollTargets.length, 2)
+  assert.ok(scrollTargets[1].closest('#console-msg-m3'), 'follows the next active card')
+
+  fireEvent.keyDown(input, { key: 'Escape' })
+  assert.equal(scrollTargets.length, 2, 'closing search does not scroll')
 })
 
 test('Cmd+F opens the search bar', () => {

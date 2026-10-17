@@ -145,17 +145,23 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const cycleMatch = useCallback(
     (dir: 1 | -1): void => {
-      const next = nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir)
-      setMatchOrdinal(next)
-      const id = next >= 0 ? matchingMessageIds[next] : undefined
-      if (id) {
-        document
-          .getElementById(`console-msg-${id}`)
-          ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      }
+      setMatchOrdinal(nextMatchIndex(matchOrdinal, matchingMessageIds.length, dir))
     },
     [matchOrdinal, matchingMessageIds]
   )
+
+  // Scroll from an effect, after React commits the new active card: the card
+  // lifts its 280px clip and the previously active card collapses in that
+  // same commit, so the smooth scroll must pick its destination from the
+  // final layout, not the pre-commit one. Aim at the first highlight — the
+  // card's top edge can leave a match deep in a long card off-screen.
+  useEffect(() => {
+    if (!activeMessageId) return
+    const card = document.getElementById(`console-msg-${activeMessageId}`)
+    if (!card) return
+    const target = card.querySelector('mark') ?? card
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [activeMessageId])
 
   const closeSearch = useCallback((): void => {
     setSearchOpen(false)
