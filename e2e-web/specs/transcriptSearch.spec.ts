@@ -101,4 +101,39 @@ test.describe('Transcript search shortcut (headless)', () => {
     await page.keyboard.press('Shift+Slash')
     await expect(page.getByText('Search Transcript')).toBeVisible()
   })
+
+  test('Cmd/Ctrl+F stays inside an open modal dialog instead of stealing focus', async ({
+    page
+  }) => {
+    await openApp(page, { snapshots: [snapshot] })
+    await page.getByText('Search Pair').first().click()
+    await expect(page.getByTestId('console-search-toggle')).toBeVisible()
+
+    const isMac = process.platform === 'darwin'
+    const combo = isMac ? 'Meta+f' : 'Control+f'
+
+    // The palette is an aria-modal dialog with its own input.
+    await page.keyboard.press(isMac ? 'Meta+k' : 'Control+k')
+    const paletteInput = page.getByTestId('command-palette-input')
+    await expect(paletteInput).toBeVisible()
+    await expect(paletteInput).toBeFocused()
+
+    await armDefaultProbe(page)
+    await page.keyboard.press(combo)
+    await expect(page.getByTestId('console-search-input')).toHaveCount(0)
+    await expect(paletteInput).toBeFocused()
+    expect(await lastDefaultPrevented(page)).toBe(false)
+
+    // Same for the shortcuts sheet: the console search never opens behind it.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+Slash')
+    await expect(page.getByText('Search Transcript')).toBeVisible()
+    await page.keyboard.press(combo)
+    await expect(page.getByTestId('console-search-input')).toHaveCount(0)
+
+    // With no dialog open the shortcut works again.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press(combo)
+    await expect(page.getByTestId('console-search-input')).toBeVisible()
+  })
 })

@@ -446,7 +446,16 @@ function App(): React.ReactNode {
           window.dispatchEvent(new CustomEvent('app:console:open-search'))
         },
         description: t('shortcuts.searchTranscript'),
-        condition: () => selectedPair !== null
+        // Never while a modal dialog is open over the console: the console
+        // listener would flush the search bar open and move focus out of the
+        // dialog, leaving the reader typing behind a surface they can't see.
+        condition: () =>
+          selectedPair !== null &&
+          !isCreatePairOpen &&
+          !isAssignTaskOpen &&
+          !isPairSettingsOpen &&
+          !isPaletteOpen &&
+          !isShortcutsOpen
       },
       {
         key: '[',
@@ -491,7 +500,12 @@ function App(): React.ReactNode {
       toggleSidebar,
       selectSection,
       goHub,
-      openPalette
+      openPalette,
+      isCreatePairOpen,
+      isAssignTaskOpen,
+      isPairSettingsOpen,
+      isPaletteOpen,
+      isShortcutsOpen
     ]
   )
 
