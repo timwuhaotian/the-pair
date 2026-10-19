@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { invoke } from '@tauri-apps/api/core'
 import { Activity, ActivityItem, type ActivityType } from './ActivityItem'
 import { cn } from '../lib/utils'
+import { emptyHint, sectionLabel } from '../lib/ui'
 
 interface RecentActivityPanelProps {
   className?: string
@@ -63,41 +64,25 @@ export function RecentActivityPanel({ className }: RecentActivityPanelProps): Re
     }
   }, [])
 
-  if (loading) {
-    return (
-      <Wrap className={className}>
-        <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {t('dashboard.activity.title')}
-        </h2>
-        <div className="flex items-baseline gap-2 py-4 text-[13px] text-muted-foreground">
-          <span className="state-running tty-blink">●</span>
-          <span>· {t('common.loading')}</span>
-        </div>
-      </Wrap>
-    )
-  }
-
-  if (activities.length === 0) {
-    return (
-      <Wrap className={className}>
-        <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {t('dashboard.activity.title')}
-        </h2>
-        <p className="py-4 text-[13px] text-muted-foreground">{t('dashboard.activity.empty')}</p>
-      </Wrap>
-    )
-  }
-
   return (
     <Wrap className={className}>
-      <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {t('dashboard.activity.title')}
-      </h2>
-      <div className="flex-1 space-y-0 overflow-y-auto scrollbar-thin pr-1">
-        {activities.map((activity) => (
-          <ActivityItem key={`${activity.pairId}-${activity.timestamp}`} activity={activity} />
-        ))}
-      </div>
+      <h2 className={cn(sectionLabel, 'mb-2')}>{t('dashboard.activity.title')}</h2>
+      {loading ? (
+        <div role="status" className={cn(emptyHint, 'flex items-baseline justify-center gap-2')}>
+          <span aria-hidden className="state-running tty-blink">
+            ●
+          </span>
+          <span>{t('common.loading')}</span>
+        </div>
+      ) : activities.length === 0 ? (
+        <p className={emptyHint}>{t('dashboard.activity.empty')}</p>
+      ) : (
+        <div className="flex-1 space-y-0 overflow-y-auto scrollbar-thin pr-1">
+          {activities.map((activity) => (
+            <ActivityItem key={`${activity.pairId}-${activity.timestamp}`} activity={activity} />
+          ))}
+        </div>
+      )}
     </Wrap>
   )
 }

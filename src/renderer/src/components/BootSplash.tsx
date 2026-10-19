@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
+import { Z } from '../lib/ui'
 import { StartupHero } from './StartupHero'
 
 interface BootSplashProps {
@@ -46,7 +47,8 @@ export function BootSplash({ visible, minDurationMs = 700 }: BootSplashProps): R
   return (
     <div
       className={cn(
-        'boot-splash fixed inset-0 z-[100] flex items-center justify-center bg-background',
+        'boot-splash fixed inset-0 flex items-center justify-center bg-background',
+        Z.splash,
         leaving && 'boot-splash--leaving'
       )}
       aria-hidden={leaving}

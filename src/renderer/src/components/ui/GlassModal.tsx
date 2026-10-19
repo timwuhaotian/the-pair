@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { Z } from '../../lib/ui'
 import { modalVariants, overlayVariants } from '../../lib/animations'
 import { shouldCloseOnEscape } from '../keyboard'
+import { IconButton } from './IconButton'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -15,6 +17,10 @@ interface GlassModalProps {
   children: React.ReactNode
   title?: string
   className?: string
+  /** False while the dialog must stay up (e.g. mid-install): Esc, the backdrop
+   *  and the close button are inert. */
+  dismissible?: boolean
+  'data-testid'?: string
 }
 
 /**
@@ -26,7 +32,9 @@ export function GlassModal({
   onClose,
   children,
   title,
-  className
+  className,
+  dismissible = true,
+  'data-testid': dataTestId
 }: GlassModalProps): React.ReactNode {
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
   const reduceMotion = useReducedMotion()
@@ -37,11 +45,11 @@ export function GlassModal({
     const handleEscape = (e: KeyboardEvent): void => {
       // Ignore Escape already handled by a nested dropdown/popover (defaultPrevented)
       // or used to cancel an IME composition — closing would discard the draft.
-      if (isOpen && shouldCloseOnEscape(e)) onClose()
+      if (isOpen && dismissible && shouldCloseOnEscape(e)) onClose()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
+  }, [isOpen, dismissible, onClose])
 
   useEffect(() => {
     if (!isOpen) {
@@ -97,13 +105,16 @@ export function GlassModal({
   if (!portalRoot || !isOpen) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className={cn('fixed inset-0 flex items-center justify-center p-4', Z.modal)}>
       <motion.div
         variants={overlayVariants}
         initial="hidden"
         animate="visible"
-        className="absolute inset-0 bg-background/80 cursor-pointer"
-        onClick={onClose}
+        className={cn(
+          'absolute inset-0 bg-background/80',
+          dismissible ? 'cursor-pointer' : 'cursor-wait'
+        )}
+        onClick={dismissible ? onClose : undefined}
         aria-hidden
       />
       <motion.div
@@ -115,25 +126,20 @@ export function GlassModal({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
+        data-testid={dataTestId}
         className={cn(
           'shell-card relative flex max-h-[90vh] w-full max-w-lg flex-col outline-none',
           className
         )}
       >
         {title && (
-          <div className="flex shrink-0 items-baseline justify-between gap-2 border-b border-border px-4 py-3">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <h2 className="truncate text-[14px] font-semibold tracking-tight text-foreground">
-                {title}
-              </h2>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="close"
-              className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-            >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <h2 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-foreground">
+              {title}
+            </h2>
+            <IconButton aria-label="close" onClick={onClose} disabled={!dismissible}>
               <X size={14} />
-            </button>
+            </IconButton>
           </div>
         )}
         <div className="p-5 overflow-y-auto flex-1 scrollbar-thin">{children}</div>

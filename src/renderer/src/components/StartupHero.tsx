@@ -48,8 +48,7 @@ export function StartupHero({
         strokeWidth="3"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="startup-hero__art"
-        style={{ color: 'var(--state-running)' }}
+        className="startup-hero__art state-running"
         aria-hidden
       >
         {/* steam wisps — animated upward, behind everything else */}

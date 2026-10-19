@@ -1,4 +1,5 @@
 import React, { Component, ReactNode } from 'react'
+import { GlassButton } from './ui/GlassButton'
 
 interface Props {
   children: ReactNode
@@ -29,22 +30,21 @@ export class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback
 
       return (
-        <div className="flex h-full w-full items-center justify-center bg-background p-8 font-mono">
-          <div className="max-w-2xl border border-state-error bg-state-error/10 p-5 rounded-sm">
-            <h2 className="mb-3 text-[13px] uppercase tracking-[0.14em] state-error font-bold">
-              ✗ unhandled exception
+        <div className="flex h-full w-full items-center justify-center bg-background p-8">
+          <div className="shell-card max-w-2xl border-state-error/50 bg-state-error/10 p-5">
+            <h2 className="mb-3 text-[14px] font-semibold tracking-tight state-error">
+              Unhandled exception
             </h2>
-            <pre className="overflow-auto scrollbar-thin border border-border bg-background/40 p-3 text-[11px] leading-relaxed text-foreground/85 [overflow-wrap:anywhere]">
+            <pre className="overflow-auto scrollbar-thin rounded-md border border-border bg-background/40 p-3 text-[11px] leading-relaxed text-foreground/85 [overflow-wrap:anywhere]">
               {this.state.error?.toString()}
               {'\n\n'}
               {this.state.error?.stack}
             </pre>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-3 inline-flex items-center gap-1.5 border border-foreground bg-foreground text-background px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.12em] rounded-sm cursor-pointer hover:bg-foreground/90 transition-colors"
-            >
-              ▸ reload application
-            </button>
+            <div className="mt-3 flex justify-end">
+              <GlassButton variant="primary" size="sm" onClick={() => window.location.reload()}>
+                Reload application
+              </GlassButton>
+            </div>
           </div>
         </div>
       )

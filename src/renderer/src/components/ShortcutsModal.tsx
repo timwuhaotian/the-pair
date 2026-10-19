@@ -1,6 +1,7 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { GlassModal } from './ui/GlassModal'
+import { kbd } from '../lib/ui'
 import { formatShortcutParts, type ShortcutDef } from '../lib/shortcuts'
 
 interface ShortcutsModalProps {
@@ -31,10 +32,7 @@ export function ShortcutsModal({
             <span className="text-[12px] text-foreground">{shortcut.description}</span>
             <span className="flex shrink-0 items-center gap-1">
               {formatShortcutParts(shortcut).map((part, partIndex) => (
-                <kbd
-                  key={partIndex}
-                  className="inline-flex min-w-[1.7em] items-center justify-center rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 font-mono text-[11px] leading-none text-muted-foreground"
-                >
+                <kbd key={partIndex} className={kbd}>
                   {part}
                 </kbd>
               ))}

@@ -11,6 +11,8 @@ import { StatusBadge } from './StatusBadge'
 import { StartupHero } from './StartupHero'
 import { RecoveryBanner } from './RecoveryBanner'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
+import { sectionLabel } from '../lib/ui'
 import { StatCards } from './StatCards'
 import { buildPairInsights } from '../lib/dashboardPairs'
 
@@ -47,63 +49,56 @@ function PairCard({
     (pair.turn === 'executor' && pair.executorActivity.phase === 'stalled')
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
       variants={fadeInUp}
       initial="hidden"
       animate="visible"
-      onClick={() => onSelectPair(pair)}
       data-testid={`hub-pair-card-${pair.id}`}
       className={cn(
-        'shell-card shell-card-hover group flex w-full cursor-pointer flex-col gap-2 px-4 py-3 text-left',
+        'shell-card shell-card-hover group relative flex w-full flex-col gap-2 px-4 py-3',
         className
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
+        {/* The name is the card's primary action; its ::after stretches over the
+            whole card so the card stays one click target without nesting the
+            pause/delete buttons inside another button. */}
+        <button
+          type="button"
+          onClick={() => onSelectPair(pair)}
+          className={cn(
+            'min-w-0 flex-1 cursor-pointer truncate text-left text-[14px] font-medium text-foreground',
+            "after:absolute after:inset-0 after:rounded-[inherit] after:content-['']",
+            'focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring'
+          )}
+        >
           {pair.name}
-        </span>
-        <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        </button>
+        <span className="relative z-10 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {pair.status === 'Paused' ? (
-            <button
-              type="button"
+            <IconButton
               aria-label={t('common.resume', { defaultValue: 'Resume' })}
-              onClick={(e) => {
-                e.stopPropagation()
-                onResumePair(pair.id)
-              }}
-              className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+              onClick={() => onResumePair(pair.id)}
             >
               <Play size={12} />
-            </button>
+            </IconButton>
           ) : isPairActive(pair.status) ? (
-            <button
-              type="button"
+            <IconButton
               aria-label={t('common.pause', { defaultValue: 'Pause' })}
-              onClick={(e) => {
-                e.stopPropagation()
-                onPausePair(pair.id)
-              }}
-              className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+              onClick={() => onPausePair(pair.id)}
             >
               <Pause size={12} />
-            </button>
+            </IconButton>
           ) : null}
-          <button
-            type="button"
+          <IconButton
             aria-label={t('common.delete', { defaultValue: 'Delete' })}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDeletePair(pair)
-            }}
+            onClick={() => onDeletePair(pair)}
+            disabled={deletingPairId === pair.id}
+            destructive
             data-testid={`hub-pair-delete-${pair.id}`}
-            className={cn(
-              'p-1 text-muted-foreground hover:text-[var(--state-error)] cursor-pointer',
-              deletingPairId === pair.id && 'pointer-events-none opacity-40'
-            )}
           >
             <Trash2 size={12} />
-          </button>
+          </IconButton>
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -113,7 +108,7 @@ function PairCard({
         </span>
         {(pair.worktreeBranch ?? pair.branch) && (
           <span className="inline-flex min-w-0 items-baseline gap-1 font-mono text-[11px] text-muted-foreground">
-            <Folder size={9} className="shrink-0 translate-y-px" />
+            <Folder size={10} className="shrink-0 translate-y-px" />
             <span className="truncate">{pair.worktreeBranch ?? pair.branch}</span>
           </span>
         )}
@@ -126,7 +121,7 @@ function PairCard({
           {pair.spec || pair.directory}
         </p>
       )}
-    </motion.button>
+    </motion.div>
   )
 }
 
@@ -171,16 +166,14 @@ export function PairsHub({
             />
           </div>
           <div className="flex w-full max-w-[320px] flex-col gap-3 text-[13px] md:border-l md:border-border md:pl-10">
-            <div className="flex items-baseline gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              <span>{t('startup.consoleEmptyTitle')}</span>
-            </div>
+            <h2 className={sectionLabel}>{t('startup.consoleEmptyTitle')}</h2>
             <div className="shell-card flex flex-col gap-2 p-3 text-[12px] leading-relaxed">
               <div className="flex items-baseline gap-2">
                 <span aria-hidden className="role-mentor select-none">
                   ●
                 </span>
                 <span className="role-mentor font-bold uppercase tracking-[0.14em]">
-                  {t('common.mentor').toLowerCase()}
+                  {t('common.mentor')}
                 </span>
                 <span className="text-muted-foreground">· {t('emptyState.mentorDesc')}</span>
               </div>
@@ -189,7 +182,7 @@ export function PairsHub({
                   ⇄
                 </span>
                 <span className="text-foreground/85 font-bold uppercase tracking-[0.14em]">
-                  {t('common.handoff').toLowerCase()}
+                  {t('common.handoff')}
                 </span>
                 <span className="text-muted-foreground">· {t('emptyState.handoffDesc')}</span>
               </div>
@@ -198,7 +191,7 @@ export function PairsHub({
                   ●
                 </span>
                 <span className="role-executor font-bold uppercase tracking-[0.14em]">
-                  {t('common.executor').toLowerCase()}
+                  {t('common.executor')}
                 </span>
                 <span className="text-muted-foreground">· {t('emptyState.executorDesc')}</span>
               </div>
@@ -206,15 +199,16 @@ export function PairsHub({
             <p className="text-[13px] leading-relaxed text-muted-foreground">
               {t('startup.firstRunHint')}
             </p>
-            <button
-              type="button"
+            <GlassButton
+              variant="primary"
+              size="lg"
+              icon={<Plus size={14} />}
               onClick={onCreatePair}
               data-testid="hub-empty-create"
-              className="mt-1 inline-flex cursor-pointer items-center justify-center gap-2 self-start rounded-md border border-foreground bg-foreground px-4 py-2 text-[13px] font-medium text-background transition-colors duration-150 hover:bg-foreground/90"
+              className="mt-1 self-start"
             >
-              <span aria-hidden>▸</span>
               {t('emptyState.createFirst')}
-            </button>
+            </GlassButton>
           </div>
         </div>
       </div>
@@ -282,7 +276,7 @@ export function PairsHub({
             </header>
             {workspace.statusGroups.map((group) => (
               <div key={`${workspace.directory}::${group.key}`} className="space-y-2">
-                <h3 className="pl-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                <h3 className={cn(sectionLabel, 'pl-1')}>
                   {t(group.titleKey)}{' '}
                   <span className="tabular-nums text-muted-foreground-faint">
                     ({group.pairs.length})

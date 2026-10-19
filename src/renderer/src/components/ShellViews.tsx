@@ -1,6 +1,7 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { type Pair } from '../store/usePairStore'
+import { emptyHint, sectionLabel } from '../lib/ui'
 import { InsightsPanel } from './InsightsPanel'
 import { RecentActivityPanel } from './RecentActivityPanel'
 
@@ -30,13 +31,9 @@ export function ActivityView({ pairs, onSelectPair }: ActivityViewProps): React.
           aria-label={t('dashboard.insights.needsAttention')}
           className="shell-card flex flex-col gap-2 px-4 py-3"
         >
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {t('dashboard.insights.needsAttention')}
-          </h2>
+          <h2 className={sectionLabel}>{t('dashboard.insights.needsAttention')}</h2>
           {attentionPairs.length === 0 ? (
-            <p className="py-3 text-[13px] text-muted-foreground">
-              {t('dashboard.insights.noAttention')}
-            </p>
+            <p className={emptyHint}>{t('dashboard.insights.noAttention')}</p>
           ) : (
             <div className="space-y-1.5">
               {attentionPairs.slice(0, 8).map((pair) => (

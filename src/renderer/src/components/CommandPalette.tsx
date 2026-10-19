@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { CornerDownLeft } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { activeTint, emptyHint, hoverTint, kbd, sectionLabel, Z } from '../lib/ui'
 import type { PaletteAction } from '../lib/paletteActions'
 
 interface CommandPaletteProps {
@@ -113,19 +114,17 @@ export function CommandPalette({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9990] flex items-start justify-center px-4 pt-[14vh]"
+      className={cn('fixed inset-0 flex items-start justify-center px-4 pt-[14vh]', Z.palette)}
       role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
     >
+      <div aria-hidden className="absolute inset-0 bg-background/80" onMouseDown={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t('palette.title')}
         data-testid="command-palette"
         onKeyDown={handleKeyDown}
-        className="shell-card w-full max-w-[560px] overflow-hidden bg-popover"
+        className="shell-card relative w-full max-w-[560px] overflow-hidden bg-popover"
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
           <span aria-hidden className="select-none text-muted-foreground">
@@ -142,15 +141,11 @@ export function CommandPalette({
             autoFocus
             className="h-12 w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground-faint"
           />
-          <kbd className="shrink-0 rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            esc
-          </kbd>
+          <kbd className={cn(kbd, 'shrink-0')}>esc</kbd>
         </div>
         <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1.5 scrollbar-thin">
           {results.length === 0 ? (
-            <p className="px-2.5 py-4 text-[12px] text-muted-foreground-faint">
-              — {t('palette.noResults')} —
-            </p>
+            <p className={emptyHint}>{t('palette.noResults')}</p>
           ) : (
             results.map((item, index) => {
               const groupLabel = t(item.action.groupKey)
@@ -160,7 +155,7 @@ export function CommandPalette({
               return (
                 <React.Fragment key={item.action.id}>
                   {showGroup && (
-                    <div className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground-faint first:pt-0.5">
+                    <div className={cn(sectionLabel, 'px-2.5 pb-0.5 pt-2 first:pt-0.5')}>
                       {groupLabel}
                     </div>
                   )}
@@ -173,18 +168,15 @@ export function CommandPalette({
                     className={cn(
                       'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors cursor-pointer',
                       isActive
-                        ? 'bg-foreground/[0.08] text-foreground'
-                        : 'text-foreground/85 hover:bg-foreground/[0.04]'
+                        ? cn(activeTint, 'text-foreground')
+                        : cn('text-foreground/85', hoverTint)
                     )}
                   >
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
                     {item.action.shortcut && (
                       <span className="flex shrink-0 items-center gap-0.5">
                         {item.action.shortcut.map((part, i) => (
-                          <kbd
-                            key={i}
-                            className="inline-flex min-w-[1.5em] items-center justify-center rounded-sm border border-border bg-foreground/[0.04] px-1 py-px text-[10px] leading-none text-muted-foreground"
-                          >
+                          <kbd key={i} className={kbd}>
                             {part}
                           </kbd>
                         ))}

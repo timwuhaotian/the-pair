@@ -1,4 +1,5 @@
 import { cn } from '../../lib/utils'
+import { sectionLabel } from '../../lib/ui'
 
 interface StatCardProps {
   value: number | string
@@ -33,9 +34,7 @@ export function StatCard({
         <span aria-hidden className={cn('shrink-0 select-none text-[10px]', c.text)}>
           {c.glyph}
         </span>
-        <span className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-          {label}
-        </span>
+        <span className={cn(sectionLabel, 'truncate')}>{label}</span>
       </div>
       <div className={cn('shrink-0 text-xl tabular-nums leading-none font-semibold', c.text)}>
         {value}

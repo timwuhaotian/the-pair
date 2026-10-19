@@ -5,6 +5,8 @@ import { type Pair } from '../store/usePairStore'
 import { isPairActive } from '../lib/pairStatus'
 import { fadeInUp } from '../lib/animations'
 import { cn, formatIterations } from '../lib/utils'
+import { activeTint, hoverTint, sectionLabel } from '../lib/ui'
+import { IconButton } from './ui/IconButton'
 
 interface PairListGroupProps {
   title: string
@@ -44,7 +46,7 @@ export function PairListGroup({
 
   return (
     <div className={cn('space-y-1.5 pl-2', className)}>
-      <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground-faint pl-1">
+      <h3 className={cn(sectionLabel, 'pl-1')}>
         {title} <span className="tabular-nums text-muted-foreground-faint">({pairs.length})</span>
       </h3>
       <div className="space-y-1">
@@ -56,20 +58,17 @@ export function PairListGroup({
           const isSelected = selectedPairId === pair.id
 
           return (
-            <motion.button
+            <motion.div
               key={pair.id}
-              type="button"
               variants={fadeInUp}
               initial="hidden"
               animate="visible"
-              onClick={() => onSelectPair(pair)}
               className={cn(
-                'group relative flex w-full items-center gap-2 px-2.5 py-2 text-left font-mono text-[12px] rounded-sm border transition-colors cursor-pointer',
+                'group relative flex w-full items-center rounded-sm border pr-1.5 font-mono text-[12px] transition-colors',
                 isSelected
-                  ? 'bg-foreground/[0.07] text-foreground border-foreground/25'
-                  : 'border-border/45 bg-foreground/[0.015] hover:bg-foreground/[0.05] hover:border-border'
+                  ? cn('border-foreground/25 text-foreground', activeTint)
+                  : cn('border-border/45 bg-foreground/[0.015] hover:border-border', hoverTint)
               )}
-              aria-current={isSelected ? 'true' : undefined}
             >
               {isSelected && (
                 <span
@@ -77,74 +76,65 @@ export function PairListGroup({
                   className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-foreground/70"
                 />
               )}
-              <span
-                aria-hidden
-                className={cn(
-                  'shrink-0 w-[1ch] tabular-nums select-none text-[13px] leading-none',
-                  tone,
-                  stalled && 'state-error tty-blink'
-                )}
-                title={pair.status}
+              <button
+                type="button"
+                onClick={() => onSelectPair(pair)}
+                aria-current={isSelected ? 'true' : undefined}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 pl-2.5 pr-1 text-left"
               >
-                {stalled ? '!' : glyph}
-              </span>
-
-              <span
-                className={cn(
-                  'min-w-0 flex-1 truncate',
-                  isSelected ? 'text-foreground' : 'text-foreground/90'
-                )}
-              >
-                {pair.name}
-              </span>
-
-              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground-faint">
-                {formatIterations(pair.iterations, pair.maxIterations)}
-              </span>
-
-              <span className="flex shrink-0 items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                {pair.status === 'Paused' ? (
-                  <span
-                    role="button"
-                    aria-label={t('common.resume', { defaultValue: 'Resume' })}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onResumePair(pair.id)
-                    }}
-                    className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                  >
-                    <Play size={11} />
-                  </span>
-                ) : isPairActive(pair.status) ? (
-                  <span
-                    role="button"
-                    aria-label={t('common.pause', { defaultValue: 'Pause' })}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onPausePair(pair.id)
-                    }}
-                    className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                  >
-                    <Pause size={11} />
-                  </span>
-                ) : null}
                 <span
-                  role="button"
-                  aria-label={t('common.delete', { defaultValue: 'Delete' })}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDeletePair(pair)
-                  }}
-                  data-testid={`pair-card-delete-${pair.id}`}
+                  aria-hidden
                   className={cn(
-                    'p-1 text-muted-foreground hover:text-[var(--state-error)] cursor-pointer',
-                    deletingPairId === pair.id && 'opacity-40 pointer-events-none'
+                    'shrink-0 w-[1ch] tabular-nums select-none text-[13px] leading-none',
+                    tone,
+                    stalled && 'state-error tty-blink'
+                  )}
+                  title={pair.status}
+                >
+                  {stalled ? '!' : glyph}
+                </span>
+
+                <span
+                  className={cn(
+                    'min-w-0 flex-1 truncate',
+                    isSelected ? 'text-foreground' : 'text-foreground/90'
                   )}
                 >
-                  <Trash2 size={11} />
+                  {pair.name}
                 </span>
+
+                <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground-faint">
+                  {formatIterations(pair.iterations, pair.maxIterations)}
+                </span>
+              </button>
+
+              <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                {pair.status === 'Paused' ? (
+                  <IconButton
+                    aria-label={t('common.resume', { defaultValue: 'Resume' })}
+                    onClick={() => onResumePair(pair.id)}
+                  >
+                    <Play size={11} />
+                  </IconButton>
+                ) : isPairActive(pair.status) ? (
+                  <IconButton
+                    aria-label={t('common.pause', { defaultValue: 'Pause' })}
+                    onClick={() => onPausePair(pair.id)}
+                  >
+                    <Pause size={11} />
+                  </IconButton>
+                ) : null}
+                <IconButton
+                  aria-label={t('common.delete', { defaultValue: 'Delete' })}
+                  onClick={() => onDeletePair(pair)}
+                  disabled={deletingPairId === pair.id}
+                  destructive
+                  data-testid={`pair-card-delete-${pair.id}`}
+                >
+                  <Trash2 size={11} />
+                </IconButton>
               </span>
-            </motion.button>
+            </motion.div>
           )
         })}
       </div>

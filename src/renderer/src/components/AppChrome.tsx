@@ -17,6 +17,7 @@ import { cn } from '../lib/utils'
 import { Pair } from '../store/usePairStore'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
 import { UpdateControls } from './UpdateControls'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { isPairBusy } from '../lib/pairStatus'
@@ -46,20 +47,21 @@ function ChromeIconButton({
   testId
 }: {
   onClick?: () => void
-  title?: string
+  title: string
   children: React.ReactNode
   testId?: string
 }): React.ReactNode {
   return (
-    <button
+    <IconButton
+      size="md"
+      bordered
       onClick={onClick}
-      title={title}
       aria-label={title}
       data-testid={testId}
-      className="app-no-drag flex h-7 w-7 items-center justify-center rounded-sm border border-border bg-transparent text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:border-foreground/40 hover:text-foreground cursor-pointer"
+      className="app-no-drag"
     >
       {children}
-    </button>
+    </IconButton>
   )
 }
 

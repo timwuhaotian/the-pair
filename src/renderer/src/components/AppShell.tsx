@@ -2,6 +2,7 @@ import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { BarChart3, Clock3, Layers } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { activeTint, hoverTint } from '../lib/ui'
 import { usePairStore } from '../store/usePairStore'
 import { isPairActive } from '../lib/pairStatus'
 
@@ -64,12 +65,13 @@ export function AppShell({
               aria-current={isActive ? 'page' : undefined}
               data-testid={`shell-nav-${key}`}
               title={collapsed ? t(SECTION_LABEL_KEYS[key]) : undefined}
+              aria-label={collapsed ? t(SECTION_LABEL_KEYS[key]) : undefined}
               className={cn(
                 'relative flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors cursor-pointer',
                 collapsed && 'justify-center px-0',
                 isActive
-                  ? 'border-foreground/20 bg-foreground/[0.08] font-medium text-foreground'
-                  : 'border-transparent text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground'
+                  ? cn('border-foreground/20 font-medium text-foreground', activeTint)
+                  : cn('border-transparent text-muted-foreground hover:text-foreground', hoverTint)
               )}
             >
               {isActive && (

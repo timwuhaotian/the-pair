@@ -2,6 +2,8 @@ import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, X } from 'lucide-react'
 import { type Pair } from '../store/usePairStore'
+import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
 
 interface RecoveryBannerProps {
   pairs: Pair[]
@@ -38,28 +40,27 @@ export function RecoveryBanner({
         </span>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {pairs.slice(0, 5).map((pair) => (
-            <button
+            <GlassButton
               key={pair.id}
-              type="button"
+              variant="secondary"
+              size="xs"
               onClick={() => onOpenPair(pair)}
               data-testid={`recovery-open-${pair.id}`}
-              className="max-w-[24ch] truncate rounded-md border border-foreground/30 bg-background/60 px-2 py-0.5 text-[12px] text-foreground transition-colors hover:border-foreground/60 cursor-pointer"
+              className="max-w-[24ch] bg-background/60"
               title={pair.name}
             >
-              {pair.name}
-            </button>
+              <span className="min-w-0 truncate">{pair.name}</span>
+            </GlassButton>
           ))}
         </div>
       </div>
-      <button
-        type="button"
+      <IconButton
         onClick={onDismiss}
         aria-label={t('common.dismiss', { defaultValue: 'Dismiss' })}
         data-testid="recovery-dismiss"
-        className="shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground cursor-pointer"
       >
         <X size={12} />
-      </button>
+      </IconButton>
     </div>
   )
 }
