@@ -4,7 +4,8 @@
  *   - The plan review bar docks above the input while awaiting review.
  *   - An archived run on screen shows no input.
  *   - Awaiting review on an archived run, the dock offers a way back to the plan.
- *   - The dock resizing re-pins a reader who follows the bottom.
+ *   - The dock resizing re-pins a reader who follows the bottom, and leaves a
+ *     reader who has scrolled up where they are.
  */
 import './setup-dom.ts'
 import './mock-ipc.ts'
@@ -13,7 +14,7 @@ import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach, beforeEach } from 'node:test'
 import { I18nextProvider } from 'react-i18next'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
@@ -154,7 +155,7 @@ test('awaiting review on an archived run, the dock returns to the pending plan',
   assert.ok(screen.getByTestId('plan-approve-btn'), 'back on the live plan review')
 })
 
-test('the transcript re-pins to the bottom when the dock resizes while following', () => {
+function withMockResizeObserver(run: (fireResize: () => void) => void): void {
   const callbacks: Array<() => void> = []
   const original = globalThis.ResizeObserver
   globalThis.ResizeObserver = class {
@@ -166,21 +167,47 @@ test('the transcript re-pins to the bottom when the dock resizes while following
     disconnect(): void {}
   } as unknown as typeof ResizeObserver
   try {
-    renderConsole(makePair(MESSAGES))
-    const transcript = screen.getByTestId('console-transcript')
-    const writes: number[] = []
-    Object.defineProperty(transcript, 'scrollHeight', { configurable: true, get: () => 5000 })
-    Object.defineProperty(transcript, 'scrollTop', {
-      configurable: true,
-      get: () => 0,
-      set: (value: number) => {
-        writes.push(value)
-      }
+    run(() => {
+      assert.ok(callbacks.length > 0, 'transcript is observed')
+      act(() => callbacks.forEach((cb) => cb()))
     })
-    assert.ok(callbacks.length > 0, 'transcript is observed')
-    act(() => callbacks.forEach((cb) => cb()))
-    assert.deepEqual(writes, [5000])
   } finally {
     globalThis.ResizeObserver = original
   }
+}
+
+/** Stubs the transcript's scroll metrics and records every scrollTop write. */
+function stubTranscriptScroll(scrollTop: number): number[] {
+  const transcript = screen.getByTestId('console-transcript')
+  const writes: number[] = []
+  Object.defineProperty(transcript, 'scrollHeight', { configurable: true, get: () => 5000 })
+  Object.defineProperty(transcript, 'clientHeight', { configurable: true, get: () => 400 })
+  Object.defineProperty(transcript, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      writes.push(value)
+    }
+  })
+  return writes
+}
+
+test('the transcript re-pins to the bottom when the dock resizes while following', () => {
+  withMockResizeObserver((fireResize) => {
+    renderConsole(makePair(MESSAGES))
+    const writes = stubTranscriptScroll(0)
+    fireResize()
+    assert.deepEqual(writes, [5000])
+  })
+})
+
+test('a dock resize leaves a reader who has scrolled up where they are', () => {
+  withMockResizeObserver((fireResize) => {
+    renderConsole(makePair(MESSAGES))
+    const writes = stubTranscriptScroll(1200)
+    // Far from the bottom: the scroll handler clears stick-to-bottom.
+    fireEvent.scroll(screen.getByTestId('console-transcript'))
+    fireResize()
+    assert.deepEqual(writes, [])
+  })
 })
