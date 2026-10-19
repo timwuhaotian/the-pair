@@ -65,16 +65,18 @@ const POPUP_LINE_OVERLAP_PX = 4
  * Opens the popover below the caret line when it fits, otherwise above — the
  * console input is docked at the bottom of the window, where a downward
  * popover would spill off-screen. When neither side fits, the roomier wins.
+ * `popupHeight` is the rendered height, not the `max-h-*` cap: a short list
+ * fits below a caret that a full-height list would not.
  */
 export function placeMentionPopup(
   caret: CaretLineRect,
   viewportHeight: number,
-  popupMaxHeight: number
+  popupHeight: number
 ): MentionPopupPosition {
   const top = caret.top - POPUP_LINE_OVERLAP_PX
   const spaceBelow = viewportHeight - top
   const spaceAbove = caret.bottom + POPUP_LINE_OVERLAP_PX
-  if (spaceBelow >= popupMaxHeight || spaceBelow >= spaceAbove) {
+  if (spaceBelow >= popupHeight || spaceBelow >= spaceAbove) {
     return { top, left: caret.left }
   }
   return { bottom: viewportHeight - spaceAbove, left: caret.left }
