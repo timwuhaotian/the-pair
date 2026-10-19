@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  placeMentionPopup,
   replaceFileMentionToken,
   shouldAcceptSkillOnEnter
 } from '../src/renderer/src/components/mentionText.ts'
@@ -35,4 +36,20 @@ test('Enter only picks a skill when the match is unambiguous', () => {
   assert.equal(shouldAcceptSkillOnEnter('./x', 'xray', false), false)
   // Explicit arrow-key navigation always wins.
   assert.equal(shouldAcceptSkillOnEnter('tmp/out', 'template-maker', true), true)
+})
+
+test('placeMentionPopup opens below the caret when the popover fits there', () => {
+  const caret = { top: 100, bottom: 118, left: 40 }
+  assert.deepEqual(placeMentionPopup(caret, 800, 256), { top: 96, left: 40 })
+})
+
+test('placeMentionPopup opens above the caret when the bottom-docked input leaves no room below', () => {
+  // Caret line sits near the bottom of an 800px window (the pinned composer).
+  const caret = { top: 760, bottom: 778, left: 40 }
+  assert.deepEqual(placeMentionPopup(caret, 800, 256), { bottom: 18, left: 40 })
+})
+
+test('placeMentionPopup stays below when neither side fits but below has more room', () => {
+  const caret = { top: 100, bottom: 118, left: 40 }
+  assert.deepEqual(placeMentionPopup(caret, 300, 256), { top: 96, left: 40 })
 })
