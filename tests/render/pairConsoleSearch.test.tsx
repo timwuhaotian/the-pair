@@ -999,8 +999,8 @@ test('two cycle presses parked during one lag compose, not overwrite', async () 
         false,
         'the first match was skipped, as the reader pressed twice'
       )
+      assert.equal(scrollTargets.length, 1, 'one scroll to the final activation')
     })
-    assert.equal(scrollTargets.length, 1, 'one scroll to the final activation')
     assert.ok(scrollTargets[0].closest('#console-msg-e2'), 'scroll aims inside the active card')
   })
 })
