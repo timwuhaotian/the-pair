@@ -4,7 +4,14 @@ import Fuse from 'fuse.js'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { createCompositionTracker, isImeKeyEvent } from './keyboard'
-import { shouldAcceptSkillOnEnter } from './mentionText'
+import {
+  placeMentionPopup,
+  shouldAcceptSkillOnEnter,
+  type MentionPopupPosition
+} from './mentionText'
+
+/** Matches the popover's `max-h-72` cap; decides whether it fits below the caret. */
+const POPOVER_MAX_HEIGHT_PX = 288
 
 interface SkillEntry {
   name: string
@@ -36,7 +43,7 @@ export function SkillMention({
   const [skills, setSkills] = useState<SkillEntry[]>([])
   const [results, setResults] = useState<SkillEntry[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const [position, setPosition] = useState<MentionPopupPosition>({ top: 0, left: 0 })
   const [isRefreshing, setIsRefreshing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
   const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -100,7 +107,7 @@ export function SkillMention({
     }
   }, [projectDir])
 
-  const getCursorPosition = useCallback((): { top: number; left: number } | null => {
+  const getCursorPosition = useCallback((): MentionPopupPosition | null => {
     const textarea = textareaRef.current
     if (!textarea) return null
 
@@ -136,10 +143,11 @@ export function SkillMention({
     const spanRect = span.getBoundingClientRect()
     document.body.removeChild(mirror)
 
-    return {
-      top: spanRect.top - 4,
-      left: spanRect.right + 8
-    }
+    return placeMentionPopup(
+      { top: spanRect.top, bottom: spanRect.bottom, left: spanRect.right + 8 },
+      window.innerHeight,
+      POPOVER_MAX_HEIGHT_PX
+    )
   }, [textareaRef])
 
   const insertMention = useCallback(
@@ -322,7 +330,7 @@ export function SkillMention({
     <div
       ref={popoverRef}
       className="fixed z-[9999] flex max-h-72 w-96 flex-col overflow-hidden rounded-sm border border-border bg-popover font-mono"
-      style={{ top: position.top, left: position.left }}
+      style={position}
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="flex items-center justify-between border-b border-border px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
