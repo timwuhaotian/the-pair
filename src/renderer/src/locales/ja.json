@@ -388,6 +388,8 @@
     "mentionFiles": "ファイル",
     "mentionNoFiles": "ファイルが見つかりません",
     "mentionNoMatch": "一致するファイルはありません",
+    "mentionLoading": "ファイルを読み込み中…",
+    "mentionLoadFailed": "ファイル一覧を取得できません",
     "moreFiles_one": "他 {{count}} 件のファイル…",
     "moreFiles_other": "他 {{count}} 件のファイル…"
   },

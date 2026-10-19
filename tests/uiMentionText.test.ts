@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  findFileMentionQuery,
   placeMentionPopup,
   replaceFileMentionToken,
   shouldAcceptSkillOnEnter
@@ -21,6 +22,27 @@ test('replaceFileMentionToken refuses to splice when the @ token is gone', () =>
   assert.equal(replaceFileMentionToken('look at src', 11, 'src/app.ts'), null)
   // The cursor moved past whitespace — the token is no longer being typed.
   assert.equal(replaceFileMentionToken('@src done', 9, 'src/app.ts'), null)
+})
+
+test('findFileMentionQuery only opens on an @ that starts a token', () => {
+  assert.equal(findFileMentionQuery('@'), '')
+  assert.equal(findFileMentionQuery('look at @src/ap'), 'src/ap')
+  assert.equal(findFileMentionQuery('first line\n@READ'), 'READ')
+  // An `@` inside a word is an email address or handle, not a mention.
+  assert.equal(findFileMentionQuery('ping me at user@example.com'), null)
+  assert.equal(findFileMentionQuery('user@'), null)
+  // A later `@` inside the token belongs to the path being typed.
+  assert.equal(findFileMentionQuery('@node_modules/@types'), 'node_modules/@types')
+  assert.equal(findFileMentionQuery('@src done'), null)
+  assert.equal(findFileMentionQuery('no mention'), null)
+})
+
+test('replaceFileMentionToken replaces the whole token, not just its last @', () => {
+  assert.deepEqual(replaceFileMentionToken('@node_modules/@ty', 17, 'node_modules/@types/react'), {
+    value: '@node_modules/@types/react',
+    cursor: '@node_modules/@types/react'.length
+  })
+  assert.equal(replaceFileMentionToken('mail user@exa', 13, 'src/app.ts'), null)
 })
 
 test('Enter only picks a skill when the match is unambiguous', () => {

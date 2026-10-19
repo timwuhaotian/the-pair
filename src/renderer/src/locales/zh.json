@@ -398,6 +398,8 @@
     "mentionFiles": "文件",
     "mentionNoFiles": "未找到文件",
     "mentionNoMatch": "没有匹配的文件",
+    "mentionLoading": "正在加载文件…",
+    "mentionLoadFailed": "无法列出文件",
     "moreFiles_one": "还有 {{count}} 个文件…",
     "moreFiles_other": "还有 {{count}} 个文件…"
   },

@@ -1,7 +1,10 @@
 /**
- * Component tests for the `@file` popover placement: the side is picked from
- * the popover's rendered height, not its `max-h-64` cap, so a short list still
- * opens below a caret with modest room underneath (the New Task modal).
+ * Component tests for the `@file` popover:
+ *   - placement: the side is picked from the popover's rendered height, not
+ *     its `max-h-72` cap, so a short list still opens below a caret with modest
+ *     room underneath (the New Task modal)
+ *   - when it opens: only on an `@` that starts a token, never inside an email
+ *   - the empty hint tells a loading or failed listing apart from an empty repo
  */
 import './setup-dom.ts'
 import './mock-ipc.ts'
@@ -9,6 +12,7 @@ import React, { useRef } from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach, beforeEach } from 'node:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import i18n from '../../src/renderer/src/i18n.ts'
 import { FileMention } from '../../src/renderer/src/components/FileMention.tsx'
 
 const FILES = [
@@ -35,11 +39,15 @@ function Harness(): React.ReactNode {
   )
 }
 
+function typeInto(value: string): void {
+  const textarea = screen.getByTestId('spec') as HTMLTextAreaElement
+  textarea.focus()
+  fireEvent.input(textarea, { target: { value } })
+}
+
 async function openPopover(): Promise<HTMLElement> {
   render(<Harness />)
-  const textarea = screen.getByTestId('spec')
-  textarea.focus()
-  fireEvent.input(textarea, { target: { value: '@' } })
+  typeInto('@')
   const item = await screen.findByText('src/app.ts')
   const popover = item.closest<HTMLElement>('.fixed')
   assert.ok(popover, 'popover rendered')
@@ -47,6 +55,7 @@ async function openPopover(): Promise<HTMLElement> {
 }
 
 beforeEach(() => {
+  void i18n.changeLanguage('en')
   window.api.file.listFiles = async () => FILES
   window.Element.prototype.getBoundingClientRect = () => ({
     ...CARET_RECT,
@@ -79,4 +88,48 @@ test('a tall @file list flips above the caret when it would not fit below', asyn
   const popover = await openPopover()
   assert.equal(popover.style.bottom, '146px')
   assert.equal(popover.style.top, '')
+})
+
+test('an @ inside an email address does not open the popover', async () => {
+  render(<Harness />)
+  typeInto('ping me at user@example.com')
+  // Let the file listing settle so a late render would show up.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  // Boolean asserts: a failing equal() on a jsdom node inspects it for minutes.
+  assert.ok(!screen.queryByRole('listbox'), 'popover stays closed')
+  typeInto('ping me at user@example.com @src')
+  assert.ok(await screen.findByRole('listbox'))
+})
+
+test('the popover says files are loading until the listing resolves', async () => {
+  let resolveList: (files: typeof FILES) => void = () => undefined
+  window.api.file.listFiles = () => new Promise((resolve) => (resolveList = resolve))
+  render(<Harness />)
+  typeInto('@')
+  assert.ok(await screen.findByText('loading files…'))
+  resolveList(FILES)
+  assert.ok(await screen.findByText('src/app.ts'))
+  assert.ok(!screen.queryByText('loading files…'), 'loading hint is gone')
+})
+
+test('a failed listing reads as a failure, not an empty repo', async () => {
+  const originalWarn = console.warn
+  console.warn = () => undefined
+  try {
+    window.api.file.listFiles = async () => {
+      throw new Error('permission denied')
+    }
+    render(<Harness />)
+    typeInto('@')
+    assert.ok(await screen.findByText("couldn't list files"))
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
+test('an empty repo says no files were found', async () => {
+  window.api.file.listFiles = async () => []
+  render(<Harness />)
+  typeInto('@')
+  assert.ok(await screen.findByText('no files found'))
 })

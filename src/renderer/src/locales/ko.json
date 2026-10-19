@@ -388,6 +388,8 @@
     "mentionFiles": "파일",
     "mentionNoFiles": "파일을 찾을 수 없음",
     "mentionNoMatch": "일치하는 파일 없음",
+    "mentionLoading": "파일을 불러오는 중…",
+    "mentionLoadFailed": "파일 목록을 가져올 수 없음",
     "moreFiles_one": "파일 {{count}}개 더…",
     "moreFiles_other": "파일 {{count}}개 더…"
   },

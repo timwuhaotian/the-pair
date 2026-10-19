@@ -7,6 +7,18 @@ export interface MentionReplacement {
   cursor: number
 }
 
+const FILE_MENTION_RE = /(?:^|\s)@(\S*)$/
+
+/**
+ * The `@query` being typed at the end of `before`, or null when there is none.
+ * The `@` must start a token, so an email address (`user@example.com`) never
+ * opens the popover, while a later `@` inside a path (`@node_modules/@types`)
+ * stays part of the query.
+ */
+export function findFileMentionQuery(before: string): string | null {
+  return before.match(FILE_MENTION_RE)?.[1] ?? null
+}
+
 /**
  * Replaces the `@query` token that ends at `cursor` with `@path`. Returns null
  * when there is no such token any more (the text changed while the file was
@@ -18,9 +30,9 @@ export function replaceFileMentionToken(
   path: string
 ): MentionReplacement | null {
   const before = text.slice(0, cursor)
-  const at = before.lastIndexOf('@')
-  if (at === -1) return null
-  if (/\s/.test(before.slice(at + 1))) return null
+  const query = findFileMentionQuery(before)
+  if (query === null) return null
+  const at = before.length - query.length - 1
   return {
     value: `${text.slice(0, at)}@${path}${text.slice(cursor)}`,
     cursor: at + path.length + 1

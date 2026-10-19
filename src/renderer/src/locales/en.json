@@ -398,6 +398,8 @@
     "mentionFiles": "files",
     "mentionNoFiles": "no files found",
     "mentionNoMatch": "no files match",
+    "mentionLoading": "loading files…",
+    "mentionLoadFailed": "couldn't list files",
     "moreFiles_one": "{{count}} more file…",
     "moreFiles_other": "{{count}} more files…"
   },

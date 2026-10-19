@@ -7,6 +7,7 @@ import { cn } from '../lib/utils'
 import { Z, emptyHint, menuItem, popoverSurface } from '../lib/ui'
 import { createCompositionTracker, isImeKeyEvent } from './keyboard'
 import {
+  findFileMentionQuery,
   placeMentionPopup,
   replaceFileMentionToken,
   type CaretLineRect,
@@ -42,6 +43,10 @@ export function FileMention({
   const [caret, setCaret] = useState<CaretLineRect | null>(null)
   const [position, setPosition] = useState<MentionPopupPosition>({ top: 0, left: 0 })
   const [files, setFiles] = useState<FileEntry[]>([])
+  // Which listing `files` came from and whether it failed, so the empty hint can
+  // tell "still loading" and "couldn't list" apart from an empty repo.
+  const listingKey = `${pairId ?? ''}|${directory}`
+  const [listing, setListing] = useState<{ key: string; failed: boolean } | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   // Pointer hover moves the highlight too, but must not scroll the list under
@@ -64,17 +69,19 @@ export function FileMention({
         if (cancelled) return
         setFiles(fileList)
         filesRef.current = fileList
+        setListing({ key: listingKey, failed: false })
       })
       .catch((err: unknown) => {
         if (cancelled) return
         console.warn('[FileMention] Failed to list files:', err)
         setFiles([])
         filesRef.current = []
+        setListing({ key: listingKey, failed: true })
       })
     return () => {
       cancelled = true
     }
-  }, [directory, pairId])
+  }, [directory, pairId, listingKey])
 
   useEffect(() => {
     if (files.length === 0) return
@@ -169,25 +176,15 @@ export function FileMention({
     const handleInput = (): void => {
       const text = textarea.value
       const pos = textarea.selectionStart
-      const textBeforeCursor = text.slice(0, pos)
+      const mentionQuery = findFileMentionQuery(text.slice(0, pos))
 
-      const lastAtPos = textBeforeCursor.lastIndexOf('@')
-
-      if (lastAtPos === -1) {
+      if (mentionQuery === null) {
         setIsOpen(false)
         isOpenRef.current = false
         return
       }
 
-      const textAfterAt = textBeforeCursor.slice(lastAtPos + 1)
-
-      if (textAfterAt.includes(' ') || textAfterAt.includes('\n')) {
-        setIsOpen(false)
-        isOpenRef.current = false
-        return
-      }
-
-      setQuery(textAfterAt)
+      setQuery(mentionQuery)
       setCaret(getCaretRect())
       setIsOpen(true)
       isOpenRef.current = true
@@ -315,6 +312,15 @@ export function FileMention({
 
   if (!isOpen) return null
 
+  const emptyText =
+    directory && listing?.key !== listingKey
+      ? t('console.mentionLoading')
+      : directory && listing?.failed
+        ? t('console.mentionLoadFailed')
+        : files.length === 0
+          ? t('console.mentionNoFiles')
+          : t('console.mentionNoMatch')
+
   // mousedown is prevented on the popover so focus stays in the textarea: its
   // blur handler would otherwise close the popover before an item click lands.
   return createPortal(
@@ -335,9 +341,7 @@ export function FileMention({
         className="flex-1 overflow-y-auto p-1 scrollbar-thin"
       >
         {results.length === 0 ? (
-          <div className={emptyHint}>
-            {files.length === 0 ? t('console.mentionNoFiles') : t('console.mentionNoMatch')}
-          </div>
+          <div className={emptyHint}>{emptyText}</div>
         ) : (
           results.map((file, index) => (
             <div
