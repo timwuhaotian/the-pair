@@ -41,88 +41,86 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
   }
 
   return (
-    <div className="pl-[3ch]">
-      <div className="rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 font-mono">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] state-running">
-          <span aria-hidden>▸</span>
-          <span className="font-bold">{t('planReview.title')}</span>
-        </div>
-        <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-          {t('planReview.description')}
-        </p>
+    <div className="rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 font-mono">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] state-running">
+        <span aria-hidden>▸</span>
+        <span className="font-bold">{t('planReview.title')}</span>
+      </div>
+      <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+        {t('planReview.description')}
+      </p>
 
-        {showReject ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              placeholder={t('planReview.feedbackPlaceholder')}
-              rows={3}
-              autoFocus
-              disabled={submitting}
-              data-testid="plan-feedback-input"
-              className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/60 focus:outline-none"
-            />
-            <div className="flex items-center gap-2">
-              <GlassButton
-                variant="primary"
-                size="sm"
-                icon={<RotateCcw size={11} />}
-                onClick={() => void run('reject')}
-                disabled={submitting}
-                data-testid="plan-sendback-btn"
-              >
-                {t('planReview.sendBack')}
-              </GlassButton>
-              <GlassButton
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowReject(false)
-                  setFeedback('')
-                  setError(null)
-                }}
-                disabled={submitting}
-              >
-                {t('common.cancel')}
-              </GlassButton>
-            </div>
-          </div>
-        ) : (
+      {showReject ? (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder={t('planReview.feedbackPlaceholder')}
+            rows={3}
+            autoFocus
+            disabled={submitting}
+            data-testid="plan-feedback-input"
+            className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/60 focus:outline-none"
+          />
           <div className="flex items-center gap-2">
             <GlassButton
               variant="primary"
               size="sm"
-              icon={<Check size={11} />}
-              onClick={() => void run('approve')}
+              icon={<RotateCcw size={11} />}
+              onClick={() => void run('reject')}
               disabled={submitting}
-              data-testid="plan-approve-btn"
+              data-testid="plan-sendback-btn"
             >
-              {t('planReview.approve')}
+              {t('planReview.sendBack')}
             </GlassButton>
             <GlassButton
-              variant="secondary"
+              variant="ghost"
               size="sm"
-              icon={<RotateCcw size={11} />}
-              onClick={() => setShowReject(true)}
+              onClick={() => {
+                setShowReject(false)
+                setFeedback('')
+                setError(null)
+              }}
               disabled={submitting}
-              data-testid="plan-reject-btn"
             >
-              {t('planReview.reject')}
+              {t('common.cancel')}
             </GlassButton>
           </div>
-        )}
-
-        {error && (
-          <p
-            role="alert"
-            data-testid="plan-review-error"
-            className="mt-2 text-[11px] leading-relaxed state-error [overflow-wrap:anywhere]"
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <GlassButton
+            variant="primary"
+            size="sm"
+            icon={<Check size={11} />}
+            onClick={() => void run('approve')}
+            disabled={submitting}
+            data-testid="plan-approve-btn"
           >
-            ✗ {error}
-          </p>
-        )}
-      </div>
+            {t('planReview.approve')}
+          </GlassButton>
+          <GlassButton
+            variant="secondary"
+            size="sm"
+            icon={<RotateCcw size={11} />}
+            onClick={() => setShowReject(true)}
+            disabled={submitting}
+            data-testid="plan-reject-btn"
+          >
+            {t('planReview.reject')}
+          </GlassButton>
+        </div>
+      )}
+
+      {error && (
+        <p
+          role="alert"
+          data-testid="plan-review-error"
+          className="mt-2 text-[11px] leading-relaxed state-error [overflow-wrap:anywhere]"
+        >
+          ✗ {error}
+        </p>
+      )}
     </div>
   )
 }

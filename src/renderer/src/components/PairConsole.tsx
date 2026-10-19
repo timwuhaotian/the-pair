@@ -314,6 +314,19 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     pair.currentTurnCard?.updatedAt
   ])
 
+  // The docked composer grows with multi-line input and the review bar; the
+  // transcript shrinks by the same amount, which would hide the newest lines
+  // from a reader following the bottom. Re-pin on resize, under the same rules.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || isViewingArchived || searching || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isViewingArchived, searching])
+
   // The live turn card belongs to the live run only; compare against the
   // unfiltered live transcript so a role filter can't hide it.
   const visibleCurrentTurnCard = isViewingArchived
@@ -459,14 +472,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const taskInputRow = !isViewingArchived ? (
     <form
       onSubmit={handleTaskSubmit}
-      className={cn('mt-2', inputLocked ? 'cursor-not-allowed opacity-60' : 'cursor-text')}
+      className={cn(inputLocked ? 'cursor-not-allowed opacity-60' : 'cursor-text')}
       onClick={() => {
         if (!inputLocked) inputRef.current?.focus()
       }}
       data-testid="pair-task-input"
       aria-disabled={inputLocked}
     >
-      <div className="flex items-baseline gap-2 font-mono text-[12px] leading-relaxed">
+      <div className="flex items-start gap-2 font-mono text-[12px] leading-relaxed">
         <span
           aria-hidden
           className={cn(
@@ -476,105 +489,108 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         >
           {'>'}
         </span>
-        <div className="relative flex-1 min-w-0">
-          <div
-            aria-hidden
-            className={cn(
-              'whitespace-pre-wrap break-words font-mono text-[12px]',
-              inputLocked ? 'text-muted-foreground-faint' : 'text-foreground'
-            )}
-          >
-            {hasText ? (
-              <>
-                <span>{inputSegments.before}</span>
-                {inputSegments.composing && (
-                  <span className="text-muted-foreground underline decoration-dotted">
-                    {inputSegments.composing}
+        {/* Long input scrolls inside the dock instead of squeezing the transcript. */}
+        <div className="max-h-[40vh] flex-1 min-w-0 overflow-y-auto scrollbar-thin">
+          <div className="relative">
+            <div
+              aria-hidden
+              className={cn(
+                'whitespace-pre-wrap break-words font-mono text-[12px]',
+                inputLocked ? 'text-muted-foreground-faint' : 'text-foreground'
+              )}
+            >
+              {hasText ? (
+                <>
+                  <span>{inputSegments.before}</span>
+                  {inputSegments.composing && (
+                    <span className="text-muted-foreground underline decoration-dotted">
+                      {inputSegments.composing}
+                    </span>
+                  )}
+                  {inputSegments.after && <span>{inputSegments.after}</span>}
+                  <span
+                    className={cn(
+                      'select-none ml-[1px]',
+                      inputLocked ? 'text-muted-foreground-faint' : 'state-running',
+                      isSubmittingTask || inputLocked ? '' : 'tty-blink'
+                    )}
+                  >
+                    ▍
                   </span>
-                )}
-                {inputSegments.after && <span>{inputSegments.after}</span>}
-                <span
-                  className={cn(
-                    'select-none ml-[1px]',
-                    inputLocked ? 'text-muted-foreground-faint' : 'state-running',
-                    isSubmittingTask || inputLocked ? '' : 'tty-blink'
-                  )}
-                >
-                  ▍
-                </span>
-              </>
-            ) : (
-              <>
-                <span
-                  className={cn(
-                    'select-none mr-[2px]',
-                    inputLocked ? 'text-muted-foreground-faint' : 'state-running',
-                    isSubmittingTask || inputLocked ? '' : 'tty-blink'
-                  )}
-                >
-                  ▍
-                </span>
-                <span className="text-muted-foreground-faint">
-                  {inputLocked
-                    ? t('console.inputDisabledRunningHint')
-                    : t('console.taskInputPlaceholder')}
-                </span>
-              </>
+                </>
+              ) : (
+                <>
+                  <span
+                    className={cn(
+                      'select-none mr-[2px]',
+                      inputLocked ? 'text-muted-foreground-faint' : 'state-running',
+                      isSubmittingTask || inputLocked ? '' : 'tty-blink'
+                    )}
+                  >
+                    ▍
+                  </span>
+                  <span className="text-muted-foreground-faint">
+                    {inputLocked
+                      ? t('console.inputDisabledRunningHint')
+                      : t('console.taskInputPlaceholder')}
+                  </span>
+                </>
+              )}
+            </div>
+            <textarea
+              ref={inputRef}
+              rows={1}
+              value={taskInput}
+              onChange={(e) => {
+                setTaskInput(e.target.value)
+                if (submitError) setSubmitError(null)
+              }}
+              onKeyDown={handleInputKeyDown}
+              onCompositionStart={(e) => {
+                composition.onCompositionStart()
+                const start = e.currentTarget.selectionStart
+                setComposingState({ text: e.data || '', start })
+              }}
+              onCompositionUpdate={(e) => {
+                const data = e.data || ''
+                setComposingState((prev) => ({ ...prev, text: data }))
+              }}
+              onCompositionEnd={() => {
+                composition.onCompositionEnd()
+                setComposingState(NO_COMPOSITION)
+              }}
+              aria-label={
+                inputLocked
+                  ? t('console.inputDisabledRunningHint')
+                  : t('console.taskInputPlaceholder')
+              }
+              autoComplete="off"
+              spellCheck={false}
+              disabled={isSubmittingTask || inputLocked}
+              className={cn(
+                'absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent',
+                inputLocked && 'pointer-events-none'
+              )}
+              style={{ caretColor: 'transparent' }}
+            />
+            {pair.directory && !inputLocked && (
+              <FileMention
+                textareaRef={inputRef}
+                onChange={setTaskInput}
+                directory={pair.directory}
+                pairId={pair.id}
+                onFileSelect={handleFileSelect}
+              />
+            )}
+            {!inputLocked && (
+              <SkillMention
+                textareaRef={inputRef}
+                onChange={setTaskInput}
+                projectDir={pair.directory}
+                onSkillSelect={handleSkillSelect}
+              />
             )}
           </div>
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={taskInput}
-            onChange={(e) => {
-              setTaskInput(e.target.value)
-              if (submitError) setSubmitError(null)
-            }}
-            onKeyDown={handleInputKeyDown}
-            onCompositionStart={(e) => {
-              composition.onCompositionStart()
-              const start = e.currentTarget.selectionStart
-              setComposingState({ text: e.data || '', start })
-            }}
-            onCompositionUpdate={(e) => {
-              const data = e.data || ''
-              setComposingState((prev) => ({ ...prev, text: data }))
-            }}
-            onCompositionEnd={() => {
-              composition.onCompositionEnd()
-              setComposingState(NO_COMPOSITION)
-            }}
-            aria-label={
-              inputLocked
-                ? t('console.inputDisabledRunningHint')
-                : t('console.taskInputPlaceholder')
-            }
-            autoComplete="off"
-            spellCheck={false}
-            disabled={isSubmittingTask || inputLocked}
-            className={cn(
-              'absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent',
-              inputLocked && 'pointer-events-none'
-            )}
-            style={{ caretColor: 'transparent' }}
-          />
-          {pair.directory && !inputLocked && (
-            <FileMention
-              textareaRef={inputRef}
-              onChange={setTaskInput}
-              directory={pair.directory}
-              pairId={pair.id}
-              onFileSelect={handleFileSelect}
-            />
-          )}
-          {!inputLocked && (
-            <SkillMention
-              textareaRef={inputRef}
-              onChange={setTaskInput}
-              projectDir={pair.directory}
-              onSkillSelect={handleSkillSelect}
-            />
-          )}
         </div>
       </div>
       {(fileContexts.size > 0 || skillContexts.size > 0) && (
@@ -631,6 +647,26 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       )}
     </form>
   ) : null
+
+  const reviewDock =
+    pair.status !== 'Awaiting Human Review' ? null : isViewingArchived ? (
+      // While viewing an archived run, don't render the approve/reject
+      // controls (they act on the live pair, not the run on screen);
+      // surface a clear one-click return to the pending plan instead.
+      <button
+        type="button"
+        onClick={() => setViewingRunId(null)}
+        className="flex w-full items-center gap-1.5 rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 text-left font-mono text-[11px] state-running transition-colors hover:bg-state-running/[0.1]"
+      >
+        <span aria-hidden>▸</span>
+        <span className="font-bold uppercase tracking-[0.16em]">
+          {t('planReview.reviewPending')}
+        </span>
+        <span className="ml-auto text-muted-foreground">{t('planReview.returnToReview')} →</span>
+      </button>
+    ) : (
+      <PlanReviewBar pair={pair} />
+    )
 
   if (!pair || !pair.id || !pair.name) {
     console.error('[PairConsole] Invalid pair data:', pair)
@@ -797,7 +833,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
       {/* Message area */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        <div
+          ref={scrollRef}
+          data-testid="console-transcript"
+          className="flex-1 min-h-0 overflow-y-auto scrollbar-thin"
+        >
           <div className="flex w-full flex-col gap-2 px-6 py-6">
             {deduplicatedConsoleMessages.length === 0 && !visibleCurrentTurnCard ? (
               <>
@@ -809,7 +849,6 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                     {t('pair.awaitingFirst')}
                   </span>
                 </div>
-                {taskInputRow}
               </>
             ) : (
               <>
@@ -890,30 +929,6 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                     )}
                   </AnimatePresence>
                 )}
-                {pair.status === 'Awaiting Human Review' &&
-                  (isViewingArchived ? (
-                    // While viewing an archived run, don't render the approve/reject
-                    // controls (they act on the live pair, not the run on screen);
-                    // surface a clear one-click return to the pending plan instead.
-                    <div className="pl-[3ch]">
-                      <button
-                        type="button"
-                        onClick={() => setViewingRunId(null)}
-                        className="flex w-full items-center gap-1.5 rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 text-left font-mono text-[11px] state-running transition-colors hover:bg-state-running/[0.1]"
-                      >
-                        <span aria-hidden>▸</span>
-                        <span className="font-bold uppercase tracking-[0.16em]">
-                          {t('planReview.reviewPending')}
-                        </span>
-                        <span className="ml-auto text-muted-foreground">
-                          {t('planReview.returnToReview')} →
-                        </span>
-                      </button>
-                    </div>
-                  ) : (
-                    <PlanReviewBar pair={pair} />
-                  ))}
-                {taskInputRow}
               </>
             )}
           </div>
@@ -923,6 +938,17 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           dependency={`${consoleMessages.length}-${messageFilter}-${viewingRun?.id ?? 'live'}`}
         />
       </div>
+
+      {/* Composer dock: pinned below the transcript, like a chat input. */}
+      {(reviewDock || taskInputRow) && (
+        <div
+          data-testid="console-composer-dock"
+          className="flex shrink-0 flex-col gap-2 border-t border-border bg-background px-6 py-3"
+        >
+          {reviewDock}
+          {taskInputRow}
+        </div>
+      )}
       <ConfirmModal
         isOpen={confirmClear}
         title={t('chrome.clearSessionConfirmTitle', { name: pair.name })}
