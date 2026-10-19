@@ -101,7 +101,7 @@ export function TerminalBlock({
       id={id}
       className={cn(
         'font-mono text-[12px] leading-relaxed',
-        accentBorder && 'border-l-4 pl-3',
+        accentBorder && 'border-l-2 pl-3',
         accentBorder && ROLE_BORDER_CLASS[role],
         className
       )}

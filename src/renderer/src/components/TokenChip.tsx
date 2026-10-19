@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import type { TurnTokenUsage } from '../types'
 
@@ -21,6 +22,7 @@ export const TokenChip = memo(function TokenChip({
   compact,
   className
 }: TokenChipProps): React.ReactNode {
+  const { t } = useTranslation()
   const hasUsage = !!usage
   const outputCount = usage?.outputTokens ?? 0
   const inputCount = usage?.inputTokens ?? 0
@@ -34,8 +36,16 @@ export const TokenChip = memo(function TokenChip({
   const showLiveIndicator = isLive && usage?.source === 'live'
 
   const tooltipText = hasUsage
-    ? `output: ${outputCount.toLocaleString()} tokens${inputCount > 0 ? `\ninput: ${inputCount.toLocaleString()} tokens` : ''}\ntotal: ${totalCount.toLocaleString()} tokens\nsource: ${usage.source}${usage.provider ? `\nprovider: ${usage.provider}` : ''}`
-    : 'waiting for token data…'
+    ? [
+        t('console.tokTooltipOutput', { value: outputCount.toLocaleString() }),
+        inputCount > 0 && t('console.tokTooltipInput', { value: inputCount.toLocaleString() }),
+        t('console.tokTooltipTotal', { value: totalCount.toLocaleString() }),
+        t('console.tokTooltipSource', { value: usage.source }),
+        usage.provider && t('console.tokTooltipProvider', { value: usage.provider })
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : t('console.tokWaiting')
 
   return (
     <span
@@ -53,7 +63,7 @@ export const TokenChip = memo(function TokenChip({
         </span>
       )}
       <span>{displayCount}</span>
-      <span className="text-muted-foreground-faint">tok</span>
+      <span className="text-muted-foreground-faint">{t('console.tokUnit')}</span>
     </span>
   )
 })

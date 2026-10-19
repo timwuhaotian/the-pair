@@ -3,6 +3,10 @@ import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '../lib/utils'
+import { Z, emptyHint, menuItem, popoverSurface } from '../lib/ui'
+import { scrollActiveOptionIntoView } from '../lib/listbox'
+import { GlassButton } from './ui/GlassButton'
 import { createCompositionTracker, isImeKeyEvent } from './keyboard'
 import {
   placeMentionPopup,
@@ -45,6 +49,10 @@ export function SkillMention({
   const [position, setPosition] = useState<MentionPopupPosition>({ top: 0, left: 0 })
   const [isRefreshing, setIsRefreshing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  // Pointer hover moves the highlight too, but must not scroll the list under
+  // the cursor — only keyboard moves bring the active row into view.
+  const pointerNavRef = useRef(false)
   const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
@@ -206,6 +214,7 @@ export function SkillMention({
       setQuery(match[1])
       queryRef.current = match[1]
       navigatedRef.current = false
+      pointerNavRef.current = false
       setCaret(getCaretRect())
       setIsOpen(true)
       isOpenRef.current = true
@@ -237,6 +246,7 @@ export function SkillMention({
         e.stopPropagation()
         if (resultsRef.current.length === 0) return
         const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
+        pointerNavRef.current = false
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
         navigatedRef.current = true
@@ -246,6 +256,7 @@ export function SkillMention({
         if (resultsRef.current.length === 0) return
         const newIndex =
           (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
+        pointerNavRef.current = false
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
         navigatedRef.current = true
@@ -327,55 +338,74 @@ export function SkillMention({
     setPosition(placeMentionPopup(caret, window.innerHeight, popover.offsetHeight))
   }, [isOpen, caret, results, skills])
 
+  // Declared after every other hook so the early return below stays legal.
+  useEffect(() => {
+    if (isOpen && !pointerNavRef.current) scrollActiveOptionIntoView(listRef.current)
+  }, [isOpen, selectedIndex, results])
+
   if (!isOpen) return null
 
+  // mousedown is prevented on the popover so focus stays in the textarea: its
+  // blur handler would otherwise close the popover before an item click lands.
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[9999] flex max-h-72 w-96 flex-col overflow-hidden rounded-sm border border-border bg-popover font-mono"
+      className={cn(
+        'fixed flex max-h-72 w-96 flex-col overflow-hidden font-mono',
+        Z.popover,
+        popoverSurface
+      )}
       style={position}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <div className="flex items-center justify-between border-b border-border px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-        <span className="flex items-baseline gap-1.5">
-          <Sparkles size={10} className="role-mentor translate-y-px" />
+      <div className="flex items-center justify-between border-b border-border py-1 pl-2 pr-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <Sparkles size={11} aria-hidden />
           {t('skills.popoverTitle')}
         </span>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            // Prevent the textarea from losing focus before refresh fires.
-            e.preventDefault()
-            void refreshSkills()
-          }}
+        <GlassButton
+          variant="ghost"
+          size="xs"
+          onClick={() => void refreshSkills()}
           disabled={isRefreshing}
-          className="flex items-center gap-1 rounded-sm px-1 py-0.5 text-[10px] hover:bg-foreground/[0.06] disabled:opacity-50"
+          icon={
+            isRefreshing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />
+          }
           title={t('skills.refresh')}
         >
-          {isRefreshing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-          <span>{t('skills.refresh')}</span>
-        </button>
+          {t('skills.refresh')}
+        </GlassButton>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div
+        ref={listRef}
+        role="listbox"
+        aria-label={t('skills.popoverTitle')}
+        className="flex-1 overflow-y-auto p-1 scrollbar-thin"
+      >
         {results.length === 0 ? (
-          <div className="px-3 py-4 text-center text-[11px] text-muted-foreground-faint">
-            — {skills.length === 0 ? t('skills.empty') : t('skills.noMatch')} —
+          <div className={emptyHint}>
+            {skills.length === 0 ? t('skills.empty') : t('skills.noMatch')}
           </div>
         ) : (
           results.map((skill, index) => (
             <div
               key={skill.name}
-              className={`flex cursor-pointer flex-col gap-0.5 px-2 py-1.5 text-[11px] ${
-                index === selectedIndex ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.04]'
-              }`}
+              role="option"
+              aria-selected={index === selectedIndex}
+              className={cn(menuItem(index === selectedIndex), 'flex-col items-stretch gap-0.5')}
+              onMouseEnter={() => {
+                pointerNavRef.current = true
+                setSelectedIndex(index)
+                selectedIndexRef.current = index
+              }}
               onMouseDown={(e) => {
                 e.preventDefault()
                 void insertMention(skill)
               }}
             >
               <div className="flex items-baseline gap-1.5">
-                <span className="role-mentor select-none">/</span>
-                <span className="truncate font-bold text-foreground/90">{skill.name}</span>
+                <span className="select-none text-muted-foreground">/</span>
+                <span className="truncate font-bold">{skill.name}</span>
               </div>
               <div className="line-clamp-2 pl-[2ch] text-[10px] text-muted-foreground">
                 {skill.description}

@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
 
 function lineTone(line: string): string {
@@ -23,11 +24,12 @@ interface InlineDiffProps {
 
 /** Shared diff body used inline in the inspector (and formerly the diff modal). */
 export function InlineDiff({ diff, loading, error }: InlineDiffProps): React.ReactNode {
+  const { t } = useTranslation()
   if (loading) {
     return (
       <div className="flex items-baseline justify-start gap-2 px-2 py-2 font-mono text-[10px] text-muted-foreground">
         <span className="state-running tty-blink">●</span>
-        <span>· loading diff…</span>
+        <span>{t('pair.loadingDiff')}</span>
       </div>
     )
   }

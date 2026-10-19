@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
+import { acceptanceContentTone } from '../lib/acceptanceTone'
 import { isTechnicalHandoff } from '../lib/timeline'
 import { displayContentForMessage } from '../lib/searchableCard'
 import { MarkdownContent } from './MarkdownContent'
@@ -12,6 +13,7 @@ import { TerminalBlock } from './terminal/TerminalBlock'
 import { TerminalEventRow } from './terminal/TerminalEventRow'
 import { SystemBanner } from './SystemBanner'
 import { TokenChip } from './TokenChip'
+import { Chip } from './ui/Chip'
 import type { Message } from '../store/usePairStore'
 
 const CONTENT_COLLAPSE_THRESHOLD = 1200
@@ -78,6 +80,11 @@ export const MessageCard = memo(function MessageCard({
     [msg.cognitiveEvents]
   )
 
+  const acceptanceTone = useMemo(
+    () => (isAcceptance ? acceptanceContentTone(displayContent) : null),
+    [isAcceptance, displayContent]
+  )
+
   // Skip empty / dropped messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
   if (isTechnicalHandoff(displayContent) && !isHuman && msg.from !== 'executor') return null
@@ -116,18 +123,9 @@ export const MessageCard = memo(function MessageCard({
   })()
 
   const typeTag = (
-    <span
-      className={cn(
-        'rounded-sm border px-1 py-0 text-[9px] uppercase tracking-[0.14em]',
-        isAcceptance
-          ? 'border-state-running/40 bg-state-running/15 state-running'
-          : role === 'mentor'
-            ? 'border-role-mentor bg-role-mentor role-mentor'
-            : 'border-role-executor bg-role-executor role-executor'
-      )}
-    >
-      {isAcceptance ? 'acceptance' : typeLabel(msg.type)}
-    </span>
+    <Chip tone={acceptanceTone ?? role}>
+      {isAcceptance ? t('console.acceptance') : typeLabel(msg.type)}
+    </Chip>
   )
 
   return (
@@ -155,6 +153,7 @@ export const MessageCard = memo(function MessageCard({
       {hasExpandable && (hasSteps || !isActiveMatch) && (
         <div className="mb-1.5">
           <button
+            type="button"
             onClick={() => setDetailsExpanded((v) => !v)}
             className={cn(
               'group flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em]',
@@ -211,6 +210,7 @@ export const MessageCard = memo(function MessageCard({
         )}
         {bodyClipped && (
           <button
+            type="button"
             onClick={() => setDetailsExpanded(true)}
             className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent cursor-pointer flex items-end justify-center pb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground/80 transition-colors"
             aria-label={t('console.expand')}

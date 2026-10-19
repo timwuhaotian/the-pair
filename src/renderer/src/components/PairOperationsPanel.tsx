@@ -8,17 +8,19 @@ import {
   Loader2,
   Pause,
   Play,
-  RotateCcw,
   SlidersHorizontal,
   Zap
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '../lib/utils'
+import { fieldInput, hoverTint } from '../lib/ui'
+import { verdictTone } from '../lib/acceptanceTone'
 import { usePairStore, type Pair } from '../store/usePairStore'
 import { TaskHistoryPanel } from './TaskHistoryPanel'
 import { TimelinePanel, TimelineActions } from './TimelinePanel'
 import { ErrorDetailPanel } from './ErrorDetailPanel'
 import { IterationProgress } from './IterationProgress'
 import { GlassButton } from './ui/GlassButton'
+import { Chip } from './ui/Chip'
 import { ResourceMeter } from './ui/ResourceMeter'
 import { buildTimeline } from '../lib/timeline'
 import { isPairActive, isPairBusy } from '../lib/pairStatus'
@@ -67,14 +69,17 @@ function ModifiedFileRow({
   onToggle: () => void
 }): React.ReactNode {
   return (
-    <div className="shell-card overflow-hidden">
+    <div>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
         data-testid={`ops-file-row-${file.path}`}
         title={file.path}
-        className="flex w-full items-baseline gap-2 px-2 py-1.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.05] cursor-pointer"
+        className={cn(
+          'flex w-full cursor-pointer items-baseline gap-2 px-2 py-1.5 text-left font-mono text-[11px] text-muted-foreground transition-colors',
+          hoverTint
+        )}
       >
         <ChevronDown
           size={10}
@@ -92,7 +97,7 @@ function ModifiedFileRow({
       {expanded && (
         <div
           data-testid={`ops-file-diff-${file.path}`}
-          className="border-t border-border/50 bg-background/40 max-h-[320px] overflow-auto scrollbar-thin"
+          className="border-t border-border/40 bg-background/40 max-h-[320px] overflow-auto scrollbar-thin"
         >
           <InlineDiff diff={diff} loading={loading} error={error} />
         </div>
@@ -376,7 +381,7 @@ function PairOperationsPanel({
             data-testid="ops-resume-btn"
           >
             {t('pair.resumePair')}
-            <span className="ml-1 text-[9px] opacity-60">
+            <span className="ml-1 text-[10px] opacity-60">
               {modifierLabel}
               {shiftLabel}P
             </span>
@@ -392,35 +397,21 @@ function PairOperationsPanel({
             data-testid="ops-pause-btn"
           >
             {t('pair.pausePair')}
-            <span className="ml-1 text-[9px] opacity-60">{modifierLabel}P</span>
-          </GlassButton>
-        )}
-        {pair.status === 'Error' && (
-          <GlassButton
-            variant="primary"
-            size="sm"
-            icon={
-              isRetrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />
-            }
-            onClick={() => void handleRetryTurn()}
-            disabled={isRetrying}
-            data-testid="ops-retry-btn"
-          >
-            {t('pair.retryTurn')}
+            <span className="ml-1 text-[10px] opacity-60">{modifierLabel}P</span>
           </GlassButton>
         )}
         {pair.automationMode === 'full-auto' && (
-          <span className="inline-flex items-center gap-1 border border-state-running/40 bg-state-running/12 px-1.5 py-px text-[9px] uppercase tracking-[0.14em] state-running">
-            <Zap size={10} />
+          <Chip tone="running">
+            <Zap size={10} aria-hidden />
             {t('pair.fullAuto')}
-          </span>
+          </Chip>
         )}
       </div>
 
       {(pair.status === 'Paused' || pair.status === 'Awaiting Human Review') && reviewReason && (
         <div className="border-l-2 border-state-running pl-2 text-[11px] leading-relaxed">
-          <div className="mb-0.5 text-[10px] uppercase tracking-[0.16em] state-running">
-            ! {t('pair.pauseReason')}
+          <div className="mb-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            {t('pair.pauseReason')}
           </div>
           <div className="whitespace-pre-wrap text-foreground/80 [overflow-wrap:anywhere]">
             {reviewReason}
@@ -457,23 +448,16 @@ function PairOperationsPanel({
           defaultOpen={false}
           badge={
             pair.latestAcceptance.verdict && (
-              <span
-                className={cn(
-                  'border px-1 py-px text-[9px] uppercase tracking-[0.14em]',
-                  pair.latestAcceptance.verdict.verdict === 'pass'
-                    ? 'border-state-done bg-state-done state-done'
-                    : 'border-state-running bg-state-running state-running'
-                )}
-              >
-                [{pair.latestAcceptance.verdict.verdict}]
-              </span>
+              <Chip tone={verdictTone(pair.latestAcceptance.verdict.verdict)}>
+                {pair.latestAcceptance.verdict.verdict}
+              </Chip>
             )
           }
         >
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">risk·{pair.latestAcceptance.risk}</span>
-            <span className="text-muted-foreground">fail·{failedChecks}</span>
-            {pair.latestAcceptance.error && <span className="state-error">err</span>}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Chip>risk·{pair.latestAcceptance.risk}</Chip>
+            <Chip tone={failedChecks > 0 ? 'error' : 'neutral'}>fail·{failedChecks}</Chip>
+            {pair.latestAcceptance.error && <Chip tone="error">{t('pair.verdictError')}</Chip>}
           </div>
           <p className="text-foreground/80 leading-relaxed [overflow-wrap:anywhere]">
             {pair.latestAcceptance.summary}
@@ -486,30 +470,19 @@ function PairOperationsPanel({
         label={t('common.models')}
         badge={
           (pair.pendingMentorModel || pair.pendingExecutorModel) && (
-            <span className="text-[9px] uppercase tracking-[0.14em] state-running">
-              {t('panel.modelsQueuedBadge')}
-            </span>
+            <Chip tone="running">{t('panel.modelsQueuedBadge')}</Chip>
           )
         }
       >
         <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <span className="flex items-baseline gap-1.5">
-              <span aria-hidden className={cn('role-mentor', mentorIsExecuting && 'tty-blink')}>
-                {mentorIsExecuting ? '*' : '●'}
-              </span>
-              <span className="role-mentor font-bold tracking-[0.08em]">
-                {t('common.mentor').toUpperCase()}
-              </span>
-              <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground-faint">
-                · {t('panel.modelsActiveBadge')}
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <Chip tone="mentor">{t('common.mentor')}</Chip>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint">
+                {t('panel.modelsActiveBadge')}
               </span>
             </span>
-            {mentorIsExecuting && (
-              <span className="text-[9px] uppercase tracking-[0.14em] state-running">
-                {t('common.active')}
-              </span>
-            )}
+            {mentorIsExecuting && <Chip tone="running">{t('common.active')}</Chip>}
           </div>
           <ModelPicker
             value={panelMentorModel}
@@ -521,32 +494,21 @@ function PairOperationsPanel({
             onReasoningEffortChange={setPanelMentorEffort}
           />
           {pair.pendingMentorModel && (
-            <div className="text-[10px] state-running flex items-baseline gap-1">
-              <span className="uppercase tracking-[0.14em] text-[9px]">
-                · {t('panel.modelsQueuedBadge')}
-              </span>
-              <span className="text-foreground/80">
-                → {t('pair.nextTask', { model: pair.pendingMentorModel })}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <Chip tone="running">{t('panel.modelsQueuedBadge')}</Chip>
+              <span className="min-w-0 truncate text-foreground/80">
+                {t('pair.nextTask', { model: pair.pendingMentorModel })}
               </span>
             </div>
           )}
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="flex items-baseline gap-1.5">
-              <span aria-hidden className={cn('role-executor', executorIsExecuting && 'tty-blink')}>
-                {executorIsExecuting ? '*' : '●'}
-              </span>
-              <span className="role-executor font-bold tracking-[0.08em]">
-                {t('common.executor').toUpperCase()}
-              </span>
-              <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground-faint">
-                · {t('panel.modelsActiveBadge')}
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <Chip tone="executor">{t('common.executor')}</Chip>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint">
+                {t('panel.modelsActiveBadge')}
               </span>
             </span>
-            {executorIsExecuting && (
-              <span className="text-[9px] uppercase tracking-[0.14em] state-running">
-                {t('common.active')}
-              </span>
-            )}
+            {executorIsExecuting && <Chip tone="running">{t('common.active')}</Chip>}
           </div>
           <ModelPicker
             value={panelExecutorModel}
@@ -558,18 +520,16 @@ function PairOperationsPanel({
             onReasoningEffortChange={setPanelExecutorEffort}
           />
           {pair.pendingExecutorModel && (
-            <div className="text-[10px] state-running flex items-baseline gap-1">
-              <span className="uppercase tracking-[0.14em] text-[9px]">
-                · {t('panel.modelsQueuedBadge')}
-              </span>
-              <span className="text-foreground/80">
-                → {t('pair.nextTask', { model: pair.pendingExecutorModel })}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <Chip tone="running">{t('panel.modelsQueuedBadge')}</Chip>
+              <span className="min-w-0 truncate text-foreground/80">
+                {t('pair.nextTask', { model: pair.pendingExecutorModel })}
               </span>
             </div>
           )}
           {(modelsChanged || saveStatus === 'success' || saveStatus === 'error') && (
-            <div className="flex flex-col gap-1 pt-1">
-              <div className="flex items-center gap-2 min-h-[26px]">
+            <div className="flex flex-col gap-1">
+              <div className="flex min-h-[28px] items-center gap-2">
                 {saveStatus === 'success' ? (
                   <span className="flex items-center gap-1 text-[10px] font-semibold state-done animate-in fade-in">
                     <Check size={10} />
@@ -585,20 +545,19 @@ function PairOperationsPanel({
                     size="sm"
                     onClick={handleSaveModels}
                     disabled={isStoreBusy || saveStatus !== 'idle'}
+                    icon={
+                      saveStatus === 'saving' ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <SlidersHorizontal size={11} />
+                      )
+                    }
                   >
-                    {saveStatus === 'saving' ? (
-                      <>
-                        <Loader2 size={10} className="animate-spin" />
-                        {t('common.saving')}
-                      </>
-                    ) : (
-                      <>
-                        <SlidersHorizontal size={10} />
-                        {isPairActive(pair.status)
-                          ? t('panel.saveActionRunning')
-                          : t('panel.saveActionIdle')}
-                      </>
-                    )}
+                    {saveStatus === 'saving'
+                      ? t('common.saving')
+                      : isPairActive(pair.status)
+                        ? t('panel.saveActionRunning')
+                        : t('panel.saveActionIdle')}
                   </GlassButton>
                 )}
               </div>
@@ -617,11 +576,7 @@ function PairOperationsPanel({
       <InspectorSection
         id="run-state"
         label={t('pair.runState')}
-        badge={
-          <span className="border border-border bg-secondary/40 px-1 py-px text-[9px] uppercase tracking-[0.14em] text-foreground/90">
-            {t(`status.${pair.status}`, { defaultValue: pair.status })}
-          </span>
-        }
+        badge={<Chip>{t(`status.${pair.status}`, { defaultValue: pair.status })}</Chip>}
       >
         <div className="flex items-baseline justify-between">
           <span className="text-muted-foreground">{t('pair.run', { count: pair.runCount })}</span>
@@ -652,15 +607,15 @@ function PairOperationsPanel({
         }
       >
         {!pair.gitTracking.available ? (
-          <div className="text-[10px] state-running">! {t('pair.gitUnavailable')}</div>
+          <div className="text-[11px] state-running">{t('pair.gitUnavailable')}</div>
         ) : (
           <>
             {pair.modifiedFiles.length === 0 ? (
-              <div className="text-[10px] text-muted-foreground-faint">
-                — {t('pair.noModifiedFiles')}
+              <div className="text-[11px] text-muted-foreground-faint">
+                {t('pair.noModifiedFiles')}
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="shell-card divide-y divide-border/40 overflow-hidden">
                 {pair.modifiedFiles.map((file) => (
                   <ModifiedFileRow
                     key={file.path}
@@ -674,7 +629,7 @@ function PairOperationsPanel({
                 ))}
               </div>
             )}
-            <div className="flex flex-col gap-1.5 pt-1">
+            <div className="flex flex-col gap-1.5">
               <div className="flex gap-1.5">
                 <input
                   value={commitMessage}
@@ -686,7 +641,10 @@ function PairOperationsPanel({
                   aria-label={t('pair.commitMessage')}
                   disabled={!hasChanges || commitStatus === 'committing'}
                   data-testid="ops-commit-input"
-                  className="min-w-0 flex-1 border border-border bg-background px-1.5 py-1 text-[10px] text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/40 focus:outline-none disabled:opacity-50"
+                  className={cn(
+                    fieldInput,
+                    'min-h-[28px] min-w-0 flex-1 py-1 font-mono text-[11px]'
+                  )}
                 />
                 <GlassButton
                   variant="secondary"

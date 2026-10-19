@@ -9,6 +9,9 @@ import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { ConfirmModal } from './ui/ConfirmModal'
 import { MessageFilterBar } from './MessageFilterBar'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
+import { Chip } from './ui/Chip'
+import { BackToCurrentButton } from './TaskHistoryPanel'
 import { isPairActive } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { MessageCard } from './MessageCard'
@@ -68,6 +71,8 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const [fileContexts, setFileContexts] = useState<FileContexts>(new Map())
   const [skillContexts, setSkillContexts] = useState<SkillContexts>(new Map())
   const [confirmClear, setConfirmClear] = useState(false)
+  // The drawn caret only blinks while the (invisible) textarea has focus.
+  const [inputFocused, setInputFocused] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   // The transcript list lags one keystroke behind the input on purpose.
@@ -468,6 +473,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // Input is "locked" while the pair runs — submitting a new task would silently
   // archive the in-progress run, which is almost never what the user wants.
   const inputLocked = isRunning
+  const caretClass =
+    inputLocked || isSubmittingTask
+      ? 'text-muted-foreground-faint'
+      : inputFocused
+        ? 'text-foreground tty-blink'
+        : 'text-muted-foreground-faint'
 
   const taskInputRow = !isViewingArchived ? (
     <form
@@ -484,7 +495,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           aria-hidden
           className={cn(
             'select-none',
-            inputLocked ? 'text-muted-foreground-faint' : 'state-running'
+            inputLocked ? 'text-muted-foreground-faint' : 'text-muted-foreground'
           )}
         >
           {'>'}
@@ -508,27 +519,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                     </span>
                   )}
                   {inputSegments.after && <span>{inputSegments.after}</span>}
-                  <span
-                    className={cn(
-                      'select-none ml-[1px]',
-                      inputLocked ? 'text-muted-foreground-faint' : 'state-running',
-                      isSubmittingTask || inputLocked ? '' : 'tty-blink'
-                    )}
-                  >
-                    ▍
-                  </span>
+                  <span className={cn('select-none ml-[1px]', caretClass)}>▍</span>
                 </>
               ) : (
                 <>
-                  <span
-                    className={cn(
-                      'select-none mr-[2px]',
-                      inputLocked ? 'text-muted-foreground-faint' : 'state-running',
-                      isSubmittingTask || inputLocked ? '' : 'tty-blink'
-                    )}
-                  >
-                    ▍
-                  </span>
+                  <span className={cn('select-none mr-[2px]', caretClass)}>▍</span>
                   <span className="text-muted-foreground-faint">
                     {inputLocked
                       ? t('console.inputDisabledRunningHint')
@@ -546,6 +541,8 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 if (submitError) setSubmitError(null)
               }}
               onKeyDown={handleInputKeyDown}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               onCompositionStart={(e) => {
                 composition.onCompositionStart()
                 const start = e.currentTarget.selectionStart
@@ -568,10 +565,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               spellCheck={false}
               disabled={isSubmittingTask || inputLocked}
               className={cn(
-                'absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent',
+                'absolute inset-0 w-full h-full resize-none overflow-hidden bg-transparent border-0 outline-none p-0 font-mono text-[12px] leading-relaxed text-transparent caret-transparent',
                 inputLocked && 'pointer-events-none'
               )}
-              style={{ caretColor: 'transparent' }}
             />
             {pair.directory && !inputLocked && (
               <FileMention
@@ -598,26 +594,26 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           {Array.from(skillContexts.keys())
             .filter((name) => taskInput.includes(`/${name}`))
             .map((name) => (
-              <span
+              <Chip
                 key={`skill-${name}`}
-                className="inline-flex items-baseline gap-1 rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                 title={t('console.attachedSkill', { name })}
+                className="normal-case tracking-normal"
               >
-                <span className="role-mentor">/</span>
+                <span className="text-muted-foreground-faint">/</span>
                 <span className="truncate max-w-[28ch]">{name}</span>
-              </span>
+              </Chip>
             ))}
           {Array.from(fileContexts.keys())
             .filter((path) => taskInput.includes(`@${path}`))
             .map((path) => (
-              <span
+              <Chip
                 key={`file-${path}`}
-                className="inline-flex items-baseline gap-1 rounded-sm border border-border bg-foreground/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                 title={t('console.attachedFile', { path })}
+                className="normal-case tracking-normal"
               >
-                <span className="role-mentor">@</span>
+                <span className="text-muted-foreground-faint">@</span>
                 <span className="truncate max-w-[28ch]">{path}</span>
-              </span>
+              </Chip>
             ))}
         </div>
       )}
@@ -659,7 +655,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         className="flex w-full items-center gap-1.5 rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 text-left font-mono text-[11px] state-running transition-colors hover:bg-state-running/[0.1]"
       >
         <span aria-hidden>▸</span>
-        <span className="font-bold uppercase tracking-[0.16em]">
+        <span className="font-bold uppercase tracking-[0.14em]">
           {t('planReview.reviewPending')}
         </span>
         <span className="ml-auto text-muted-foreground">{t('planReview.returnToReview')} →</span>
@@ -693,14 +689,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         {isViewingArchived && (
           <>
             <span className="text-muted-foreground-faint">· {t('console.viewingArchived')}</span>
-            <button
-              type="button"
+            <BackToCurrentButton
               onClick={() => setViewingRunId(null)}
               data-testid="console-back-to-live-btn"
-              className="rounded-sm border border-border px-1.5 py-px text-[10px] uppercase tracking-[0.14em] text-foreground/85 transition-colors hover:border-foreground/40 hover:bg-foreground/[0.06] cursor-pointer"
-            >
-              ← {t('history.backToCurrent')}
-            </button>
+            />
           </>
         )}
         <span className="text-muted-foreground-faint">·</span>
@@ -739,29 +731,29 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               {isRunning ? t('pair.systemOnline') : t('pair.systemIdle')}
             </span>
           </div>
-          {!isViewingArchived && pair.messages.length > 0 && !isRunning && (
-            <button
-              onClick={handleClearMessages}
-              title={t('console.clearHistory')}
-              data-testid="console-clear-btn"
-              className="p-0.5 text-muted-foreground-faint hover:text-state-error transition-colors cursor-pointer"
+          <div className="flex items-center gap-0.5">
+            {!isViewingArchived && pair.messages.length > 0 && !isRunning && (
+              <IconButton
+                onClick={handleClearMessages}
+                aria-label={t('console.clearHistory')}
+                destructive
+                data-testid="console-clear-btn"
+              >
+                <Trash2 size={12} />
+              </IconButton>
+            )}
+            <IconButton
+              onClick={() => {
+                setSearchOpen(true)
+                requestAnimationFrame(() => searchInputRef.current?.focus())
+              }}
+              aria-label={t('console.searchOpen')}
+              aria-expanded={searchOpen}
+              data-testid="console-search-toggle"
             >
-              <Trash2 size={12} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              setSearchOpen(true)
-              requestAnimationFrame(() => searchInputRef.current?.focus())
-            }}
-            title={t('console.searchOpen')}
-            aria-label={t('console.searchOpen')}
-            data-testid="console-search-toggle"
-            className="p-0.5 text-muted-foreground-faint hover:text-foreground transition-colors cursor-pointer"
-          >
-            <Search size={12} />
-          </button>
+              <Search size={12} />
+            </IconButton>
+          </div>
         </div>
       </div>
 
@@ -796,38 +788,31 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 : t('console.searchNoMatches')}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => cycleMatch(-1)}
-            disabled={matchingMessageIds.length === 0}
-            aria-label={t('console.searchPrev')}
-            title={t('console.searchPrev')}
-            data-testid="console-search-prev"
-            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
-          >
-            <ChevronUp size={12} />
-          </button>
-          <button
-            type="button"
-            onClick={() => cycleMatch(1)}
-            disabled={matchingMessageIds.length === 0}
-            aria-label={t('console.searchNext')}
-            title={t('console.searchNext')}
-            data-testid="console-search-next"
-            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors cursor-pointer"
-          >
-            <ChevronDown size={12} />
-          </button>
-          <button
-            type="button"
-            onClick={closeSearch}
-            aria-label={t('console.searchClose')}
-            title={t('console.searchClose')}
-            data-testid="console-search-close"
-            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          >
-            <X size={12} />
-          </button>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <IconButton
+              onClick={() => cycleMatch(-1)}
+              disabled={matchingMessageIds.length === 0}
+              aria-label={t('console.searchPrev')}
+              data-testid="console-search-prev"
+            >
+              <ChevronUp size={12} />
+            </IconButton>
+            <IconButton
+              onClick={() => cycleMatch(1)}
+              disabled={matchingMessageIds.length === 0}
+              aria-label={t('console.searchNext')}
+              data-testid="console-search-next"
+            >
+              <ChevronDown size={12} />
+            </IconButton>
+            <IconButton
+              onClick={closeSearch}
+              aria-label={t('console.searchClose')}
+              data-testid="console-search-close"
+            >
+              <X size={12} />
+            </IconButton>
+          </div>
         </div>
       )}
 
@@ -867,7 +852,14 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                                   : 'secondary'
                               }
                               size="sm"
-                              className="gap-1.5"
+                              className="font-mono"
+                              icon={
+                                visibleCurrentTurnCard.activity.phase === 'stalled' ? (
+                                  <XCircle size={11} />
+                                ) : (
+                                  <Square size={10} />
+                                )
+                              }
                               onClick={() => {
                                 void handleStopTurn(visibleCurrentTurnCard)
                               }}
@@ -875,17 +867,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                               title={t('console.stopTurn')}
                               data-testid="console-stop-turn-btn"
                             >
-                              {visibleCurrentTurnCard.activity.phase === 'stalled' ? (
-                                <>
-                                  <XCircle size={11} />
-                                  {t('pair.killProcess')}
-                                </>
-                              ) : (
-                                <>
-                                  <Square size={10} />
-                                  {t('console.stopTurn')}
-                                </>
-                              )}
+                              {visibleCurrentTurnCard.activity.phase === 'stalled'
+                                ? t('pair.killProcess')
+                                : t('console.stopTurn')}
                             </GlassButton>
                             {stopError?.cardId === visibleCurrentTurnCard.id && (
                               <span
@@ -919,7 +903,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                         <span className="flex items-baseline gap-1.5 text-muted-foreground">
                           <span
                             aria-hidden
-                            className="inline-flex h-[1em] w-[1.4ch] items-center justify-center state-running"
+                            className={cn(
+                              'inline-flex h-[1em] w-[1.4ch] items-center justify-center',
+                              pair.turn === 'mentor' ? 'role-mentor' : 'role-executor'
+                            )}
                           >
                             <span className="tty-spin">✻</span>
                           </span>

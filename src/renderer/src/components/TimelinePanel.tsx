@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Clipboard, Download } from 'lucide-react'
 import { TimelineIterationGroup } from './TimelineIterationGroup'
+import { IconButton } from './ui/IconButton'
 import { TerminalDivider } from './terminal/TerminalDivider'
 import type { TimelineData } from '../lib/timeline'
 import { formatDuration, formatTokenCount } from '../lib/timeline'
@@ -13,6 +14,7 @@ interface TimelinePanelProps {
 }
 
 export function TimelineActions({ timeline }: { timeline: TimelineData }): React.ReactNode {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (): Promise<void> => {
@@ -34,23 +36,13 @@ export function TimelineActions({ timeline }: { timeline: TimelineData }): React
   }
 
   return (
-    <span className="flex items-center gap-1 shrink-0">
-      <button
-        type="button"
-        onClick={handleCopy}
-        title="copy as markdown"
-        className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
-      >
-        {copied ? <Check size={10} className="state-done" /> : <Clipboard size={10} />}
-      </button>
-      <button
-        type="button"
-        onClick={handleExport}
-        title="export as html"
-        className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] transition-colors cursor-pointer"
-      >
-        <Download size={10} />
-      </button>
+    <span className="flex items-center gap-0.5 shrink-0">
+      <IconButton aria-label={t('pair.copyTimelineMarkdown')} onClick={() => void handleCopy()}>
+        {copied ? <Check size={12} className="state-done" /> : <Clipboard size={12} />}
+      </IconButton>
+      <IconButton aria-label={t('pair.exportTimelineHtml')} onClick={() => void handleExport()}>
+        <Download size={12} />
+      </IconButton>
     </span>
   )
 }
@@ -59,11 +51,7 @@ function TimelineBody({ timeline }: { timeline: TimelineData | null }): React.Re
   const { t } = useTranslation()
 
   if (!timeline) {
-    return (
-      <p className="text-[10px] text-muted-foreground-faint pl-2">
-        — {t('pair.noTimelineEvents')} —
-      </p>
-    )
+    return <p className="text-[11px] text-muted-foreground-faint">{t('pair.noTimelineEvents')}</p>
   }
 
   const hasEvents = timeline.iterations.length > 0
@@ -78,7 +66,8 @@ function TimelineBody({ timeline }: { timeline: TimelineData | null }): React.Re
           <>
             <span>·</span>
             <span>
-              {formatTokenCount(timeline.totalOutputTokens + (timeline.totalInputTokens ?? 0))} tok
+              {formatTokenCount(timeline.totalOutputTokens + (timeline.totalInputTokens ?? 0))}{' '}
+              {t('console.tokUnit')}
             </span>
           </>
         )}
@@ -86,9 +75,7 @@ function TimelineBody({ timeline }: { timeline: TimelineData | null }): React.Re
 
       <div className="max-h-[400px] overflow-y-auto scrollbar-thin p-2">
         {!hasEvents ? (
-          <p className="text-[10px] text-muted-foreground-faint">
-            — {t('pair.noTimelineEvents')} —
-          </p>
+          <p className="text-[11px] text-muted-foreground-faint">{t('pair.noTimelineEvents')}</p>
         ) : (
           timeline.iterations.map((group, idx) => (
             <TimelineIterationGroup

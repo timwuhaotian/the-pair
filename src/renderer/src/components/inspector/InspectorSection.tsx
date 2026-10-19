@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { hoverTint, sectionLabel } from '../../lib/ui'
 
 interface InspectorSectionProps {
   id: string
@@ -37,7 +38,10 @@ export function InspectorSection({
           aria-expanded={open}
           aria-controls={`inspector-body-${id}`}
           data-testid={`inspector-toggle-${id}`}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-foreground/[0.04] cursor-pointer"
+          className={cn(
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 text-left transition-colors',
+            hoverTint
+          )}
         >
           <ChevronRight
             size={11}
@@ -47,15 +51,13 @@ export function InspectorSection({
               open && 'rotate-90'
             )}
           />
-          <span className="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </span>
+          <span className={cn('min-w-0 flex-1 truncate', sectionLabel)}>{label}</span>
           {badge}
         </button>
         {actions}
       </div>
       {open && (
-        <div id={`inspector-body-${id}`} className="space-y-1.5">
+        <div id={`inspector-body-${id}`} className="space-y-2">
           {children}
         </div>
       )}

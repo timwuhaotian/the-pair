@@ -43,7 +43,7 @@ export function ErrorDetailPanel({
           ✗
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-[0.16em] state-error">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {t('errors.executionError')}
           </div>
           <div className="mt-0.5 text-foreground/90">{summary}</div>
@@ -52,20 +52,15 @@ export function ErrorDetailPanel({
 
       {isLongError && (
         <>
-          <button
+          <GlassButton
+            variant="ghost"
+            size="xs"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex w-full items-baseline justify-between gap-1.5 mb-1 px-2 py-1 rounded-sm text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:bg-foreground/[0.05] transition-colors cursor-pointer"
+            icon={isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            className="mb-1 text-muted-foreground"
           >
-            <span className="flex items-baseline gap-1">
-              {isExpanded ? (
-                <ChevronDown size={10} className="translate-y-px" />
-              ) : (
-                <ChevronRight size={10} className="translate-y-px" />
-              )}
-              <span>{t('errors.viewDetails')}</span>
-            </span>
-            <span>{isExpanded ? '▴' : '▾'}</span>
-          </button>
+            {t('errors.viewDetails')}
+          </GlassButton>
 
           {isExpanded && (
             <pre className="mb-2 max-h-[120px] overflow-auto scrollbar-thin border-l-2 border-state-error/30 bg-background/40 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">

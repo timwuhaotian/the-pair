@@ -1,7 +1,12 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { activeTint, hoverTint } from '../lib/ui'
+import { verdictTone } from '../lib/acceptanceTone'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
+import { Chip } from './ui/Chip'
 import { TerminalDivider } from './terminal/TerminalDivider'
 import type { PairRunSummary } from '../store/usePairStore'
 
@@ -32,6 +37,28 @@ function getDuration(startedAt: number, finishedAt?: number): string {
   return `${hours}h ${minutes % 60}m`
 }
 
+/** Leave an archived run. Shared by the history list and the console header. */
+export function BackToCurrentButton({
+  onClick,
+  'data-testid': dataTestId
+}: {
+  onClick: () => void
+  'data-testid'?: string
+}): React.ReactNode {
+  const { t } = useTranslation()
+  return (
+    <GlassButton
+      variant="secondary"
+      size="xs"
+      icon={<ArrowLeft size={11} />}
+      onClick={onClick}
+      data-testid={dataTestId}
+    >
+      {t('history.backToCurrent')}
+    </GlassButton>
+  )
+}
+
 function HistoryList({
   runHistory,
   viewingRunId,
@@ -43,7 +70,7 @@ function HistoryList({
   const { t } = useTranslation()
 
   if (runHistory.length === 0) {
-    return <p className="text-[10px] text-muted-foreground-faint pl-2">— {t('history.empty')} —</p>
+    return <p className="text-[11px] text-muted-foreground-faint">{t('history.empty')}</p>
   }
 
   const sorted = [...runHistory].reverse()
@@ -52,14 +79,7 @@ function HistoryList({
     <>
       {viewingRunId && (
         <div className="flex justify-end">
-          <GlassButton
-            variant="ghost"
-            size="sm"
-            onClick={onBackToCurrent}
-            className="h-5 px-1.5 text-[9px]"
-          >
-            ← {t('history.backToCurrent')}
-          </GlassButton>
+          <BackToCurrentButton onClick={onBackToCurrent} />
         </div>
       )}
       <div className="shell-card overflow-hidden">
@@ -74,10 +94,11 @@ function HistoryList({
                 key={run.id}
                 className={cn(
                   'group relative border-b border-border/40 last:border-b-0 transition-colors duration-150',
-                  isViewing ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
+                  isViewing ? activeTint : hoverTint
                 )}
               >
                 <button
+                  type="button"
                   className="w-full text-left px-2 py-2 cursor-pointer"
                   onClick={() => onSelectTask(run.id)}
                 >
@@ -85,43 +106,35 @@ function HistoryList({
                     <span className="text-[10px] text-muted-foreground-faint tabular-nums shrink-0">
                       #{runHistory.length - idx}
                     </span>
-                    <span className="text-[9px] tabular-nums text-muted-foreground-faint shrink-0 mr-6">
+                    <span className="text-[10px] tabular-nums text-muted-foreground-faint shrink-0 mr-7">
                       {duration}
                     </span>
                   </div>
                   <p
-                    className="text-[11px] leading-relaxed text-foreground/85 line-clamp-2 group-hover:line-clamp-3 transition-all mt-0.5"
+                    className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-relaxed text-foreground/85 group-hover:line-clamp-3"
                     title={run.spec}
                   >
                     {run.spec}
                   </p>
-                  <div className="mt-1 flex items-baseline gap-2 text-[9px] text-muted-foreground-faint">
-                    <span className="role-mentor">{modelShort(run.mentorModel)}</span>
-                    <span className="text-muted-foreground-faint">/</span>
-                    <span className="role-executor">{modelShort(run.executorModel)}</span>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground-faint">
+                    <span className="font-mono">
+                      <span className="role-mentor">{modelShort(run.mentorModel)}</span>
+                      <span className="text-muted-foreground-faint"> / </span>
+                      <span className="role-executor">{modelShort(run.executorModel)}</span>
+                    </span>
                     {run.latestAcceptance?.verdict && (
                       <>
-                        <span
-                          className={cn(
-                            'border px-1 py-px text-[8px] uppercase tracking-[0.14em]',
-                            run.latestAcceptance.verdict.verdict === 'pass'
-                              ? 'border-state-done bg-state-done state-done'
-                              : 'border-state-running bg-state-running state-running'
-                          )}
-                        >
-                          [{run.latestAcceptance.verdict.verdict}]
-                        </span>
-                        <span className="border border-border px-1 py-px text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
-                          {run.latestAcceptance.risk}
-                        </span>
+                        <Chip tone={verdictTone(run.latestAcceptance.verdict.verdict)}>
+                          {run.latestAcceptance.verdict.verdict}
+                        </Chip>
+                        <Chip>{run.latestAcceptance.risk}</Chip>
                       </>
                     )}
-                    <span className="ml-auto">{formatDate(run.startedAt)}</span>
+                    <span className="ml-auto tabular-nums">{formatDate(run.startedAt)}</span>
                   </div>
                 </button>
 
-                <button
-                  type="button"
+                <IconButton
                   onClick={(e) => {
                     e.stopPropagation()
                     if (restoreDisabled) return
@@ -134,19 +147,12 @@ function HistoryList({
                   }
                   data-testid="history-restore-btn"
                   className={cn(
-                    'absolute right-1.5 top-1.5 p-1 text-muted-foreground rounded-sm transition-colors',
-                    restoreDisabled
-                      ? 'cursor-not-allowed opacity-30'
-                      : cn(
-                          'cursor-pointer hover:text-foreground hover:bg-foreground/[0.06]',
-                          isViewing ? 'opacity-100' : 'opacity-50 group-hover:opacity-100'
-                        )
+                    'absolute right-1 top-1',
+                    !restoreDisabled && !isViewing && 'opacity-50 group-hover:opacity-100'
                   )}
                 >
-                  <span aria-hidden className="text-[10px] leading-none">
-                    ↺
-                  </span>
-                </button>
+                  <RotateCcw size={12} />
+                </IconButton>
               </div>
             )
           })}

@@ -9,6 +9,7 @@ import { TerminalBlock } from './terminal/TerminalBlock'
 import { TerminalEventRow } from './terminal/TerminalEventRow'
 import { TurnCard } from '../store/usePairStore'
 import { TokenChip } from './TokenChip'
+import { Chip } from './ui/Chip'
 
 const MAX_INLINE_EVENTS = 8
 
@@ -71,12 +72,14 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   if (isRunning && phaseLabel) metaParts.push(phaseLabel)
   if (isRunning && elapsedSec > 0) metaParts.push(formatDuration(elapsedSec))
   if (cognitiveEvents.length > 0)
-    metaParts.push(`${cognitiveEvents.length} ${cognitiveEvents.length === 1 ? 'step' : 'steps'}`)
+    metaParts.push(t('console.stepCount', { count: cognitiveEvents.length }))
+
+  const roleClass = card.role === 'mentor' ? 'role-mentor' : 'role-executor'
 
   const badges = isStalled ? (
-    <span className="rounded-sm border border-state-error bg-state-error/15 px-1.5 py-0 text-[9px] font-bold uppercase tracking-[0.16em] state-error tty-blink">
-      stalled
-    </span>
+    <Chip tone="error" className="font-bold tty-blink">
+      {t('console.stalled')}
+    </Chip>
   ) : null
 
   return (
@@ -114,6 +117,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
                 event={event}
                 isLast={idx === visibleEvents.length - 1}
                 isLatest={idx === visibleEvents.length - 1}
+                role={card.role}
               />
             ))}
           </AnimatePresence>
@@ -134,7 +138,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
               aria-hidden
               className={cn(
                 'inline-flex h-[1em] w-[1.4ch] shrink-0 items-center justify-center',
-                card.role === 'mentor' ? 'role-mentor' : 'role-executor'
+                roleClass
               )}
             >
               <span className="tty-spin">✻</span>
@@ -154,7 +158,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         <div className="flex items-baseline gap-1.5 text-[12px] text-muted-foreground-faint">
           <span
             aria-hidden
-            className="inline-flex h-[1em] w-[1.4ch] items-center justify-center state-running"
+            className={cn('inline-flex h-[1em] w-[1.4ch] items-center justify-center', roleClass)}
           >
             <span className="tty-spin">✻</span>
           </span>

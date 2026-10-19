@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
+import { sectionLabel } from '../lib/ui'
 import type { InsightsSummary } from '../types'
 
 /** Hide the panel entirely until enough real runs have accumulated. */
@@ -53,9 +54,7 @@ export function InsightsPanel({ className }: InsightsPanelProps): React.ReactNod
         data-testid="insights-cold-start"
         className={cn('flex flex-col gap-2 px-1 py-1', className)}
       >
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {t('dashboard.crossRun.title')}
-        </h2>
+        <h2 className={sectionLabel}>{t('dashboard.crossRun.title')}</h2>
         <p className="text-[13px] text-muted-foreground">
           {t('dashboard.crossRun.coldStart', {
             min: COLD_START_MIN_RUNS,
@@ -71,9 +70,7 @@ export function InsightsPanel({ className }: InsightsPanelProps): React.ReactNod
       data-testid="insights-panel"
       className={cn('flex flex-col gap-2 px-1 py-1', className)}
     >
-      <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {t('dashboard.crossRun.title')}
-      </h2>
+      <h2 className={sectionLabel}>{t('dashboard.crossRun.title')}</h2>
 
       <div className="flex items-baseline gap-2">
         <span className="text-foreground tabular-nums text-[22px] font-semibold leading-none">
@@ -90,7 +87,7 @@ export function InsightsPanel({ className }: InsightsPanelProps): React.ReactNod
       {summary.combos.length > 0 && (
         <table className="w-full text-[12px] leading-relaxed">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-[0.1em] text-muted-foreground-faint">
+            <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-muted-foreground-faint">
               <th className="py-1 pr-1 font-medium">{t('dashboard.crossRun.combo')}</th>
               <th className="py-1 pr-1 text-right font-medium">{t('dashboard.crossRun.runs')}</th>
               <th className="py-1 pr-1 text-right font-medium">

@@ -49,7 +49,7 @@ export const S = {
   BRANCH_CHIP: '[data-testid="chrome-branch-chip"]',
   PAUSE_BTN: '[data-testid="ops-pause-btn"]',
   RESUME_BTN: '[data-testid="ops-resume-btn"]',
-  RETRY_BTN: '[data-testid="ops-retry-btn"]',
+  RETRY_BTN: '[data-testid="error-retry-btn"]',
   ITERATION_PROGRESS: '[data-testid="iteration-progress"]',
 
   // ── Console ───────────────────────────────────────────────────────

@@ -45,6 +45,8 @@ interface TerminalEventRowProps {
   isLatest?: boolean
   /** Render without motion (for finalized step-replay where there's no need for entrance anim). */
   flat?: boolean
+  /** Owning agent — colors the running spinner. Without one it falls back to amber. */
+  role?: 'mentor' | 'executor'
 }
 
 const STATUS_GLYPH: Record<CognitiveEvent['status'], string> = {
@@ -57,7 +59,8 @@ export function TerminalEventRow({
   event,
   isLast = false,
   isLatest = false,
-  flat = false
+  flat = false,
+  role
 }: TerminalEventRowProps): React.ReactNode {
   const Wrap = flat ? 'div' : motion.div
   const wrapProps = flat
@@ -89,7 +92,14 @@ export function TerminalEventRow({
       {isRunning && isLatest ? (
         <span
           aria-hidden
-          className="inline-flex h-[1em] w-[1.4ch] shrink-0 items-center justify-center state-running"
+          className={cn(
+            'inline-flex h-[1em] w-[1.4ch] shrink-0 items-center justify-center',
+            role === 'mentor'
+              ? 'role-mentor'
+              : role === 'executor'
+                ? 'role-executor'
+                : 'state-running'
+          )}
         >
           <span className="tty-spin">✻</span>
         </span>

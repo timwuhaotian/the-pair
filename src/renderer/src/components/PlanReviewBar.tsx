@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, RotateCcw } from 'lucide-react'
 import { usePairStore, type Pair } from '../store/usePairStore'
-import { extractErrorMessage } from '../lib/utils'
+import { cn, extractErrorMessage } from '../lib/utils'
+import { fieldInput } from '../lib/ui'
 import { GlassButton } from './ui/GlassButton'
 
 /**
@@ -42,7 +43,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
 
   return (
     <div className="rounded-sm border border-state-running/40 bg-state-running/[0.06] p-3 font-mono">
-      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] state-running">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] state-running">
         <span aria-hidden>▸</span>
         <span className="font-bold">{t('planReview.title')}</span>
       </div>
@@ -60,7 +61,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
             autoFocus
             disabled={submitting}
             data-testid="plan-feedback-input"
-            className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/60 focus:outline-none"
+            className={cn(fieldInput, 'resize-none font-mono leading-relaxed')}
           />
           <div className="flex items-center gap-2">
             <GlassButton

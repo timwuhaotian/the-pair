@@ -1,6 +1,9 @@
 import React from 'react'
 import { cn } from '../lib/utils'
 import { TokenChip } from './TokenChip'
+import { Chip } from './ui/Chip'
+import { toneClasses } from '../lib/ui'
+import { verdictTone } from '../lib/acceptanceTone'
 import type { TimelineEvent } from '../lib/timeline'
 import { formatTimestamp, formatDuration } from '../lib/timeline'
 
@@ -10,8 +13,8 @@ interface TimelineEventItemProps {
   isLast: boolean
 }
 
-function eventGlyph(type: TimelineEvent['type']): { char: string; tone: string } {
-  switch (type) {
+function eventGlyph(event: TimelineEvent): { char: string; tone: string } {
+  switch (event.type) {
     case 'mentor-plan':
     case 'mentor-review':
       return { char: '●', tone: 'role-mentor' }
@@ -20,7 +23,10 @@ function eventGlyph(type: TimelineEvent['type']): { char: string; tone: string }
     case 'human-feedback':
       return { char: '>', tone: 'role-human' }
     case 'acceptance-gate':
-      return { char: '◇', tone: 'state-running' }
+      return {
+        char: '◇',
+        tone: toneClasses(verdictTone(event.acceptanceVerdict?.verdict)).fg
+      }
     case 'handoff':
       return { char: '·', tone: 'text-muted-foreground-faint' }
   }
@@ -50,7 +56,7 @@ export function TimelineEventItem({
   isFirst,
   isLast
 }: TimelineEventItemProps): React.JSX.Element {
-  const g = eventGlyph(event.type)
+  const g = eventGlyph(event)
   return (
     <div className="relative flex gap-2 pb-2 last:pb-0 font-mono">
       <div className="relative flex w-3 shrink-0 flex-col items-center">
@@ -64,11 +70,11 @@ export function TimelineEventItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 flex-wrap">
           <span className={cn('text-[11px] font-bold', g.tone)}>{eventLabel(event)}</span>
-          <span className="text-[9px] tabular-nums text-muted-foreground-faint">
+          <span className="text-[10px] tabular-nums text-muted-foreground-faint">
             {formatTimestamp(event.timestamp)}
           </span>
           {event.durationMs != null && event.durationMs > 1000 && (
-            <span className="text-[9px] text-muted-foreground-faint">
+            <span className="text-[10px] text-muted-foreground-faint">
               {formatDuration(event.durationMs)}
             </span>
           )}
@@ -77,9 +83,7 @@ export function TimelineEventItem({
 
         {event.acceptanceVerdict && (
           <div className="mt-0.5 flex items-baseline gap-1.5">
-            <span className="border border-border px-1 py-px text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
-              {event.acceptanceVerdict.risk}
-            </span>
+            <Chip>{event.acceptanceVerdict.risk}</Chip>
           </div>
         )}
 

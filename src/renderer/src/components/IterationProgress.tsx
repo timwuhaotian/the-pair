@@ -42,7 +42,7 @@ export function IterationProgress({
       data-testid="iteration-progress"
     >
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+        <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {t(
             adaptiveBudget != null && adaptiveBudget !== max
               ? 'errors.iterationsAdaptive'

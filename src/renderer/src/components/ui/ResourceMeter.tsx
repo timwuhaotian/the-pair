@@ -71,7 +71,7 @@ function MeterRow({
   return (
     <div className={cn('flex items-baseline gap-2', compact ? 'text-[10px]' : 'text-[11px]')}>
       {!hideLabel && (
-        <span className="w-[3ch] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+        <span className="w-[3ch] uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
       )}
       <span
         className={cn('tabular-nums leading-none', isHigh ? 'state-running' : 'text-foreground/80')}

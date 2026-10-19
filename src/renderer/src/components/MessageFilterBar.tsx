@@ -1,6 +1,7 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
+import { hoverTint } from '../lib/ui'
 
 type MessageFilter = 'all' | 'mentor' | 'executor'
 
@@ -41,13 +42,15 @@ export function MessageFilterBar({
         return (
           <button
             key={key}
+            type="button"
+            aria-pressed={isActive}
             onClick={() => onFilterChange(key)}
             data-testid={`filter-${key}`}
             className={cn(
               'inline-flex items-baseline gap-1 rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-[0.12em] transition-colors cursor-pointer',
               isActive
                 ? activeClass
-                : 'border-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground/80'
+                : cn('border-transparent text-muted-foreground hover:text-foreground/80', hoverTint)
             )}
           >
             <span>{t(labelKey)}</span>

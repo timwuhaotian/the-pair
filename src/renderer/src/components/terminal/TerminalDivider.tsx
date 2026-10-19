@@ -19,7 +19,7 @@ export function TerminalDivider({
   return (
     <div
       className={cn(
-        'flex items-center gap-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground-faint select-none',
+        'flex items-center gap-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint select-none',
         className
       )}
     >

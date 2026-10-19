@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
+import { GlassButton } from './ui/GlassButton'
 
 interface ScrollToBottomButtonProps {
   scrollRef: React.RefObject<HTMLDivElement | null>
@@ -47,15 +48,17 @@ export function ScrollToBottomButton({
   if (!showButton) return null
 
   return (
-    <button
+    <GlassButton
+      variant="secondary"
+      size="xs"
+      icon={<ArrowDown size={11} />}
       onClick={scrollToBottom}
       className={cn(
-        'absolute bottom-4 right-4 z-10 inline-flex items-baseline gap-1 px-2 py-1 border border-border bg-background rounded-sm font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground hover:border-foreground/40 transition-colors cursor-pointer',
+        'absolute bottom-4 right-4 z-10 bg-background font-mono hover:bg-muted',
         className
       )}
     >
-      <ArrowDown size={10} className="translate-y-px" />
-      <span>· {t('console.newMessages')}</span>
-    </button>
+      {t('console.newMessages')}
+    </GlassButton>
   )
 }

@@ -2,6 +2,9 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { File, Folder } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { cn } from '../lib/utils'
+import { Z, emptyHint, menuItem, popoverSurface } from '../lib/ui'
 import { createCompositionTracker, isImeKeyEvent } from './keyboard'
 import {
   placeMentionPopup,
@@ -9,6 +12,7 @@ import {
   type CaretLineRect,
   type MentionPopupPosition
 } from './mentionText'
+import { scrollActiveOptionIntoView } from '../lib/listbox'
 
 interface FileEntry {
   path: string
@@ -30,6 +34,7 @@ export function FileMention({
   pairId,
   onFileSelect
 }: FileMentionProps): React.ReactNode {
+  const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<FileEntry[]>([])
@@ -38,6 +43,10 @@ export function FileMention({
   const [position, setPosition] = useState<MentionPopupPosition>({ top: 0, left: 0 })
   const [files, setFiles] = useState<FileEntry[]>([])
   const popoverRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  // Pointer hover moves the highlight too, but must not scroll the list under
+  // the cursor — only keyboard moves bring the active row into view.
+  const pointerNavRef = useRef(false)
 
   const [fuse, setFuse] = useState<Fuse<FileEntry> | null>(null)
   const filesRef = useRef<FileEntry[]>([])
@@ -182,6 +191,7 @@ export function FileMention({
       setCaret(getCaretRect())
       setIsOpen(true)
       isOpenRef.current = true
+      pointerNavRef.current = false
       setSelectedIndex(0)
       selectedIndexRef.current = 0
     }
@@ -213,6 +223,7 @@ export function FileMention({
         e.stopPropagation()
         if (resultsRef.current.length === 0) return
         const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
+        pointerNavRef.current = false
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
       } else if (e.key === 'ArrowUp') {
@@ -221,6 +232,7 @@ export function FileMention({
         if (resultsRef.current.length === 0) return
         const newIndex =
           (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
+        pointerNavRef.current = false
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
       } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
@@ -290,43 +302,72 @@ export function FileMention({
   }, [query, fuse])
 
   // The popover is content-sized, so pick its side from the rendered height
-  // (before paint) rather than the `max-h-64` cap.
+  // (before paint) rather than the `max-h-72` cap.
   useLayoutEffect(() => {
     const popover = popoverRef.current
     if (!isOpen || !caret || !popover) return
     setPosition(placeMentionPopup(caret, window.innerHeight, popover.offsetHeight))
   }, [isOpen, caret, results])
 
-  if (!isOpen || results.length === 0) return null
+  useEffect(() => {
+    if (isOpen && !pointerNavRef.current) scrollActiveOptionIntoView(listRef.current)
+  }, [isOpen, selectedIndex, results])
+
+  if (!isOpen) return null
 
   // mousedown is prevented on the popover so focus stays in the textarea: its
   // blur handler would otherwise close the popover before an item click lands.
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[9999] max-h-64 w-80 overflow-y-auto rounded-sm border border-border bg-popover font-mono scrollbar-thin"
+      className={cn(
+        'fixed flex max-h-72 w-96 flex-col overflow-hidden font-mono',
+        Z.popover,
+        popoverSurface
+      )}
       style={position}
       onMouseDown={(e) => e.preventDefault()}
     >
-      {results.map((file, index) => (
-        <div
-          key={file.path}
-          className={`flex cursor-pointer items-baseline gap-2 px-2 py-1 text-[11px] ${
-            index === selectedIndex ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.04]'
-          }`}
-          onClick={() => void insertMention(file.path)}
-        >
-          {file.type === 'directory' ? (
-            <Folder size={11} className="state-running translate-y-px shrink-0" />
-          ) : (
-            <File size={11} className="role-mentor translate-y-px shrink-0" />
-          )}
-          <span className="truncate text-foreground/90">{file.path}</span>
-        </div>
-      ))}
-      {files.length > 50 && (
+      <div
+        ref={listRef}
+        role="listbox"
+        aria-label={t('console.mentionFiles')}
+        className="flex-1 overflow-y-auto p-1 scrollbar-thin"
+      >
+        {results.length === 0 ? (
+          <div className={emptyHint}>
+            {files.length === 0 ? t('console.mentionNoFiles') : t('console.mentionNoMatch')}
+          </div>
+        ) : (
+          results.map((file, index) => (
+            <div
+              key={file.path}
+              role="option"
+              aria-selected={index === selectedIndex}
+              className={menuItem(index === selectedIndex)}
+              onMouseEnter={() => {
+                pointerNavRef.current = true
+                setSelectedIndex(index)
+                selectedIndexRef.current = index
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                void insertMention(file.path)
+              }}
+            >
+              {file.type === 'directory' ? (
+                <Folder size={12} aria-hidden className="shrink-0 text-muted-foreground" />
+              ) : (
+                <File size={12} aria-hidden className="shrink-0 text-muted-foreground" />
+              )}
+              <span className="truncate">{file.path}</span>
+            </div>
+          ))
+        )}
+      </div>
+      {files.length > results.length && results.length === 50 && (
         <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground-faint">
-          · {files.length - 50} more files…
+          {t('console.moreFiles', { count: files.length - results.length })}
         </div>
       )}
     </div>,

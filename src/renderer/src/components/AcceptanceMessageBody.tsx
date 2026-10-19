@@ -1,14 +1,18 @@
-import { cn } from '../lib/utils'
 import {
   parseAcceptanceVerdictForDisplay,
   parseAcceptanceRecordForDisplay,
   isAcceptanceRecordContent
 } from '../lib/acceptance'
+import { verdictTone } from '../lib/acceptanceTone'
 import { MarkdownContent } from './MarkdownContent'
+import { Chip } from './ui/Chip'
 
-function verdictTone(verdict: string): { tone: string; glyph: string } {
-  if (verdict === 'pass') return { tone: 'state-done border-state-done bg-state-done', glyph: '✓' }
-  return { tone: 'state-running border-state-running bg-state-running', glyph: '!' }
+function VerdictChip({ verdict }: { verdict: string }): React.ReactNode {
+  return (
+    <Chip tone={verdictTone(verdict)}>
+      <span aria-hidden>{verdict === 'pass' ? '✓' : '!'}</span>[{verdict}]
+    </Chip>
+  )
 }
 
 function CheckGlyph({ status }: { status: string }): React.ReactNode {
@@ -20,33 +24,6 @@ function CheckGlyph({ status }: { status: string }): React.ReactNode {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-function Tag({
-  children,
-  tone = 'muted'
-}: {
-  children: React.ReactNode
-  tone?: 'muted' | 'done' | 'running' | 'error'
-}): React.ReactNode {
-  const toneClass =
-    tone === 'done'
-      ? 'border-state-done bg-state-done state-done'
-      : tone === 'running'
-        ? 'border-state-running bg-state-running state-running'
-        : tone === 'error'
-          ? 'border-state-error bg-state-error state-error'
-          : 'border-border bg-background/40 text-muted-foreground'
-  return (
-    <span
-      className={cn(
-        'inline-flex items-baseline gap-1 border px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.14em]',
-        toneClass
-      )}
-    >
-      {children}
-    </span>
-  )
 }
 
 export function AcceptanceMessageBody({ content }: { content: string }): React.ReactNode {
@@ -62,27 +39,18 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
     return <MarkdownContent content={content} />
   }
 
-  const v = verdictTone(verdict.verdict)
-
   return (
     <div className="space-y-2 font-mono">
       <div className="flex flex-wrap items-baseline gap-1.5">
-        <span
-          className={cn(
-            'inline-flex items-baseline gap-1 border px-1.5 py-px text-[10px] uppercase tracking-[0.14em]',
-            v.tone
-          )}
-        >
-          <span aria-hidden>{v.glyph}</span>[{verdict.verdict}]
-        </span>
-        <Tag>risk·{verdict.risk}</Tag>
-        <Tag>next·{verdict.nextStep.action}</Tag>
+        <VerdictChip verdict={verdict.verdict} />
+        <Chip>risk·{verdict.risk}</Chip>
+        <Chip>next·{verdict.nextStep.action}</Chip>
       </div>
 
       <p className="text-[12px] leading-relaxed text-foreground/90">{verdict.summary}</p>
 
       <div className="space-y-0.5">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           ── evidence ──
         </div>
         <ul className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
@@ -97,7 +65,7 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
 
       {verdict.nextStep.instructions.length > 0 && (
         <div className="space-y-0.5">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             ── next step ──
           </div>
           <ol className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
@@ -129,17 +97,17 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
   return (
     <div className="space-y-2 font-mono">
       <div className="flex flex-wrap items-baseline gap-1.5">
-        <Tag>risk·{record.risk}</Tag>
-        <Tag>iter·{record.iteration}</Tag>
-        <Tag tone={failedCount === 0 ? 'done' : 'error'}>
+        <Chip>risk·{record.risk}</Chip>
+        <Chip>iter·{record.iteration}</Chip>
+        <Chip tone={failedCount === 0 ? 'done' : 'error'}>
           {passedCount}/{record.checks.length} passed
-        </Tag>
+        </Chip>
       </div>
 
       <p className="text-[12px] leading-relaxed text-foreground/90">{record.summary}</p>
 
       <div className="space-y-1">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           ── checks ──
         </div>
         <div className="space-y-0.5">
@@ -166,19 +134,7 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
 
       {record.verdict && (
         <div className="flex flex-wrap items-baseline gap-1.5 pt-1 border-t border-border/40">
-          {(() => {
-            const v = verdictTone(record.verdict.verdict)
-            return (
-              <span
-                className={cn(
-                  'inline-flex items-baseline gap-1 border px-1.5 py-px text-[10px] uppercase tracking-[0.14em]',
-                  v.tone
-                )}
-              >
-                <span aria-hidden>{v.glyph}</span>[{record.verdict.verdict}]
-              </span>
-            )
-          })()}
+          <VerdictChip verdict={record.verdict.verdict} />
           <span className="text-[11px] text-foreground/80">{record.verdict.summary}</span>
         </div>
       )}
