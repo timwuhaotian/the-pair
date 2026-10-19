@@ -57,3 +57,24 @@ test('shell provides card and source-list surfaces', () => {
   assert.match(css, /\.app-source-list \{/)
   assert.match(css, /prefers-reduced-transparency/)
 })
+
+test('state, role and surface accents are registered as theme colors', () => {
+  // Without an @theme entry Tailwind silently drops opacity / variant
+  // utilities like `bg-state-running/15` or `hover:text-state-error`.
+  const themeBlock = /@theme \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? ''
+  for (const token of [
+    'state-running',
+    'state-done',
+    'state-error',
+    'role-mentor',
+    'role-executor',
+    'role-human',
+    'surface-base',
+    'surface-raised',
+    'surface-sunken',
+    'rule',
+    'rule-strong'
+  ]) {
+    assert.match(themeBlock, new RegExp(`--color-${token}: var\\(--${token}\\);`), token)
+  }
+})

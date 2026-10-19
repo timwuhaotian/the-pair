@@ -51,6 +51,22 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
 
+  /* Role + state accents and surfaces. Registered here so opacity and
+     variant utilities (`bg-state-running/15`, `hover:text-state-error`,
+     `outline-state-running/60`) are generated; the hand-written
+     `.bg-state-*` / `.border-role-*` mixes below still take precedence. */
+  --color-state-running: var(--state-running);
+  --color-state-done: var(--state-done);
+  --color-state-error: var(--state-error);
+  --color-role-mentor: var(--role-mentor);
+  --color-role-executor: var(--role-executor);
+  --color-role-human: var(--role-human);
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 1px);
   --radius-sm: calc(var(--radius) - 2px);

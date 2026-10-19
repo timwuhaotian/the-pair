@@ -71,8 +71,8 @@ export function UpdateControls(): React.ReactNode {
         icon={icon}
         className={cn(
           'whitespace-nowrap',
-          isError && 'border-state-error state-error hover:bg-state-error',
-          isUpToDate && 'border-state-done state-done hover:bg-state-done'
+          isError && 'border-state-error state-error hover:bg-state-error/10',
+          isUpToDate && 'border-state-done state-done hover:bg-state-done/10'
         )}
         title={message || undefined}
       >
