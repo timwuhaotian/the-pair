@@ -62,10 +62,12 @@ function PairCard({
       <div className="flex min-w-0 items-center gap-2">
         {/* The name is the card's primary action; its ::after stretches over the
             whole card so the card stays one click target without nesting the
-            pause/delete buttons inside another button. */}
+            pause/delete buttons inside another button. That also makes it the
+            hover target for every row, so the card's tooltip lives here. */}
         <button
           type="button"
           onClick={() => onSelectPair(pair)}
+          title={pair.spec || pair.directory || undefined}
           className={cn(
             'min-w-0 flex-1 cursor-pointer truncate text-left text-[14px] font-medium text-foreground',
             "after:absolute after:inset-0 after:rounded-[inherit] after:content-['']",
@@ -114,12 +116,7 @@ function PairCard({
         )}
       </div>
       {(pair.spec || pair.directory) && (
-        <p
-          className="truncate text-[12px] text-muted-foreground"
-          title={pair.spec || pair.directory}
-        >
-          {pair.spec || pair.directory}
-        </p>
+        <p className="truncate text-[12px] text-muted-foreground">{pair.spec || pair.directory}</p>
       )}
     </motion.div>
   )
