@@ -241,8 +241,11 @@ impl Provider for PiProvider {
         "Pay as you go"
     }
 
-    fn access_label(&self, _source_provider_label: &str) -> String {
-        "Pi config".into()
+    fn access_label(&self, source_provider_label: &str) -> String {
+        // One Pi install can reach the same model through several of its
+        // providers (Anthropic login, GitHub Copilot, OpenRouter); the route
+        // picker needs the provider to tell those routes apart.
+        source_provider_label.to_string()
     }
 
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {

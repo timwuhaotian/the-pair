@@ -103,10 +103,64 @@ fn strip_effort_slug_suffix(slug: &str) -> String {
     slug.to_string()
 }
 
+/// The vendor that makes a model, read from the model slug itself. Multi-route
+/// CLIs (OpenCode, Pi, Kiro, Aider) reach the same model through gateways whose
+/// names say nothing about the model (`openrouter`, `github-copilot`, `kiro`),
+/// so the slug is the only identity they share with the native CLI. `None`
+/// for slugs outside the known families, which keep the route's own brand.
+fn infer_model_vendor(id_base: &str) -> Option<&'static str> {
+    let bare = id_base.rsplit('/').next().unwrap_or(id_base).to_lowercase();
+    let family = |prefix: &str| {
+        bare.strip_prefix(prefix).is_some_and(|rest| {
+            rest.is_empty() || !rest.starts_with(|c: char| c.is_ascii_alphabetic())
+        })
+    };
+    let vendor = if bare.starts_with("claude") {
+        "anthropic"
+    } else if bare.starts_with("gpt") || ["o1", "o3", "o4"].into_iter().any(family) {
+        "openai"
+    } else if bare.starts_with("gemini") || bare.starts_with("gemma") {
+        "google"
+    } else if bare.starts_with("grok") {
+        "xai"
+    } else if bare.starts_with("kimi") {
+        "kimi"
+    } else if bare.starts_with("deepseek") {
+        "deepseek"
+    } else if bare.starts_with("glm") {
+        "zai"
+    } else if bare.starts_with("qwen") {
+        "qwen"
+    } else if bare.starts_with("minimax") {
+        "minimax"
+    } else if bare.starts_with("llama") {
+        "meta"
+    } else {
+        return None;
+    };
+    Some(vendor)
+}
+
+/// A readable model name. Rows whose label is a bare slug (`claude-sonnet-4.5`,
+/// `anthropic/claude-sonnet-4-5`) are what most non-native CLIs report; strip
+/// the gateway prefix and prettify Claude slugs so every route of one model
+/// reads the same as the native Claude Code row.
+fn readable_model_name(display: &str) -> String {
+    if display.contains(char::is_whitespace) {
+        return display.to_string();
+    }
+    let bare = display.rsplit('/').next().unwrap_or(display);
+    crate::provider_registry::beautify_claude_display_name(bare)
+}
+
 /// The brand a model belongs to, used as the high-order part of the canonical key.
-/// Native providers map to their fixed brand; OpenCode rides on the resolved source
-/// label so an OpenCode "openai/*" model keys to the same brand as native Codex.
-fn brand_for_key(kind: ProviderKind, source_provider_label: &str) -> String {
+/// A recognised model family wins, so the same model keys identically through every
+/// CLI and gateway. Otherwise native providers map to their fixed brand and OpenCode
+/// rides on the resolved source label.
+fn brand_for_key(kind: ProviderKind, source_provider_label: &str, id_base: &str) -> String {
+    if let Some(vendor) = infer_model_vendor(id_base) {
+        return vendor.to_string();
+    }
     let Some(provider) = crate::providers::provider_for_kind(kind) else {
         return source_provider_label.to_lowercase();
     };
@@ -144,7 +198,7 @@ fn normalize_model_base(base_name: &str) -> String {
 fn compute_canonical_key(kind: ProviderKind, source_provider_label: &str, id_base: &str) -> String {
     format!(
         "{}::{}",
-        brand_for_key(kind, source_provider_label),
+        brand_for_key(kind, source_provider_label, id_base),
         normalize_model_base(id_base)
     )
 }
@@ -235,8 +289,10 @@ impl ModelCatalog {
                 // (`gemini-3.8-flash-low`); strip it so every effort variant collapses onto
                 // one canonical model, and tag the effort so the UI can offer it as a
                 // sub-control.
+                let normalized_display = provider.normalize_model_display_name(&model.display_name);
                 let (id_base, effort_from_id) = split_effort_suffix(&model.model_id);
-                let (display_base, effort_from_display) = split_effort_suffix(&model.display_name);
+                let (display_base, effort_from_display) = split_effort_suffix(&normalized_display);
+                let display_base = readable_model_name(&display_base);
                 let id_base = if effort_from_display.is_some() {
                     strip_effort_slug_suffix(&id_base)
                 } else {
@@ -245,9 +301,6 @@ impl ModelCatalog {
                 let effort_tag = effort_from_display.or(effort_from_id);
                 let canonical_key =
                     compute_canonical_key(profile.kind, &source_provider_label, &id_base);
-
-                // Normalize display name (e.g. Claude beautifier).
-                let normalized_display = provider.normalize_model_display_name(&model.display_name);
 
                 let entry = AvailableModel {
                     provider: profile.kind,
@@ -908,6 +961,136 @@ mod tests {
         assert_eq!(
             catalog[0].plan_label.as_deref(),
             Some("subscription-backed")
+        );
+    }
+
+    #[test]
+    fn build_catalog_merges_one_model_across_every_cli_and_gateway() {
+        // Claude Sonnet 4.5 as Claude Code, Kiro, Pi (two gateways) and Aider
+        // report it: different slugs, prefixes and labels, one model.
+        let catalog = ModelCatalog::build_catalog(vec![
+            profile(
+                ProviderKind::Claude,
+                true,
+                true,
+                true,
+                "subscription-backed",
+                vec![model(
+                    "claude-sonnet-4-5-20250929",
+                    "claude-sonnet-4-5-20250929",
+                    Some("anthropic"),
+                    None,
+                    "subscription-backed",
+                    true,
+                    true,
+                )],
+            ),
+            profile(
+                ProviderKind::Kiro,
+                true,
+                true,
+                true,
+                "kiro",
+                vec![model(
+                    "claude-sonnet-4.5",
+                    "claude-sonnet-4.5",
+                    Some("kiro"),
+                    None,
+                    "kiro",
+                    true,
+                    true,
+                )],
+            ),
+            profile(
+                ProviderKind::Pi,
+                true,
+                true,
+                true,
+                "pi",
+                vec![
+                    model(
+                        "anthropic/claude-sonnet-4-5",
+                        "anthropic/claude-sonnet-4-5",
+                        Some("anthropic"),
+                        None,
+                        "pi",
+                        true,
+                        true,
+                    ),
+                    model(
+                        "github-copilot/claude-sonnet-4.5",
+                        "github-copilot/claude-sonnet-4.5",
+                        Some("github-copilot"),
+                        None,
+                        "pi",
+                        true,
+                        true,
+                    ),
+                ],
+            ),
+            profile(
+                ProviderKind::Aider,
+                true,
+                true,
+                true,
+                "byok",
+                vec![model(
+                    "claude-sonnet-4-5",
+                    "claude-sonnet-4-5",
+                    Some("aider"),
+                    None,
+                    "byok",
+                    true,
+                    true,
+                )],
+            ),
+        ]);
+
+        assert_eq!(catalog.len(), 5);
+        for entry in &catalog {
+            assert_eq!(
+                entry.canonical_key, "anthropic::claude-sonnet-4-5",
+                "{} via {:?}",
+                entry.model_id, entry.provider
+            );
+            assert_eq!(entry.canonical_display_name, "Claude Sonnet 4.5");
+        }
+        let pi_labels: Vec<&str> = catalog
+            .iter()
+            .filter(|m| m.provider == ProviderKind::Pi)
+            .map(|m| m.access_label.as_str())
+            .collect();
+        assert_eq!(pi_labels.len(), 2);
+        assert_ne!(
+            pi_labels[0], pi_labels[1],
+            "each Pi gateway is its own route"
+        );
+    }
+
+    #[test]
+    fn infer_model_vendor_reads_the_family_and_leaves_unknown_slugs_alone() {
+        assert_eq!(
+            infer_model_vendor("openrouter/openai/gpt-5.2"),
+            Some("openai")
+        );
+        assert_eq!(infer_model_vendor("o3-mini"), Some("openai"));
+        assert_eq!(infer_model_vendor("gemini/gemini-2.5-pro"), Some("google"));
+        assert_eq!(
+            infer_model_vendor("kimi-code/kimi-for-coding"),
+            Some("kimi")
+        );
+        assert_eq!(infer_model_vendor("auto"), None);
+        assert_eq!(infer_model_vendor("opus"), None);
+        assert_eq!(infer_model_vendor("omni-x"), None);
+    }
+
+    #[test]
+    fn readable_model_name_keeps_curated_labels() {
+        assert_eq!(readable_model_name("GPT-4o Mini"), "GPT-4o Mini");
+        assert_eq!(readable_model_name("openai/gpt-5.2"), "gpt-5.2");
+        assert_eq!(
+            readable_model_name("anthropic/claude-opus-4-6"),
+            "Claude Opus 4.6"
         );
     }
 }
