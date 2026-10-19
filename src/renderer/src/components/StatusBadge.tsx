@@ -1,20 +1,20 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
+import type { Tone } from '../lib/ui'
+import { Chip } from './ui/Chip'
 
 interface StatusBadgeProps {
   status: string
   stalled?: boolean
 }
 
-type Tone = 'mentor' | 'executor' | 'running' | 'done' | 'error' | 'muted'
-
 const STATUS_TONE: Record<string, Tone> = {
-  Idle: 'muted',
+  Idle: 'neutral',
   Mentoring: 'mentor',
   Executing: 'executor',
   Reviewing: 'running',
-  Paused: 'muted',
+  Paused: 'neutral',
   'Awaiting Human Review': 'running',
   Error: 'error',
   Finished: 'done'
@@ -31,32 +31,10 @@ const STATUS_GLYPH: Record<string, string> = {
   Finished: '✓'
 }
 
-function toneClasses(tone: Tone): { fg: string; bg: string; border: string } {
-  switch (tone) {
-    case 'mentor':
-      return { fg: 'role-mentor', bg: 'bg-role-mentor', border: 'border-role-mentor' }
-    case 'executor':
-      return { fg: 'role-executor', bg: 'bg-role-executor', border: 'border-role-executor' }
-    case 'running':
-      return { fg: 'state-running', bg: 'bg-state-running', border: 'border-state-running' }
-    case 'done':
-      return { fg: 'state-done', bg: 'bg-state-done', border: 'border-state-done' }
-    case 'error':
-      return { fg: 'state-error', bg: 'bg-state-error', border: 'border-state-error' }
-    default:
-      return {
-        fg: 'text-muted-foreground',
-        bg: 'bg-muted',
-        border: 'border-border'
-      }
-  }
-}
-
 export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactNode {
   const { t } = useTranslation()
-  const tone: Tone = stalled ? 'error' : (STATUS_TONE[status] ?? 'muted')
+  const tone: Tone = stalled ? 'error' : (STATUS_TONE[status] ?? 'neutral')
   const glyph = stalled ? '!' : (STATUS_GLYPH[status] ?? '·')
-  const c = toneClasses(tone)
   const isActive =
     status === 'Mentoring' || status === 'Executing' || status === 'Reviewing' || stalled
 
@@ -64,19 +42,11 @@ export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactN
   const label = t(`status.${status}`, { defaultValue: status })
 
   return (
-    <span
-      className={cn(
-        'inline-flex items-baseline gap-1 border rounded-full px-2 py-px text-[11px] font-medium',
-        c.fg,
-        c.bg,
-        c.border
-      )}
-      title={label}
-    >
+    <Chip shape="pill" tone={tone} title={label}>
       <span aria-hidden className={cn('select-none w-[1ch] tabular-nums', isActive && 'tty-blink')}>
         {glyph}
       </span>
       <span>{label}</span>
-    </span>
+    </Chip>
   )
 }
