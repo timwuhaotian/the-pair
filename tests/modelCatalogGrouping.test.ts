@@ -383,3 +383,29 @@ test('one model via several CLIs and gateways is one row with one route per gate
     ['Claude Code ', 'Pi Anthropic', 'Pi Github-copilot']
   )
 })
+
+test('a native CLI label names the model over every gateway slug, whatever the rank', () => {
+  const grok = { canonicalKey: 'xai::grok-4-6', canonicalDisplayName: 'Grok 4.6' }
+  const models = buildCanonicalModels([
+    makeModel({
+      provider: 'opencode',
+      modelId: 'xai/grok-4.6',
+      providerLabel: 'OpenCode',
+      sourceProvider: 'xai',
+      ...grok,
+      canonicalDisplayName: 'grok-4.6'
+    }),
+    makeModel({
+      provider: 'pi',
+      modelId: 'openrouter/x-ai/grok-4.6',
+      providerLabel: 'Pi',
+      sourceProvider: 'openrouter',
+      ...grok,
+      canonicalDisplayName: 'x-ai/grok-4.6'
+    }),
+    makeModel({ provider: 'grok', modelId: 'grok-4.6', providerLabel: 'Grok', ...grok })
+  ])
+
+  assert.equal(models.length, 1)
+  assert.equal(models[0].displayName, 'Grok 4.6', 'named after the native Grok route')
+})
