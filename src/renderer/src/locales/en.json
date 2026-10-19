@@ -71,7 +71,9 @@
     "muteSounds": "Mute sounds",
     "unmuteSounds": "Unmute sounds",
     "switchToDark": "Switch to dark mode",
-    "switchToLight": "Switch to light mode"
+    "switchToLight": "Switch to light mode",
+    "switchLanguage": "Switch language",
+    "language": "Language"
   },
   "dashboard": {
     "title": "Pair Containers",
@@ -328,7 +330,10 @@
     "working": "Working...",
     "pausedAt": "Paused {{date}}",
     "finishedAt": "Finished {{date}}",
-    "retryFailed": "Retry failed"
+    "retryFailed": "Retry failed",
+    "loadingDiff": "loading diff…",
+    "copyTimelineMarkdown": "Copy as Markdown",
+    "exportTimelineHtml": "Export as HTML"
   },
   "console": {
     "all": "All",
@@ -380,7 +385,21 @@
     "searchNoMatches": "No matches",
     "searchPrev": "Previous match",
     "searchNext": "Next match",
-    "searchClose": "Close search"
+    "searchClose": "Close search",
+    "stepCount_one": "{{count}} step",
+    "stepCount_other": "{{count}} steps",
+    "tokUnit": "tok",
+    "tokTooltipOutput": "output: {{value}} tokens",
+    "tokTooltipInput": "input: {{value}} tokens",
+    "tokTooltipTotal": "total: {{value}} tokens",
+    "tokTooltipSource": "source: {{value}}",
+    "tokTooltipProvider": "provider: {{value}}",
+    "tokWaiting": "waiting for token data…",
+    "mentionFiles": "files",
+    "mentionNoFiles": "no files found",
+    "mentionNoMatch": "no files match",
+    "moreFiles_one": "{{count}} more file…",
+    "moreFiles_other": "{{count}} more files…"
   },
   "skills": {
     "popoverTitle": "skills",
@@ -445,7 +464,8 @@
     "remindLater": "Remind me later",
     "installingPercent": "Installing {{percent}}%",
     "failedTitle": "Update failed",
-    "close": "Close"
+    "close": "Close",
+    "releaseNotes": "Release notes"
   },
   "history": {
     "title": "Task History",

@@ -71,7 +71,9 @@
     "muteSounds": "静音",
     "unmuteSounds": "取消静音",
     "switchToDark": "切换到深色模式",
-    "switchToLight": "切换到浅色模式"
+    "switchToLight": "切换到浅色模式",
+    "switchLanguage": "切换语言",
+    "language": "语言"
   },
   "dashboard": {
     "title": "Pair 容器",
@@ -328,7 +330,10 @@
     "working": "工作中...",
     "pausedAt": "已暂停于 {{date}}",
     "finishedAt": "已完成于 {{date}}",
-    "retryFailed": "重试失败"
+    "retryFailed": "重试失败",
+    "loadingDiff": "正在加载差异…",
+    "copyTimelineMarkdown": "复制为 Markdown",
+    "exportTimelineHtml": "导出为 HTML"
   },
   "console": {
     "all": "全部",
@@ -380,7 +385,21 @@
     "searchNoMatches": "无匹配",
     "searchPrev": "上一个匹配",
     "searchNext": "下一个匹配",
-    "searchClose": "关闭搜索"
+    "searchClose": "关闭搜索",
+    "stepCount_one": "{{count}} 步",
+    "stepCount_other": "{{count}} 步",
+    "tokUnit": "tok",
+    "tokTooltipOutput": "输出：{{value}} tokens",
+    "tokTooltipInput": "输入：{{value}} tokens",
+    "tokTooltipTotal": "合计：{{value}} tokens",
+    "tokTooltipSource": "来源：{{value}}",
+    "tokTooltipProvider": "提供方：{{value}}",
+    "tokWaiting": "等待 token 数据…",
+    "mentionFiles": "文件",
+    "mentionNoFiles": "未找到文件",
+    "mentionNoMatch": "没有匹配的文件",
+    "moreFiles_one": "还有 {{count}} 个文件…",
+    "moreFiles_other": "还有 {{count}} 个文件…"
   },
   "skills": {
     "popoverTitle": "技能",
@@ -445,7 +464,8 @@
     "remindLater": "稍后提醒",
     "installingPercent": "已安装 {{percent}}%",
     "failedTitle": "更新失败",
-    "close": "关闭"
+    "close": "关闭",
+    "releaseNotes": "更新说明"
   },
   "history": {
     "title": "任务历史",

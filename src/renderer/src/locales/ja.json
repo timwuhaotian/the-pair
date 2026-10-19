@@ -61,7 +61,9 @@
     "muteSounds": "ミュート",
     "unmuteSounds": "ミュート解除",
     "switchToDark": "ダークモードに切り替え",
-    "switchToLight": "ライトモードに切り替え"
+    "switchToLight": "ライトモードに切り替え",
+    "switchLanguage": "言語を切り替え",
+    "language": "言語"
   },
   "dashboard": {
     "title": "ペアコンテナ",
@@ -318,7 +320,10 @@
     "working": "作業中...",
     "pausedAt": "一時停止: {{date}}",
     "finishedAt": "完了: {{date}}",
-    "retryFailed": "再試行に失敗しました"
+    "retryFailed": "再試行に失敗しました",
+    "loadingDiff": "差分を読み込み中…",
+    "copyTimelineMarkdown": "Markdown としてコピー",
+    "exportTimelineHtml": "HTML としてエクスポート"
   },
   "console": {
     "all": "すべて",
@@ -370,7 +375,21 @@
     "searchNoMatches": "一致なし",
     "searchPrev": "前の一致",
     "searchNext": "次の一致",
-    "searchClose": "検索を閉じる"
+    "searchClose": "検索を閉じる",
+    "stepCount_one": "{{count}} ステップ",
+    "stepCount_other": "{{count}} ステップ",
+    "tokUnit": "tok",
+    "tokTooltipOutput": "出力: {{value}} トークン",
+    "tokTooltipInput": "入力: {{value}} トークン",
+    "tokTooltipTotal": "合計: {{value}} トークン",
+    "tokTooltipSource": "ソース: {{value}}",
+    "tokTooltipProvider": "プロバイダー: {{value}}",
+    "tokWaiting": "トークンデータを待機中…",
+    "mentionFiles": "ファイル",
+    "mentionNoFiles": "ファイルが見つかりません",
+    "mentionNoMatch": "一致するファイルはありません",
+    "moreFiles_one": "他 {{count}} 件のファイル…",
+    "moreFiles_other": "他 {{count}} 件のファイル…"
   },
   "skills": {
     "popoverTitle": "スキル",
@@ -435,7 +454,8 @@
     "remindLater": "後で通知",
     "installingPercent": "インストール {{percent}}%",
     "failedTitle": "アップデートに失敗しました",
-    "close": "閉じる"
+    "close": "閉じる",
+    "releaseNotes": "リリースノート"
   },
   "history": {
     "title": "タスク履歴",

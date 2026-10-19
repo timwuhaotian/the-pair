@@ -61,7 +61,9 @@
     "muteSounds": "소리 음소거",
     "unmuteSounds": "소리 음소거 해제",
     "switchToDark": "다크 모드로 전환",
-    "switchToLight": "라이트 모드로 전환"
+    "switchToLight": "라이트 모드로 전환",
+    "switchLanguage": "언어 전환",
+    "language": "언어"
   },
   "dashboard": {
     "title": "페어 컨테이너",
@@ -318,7 +320,10 @@
     "working": "작업 중...",
     "pausedAt": "일시 중지됨: {{date}}",
     "finishedAt": "완료됨: {{date}}",
-    "retryFailed": "재시도 실패"
+    "retryFailed": "재시도 실패",
+    "loadingDiff": "diff 불러오는 중…",
+    "copyTimelineMarkdown": "Markdown으로 복사",
+    "exportTimelineHtml": "HTML로 내보내기"
   },
   "console": {
     "all": "전체",
@@ -370,7 +375,21 @@
     "searchNoMatches": "일치 없음",
     "searchPrev": "이전 일치",
     "searchNext": "다음 일치",
-    "searchClose": "검색 닫기"
+    "searchClose": "검색 닫기",
+    "stepCount_one": "{{count}}단계",
+    "stepCount_other": "{{count}}단계",
+    "tokUnit": "tok",
+    "tokTooltipOutput": "출력: {{value}} 토큰",
+    "tokTooltipInput": "입력: {{value}} 토큰",
+    "tokTooltipTotal": "합계: {{value}} 토큰",
+    "tokTooltipSource": "소스: {{value}}",
+    "tokTooltipProvider": "제공자: {{value}}",
+    "tokWaiting": "토큰 데이터를 기다리는 중…",
+    "mentionFiles": "파일",
+    "mentionNoFiles": "파일을 찾을 수 없음",
+    "mentionNoMatch": "일치하는 파일 없음",
+    "moreFiles_one": "파일 {{count}}개 더…",
+    "moreFiles_other": "파일 {{count}}개 더…"
   },
   "skills": {
     "popoverTitle": "스킬",
@@ -435,7 +454,8 @@
     "remindLater": "나중에 알림",
     "installingPercent": "설치 중 {{percent}}%",
     "failedTitle": "업데이트 실패",
-    "close": "닫기"
+    "close": "닫기",
+    "releaseNotes": "릴리스 노트"
   },
   "history": {
     "title": "작업 기록",
