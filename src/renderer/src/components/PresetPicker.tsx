@@ -1,17 +1,11 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  Bug,
-  RefreshCw,
-  Sparkles,
-  Shield,
-  AlertCircle,
-  HelpCircle,
-  FlaskConical
-} from 'lucide-react'
+import { Bug, RefreshCw, Sparkles, Shield, HelpCircle, FlaskConical } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { Z, errorCallout, hoverTint, popoverSurface } from '../lib/ui'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
 import type { PairPreset } from '../types'
 
 interface PresetPickerProps {
@@ -48,7 +42,7 @@ function PresetPopover({
   children
 }: {
   preset: PairPreset
-  children: React.ReactNode | ((show: () => void, hide: () => void) => React.ReactNode)
+  children: React.ReactNode
 }): React.ReactNode {
   const [open, setOpen] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,17 +86,22 @@ function PresetPopover({
 
   return (
     <>
-      <div ref={triggerRef} className="inline-block" data-preset-popover>
-        {typeof children === 'function'
-          ? // eslint-disable-next-line react-hooks/refs
-            (children as (show: () => void, hide: () => void) => React.ReactNode)(show, hide)
-          : children}
+      <div
+        ref={triggerRef}
+        className="inline-flex"
+        data-preset-popover
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {children}
       </div>
       {open &&
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed z-[9999] w-64 rounded-md border border-border bg-popover p-3 text-[12px]"
+            className={cn('fixed w-64 p-3 text-[12px]', Z.popover, popoverSurface)}
             style={{ top: position.top, left: position.left }}
             onMouseEnter={show}
             onFocus={show}
@@ -116,7 +115,7 @@ function PresetPopover({
                   {preset.recommendedSkills.map((skill) => (
                     <span
                       key={skill}
-                      className="inline-flex items-center border border-border bg-background px-1 py-px text-[10px] text-foreground/85"
+                      className="inline-flex items-center rounded-sm border border-border bg-background px-1 py-px text-[10px] text-foreground/85"
                     >
                       {skill}
                     </span>
@@ -151,22 +150,23 @@ function PresetCard({
   selected: boolean
   onSelect: () => void
 }): React.ReactNode {
+  const { t } = useTranslation()
   const c = getTone(preset.id)
 
   return (
-    <button
-      type="button"
+    <div
       className={cn(
-        'relative border px-2 py-1.5 rounded-md transition-colors cursor-pointer text-[12px] text-left w-full',
-        selected
-          ? cn(c.border, c.bg)
-          : 'border-border bg-background hover:border-foreground/40 hover:bg-foreground/[0.04]'
+        'flex min-h-8 items-center gap-1 rounded-md border pr-1 text-[12px] transition-colors',
+        selected ? cn(c.border, c.bg) : cn('border-border bg-background', hoverTint)
       )}
-      onClick={onSelect}
-      aria-pressed={selected}
-      data-testid={`preset-card-${preset.id}`}
     >
-      <div className="flex items-baseline gap-2">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 self-stretch py-1.5 pl-2 text-left"
+        onClick={onSelect}
+        aria-pressed={selected}
+        data-testid={`preset-card-${preset.id}`}
+      >
         <span aria-hidden className={cn('shrink-0 translate-y-px', c.fg)}>
           {iconMap[preset.icon] || <Sparkles size={11} />}
         </span>
@@ -178,31 +178,20 @@ function PresetCard({
             ✓
           </span>
         )}
-        <PresetPopover preset={preset}>
-          {
-            ((show: () => void, hide: () => void) => (
-              <button
-                type="button"
-                onClick={(e) => e.stopPropagation()}
-                onMouseEnter={show}
-                onMouseLeave={hide}
-                className="shrink-0 text-muted-foreground-faint hover:text-foreground/85 transition-colors"
-                aria-label={`info about ${preset.name}`}
-              >
-                <HelpCircle size={11} />
-              </button>
-            )) as unknown as React.ReactNode
-          }
-        </PresetPopover>
-      </div>
-    </button>
+      </button>
+      <PresetPopover preset={preset}>
+        <IconButton aria-label={t('pickers.presetInfo', { name: preset.name })} className="h-5 w-5">
+          <HelpCircle size={11} />
+        </IconButton>
+      </PresetPopover>
+    </div>
   )
 }
 
 function SkeletonCard(): React.ReactNode {
   return (
     <div
-      className="rounded-sm border border-border bg-background/40 px-2 py-1.5 animate-pulse h-7"
+      className="h-8 rounded-md border border-border bg-background/40 animate-pulse"
       data-testid="preset-picker-skeleton"
     />
   )
@@ -230,17 +219,18 @@ export function PresetPicker({
 
   if (!loading && presets.length === 0) {
     return (
-      <div className="flex flex-col items-start gap-2 border border-dashed border-border bg-background/40 px-3 py-4 text-[12px]">
-        <div className="flex items-baseline gap-2">
-          <AlertCircle size={11} className="state-running translate-y-px" />
-          <span className="text-foreground/85">{t('pickers.noPresets')}</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground [overflow-wrap:anywhere]">
+      <div role="alert" className={cn('flex flex-col items-start gap-1.5', errorCallout)}>
+        <span>✗ {t('pickers.noPresets')}</span>
+        <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
           {error ? error : t('pickers.presetsError')}
         </p>
         {onRetry && (
-          <GlassButton variant="secondary" size="sm" onClick={onRetry}>
-            <RefreshCw size={10} />
+          <GlassButton
+            variant="secondary"
+            size="sm"
+            onClick={onRetry}
+            icon={<RefreshCw size={12} />}
+          >
             {t('common.retry')}
           </GlassButton>
         )}

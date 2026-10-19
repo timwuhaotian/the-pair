@@ -7,6 +7,7 @@ import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
 import { ModelPicker } from './ModelPicker'
 import { isPairActive } from '../lib/pairStatus'
+import { errorCallout, warningCallout } from '../lib/ui'
 
 interface PairSettingsModalProps {
   pair: Pair | null
@@ -63,69 +64,70 @@ export function PairSettingsModal({
       title={t('modals.pairDefaults', { name: pair.name })}
       className="max-w-3xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-[13px]">
-        <div className="border-l-2 border-border bg-background/40 px-3 py-2">
-          <div className="flex items-baseline gap-2">
-            <SlidersHorizontal size={11} className="text-muted-foreground translate-y-px" />
-            <div className="space-y-0.5">
-              <div className="text-foreground/90 text-[12px]">{t('modals.pairDefaultsDesc')}</div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                {t('modals.pairDefaultsNote')}
-              </p>
+      <form onSubmit={handleSubmit} className="flex flex-col text-[13px]">
+        <div className="flex flex-col gap-3">
+          <div className="border-l-2 border-border bg-background/40 px-2.5 py-2">
+            <div className="flex items-baseline gap-2">
+              <SlidersHorizontal size={11} className="text-muted-foreground translate-y-px" />
+              <div className="space-y-0.5">
+                <div className="text-foreground/90 text-[12px]">{t('modals.pairDefaultsDesc')}</div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {t('modals.pairDefaultsNote')}
+                </p>
+              </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <ModelPicker
+              value={selection.mentorModel}
+              models={availableModels}
+              onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
+              role="mentor"
+              variant="card"
+              reasoningEffort={selection.mentorReasoningEffort}
+              onReasoningEffortChange={(mentorReasoningEffort) =>
+                setSelection((current) => ({ ...current, mentorReasoningEffort }))
+              }
+            />
+            <ModelPicker
+              value={selection.executorModel}
+              models={availableModels}
+              onChange={(executorModel) =>
+                setSelection((current) => ({ ...current, executorModel }))
+              }
+              role="executor"
+              variant="card"
+              reasoningEffort={selection.executorReasoningEffort}
+              onReasoningEffortChange={(executorReasoningEffort) =>
+                setSelection((current) => ({ ...current, executorReasoningEffort }))
+              }
+            />
+          </div>
+
+          {(isPairActive(pair.status) || queuedForNextTask) && (
+            <div className={warningCallout}>
+              ! {queuedForNextTask ? t('modals.modelUpdateQueued') : t('modals.pairRunningNote')}
+            </div>
+          )}
+
+          {modelsError && (
+            <div role="alert" className={errorCallout}>
+              ✗ {modelsError}
+            </div>
+          )}
+
+          {error && (
+            <div role="alert" className={errorCallout}>
+              ✗ {error}
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <ModelPicker
-            value={selection.mentorModel}
-            models={availableModels}
-            onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
-            role="mentor"
-            variant="card"
-            reasoningEffort={selection.mentorReasoningEffort}
-            onReasoningEffortChange={(mentorReasoningEffort) =>
-              setSelection((current) => ({ ...current, mentorReasoningEffort }))
-            }
-          />
-          <ModelPicker
-            value={selection.executorModel}
-            models={availableModels}
-            onChange={(executorModel) => setSelection((current) => ({ ...current, executorModel }))}
-            role="executor"
-            variant="card"
-            reasoningEffort={selection.executorReasoningEffort}
-            onReasoningEffortChange={(executorReasoningEffort) =>
-              setSelection((current) => ({ ...current, executorReasoningEffort }))
-            }
-          />
-        </div>
-
-        {(isPairActive(pair.status) || queuedForNextTask) && (
-          <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
-            ! {queuedForNextTask ? t('modals.modelUpdateQueued') : t('modals.pairRunningNote')}
-          </div>
-        )}
-
-        {modelsError && (
-          <div
-            role="alert"
-            className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
-          >
-            ✗ {modelsError}
-          </div>
-        )}
-
-        {error && (
-          <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
-            ✗ {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
           <GlassButton
             type="button"
-            variant="ghost"
+            variant="secondary"
             onClick={onClose}
             data-testid="settings-cancel-btn"
           >
@@ -137,7 +139,7 @@ export function PairSettingsModal({
             disabled={isLoading || !selection.mentorModel || !selection.executorModel}
             data-testid="settings-save-btn"
           >
-            {isLoading ? t('common.saving') : `▸ ${t('modals.saveDefaults').toLowerCase()}`}
+            {isLoading ? t('common.saving') : t('modals.saveDefaults')}
           </GlassButton>
         </div>
       </form>

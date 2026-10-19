@@ -2,6 +2,17 @@ import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
+import {
+  Z,
+  emptyHint,
+  fieldLabel,
+  hoverTint,
+  groupHeader,
+  menuItem,
+  popoverSurface,
+  searchInput
+} from '../lib/ui'
+import { GlassButton } from './ui/GlassButton'
 import type { AvailableModel, ProviderKind } from '../types'
 import {
   getQualifiedModel,
@@ -112,7 +123,7 @@ function QuickPickRow({
         'flex w-full items-baseline gap-2 border px-2 py-1 text-left rounded-md transition-colors cursor-pointer font-mono text-[11px]',
         selected
           ? cn(c.border, c.bg, c.fg)
-          : 'border-border hover:bg-foreground/[0.05] hover:border-foreground/40'
+          : cn('border-border hover:border-foreground/40', hoverTint)
       )}
     >
       <span
@@ -322,10 +333,7 @@ export function ModelPicker({
       {/* Recent quick-picks */}
       {recentModels.length > 0 && (
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="text-primary">──</span> {t('pickers.recent')}{' '}
-            <span className="text-primary">──</span>
-          </div>
+          <div className={groupHeader}>── {t('pickers.recent')} ──</div>
           <div className="space-y-px">
             {recentModels.map((model) => (
               <QuickPickRow
@@ -351,9 +359,10 @@ export function ModelPicker({
               }
               setIsDropdownOpen(!isDropdownOpen)
             }}
+            aria-haspopup="listbox"
             aria-expanded={isDropdownOpen}
             className={cn(
-              'flex w-full items-center gap-2 border px-2 py-1.5 text-left rounded-md transition-colors cursor-pointer font-mono text-[12px]',
+              'flex w-full cursor-pointer items-center gap-2 rounded-sm border bg-background px-2 py-1.5 text-left font-mono text-[12px] transition-colors',
               current.model ? c.border : 'border-border hover:border-foreground/40'
             )}
           >
@@ -389,7 +398,9 @@ export function ModelPicker({
           {isDropdownOpen && (
             <div
               className={cn(
-                'absolute left-0 right-0 z-50 overflow-hidden border border-border bg-popover rounded-md',
+                'absolute left-0 right-0 overflow-hidden',
+                Z.popover,
+                popoverSurface,
                 effectiveDropUp ? 'bottom-full mb-1' : 'top-full mt-1'
               )}
             >
@@ -406,17 +417,15 @@ export function ModelPicker({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder={t('pickers.searchModels')}
-                    className="w-full border border-border bg-background py-1 pl-7 pr-2 text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:border-foreground/40 focus:outline-none rounded-md font-mono"
+                    className={cn(searchInput, 'font-mono')}
                   />
                 </div>
               </div>
               <div className="max-h-60 overflow-y-auto scrollbar-thin p-1">
                 {filteredModels.length === 0 ? (
-                  <div className="py-3 text-center text-[11px] text-muted-foreground">
-                    — {t('pickers.noModels')} —
-                  </div>
+                  <div className={emptyHint}>— {t('pickers.noModels')} —</div>
                 ) : (
-                  <div className="space-y-px">
+                  <div role="listbox" className="space-y-px">
                     {filteredModels.map((model) => {
                       const isActiveModel = model.canonicalKey === current.model?.canonicalKey
                       const multiRoute = model.routes.length > 1
@@ -424,15 +433,14 @@ export function ModelPicker({
                         <div key={model.canonicalKey}>
                           <button
                             type="button"
+                            role="option"
+                            aria-selected={isActiveModel}
                             onClick={() => {
                               if (isActiveModel && multiRoute) return
                               selectModel(model)
                             }}
                             title={model.displayName}
-                            className={cn(
-                              'flex w-full items-center gap-2 px-2 py-1 text-left rounded-md transition-colors cursor-pointer font-mono text-[11px]',
-                              isActiveModel ? cn(c.bg, c.fg) : 'hover:bg-foreground/[0.05]'
-                            )}
+                            className={cn(menuItem(isActiveModel), 'font-mono')}
                           >
                             <span
                               aria-hidden
@@ -447,7 +455,7 @@ export function ModelPicker({
                               {model.displayName}
                             </span>
                             {multiRoute ? (
-                              <span className="shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground-faint">
+                              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground-faint">
                                 {model.routes.length} {t('pickers.routes')} ›
                               </span>
                             ) : (
@@ -459,29 +467,38 @@ export function ModelPicker({
 
                           {/* Nested route sub-picker for the active multi-route model */}
                           {isActiveModel && multiRoute && (
-                            <div className="ml-3 mt-px mb-1 flex flex-col gap-px border-l border-border pl-2">
+                            <div
+                              role="group"
+                              className="ml-3 mt-px mb-1 flex flex-col gap-px border-l border-border pl-2"
+                            >
                               {model.routes.map((route) => {
                                 const selectedRoute = route.key === current.route?.key
                                 return (
                                   <button
                                     key={route.key}
                                     type="button"
+                                    role="option"
+                                    aria-selected={selectedRoute}
                                     onClick={() => selectRoute(model, route)}
                                     title={route.accessLabel}
                                     className={cn(
-                                      'flex w-full items-baseline gap-2 px-2 py-1 text-left rounded-md transition-colors cursor-pointer font-mono text-[10px]',
-                                      selectedRoute
-                                        ? c.fg
-                                        : 'text-muted-foreground hover:bg-foreground/[0.05]'
+                                      menuItem(selectedRoute),
+                                      'items-baseline font-mono text-[11px]'
                                     )}
                                   >
-                                    <span aria-hidden className="shrink-0">
+                                    <span
+                                      aria-hidden
+                                      className={cn(
+                                        'shrink-0',
+                                        selectedRoute ? c.fg : 'text-muted-foreground-faint'
+                                      )}
+                                    >
                                       {selectedRoute ? '●' : '○'}
                                     </span>
                                     <span className="min-w-0 flex-1 truncate text-foreground/80">
                                       {route.providerLabel}
                                     </span>
-                                    <span className="shrink-0 text-[9px] text-muted-foreground-faint truncate max-w-[16ch]">
+                                    <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
                                       {route.accessLabel}
                                     </span>
                                   </button>
@@ -523,7 +540,7 @@ export function ModelPicker({
                         <button
                           type="button"
                           onClick={() => void handleProviderSignIn(p.kind)}
-                          className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline cursor-pointer"
+                          className="cursor-pointer text-primary underline-offset-2 transition-colors hover:text-primary/80 hover:underline"
                         >
                           {t('providers.signIn')}
                         </button>
@@ -540,22 +557,21 @@ export function ModelPicker({
         {showEffort && activeRoute && current.model && (
           <div className="space-y-1 font-mono">
             <div className="flex items-baseline gap-2">
-              <span className={cn('text-[10px] uppercase tracking-[0.16em]', c.fg)}>
-                {t('pickers.reasoning')}
-              </span>
+              <span className={fieldLabel}>{t('pickers.reasoning')}</span>
               {current.effort && (
                 <span className={cn('text-[10px] uppercase tracking-[0.14em]', c.fg)}>
                   · {effortLabel(current.effort.value)}
                 </span>
               )}
               {current.effort && (
-                <button
-                  type="button"
+                <GlassButton
+                  variant="ghost"
+                  size="xs"
                   onClick={() => resetReasoning(current.model as CanonicalModel, activeRoute)}
-                  className="ml-auto text-[9px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  className="ml-auto text-muted-foreground"
                 >
                   {t('pickers.resetReasoning')}
-                </button>
+                </GlassButton>
               )}
             </div>
             <div className="flex flex-1 border border-border rounded-md overflow-hidden">
@@ -572,7 +588,7 @@ export function ModelPicker({
                       'flex-1 px-2 py-0.5 text-[11px] transition-colors cursor-pointer border-r border-border last:border-r-0',
                       isActive
                         ? cn(c.bg, c.fg, c.border)
-                        : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground'
+                        : cn('text-muted-foreground hover:text-foreground', hoverTint)
                     )}
                   >
                     {effortLabel(option.value)}
@@ -595,7 +611,7 @@ export function ModelPicker({
           <span aria-hidden className={c.fg}>
             ●
           </span>
-          <span className={cn('text-[11px] uppercase tracking-[0.16em] font-bold', c.fg)}>
+          <span className={cn('text-[11px] font-medium uppercase tracking-[0.14em]', c.fg)}>
             {role === 'mentor' ? t('pickers.mentorLabel') : t('pickers.executorLabel')}
           </span>
           <span className="text-[10px] text-muted-foreground-faint">

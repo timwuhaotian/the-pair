@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
+import { IconButton } from './ui/IconButton'
 import { ModelPicker } from './ModelPicker'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
@@ -16,6 +17,7 @@ import { usePresets } from '../lib/usePresets'
 import { prependFileContext } from '../lib/fileMentions'
 import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
+import { errorCallout, fieldInput, fieldLabel, hoverTint, warningCallout } from '../lib/ui'
 import type { ConfigRecommendation, PairPreset } from '../types'
 import { preventImeEnterSubmit } from './keyboard'
 import {
@@ -56,6 +58,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [planGate, setPlanGate] = useState(false)
   const [recommendation, setRecommendation] = useState<ConfigRecommendation | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fieldId = useId()
 
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
   // The preset whose template currently wraps the textarea text (if any).
@@ -259,9 +262,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-full text-[13px]">
-        <div className="flex flex-col gap-3 overflow-y-auto flex-1 pr-1 -mr-1">
+        {/* -mx/px gives the toggles' -mx-1.5 hover tint room inside the scroll clip. */}
+        <div className="-mx-1.5 flex flex-1 flex-col gap-3 overflow-y-auto px-1.5">
           <div>
-            <div className="mb-1 flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <div className={cn(fieldLabel, 'mb-1 flex items-baseline gap-1.5')}>
               <Sparkles size={11} className="state-running translate-y-px" />
               <span>{t('modals.choosePreset')}</span>
             </div>
@@ -276,7 +280,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {selectedPreset && (
-            <div className="border-l-2 border-state-running/40 bg-state-running/8 px-3 py-2 text-[11px]">
+            <div className={warningCallout}>
               <div className="flex items-baseline gap-1.5 state-running uppercase tracking-[0.14em]">
                 <span>→</span>
                 <span>{t('modals.usingPreset', { name: selectedPreset.name })}</span>
@@ -293,27 +297,29 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           )}
 
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={`${fieldId}-name`} className={fieldLabel}>
               {t('common.name')}
             </label>
             <input
+              id={`${fieldId}-name`}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={preventImeEnterSubmit}
               placeholder={t('onboarding.pairNamePlaceholder')}
-              className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm"
+              className={fieldInput}
               required
               data-testid="pair-name-input"
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={`${fieldId}-directory`} className={fieldLabel}>
               {t('common.directory')}
             </label>
             <div className="flex gap-1.5">
               <input
+                id={`${fieldId}-directory`}
                 type="text"
                 value={directory}
                 onChange={(e) => changeDirectory(e.target.value)}
@@ -325,24 +331,20 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                   }
                 }}
                 placeholder="/path/to/project"
-                className={cn(
-                  'flex-1 px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60 rounded-sm',
-                  !directory && 'cursor-pointer'
-                )}
+                className={cn(fieldInput, 'min-w-0 flex-1', !directory && 'cursor-pointer')}
                 required
                 data-testid="pair-directory-input"
               />
-              <GlassButton
-                type="button"
-                variant="secondary"
-                size="sm"
+              {/* h-auto lets the row stretch it to the input's height: a square, aligned pair. */}
+              <IconButton
+                size="md"
+                bordered
                 onClick={handleSelectDirectory}
-                icon={<FolderOpen size={13} />}
                 aria-label={t('modals.pickDirectory')}
-                title={t('modals.pickDirectory')}
+                className="h-auto w-8 rounded-sm"
               >
-                {''}
-              </GlassButton>
+                <FolderOpen size={13} />
+              </IconButton>
             </div>
           </div>
 
@@ -358,7 +360,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                 }}
                 aria-pressed={useWorktree}
                 data-testid="worktree-toggle"
-                className="flex items-start gap-2 text-left"
+                className={cn(
+                  '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+                  hoverTint
+                )}
               >
                 <span
                   className={cn(
@@ -369,9 +374,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                   {useWorktree ? '[x]' : '[ ]'}
                 </span>
                 <span className="flex flex-col gap-0.5">
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {t('modals.worktreeLabel')}
-                  </span>
+                  <span className={fieldLabel}>{t('modals.worktreeLabel')}</span>
                   <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
                     {t('modals.worktreeHint')}
                   </span>
@@ -385,9 +388,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                     onChange={setBranch}
                     variant="base"
                   />
-                  <div className="border-l-2 border-state-running/40 bg-state-running/8 px-3 py-1.5 text-[11px] state-running normal-case tracking-normal">
-                    → {t('modals.worktreePreview')}
-                  </div>
+                  <div className={warningCallout}>→ {t('modals.worktreePreview')}</div>
                 </>
               ) : (
                 <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
@@ -400,7 +401,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             onClick={() => setPlanGate((v) => !v)}
             aria-pressed={planGate}
             data-testid="plan-gate-toggle"
-            className="flex items-start gap-2 text-left"
+            className={cn(
+              '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+              hoverTint
+            )}
           >
             <span
               className={cn(
@@ -411,16 +415,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               {planGate ? '[x]' : '[ ]'}
             </span>
             <span className="flex flex-col gap-0.5">
-              <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                {t('modals.planGateLabel')}
-              </span>
+              <span className={fieldLabel}>{t('modals.planGateLabel')}</span>
               <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
                 {t('modals.planGateHint')}
               </span>
             </span>
           </button>
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelPicker
               value={mentorModel}
               models={availableModels}
@@ -441,25 +443,23 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             />
           </div>
           {modelsError && (
-            <div
-              role="alert"
-              className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
-            >
+            <div role="alert" className={errorCallout}>
               ✗ {modelsError}
             </div>
           )}
 
           <div className="relative flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={`${fieldId}-spec`} className={fieldLabel}>
               {t('onboarding.taskSpec')}
             </label>
             <textarea
+              id={`${fieldId}-spec`}
               ref={textareaRef}
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
               placeholder={t('onboarding.taskPlaceholder')}
               rows={4}
-              className="w-full px-2 py-1.5 bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground-faint resize-none focus:outline-none focus:border-foreground/60 rounded-sm leading-relaxed"
+              className={cn(fieldInput, 'resize-none leading-relaxed')}
               required
               data-testid="pair-task-spec"
             />
@@ -496,22 +496,20 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {presetTaskMissing && (
-            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
-              ! {t('modals.presetTaskMissing')}
-            </div>
+            <div className={warningCallout}>! {t('modals.presetTaskMissing')}</div>
           )}
 
           {error && (
-            <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
+            <div role="alert" className={errorCallout}>
               ✗ {error}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-3 border-t border-border mt-3 flex-shrink-0">
+        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
           <GlassButton
             type="button"
-            variant="ghost"
+            variant="secondary"
             onClick={onClose}
             data-testid="pair-cancel-btn"
           >
@@ -523,7 +521,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             disabled={isLoading || presetTaskMissing}
             data-testid="pair-submit-btn"
           >
-            {isLoading ? t('modals.creating') : `▸ ${t('modals.create').toLowerCase()}`}
+            {isLoading ? t('modals.creating') : t('modals.create')}
           </GlassButton>
         </div>
       </form>

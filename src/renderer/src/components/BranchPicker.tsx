@@ -1,9 +1,21 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react'
-import { ChevronDown, GitBranch, RefreshCw, Search, X } from 'lucide-react'
+import { ChevronDown, GitBranch, Loader2, Search, X } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { tauriApi } from '../lib/tauri-api'
 import type { RepoState } from '../types'
 import { cn } from '../lib/utils'
+import {
+  Z,
+  emptyHint,
+  errorCallout,
+  groupHeader,
+  menuItem,
+  popoverSurface,
+  searchInput,
+  warningCallout
+} from '../lib/ui'
+import { Chip } from './ui/Chip'
+import { IconButton } from './ui/IconButton'
 import { isImeKeyEvent } from './keyboard'
 
 interface BranchPickerProps {
@@ -119,24 +131,21 @@ export function BranchPicker({
 
   if (isLoading) {
     return (
-      <div className={cn('flex items-baseline gap-2 text-[12px] text-muted-foreground', className)}>
-        <RefreshCw className="h-3 w-3 animate-spin translate-y-px" />
-        <span>· checking repo…</span>
+      <div className={cn('flex items-center gap-2 text-[12px] text-muted-foreground', className)}>
+        <Loader2 size={12} className="animate-spin text-muted-foreground" />
+        <span>checking repo…</span>
       </div>
     )
   }
 
   if (loadError) {
     return (
-      <div className={cn('flex flex-col gap-0.5 text-[12px] text-muted-foreground', className)}>
-        <div className="flex items-baseline gap-2">
-          <GitBranch className="h-3 w-3 translate-y-px" />
-          <span>! repo state unreadable</span>
-        </div>
+      <div role="alert" className={cn('flex flex-col gap-0.5', errorCallout, className)}>
+        <span>✗ repo state unreadable</span>
         {errorMessage && (
-          <div className="text-[10px] state-error ml-5 [overflow-wrap:anywhere]">
+          <span className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
             {errorMessage}
-          </div>
+          </span>
         )}
       </div>
     )
@@ -186,9 +195,10 @@ export function BranchPicker({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
         className={cn(
-          'w-full flex items-center justify-between gap-2 px-2 py-1.5 text-[12px] rounded-sm border transition-colors cursor-pointer',
-          'bg-background',
+          'flex w-full cursor-pointer items-center justify-between gap-2 rounded-sm border bg-background px-2 py-1.5 text-[12px] transition-colors',
           value ? 'border-role-mentor' : 'border-border hover:border-foreground/40'
         )}
       >
@@ -211,8 +221,10 @@ export function BranchPicker({
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-sm border border-border bg-popover">
-          <div className="sticky top-0 z-10 border-b border-border bg-popover px-2 py-1.5">
+        <div
+          className={cn('absolute mt-1 w-full max-h-64 overflow-auto', Z.popover, popoverSurface)}
+        >
+          <div className="sticky top-0 z-10 border-b border-border bg-popover p-1.5">
             <div className="relative">
               <Search
                 size={11}
@@ -236,120 +248,137 @@ export function BranchPicker({
                   if (first) handleSelect(first.name)
                 }}
                 placeholder="filter branches…"
-                className="w-full pl-7 pr-6 py-1 text-[11px] rounded-sm bg-background border border-border focus:border-foreground/40 focus:outline-none text-foreground placeholder:text-muted-foreground-faint"
+                className={cn(searchInput, 'pr-7')}
               />
               {search && (
-                <button
-                  type="button"
+                <IconButton
+                  aria-label="clear filter"
                   onClick={() => setSearch('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground-faint hover:text-foreground cursor-pointer"
+                  className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2"
                 >
                   <X size={10} />
-                </button>
+                </IconButton>
               )}
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleClear}
-            className={cn(
-              'w-full text-left px-3 py-1.5 text-[11px] hover:bg-foreground/[0.05] cursor-pointer text-muted-foreground',
-              !value && 'bg-foreground/[0.05] text-foreground/90'
-            )}
-          >
-            — {isBaseVariant ? 'from current branch' : 'no branch (work in directory)'}
-          </button>
+          <div role="listbox" className="p-1">
+            <button
+              type="button"
+              role="option"
+              aria-selected={!value}
+              onClick={handleClear}
+              className={cn(menuItem(!value), value && 'text-muted-foreground')}
+            >
+              — {isBaseVariant ? 'from current branch' : 'no branch (work in directory)'}
+            </button>
 
-          {repoState.isDirty && (
-            <div className="px-3 py-1.5 text-[10px] state-running bg-state-running/8 border-t border-border">
-              ! uncommitted changes —{' '}
-              {isBaseVariant
-                ? 'only the current branch can be the base'
-                : 'commit or stash before selecting a branch'}
-            </div>
-          )}
-
-          {filteredLocal.length > 0 && (
-            <div className="border-t border-border">
-              <div className="px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground bg-background/40">
-                ── local ──
+            {repoState.isDirty && (
+              <div className={cn('my-1', warningCallout)}>
+                ! uncommitted changes —{' '}
+                {isBaseVariant
+                  ? 'only the current branch can be the base'
+                  : 'commit or stash before selecting a branch'}
               </div>
-              {filteredLocal.map((branch) => {
-                const isCurrent = repoState.currentBranch === branch.name
-                return (
-                  <button
-                    key={branch.name}
-                    type="button"
-                    disabled={repoState.isDirty && !isCurrent}
-                    onClick={() => handleSelect(branch.name)}
-                    className={cn(
-                      'w-full flex items-baseline justify-between gap-2 px-3 py-1 text-[11px] hover:bg-foreground/[0.05] cursor-pointer',
-                      value === branch.name && 'bg-role-mentor',
-                      repoState.isDirty && !isCurrent && 'opacity-40 cursor-not-allowed'
-                    )}
-                  >
-                    <div className="flex items-baseline gap-2 min-w-0">
-                      {isCurrent && (
-                        <span className="text-[9px] uppercase tracking-[0.14em] state-done border border-state-done px-1">
-                          current
+            )}
+
+            {filteredLocal.length > 0 && (
+              <div role="group" aria-label="local" className="mt-1 border-t border-border pt-1">
+                <div className={groupHeader}>── local ──</div>
+                {filteredLocal.map((branch) => {
+                  const isCurrent = repoState.currentBranch === branch.name
+                  const disabled = repoState.isDirty && !isCurrent
+                  const selected = value === branch.name
+                  return (
+                    <button
+                      key={branch.name}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      disabled={disabled}
+                      onClick={() => handleSelect(branch.name)}
+                      className={cn(
+                        menuItem(selected),
+                        'items-baseline justify-between',
+                        disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent'
+                      )}
+                    >
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        {isCurrent && (
+                          <Chip tone="done" outline>
+                            current
+                          </Chip>
+                        )}
+                        <span
+                          className={cn(
+                            'truncate',
+                            selected ? 'role-mentor' : 'text-foreground/90',
+                            isCurrent && 'font-medium'
+                          )}
+                        >
+                          {branch.name}
+                        </span>
+                      </div>
+                      {branch.lastCommitMessage && (
+                        <span className="text-[10px] text-muted-foreground-faint truncate max-w-[18ch]">
+                          {branch.lastCommitMessage}
                         </span>
                       )}
-                      <span className={cn('text-foreground/90 truncate', isCurrent && 'font-bold')}>
-                        {branch.name}
-                      </span>
-                    </div>
-                    {branch.lastCommitMessage && (
-                      <span className="text-[10px] text-muted-foreground-faint truncate max-w-[18ch]">
-                        {branch.lastCommitMessage}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {filteredRemote.length > 0 && (
-            <div className="border-t border-border">
-              <div className="px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground bg-background/40">
-                ── remote ──
+                    </button>
+                  )
+                })}
               </div>
-              {filteredRemote.map((branch) => (
-                <button
-                  key={branch.name}
-                  type="button"
-                  disabled={repoState.isDirty}
-                  onClick={() => handleSelect(branch.name)}
-                  className={cn(
-                    'w-full flex items-baseline justify-between gap-2 px-3 py-1 text-[11px] hover:bg-foreground/[0.05] cursor-pointer',
-                    value === branch.name && 'bg-role-mentor',
-                    repoState.isDirty && 'opacity-40 cursor-not-allowed'
-                  )}
-                >
-                  <div className="flex flex-col items-start min-w-0">
-                    <span className="text-foreground/90 truncate">{branch.name}</span>
-                    {!branch.isCheckedOutLocally && (
-                      <span className="text-[10px] role-mentor">
-                        → creates local tracking branch
-                      </span>
-                    )}
-                  </div>
-                  {branch.lastCommitDate && (
-                    <span className="text-[10px] text-muted-foreground-faint">
-                      {formatDate(branch.lastCommitDate)}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+            )}
 
-          {search && filteredLocal.length === 0 && filteredRemote.length === 0 && (
-            <div className="px-3 py-3 text-[11px] text-muted-foreground-faint text-center">
-              — no branches match &ldquo;{search}&rdquo; —
-            </div>
-          )}
+            {filteredRemote.length > 0 && (
+              <div role="group" aria-label="remote" className="mt-1 border-t border-border pt-1">
+                <div className={groupHeader}>── remote ──</div>
+                {filteredRemote.map((branch) => {
+                  const selected = value === branch.name
+                  return (
+                    <button
+                      key={branch.name}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      disabled={repoState.isDirty}
+                      onClick={() => handleSelect(branch.name)}
+                      className={cn(
+                        menuItem(selected),
+                        'items-baseline justify-between',
+                        repoState.isDirty && 'cursor-not-allowed opacity-40 hover:bg-transparent'
+                      )}
+                    >
+                      <div className="flex flex-col items-start min-w-0">
+                        <span
+                          className={cn(
+                            'truncate',
+                            selected ? 'role-mentor' : 'text-foreground/90'
+                          )}
+                        >
+                          {branch.name}
+                        </span>
+                        {!branch.isCheckedOutLocally && (
+                          <span className="text-[10px] role-mentor">
+                            → creates local tracking branch
+                          </span>
+                        )}
+                      </div>
+                      {branch.lastCommitDate && (
+                        <span className="text-[10px] text-muted-foreground-faint">
+                          {formatDate(branch.lastCommitDate)}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {search && filteredLocal.length === 0 && filteredRemote.length === 0 && (
+              <div className={emptyHint}>— no branches match &ldquo;{search}&rdquo; —</div>
+            )}
+          </div>
         </div>
       )}
     </div>

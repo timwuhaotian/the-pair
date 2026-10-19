@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useRef, useCallback, useId } from 'react'
 import { ArrowUpRight, GitBranch, Sparkles, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
@@ -14,6 +14,7 @@ import { prependFileContext } from '../lib/fileMentions'
 import { isPairBusy } from '../lib/pairStatus'
 import { tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
+import { errorCallout, fieldInput, fieldLabel, hoverTint, warningCallout } from '../lib/ui'
 import type { PairPreset, RepoState } from '../types'
 import {
   finalizePresetSpec,
@@ -97,6 +98,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
   const pairRepoCheck = repoCheck.key === (pairId ?? '') ? repoCheck.state : null
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const specId = useId()
   const {
     presets,
     loading: presetsLoading,
@@ -257,11 +259,10 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-[70vh] max-h-[600px] text-[13px]">
-        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 scrollbar-thin">
-          <div className="border border-border rounded-sm px-3 py-1.5">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {t('modals.workspaceLabel')}
-            </div>
+        {/* -mx/px gives the toggle's -mx-1.5 hover tint room inside the scroll clip. */}
+        <div className="-mx-1.5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1.5 scrollbar-thin">
+          <div className="border border-border rounded-sm px-2.5 py-1.5">
+            <div className={fieldLabel}>{t('modals.workspaceLabel')}</div>
             <div className="mt-0.5 truncate text-foreground/90" title={pair.directory}>
               {pair.directory}
             </div>
@@ -285,7 +286,10 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               onClick={toggleFreshWorktree}
               aria-pressed={freshWorktree}
               data-testid="fresh-worktree-toggle"
-              className="flex items-start gap-2 text-left"
+              className={cn(
+                '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+                hoverTint
+              )}
             >
               <span
                 className={cn(
@@ -296,16 +300,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
                 {freshWorktree ? '[x]' : '[ ]'}
               </span>
               <span className="flex flex-col gap-0.5">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  {t('modals.freshWorktreeLabel')}
-                </span>
+                <span className={fieldLabel}>{t('modals.freshWorktreeLabel')}</span>
                 <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
                   {t('modals.freshWorktreeHint')}
                 </span>
               </span>
             </button>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelPicker
               value={tempMentorModel}
               models={availableModels}
@@ -323,14 +325,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           {modelsChanged && (
-            <div className="border-l-2 border-role-mentor bg-role-mentor px-3 py-2 text-[11px] role-mentor">
+            <div className="border-l-2 border-role-mentor bg-role-mentor px-2.5 py-2 text-[12px] role-mentor">
               → {t('modals.modelUpdateNote')}
             </div>
           )}
 
           <div className="flex flex-col gap-1">
-            <div className="flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              <Sparkles size={10} className="state-running translate-y-px" />
+            <div className={cn(fieldLabel, 'flex items-baseline gap-1.5')}>
+              <Sparkles size={11} className="state-running translate-y-px" />
               <span>{t('onboarding.workflowPreset')}</span>
             </div>
             <PresetPicker
@@ -344,16 +346,17 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           <div className="relative flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={specId} className={fieldLabel}>
               {t('onboarding.taskSpec')}
             </label>
             <textarea
+              id={specId}
               ref={textareaRef}
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
               placeholder={t('onboarding.taskPlaceholder')}
               rows={6}
-              className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 text-[12px] leading-relaxed text-foreground placeholder:text-muted-foreground-faint focus:outline-none focus:border-foreground/60"
+              className={cn(fieldInput, 'resize-none leading-relaxed')}
               required
               data-testid="assign-task-spec"
             />
@@ -373,37 +376,28 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           {presetTaskMissing && (
-            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
-              ! {t('modals.presetTaskMissing')}
-            </div>
+            <div className={warningCallout}>! {t('modals.presetTaskMissing')}</div>
           )}
 
-          {pairBusy && (
-            <div className="border-l-2 border-state-running bg-state-running/10 px-3 py-2 text-[11px] state-running">
-              ! {t('chrome.newTaskDisabledBusy')}
-            </div>
-          )}
+          {pairBusy && <div className={warningCallout}>! {t('chrome.newTaskDisabledBusy')}</div>}
 
           {modelsError && (
-            <div
-              role="alert"
-              className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error"
-            >
+            <div role="alert" className={errorCallout}>
               ✗ {modelsError}
             </div>
           )}
 
           {error && (
-            <div className="border-l-2 border-state-error bg-state-error/10 px-3 py-2 text-[11px] state-error">
+            <div role="alert" className={errorCallout}>
               ✗ {error}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 shrink-0 pt-3 border-t border-border mt-3">
+        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
           <GlassButton
             type="button"
-            variant="ghost"
+            variant="secondary"
             onClick={() => {
               setRestoringSpec(null)
               setSelectedPreset(null)
@@ -425,7 +419,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               ? t('modals.starting')
               : isRestoring
                 ? t('modals.restore')
-                : `▸ ${t('modals.startNewTask').toLowerCase()}`}
+                : t('modals.startNewTask')}
           </GlassButton>
         </div>
       </form>
