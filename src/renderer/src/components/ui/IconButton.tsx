@@ -18,6 +18,7 @@ interface IconButtonProps {
   className?: string
   'aria-pressed'?: boolean
   'aria-expanded'?: boolean
+  'aria-haspopup'?: 'menu' | 'listbox' | 'dialog'
   'data-testid'?: string
 }
 
@@ -41,6 +42,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
     className,
     'aria-pressed': ariaPressed,
     'aria-expanded': ariaExpanded,
+    'aria-haspopup': ariaHaspopup,
     'data-testid': dataTestId
   },
   ref
@@ -54,6 +56,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
       aria-label={ariaLabel}
       aria-pressed={ariaPressed}
       aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHaspopup}
       title={title ?? ariaLabel}
       data-testid={dataTestId}
       className={cn(

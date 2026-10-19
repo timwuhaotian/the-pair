@@ -19,7 +19,7 @@ export const activeTint = 'bg-foreground/[0.08]'
 
 /** Single-line text field / textarea used in forms and inline editors. */
 export const fieldInput =
-  'w-full rounded-sm border border-border bg-background px-2 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground-faint transition-colors focus:outline-none focus:border-foreground/50 disabled:cursor-not-allowed disabled:opacity-50'
+  'w-full rounded-sm border border-border bg-background px-2 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground-faint transition-colors focus:outline-none focus:border-foreground/50 disabled:cursor-not-allowed disabled:opacity-40'
 
 /** Search field inside a picker or popover (leading icon slot at left-2). */
 export const searchInput =
@@ -47,6 +47,15 @@ export function menuItem(active: boolean): string {
     active ? `${activeTint} text-foreground` : `text-foreground/85 ${hoverTint}`
   ].join(' ')
 }
+
+/** Group header inside a picker list (`── label ──` rows sit on `tty-rule`). */
+export const groupHeader = 'px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground'
+
+/** Inline notice blocks in modals and pickers. */
+export const warningCallout =
+  'border-l-2 border-state-running bg-state-running/10 px-2.5 py-2 text-[12px] state-running'
+export const errorCallout =
+  'border-l-2 border-state-error bg-state-error/10 px-2.5 py-2 text-[12px] state-error'
 
 /** Placeholder line for empty pickers and lists. */
 export const emptyHint = 'px-3 py-3 text-center text-[11px] text-muted-foreground-faint'

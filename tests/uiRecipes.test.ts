@@ -3,11 +3,13 @@ import test from 'node:test'
 import {
   Z,
   chipClass,
+  errorCallout,
   fieldInput,
   menuItem,
   popoverSurface,
   toneClasses,
-  type Tone
+  type Tone,
+  warningCallout
 } from '../src/renderer/src/lib/ui.ts'
 
 test('layers stack modal < popover < palette < toast < splash', () => {
@@ -38,7 +40,7 @@ test('popovers separate from the surface they open over', () => {
 test('text fields brighten their border on focus instead of an outline', () => {
   assert.match(fieldInput, /focus:outline-none/)
   assert.match(fieldInput, /focus:border-foreground\/50/)
-  assert.match(fieldInput, /disabled:opacity-50/)
+  assert.match(fieldInput, /disabled:opacity-40/)
 })
 
 test('every tone maps to a foreground, tint and border', () => {
@@ -56,4 +58,10 @@ test('chips come in a pill (status) and a tag (stream metadata) shape', () => {
   assert.match(chipClass('tag'), /uppercase/)
   assert.doesNotMatch(chipClass('pill'), /text-\[[89]px\]/)
   assert.doesNotMatch(chipClass('tag'), /text-\[[89]px\]/)
+})
+
+test('warning and error callouts share one geometry', () => {
+  const strip = (s: string): string => s.replace(/state-(running|error)/g, 'state-x')
+  assert.equal(strip(warningCallout), strip(errorCallout))
+  assert.match(warningCallout, /border-l-2/)
 })
