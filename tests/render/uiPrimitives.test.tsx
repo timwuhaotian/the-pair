@@ -23,6 +23,21 @@ test('disabled GlassButton keeps pointer events so its tooltip still shows', () 
   assert.doesNotMatch(btn.className, /hover:/)
 })
 
+test('primary GlassButton swaps its focus ring off --ring, which matches its fill', () => {
+  render(
+    <>
+      <GlassButton>Create</GlassButton>
+      <GlassButton disabled>Save</GlassButton>
+    </>
+  )
+  for (const name of ['Create', 'Save']) {
+    assert.match(
+      screen.getByRole('button', { name }).className,
+      /focus-visible:outline-\[color:var\(--foreground\)\]/
+    )
+  }
+})
+
 test('GlassButton xs is the compact core size', () => {
   render(<GlassButton size="xs">back</GlassButton>)
   assert.match(screen.getByRole('button').className, /min-h-\[22px\]/)

@@ -25,7 +25,9 @@ const variantMap: Record<
   { base: string; hover: string }
 > = {
   primary: {
-    base: 'bg-primary text-primary-foreground border-primary font-medium',
+    // --ring equals --primary, so the global focus ring would vanish into the
+    // fill. Lives in `base`, not `hover`, which disabled buttons drop.
+    base: 'bg-primary text-primary-foreground border-primary font-medium focus-visible:outline-[color:var(--foreground)]',
     hover: 'hover:bg-primary/85 hover:border-primary/85'
   },
   secondary: {
