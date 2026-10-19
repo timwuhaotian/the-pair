@@ -1,4 +1,6 @@
 import './setup-dom.ts'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
