@@ -3,6 +3,7 @@
  *   - The task input docks below the transcript scroller, never inside it.
  *   - The plan review bar docks above the input while awaiting review.
  *   - An archived run on screen shows no input.
+ *   - Awaiting review on an archived run, the dock offers a way back to the plan.
  *   - The dock resizing re-pins a reader who follows the bottom.
  */
 import './setup-dom.ts'
@@ -122,22 +123,35 @@ test('the plan review bar docks above the input while awaiting review', () => {
   )
 })
 
+const ARCHIVED_RUN: PairRunSummary = {
+  id: 'run-arch',
+  spec: 'archived task',
+  status: 'Finished',
+  startedAt: 1000,
+  finishedAt: 2000,
+  mentorModel: 'grok:fast',
+  executorModel: 'grok:fast',
+  iterations: 1,
+  messages: [makeMessage({ id: 'a1', content: 'archived detail' })]
+}
+
 test('an archived run on screen shows no input', () => {
-  const archivedRun: PairRunSummary = {
-    id: 'run-arch',
-    spec: 'archived task',
-    status: 'Finished',
-    startedAt: 1000,
-    finishedAt: 2000,
-    mentorModel: 'grok:fast',
-    executorModel: 'grok:fast',
-    iterations: 1,
-    messages: [makeMessage({ id: 'a1', content: 'archived detail' })]
-  }
   usePairStore.getState().setViewingRunId('run-arch')
-  renderConsole(makePair(MESSAGES, { runHistory: [archivedRun] }))
+  renderConsole(makePair(MESSAGES, { runHistory: [ARCHIVED_RUN] }))
   assert.ok(document.getElementById('console-msg-a1'), 'archived run rendered')
   assert.equal(screen.queryByTestId('pair-task-input'), null)
+})
+
+test('awaiting review on an archived run, the dock returns to the pending plan', () => {
+  usePairStore.getState().setViewingRunId('run-arch')
+  renderConsole(makePair(MESSAGES, { status: 'Awaiting Human Review', runHistory: [ARCHIVED_RUN] }))
+  assert.equal(screen.queryByTestId('plan-approve-btn'), null, 'no approve on an archived run')
+  const back = screen.getByText(/Return to review/).closest('button')
+  assert.ok(back, 'return-to-review button rendered')
+  assertDocked(back)
+  act(() => back.click())
+  assert.equal(usePairStore.getState().viewingRunId, null)
+  assert.ok(screen.getByTestId('plan-approve-btn'), 'back on the live plan review')
 })
 
 test('the transcript re-pins to the bottom when the dock resizes while following', () => {
