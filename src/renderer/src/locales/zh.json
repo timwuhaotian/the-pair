@@ -467,7 +467,27 @@
     "installingPercent": "已安装 {{percent}}%",
     "failedTitle": "更新失败",
     "close": "关闭",
-    "releaseNotes": "更新说明"
+    "releaseNotes": "更新说明",
+    "checkingTitle": "正在检查更新",
+    "checkingBody": "正在查找 The Pair 的新版本…",
+    "upToDateTitle": "已是最新版本",
+    "upToDateBody": "你正在使用 The Pair 的最新版本。",
+    "updatingTitle": "正在更新到 v{{version}}",
+    "downloadingBody": "正在下载更新，完成前可以继续工作。",
+    "installingBody": "下载完成，正在安装更新…",
+    "downloading": "下载中…",
+    "downloadingPercent": "已下载 {{percent}}%",
+    "stepDone": "已安装",
+    "readyTitle": "v{{version}} 已就绪",
+    "readyBody": "更新已安装。立即重启即可使用；选择「稍后」则下次打开 The Pair 时自动为新版本。",
+    "restartNow": "立即重启",
+    "later": "稍后",
+    "restartToUpdate": "重启以更新",
+    "step": {
+      "download": "下载",
+      "install": "安装",
+      "restart": "重启"
+    }
   },
   "history": {
     "title": "任务历史",

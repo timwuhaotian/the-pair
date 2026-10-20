@@ -162,8 +162,12 @@ function App(): React.ReactNode {
     let unlisten: (() => void) | undefined
     let active = true
 
-    const performUpdateCheck = async (): Promise<void> => {
-      // A check while an update installs would close the Update being installed.
+    // A manual check (menu, toolbar, palette) opens the modal up front so every
+    // phase is visible; the startup check stays silent unless it finds an update.
+    const performUpdateCheck = async (manual: boolean): Promise<void> => {
+      if (manual) setShowModal(true)
+      // A check in flight, an install (it would close the Update being installed)
+      // or an installed update waiting for restart is shown as-is instead.
       if (!canStartUpdateCheck(useUpdateStore.getState().phase)) return
       setPhase('checking')
       setMessage('Checking for updates...')
@@ -185,7 +189,7 @@ function App(): React.ReactNode {
           console.error('[Updater] Check timed out after 30 seconds')
           setMessage('Update check timed out')
           setPhase('error')
-          displayToast('Update check timed out', 'error')
+          if (!useUpdateStore.getState().showModal) displayToast('Update check timed out', 'error')
           return
         }
 
@@ -208,12 +212,12 @@ function App(): React.ReactNode {
         const message = error instanceof Error ? error.message : 'Unable to check for updates'
         setMessage(message)
         setPhase('error')
-        displayToast(message, 'error')
+        if (!useUpdateStore.getState().showModal) displayToast(message, 'error')
       }
     }
 
     void listen('app:update:check', () => {
-      void performUpdateCheck()
+      void performUpdateCheck(true)
     }).then((cleanup) => {
       // If the effect was already torn down before listen() resolved, dispose
       // the handler immediately so it can't leak into the next mount.
@@ -226,7 +230,7 @@ function App(): React.ReactNode {
 
     const cancelQueuedUpdateCheck = import.meta.env.PROD
       ? queueStartupUpdateCheck(() => {
-          void performUpdateCheck()
+          void performUpdateCheck(false)
         })
       : undefined
 

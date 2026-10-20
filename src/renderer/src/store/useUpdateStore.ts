@@ -2,12 +2,22 @@ import { create } from 'zustand'
 import type { Update } from '@tauri-apps/plugin-updater'
 import { extractErrorMessage } from '../lib/utils'
 
-type UpdatePhase = 'idle' | 'checking' | 'available' | 'installing' | 'up-to-date' | 'error'
+type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'installing'
+  /** Installed on disk; the running app is still the old version until it restarts. */
+  | 'ready'
+  | 'up-to-date'
+  | 'error'
 
 interface UpdateState {
   phase: UpdatePhase
   version: string | null
   progress: number | null
+  downloadedBytes: number
+  totalBytes: number | null
   message: string | null
   releaseBody: string | null
   update: Update | null
@@ -29,12 +39,15 @@ interface UpdateActions {
   clearToast: () => void
   reset: () => void
   installUpdate: () => Promise<void>
+  restartToUpdate: () => Promise<void>
 }
 
 const initialState: UpdateState = {
   phase: 'idle',
   version: null,
   progress: null,
+  downloadedBytes: 0,
+  totalBytes: null,
   message: null,
   releaseBody: null,
   update: null,
@@ -86,7 +99,14 @@ export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
     if (!currentUpdate || phase === 'installing') return
 
     // Keep the modal up while installing so progress stays visible.
-    set({ phase: 'installing', progress: 0, message: null, showModal: true })
+    set({
+      phase: 'installing',
+      progress: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      message: null,
+      showModal: true
+    })
 
     let totalBytes: number | null = null
     let downloadedBytes = 0
@@ -96,30 +116,38 @@ export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
         if (event.event === 'Started') {
           totalBytes = event.data.contentLength ?? null
           downloadedBytes = 0
-          set({ progress: 0 })
+          set({ progress: 0, downloadedBytes, totalBytes })
           return
         }
 
         if (event.event === 'Progress') {
           downloadedBytes += event.data.chunkLength
           if (!totalBytes) {
-            set({ progress: null })
+            set({ progress: null, downloadedBytes })
             return
           }
           const nextValue = (downloadedBytes / totalBytes) * 100
-          set({ progress: Math.min(99, Math.round(nextValue)) })
+          set({ progress: Math.min(99, Math.round(nextValue)), downloadedBytes })
           return
         }
 
+        // Download finished; the bundle is being swapped in place.
         set({ progress: 100 })
       })
 
       await currentUpdate.close().catch(() => {})
-      await window.api.app.restart()
+      // The new version is on disk: ask before restarting. Declining is safe,
+      // the next launch opens the new version.
+      set({ phase: 'ready', progress: 100, showModal: true })
     } catch (error) {
       console.error('[Updater] Install failed:', error)
       // Leave the modal open in the error phase so the failure is visible.
       set({ message: describeInstallError(error), phase: 'error', showModal: true })
     }
+  },
+
+  restartToUpdate: async () => {
+    if (useUpdateStore.getState().phase !== 'ready') return
+    await window.api.app.restart()
   }
 }))

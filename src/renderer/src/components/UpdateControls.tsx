@@ -1,6 +1,14 @@
 import { emit } from '@tauri-apps/api/event'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownToLine, CheckCircle2, Info, Loader2, RefreshCw, XCircle } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  CheckCircle2,
+  Info,
+  Loader2,
+  RefreshCw,
+  RotateCw,
+  XCircle
+} from 'lucide-react'
 import { useUpdateStore } from '../store/useUpdateStore'
 import { GlassButton } from './ui/GlassButton'
 import { IconButton } from './ui/IconButton'
@@ -32,8 +40,11 @@ export function UpdateControls(): React.ReactNode {
   const isUpToDate = phase === 'up-to-date'
   const isError = phase === 'error'
 
-  const label =
-    phase === 'available' && version
+  const isReady = phase === 'ready'
+
+  const label = isReady
+    ? t('updates.restartToUpdate')
+    : phase === 'available' && version
       ? t('updates.install', { version })
       : phase === 'checking'
         ? t('updates.checking')
@@ -47,27 +58,34 @@ export function UpdateControls(): React.ReactNode {
               ? t('updates.checkAgain')
               : t('updates.checkUpdates')
 
-  const icon =
-    phase === 'available' ? (
-      <ArrowDownToLine size={11} />
-    ) : phase === 'checking' || phase === 'installing' ? (
-      <Loader2 size={11} className="animate-spin" />
-    ) : isUpToDate ? (
-      <CheckCircle2 size={11} />
-    ) : isError ? (
-      <XCircle size={11} />
-    ) : (
-      <RefreshCw size={11} />
-    )
+  const icon = isReady ? (
+    <RotateCw size={11} />
+  ) : phase === 'available' ? (
+    <ArrowDownToLine size={11} />
+  ) : phase === 'checking' || phase === 'installing' ? (
+    <Loader2 size={11} className="animate-spin" />
+  ) : isUpToDate ? (
+    <CheckCircle2 size={11} />
+  ) : isError ? (
+    <XCircle size={11} />
+  ) : (
+    <RefreshCw size={11} />
+  )
 
-  const variant = phase === 'available' ? 'primary' : 'secondary'
+  const variant = phase === 'available' || isReady ? 'primary' : 'secondary'
 
   return (
     <div className="flex items-center gap-1.5">
       <GlassButton
         variant={variant}
         size="sm"
-        onClick={phase === 'available' ? handleInstall : handleCheckUpdates}
+        onClick={
+          isReady
+            ? handleShowReleaseNotes
+            : phase === 'available'
+              ? handleInstall
+              : handleCheckUpdates
+        }
         disabled={isBusy}
         icon={icon}
         className={cn(

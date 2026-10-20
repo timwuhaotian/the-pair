@@ -467,7 +467,27 @@
     "installingPercent": "Installing {{percent}}%",
     "failedTitle": "Update failed",
     "close": "Close",
-    "releaseNotes": "Release notes"
+    "releaseNotes": "Release notes",
+    "checkingTitle": "Checking for updates",
+    "checkingBody": "Looking for a newer version of The Pair…",
+    "upToDateTitle": "You're up to date",
+    "upToDateBody": "You're running the latest version of The Pair.",
+    "updatingTitle": "Updating to v{{version}}",
+    "downloadingBody": "Downloading the update. You can keep working while it finishes.",
+    "installingBody": "Download complete. Installing the update…",
+    "downloading": "Downloading…",
+    "downloadingPercent": "Downloading {{percent}}%",
+    "stepDone": "Installed",
+    "readyTitle": "v{{version}} is ready",
+    "readyBody": "The update is installed. Restart now to start using it, or choose Later — the new version opens the next time you launch The Pair.",
+    "restartNow": "Restart now",
+    "later": "Later",
+    "restartToUpdate": "Restart to update",
+    "step": {
+      "download": "Download",
+      "install": "Install",
+      "restart": "Restart"
+    }
   },
   "history": {
     "title": "Task History",

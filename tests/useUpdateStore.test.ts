@@ -114,3 +114,58 @@ test('installUpdate returns immediately without update set', async () => {
   // State should remain unchanged (not 'installing')
   assert.notEqual(useUpdateStore.getState().phase, 'installing')
 })
+
+test('installUpdate waits for a restart instead of restarting itself', async () => {
+  let restarts = 0
+  const api = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    api: { app: { restart: async () => void (restarts += 1) } }
+  }
+  try {
+    useUpdateStore.setState({ phase: 'available', showModal: true, version: '9.9.9' })
+    useUpdateStore.getState().setUpdate(
+      fakeUpdate(async (emit) => {
+        emit({ event: 'Started', data: { contentLength: 200 } })
+        emit({ event: 'Progress', data: { chunkLength: 120 } })
+        const { downloadedBytes, totalBytes, progress } = useUpdateStore.getState()
+        assert.deepEqual(
+          { downloadedBytes, totalBytes, progress },
+          {
+            downloadedBytes: 120,
+            totalBytes: 200,
+            progress: 60
+          }
+        )
+        emit({ event: 'Progress', data: { chunkLength: 80 } })
+        emit({ event: 'Finished' })
+      })
+    )
+
+    await useUpdateStore.getState().installUpdate()
+    const state = useUpdateStore.getState()
+    assert.equal(state.phase, 'ready')
+    assert.equal(state.showModal, true)
+    assert.equal(state.progress, 100)
+    assert.equal(restarts, 0)
+
+    await useUpdateStore.getState().restartToUpdate()
+    assert.equal(restarts, 1)
+  } finally {
+    ;(globalThis as { window?: unknown }).window = api
+  }
+})
+
+test('restartToUpdate does nothing until an update is installed', async () => {
+  let restarts = 0
+  const api = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    api: { app: { restart: async () => void (restarts += 1) } }
+  }
+  try {
+    useUpdateStore.setState({ phase: 'available' })
+    await useUpdateStore.getState().restartToUpdate()
+    assert.equal(restarts, 0)
+  } finally {
+    ;(globalThis as { window?: unknown }).window = api
+  }
+})

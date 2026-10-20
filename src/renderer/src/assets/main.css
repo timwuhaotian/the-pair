@@ -850,3 +850,24 @@
     animation: none;
   }
 }
+
+/* Updater: a segment sweeping the track while progress can't be measured. */
+@keyframes update-progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.update-progress-indeterminate {
+  animation: update-progress-sweep 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-progress-indeterminate {
+    animation: none;
+    left: 33%;
+  }
+}

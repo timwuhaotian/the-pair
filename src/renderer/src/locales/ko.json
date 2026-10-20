@@ -457,7 +457,27 @@
     "installingPercent": "설치 중 {{percent}}%",
     "failedTitle": "업데이트 실패",
     "close": "닫기",
-    "releaseNotes": "릴리스 노트"
+    "releaseNotes": "릴리스 노트",
+    "checkingTitle": "업데이트 확인 중",
+    "checkingBody": "The Pair의 새 버전을 찾고 있습니다…",
+    "upToDateTitle": "최신 버전입니다",
+    "upToDateBody": "The Pair 최신 버전을 사용하고 있습니다.",
+    "updatingTitle": "v{{version}}(으)로 업데이트 중",
+    "downloadingBody": "업데이트를 다운로드하고 있습니다. 완료될 때까지 계속 작업할 수 있습니다.",
+    "installingBody": "다운로드 완료. 업데이트를 설치하는 중…",
+    "downloading": "다운로드 중…",
+    "downloadingPercent": "다운로드 {{percent}}%",
+    "stepDone": "설치됨",
+    "readyTitle": "v{{version}} 준비 완료",
+    "readyBody": "업데이트가 설치되었습니다. 지금 다시 시작해 사용하거나 '나중에'를 선택하면 다음에 The Pair를 열 때 새 버전으로 실행됩니다.",
+    "restartNow": "지금 다시 시작",
+    "later": "나중에",
+    "restartToUpdate": "다시 시작하여 업데이트",
+    "step": {
+      "download": "다운로드",
+      "install": "설치",
+      "restart": "다시 시작"
+    }
   },
   "history": {
     "title": "작업 기록",

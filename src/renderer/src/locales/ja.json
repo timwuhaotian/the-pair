@@ -457,7 +457,27 @@
     "installingPercent": "インストール {{percent}}%",
     "failedTitle": "アップデートに失敗しました",
     "close": "閉じる",
-    "releaseNotes": "リリースノート"
+    "releaseNotes": "リリースノート",
+    "checkingTitle": "アップデートを確認中",
+    "checkingBody": "The Pair の新しいバージョンを探しています…",
+    "upToDateTitle": "最新の状態です",
+    "upToDateBody": "The Pair の最新バージョンを使用しています。",
+    "updatingTitle": "v{{version}} にアップデート中",
+    "downloadingBody": "アップデートをダウンロード中です。完了するまで作業を続けられます。",
+    "installingBody": "ダウンロード完了。アップデートをインストール中…",
+    "downloading": "ダウンロード中…",
+    "downloadingPercent": "ダウンロード {{percent}}%",
+    "stepDone": "インストール済み",
+    "readyTitle": "v{{version}} の準備ができました",
+    "readyBody": "アップデートはインストール済みです。今すぐ再起動して使い始めるか、「後で」を選ぶと次回 The Pair の起動時に新しいバージョンが開きます。",
+    "restartNow": "今すぐ再起動",
+    "later": "後で",
+    "restartToUpdate": "再起動してアップデート",
+    "step": {
+      "download": "ダウンロード",
+      "install": "インストール",
+      "restart": "再起動"
+    }
   },
   "history": {
     "title": "タスク履歴",
