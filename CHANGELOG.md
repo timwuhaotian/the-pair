@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.1] - 2026-10-20
+
+Check for Updates now tells you what it is doing, and an installed update asks before it restarts the app.
+
+### Fixed
+
+- **Check for Updates gives feedback.** Choosing Check for Updates (menu, toolbar or command palette) opens the update dialog right away: a spinner while checking, then "You're up to date", the release notes of a new version, or the reason the check failed. The startup check stays silent unless it finds an update.
+- **Live download and install progress.** While updating, the dialog shows a smoothly filling bar with percent and megabytes downloaded, then an installing state, with Download → Install → Restart steps marking where it is.
+- **Restart only when you say so.** Once the update is installed the dialog asks to restart: Restart now switches to the new version, Later keeps working on the current one and the new version opens on the next launch. Until then the toolbar offers "Restart to update" and Check for Updates brings the prompt back instead of downloading again.
+
 ## [2.13.0] - 2026-10-20
 
 Bottom-pinned composer and a UI consistency pass. The task input now lives at the bottom of the pair console like a chat, the model picker shows one row per model no matter how many CLIs or gateways can run it, and the hub, console, inspector and dialogs share one set of primitives and recipes.
