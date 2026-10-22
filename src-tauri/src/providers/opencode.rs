@@ -698,6 +698,33 @@ mod tests {
     }
 
     #[test]
+    fn opencode_flash_preserves_discovered_routes_and_resumed_session() {
+        for model in [
+            "minimax/MiniMax-M3.1-Flash",
+            "opencode/minimax-m3.1-flash-free",
+            "openrouter/minimax/minimax-m3.1-flash:free",
+        ] {
+            for syntax in [OpencodeVariantSyntax::Flag, OpencodeVariantSyntax::Suffix] {
+                let mut request = base_request(model, None);
+                request.session_id = Some("ses_flash_history");
+                let command = build_command(&request, syntax);
+                let model_index = command
+                    .args
+                    .iter()
+                    .position(|arg| arg == "--model")
+                    .unwrap();
+                assert_eq!(command.args[model_index + 1], model);
+                assert!(!command.args.contains(&"--variant".to_string()));
+                assert!(command.args.contains(&"ses_flash_history".to_string()));
+                assert_eq!(command.args.last().unwrap(), "do the work");
+                // Gateway effort variants are owned by the installed CLI. Do not
+                // expose M3's disabled variant for adaptive-only Flash.
+                assert_eq!(OpenCodeProvider.reasoning_effort_levels(model), None);
+            }
+        }
+    }
+
+    #[test]
     fn opencode_command_ignores_unsupported_reasoning_effort() {
         let command = build_command(
             &base_request("example/model", Some("high")),

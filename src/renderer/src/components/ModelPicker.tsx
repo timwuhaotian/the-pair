@@ -32,6 +32,7 @@ import {
   type EffortOption,
   type ModelRoute
 } from '../lib/modelCatalogGrouping'
+import { ordinaryModelChoices, preferMiniMaxFlash } from '../lib/minimaxModelChoices'
 import { isImeKeyEvent } from './keyboard'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
@@ -186,7 +187,17 @@ export function ModelPicker({
     [models]
   )
 
+  // Keep the full catalog for saved selections and recent history.
   const canonicalModels = useMemo(() => buildCanonicalModels(selectableModels), [selectableModels])
+  const choiceModels = useMemo(
+    () =>
+      preferMiniMaxFlash(
+        buildCanonicalModels(ordinaryModelChoices(selectableModels)),
+        (model) =>
+          model.routes.find((route) => route.planLabel !== 'custom-provider')?.baseQualifiedId ?? ''
+      ),
+    [selectableModels]
+  )
 
   const current = useMemo(
     () => resolveSelection(canonicalModels, value, reasoningEffort),
@@ -201,9 +212,9 @@ export function ModelPicker({
   }, [recentModelIds, selectableModels])
 
   const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return canonicalModels
-    return canonicalModels.filter((model) => modelMatchesQuery(model, searchQuery))
-  }, [canonicalModels, searchQuery])
+    if (!searchQuery.trim()) return choiceModels
+    return choiceModels.filter((model) => modelMatchesQuery(model, searchQuery))
+  }, [choiceModels, searchQuery])
 
   // Models that are auth-missing (CLI installed but not signed in). We show a hint
   // so the user knows there are more models available after authenticating.

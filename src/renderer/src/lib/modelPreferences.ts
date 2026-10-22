@@ -1,5 +1,6 @@
 import type { AvailableModel } from '../types'
 import { modelMatchesId } from './providerResolution'
+import { ordinaryModelChoices } from './minimaxModelChoices'
 
 const PREFERRED_MODEL_KEYS = {
   mentor: 'the-pair-preferred-mentor-model',
@@ -47,7 +48,7 @@ export function getPreferredQualifiedModel(
     if (match) return getQualifiedModel(match)
   }
 
-  const defaultEntry = models.find((model) => isSelectableForPairExecution(model))
+  const [defaultEntry] = ordinaryModelChoices(models.filter(isSelectableForPairExecution))
   return defaultEntry ? getQualifiedModel(defaultEntry) : ''
 }
 
