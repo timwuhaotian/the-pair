@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.2] - 2026-10-22
+
+Provider interface re-verification. The four agent CLIs touched since the last release were re-checked against their current releases; every flag surface The Pair depends on is unchanged, so no behavior changes — only the recorded verification notes move forward.
+
+### Changed
+
+- **Claude Code re-verified against 2.1.308.** The `--effort <low|medium|high|xhigh|max>` surface and the `auto`→`manual` permission-downgrade guard (which accepts both spellings) are unchanged.
+- **Kimi Code re-verified against 2.3.0.** `-p` / `--output-format stream-json` / `--session` / `--model` are unchanged, and the stream still carries no token usage.
+- **Kiro CLI re-verified against 2.33.1.** The V2 pin and the mentor refusal path are unchanged. Headless `--output-format stream-json` now emits the run's ACP events as JSON Lines, but that schema is still unparsed, so the plain-text transport is kept.
+- **Muse Code re-verified against 1.4.11.** `exec --json` and the effort vocabulary are unchanged.
+
 ## [2.13.1] - 2026-10-20
 
 Check for Updates now tells you what it is doing, and an installed update asks before it restarts the app.

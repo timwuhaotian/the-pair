@@ -21,9 +21,9 @@ use serde_json::Value;
 /// October 2026; if a release drops the V2 pin entirely, mentor turns are
 /// refused rather than silently running with write access
 /// (`validate_turn_request`). Flags re-verified against `kiro-cli chat
-/// --help` on 2.32.0 (2026-10-19). Headless `--output-format stream-json`
-/// is available on both engines but its event format is undocumented, so the
-/// plain-text transport is kept; switching to the structured stream would
+/// --help` on 2.33.1 (2026-10-22). Headless `--output-format stream-json`
+/// emits the run's ACP events as JSON Lines (and implies `--no-interactive`),
+/// but that schema is unparsed today, so the plain-text transport is kept; switching to the structured stream would
 /// enable session-id capture and token usage, neither of which surface today.
 ///
 /// Permissions are per role. The executor runs with `--trust-all-tools`. The

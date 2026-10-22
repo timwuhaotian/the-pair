@@ -11,10 +11,11 @@ use serde_json::Value;
 /// kept the `-p` / `--output-format stream-json` / `--session <id>` /
 /// `--model <alias>` surface used by The Pair; argument order around `-p`
 /// is strict (the prompt value follows `-p` directly), but the Pair's
-/// invocation already follows that order. Re-checked against kimi-code 2.2.0
-/// (2026-10-15): same surface; the stream still carries no token usage
+/// invocation already follows that order. Flag surface re-checked against
+/// kimi-code 2.3.0 `--help` (2026-10-22): same `-p` / `--output-format` /
+/// `--session` / `--model` surface. The stream still carries no token usage
 /// (`extract_token_usage` stays `None`), and failures still print `error: …`
-/// to stderr with exit 1.
+/// to stderr with exit 1 (last verified live on 2.2.0, 2026-10-15).
 ///
 /// KNOWN LIMITATION: the Kimi mentor is NOT read-only at the CLI level.
 /// Prompt mode (`-p`) always uses the auto permission policy, so every tool,

@@ -56,7 +56,7 @@ impl Provider for ClaudeProvider {
         // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
         // the session's reasoning effort. The Pair maps its reasoning_effort
         // picker value through verbatim. Omitted when the caller passes None.
-        // Verified against claude-code 2.1.283 (2026-09-26).
+        // Verified against claude-code 2.1.308 (2026-10-22).
         if let Some(level) = request.reasoning_effort {
             args.push("--effort".into());
             args.push(level.into());
@@ -157,7 +157,7 @@ impl Provider for ClaudeProvider {
         // "default" to "manual"; the init event still reported
         // `permissionMode: "default"` on the downgrade (verified live against
         // claude-code 2.1.283 with `--model haiku --permission-mode auto`),
-        // but 2.1.302's help lists only `manual`, so accept both spellings —
+        // but 2.1.308's help lists only `manual`, so accept both spellings —
         // either one means the requested `auto`/`plan` never took effect.
         if event_type == Some("system")
             && event.get("subtype").and_then(|v| v.as_str()) == Some("init")
@@ -306,7 +306,7 @@ impl Provider for ClaudeProvider {
             return (!levels.is_empty()).then_some(levels);
         }
         // Uncatalogued model (or no cache yet): the full set `--effort` accepts
-        // (verified against claude-code 2.1.291). Older installs (pre-2.1.111)
+        // (verified against claude-code 2.1.308). Older installs (pre-2.1.111)
         // reject the flag outright; callers should hide the picker for those.
         Some(vec![
             "low".into(),

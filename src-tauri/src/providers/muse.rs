@@ -11,8 +11,9 @@ use serde_json::Value;
 ///
 /// Uses `muse exec --json`, which emits one JSONL envelope per line:
 /// `{schema_version, id, stream{kind,id}, sequence, payload_type, payload}`.
-/// Verified against Muse Code 1.4.0 (2026-09-26; first integrated on 1.0.3)
-/// and re-checked against 1.4.8 (2026-10-15): the `run.terminal.*` payload
+/// Verified against Muse Code 1.4.0 (2026-09-26; first integrated on 1.0.3).
+/// Flags re-checked against 1.4.11 `exec --help` (2026-10-22): same surface,
+/// effort still `none|minimal|low|medium|high|xhigh|max|ultra`. The `run.terminal.*` payload
 /// still carries the reply in `payload.text`, and `exec --json` still emits
 /// no token usage on stdout (usage exists only in the persisted session log
 /// under `~/.local/share/muse/sessions`, which the Pair does not read).
