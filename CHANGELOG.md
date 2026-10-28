@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.3] - 2026-10-29
+
+Provider interface audit across all ten agent CLIs. Eight needed no changes; three fixes below.
+
+### Fixed
+
+- **Muse Code token usage is now reported.** `muse exec --json` emits a `run.usage` envelope per run (verified on 1.4.11); its per-model `input_tokens` / `output_tokens` now feed token counts and cross-run insights instead of staying hidden.
+- **Pi aborted runs keep their error.** Since Pi 1.1.0 `agent_settled` carries `aborted`; an aborted run no longer wipes a preceding failed-run error, which previously could end a turn with neither error nor answer.
+- **Aider auth detection covers more providers.** `XAI_API_KEY`, `COHERE_API_KEY`, `MISTRAL_API_KEY` and `GROQ_API_KEY` now count as authenticated, since aider routes through litellm to those providers.
+
 ## [2.13.2] - 2026-10-22
 
 Provider interface re-verification. The four agent CLIs touched since the last release were re-checked against their current releases; every flag surface The Pair depends on is unchanged, so no behavior changes — only the recorded verification notes move forward.
