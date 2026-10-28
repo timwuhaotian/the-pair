@@ -192,7 +192,10 @@ impl Provider for PiProvider {
         // recovered via Pi's own retry would still surface the first run's
         // error.
         match event.get("type").and_then(|v| v.as_str()) {
-            Some("agent_settled") => true,
+            // Since Pi 1.1.0 `agent_settled` carries `aborted`: an aborted run
+            // must not wipe a preceding failed-run error, or the turn would
+            // end with neither error nor answer.
+            Some("agent_settled") => event.get("aborted").and_then(|v| v.as_bool()) != Some(true),
             Some("agent_end") => final_assistant_message(event).is_some_and(|last| {
                 !matches!(
                     last.get("stopReason").and_then(|v| v.as_str()),
@@ -549,8 +552,12 @@ mod tests {
         );
         assert!(provider.clears_turn_error(&recovered_run));
 
-        // `agent_settled` is payload-free proof nothing more will run.
+        // `agent_settled` is proof nothing more will run — unless the run
+        // was aborted (Pi ≥ 1.1.0 carries `aborted`), which must keep a
+        // preceding failed-run error instead of wiping it.
         assert!(provider.clears_turn_error(&json!({"type": "agent_settled"})));
+        assert!(provider.clears_turn_error(&json!({"type": "agent_settled", "aborted": false})));
+        assert!(!provider.clears_turn_error(&json!({"type": "agent_settled", "aborted": true})));
         assert!(!provider.clears_turn_error(&json!({"type": "turn_start"})));
     }
 

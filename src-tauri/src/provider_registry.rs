@@ -1948,13 +1948,17 @@ impl ProviderRegistry {
         // run. Besides the environment, aider loads keys from
         // `~/.aider/oauth-keys.env` (written by its OpenRouter sign-in) and
         // `~/.env` (aider-chat 0.86.2 `main.py`).
-        const AIDER_KEY_VARS: [&str; 6] = [
+        const AIDER_KEY_VARS: [&str; 10] = [
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GEMINI_API_KEY",
             "DEEPSEEK_API_KEY",
             "OPENROUTER_API_KEY",
             "AZURE_API_KEY",
+            "XAI_API_KEY",
+            "COHERE_API_KEY",
+            "MISTRAL_API_KEY",
+            "GROQ_API_KEY",
         ];
         let has_env_key = AIDER_KEY_VARS
             .iter()

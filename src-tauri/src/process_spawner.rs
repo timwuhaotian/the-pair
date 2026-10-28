@@ -3609,19 +3609,27 @@ mod tests {
             r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":20,"record_type":"status","payload_type":"run.output.delta","payload":{"kind":"run_output_delta","text":"PONG"}}"#,
             r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":27,"record_type":"event","payload_type":"task.lifecycle.failed","payload":{"kind":"task_lifecycle","event":{"kind":"failed","reason":"invalid run configuration: provider does not support base instructions"}}}"#,
             r#"{"schema_version":1,"stream":{"kind":"session","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":38,"record_type":"event","payload_type":"run.terminal.completed","payload":{"kind":"run_terminal","terminal":"completed","text":"PONG","reason":null}}"#,
+            r#"{"schema_version":1,"stream":{"kind":"exec.usage","id":"01a0b758-cd4f-7f32-9ce7-79c437f3e1e7"},"sequence":39,"record_type":"status","payload_type":"run.usage","payload":{"kind":"run_usage","models":[{"model":null,"input_tokens":120,"cached_tokens":0,"output_tokens":45,"reasoning_tokens":0,"calls":1}],"calls":1,"completed_calls":1,"failed_calls":0,"cancelled_calls":0}}"#,
         ];
 
         let mut candidates = Vec::new();
         let mut session_id = None;
+        let mut usage = None;
         for line in lines {
             let event = parse_json_event(line).expect("muse line parses as JSON");
             collect_json_candidates_for_provider(ProviderKind::Muse, &event, &mut candidates);
             if session_id.is_none() {
                 session_id = extract_session_id(&event);
             }
-            // Muse emits no usage data on any payload type.
-            assert!(extract_token_usage(ProviderKind::Muse, &event).is_none());
+            // Only the trailing `run.usage` envelope carries usage; every
+            // other payload type (including the terminal event) stays silent.
+            if let Some(u) = extract_token_usage(ProviderKind::Muse, &event) {
+                usage = Some(u);
+            }
         }
+        let usage = usage.expect("run.usage envelope reports usage");
+        assert_eq!(usage.input_tokens, Some(120));
+        assert_eq!(usage.output_tokens, 45);
 
         // The prompt echo and the streaming delta must not join the terminal
         // text — otherwise the reply would read "…: PONG\nPONG\nPONG".

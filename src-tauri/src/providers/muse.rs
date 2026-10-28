@@ -4,7 +4,7 @@ use crate::provider_adapter::{
     ProviderTurnCommand, ProviderTurnRequest, SessionStrategy,
 };
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
-use crate::types::TurnTokenUsage;
+use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde_json::Value;
 
 /// Muse Code CLI (`muse`) — Meta's terminal coding agent, backed by Muse Spark.
@@ -14,9 +14,10 @@ use serde_json::Value;
 /// Verified against Muse Code 1.4.0 (2026-09-26; first integrated on 1.0.3).
 /// Flags re-checked against 1.4.11 `exec --help` (2026-10-22): same surface,
 /// effort still `none|minimal|low|medium|high|xhigh|max|ultra`. The `run.terminal.*` payload
-/// still carries the reply in `payload.text`, and `exec --json` still emits
-/// no token usage on stdout (usage exists only in the persisted session log
-/// under `~/.local/share/muse/sessions`, which the Pair does not read).
+/// still carries the reply in `payload.text`, and a `run.usage` envelope just
+/// before it carries per-run totals in `payload.models[]` (`input_tokens` /
+/// `output_tokens` per model). Usage covers the run only (resumed turns each
+/// report their own counts), so the default `UsageScope::Turn` applies.
 ///
 /// Two behaviours to know:
 ///
@@ -159,11 +160,32 @@ impl Provider for MuseProvider {
         }
     }
 
-    fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
-        // `muse exec --json` carries no usage data on any payload type
-        // (re-verified against Muse Code 1.4.0 on 2026-09-26), so token counts
-        // stay hidden for this provider, as they do for Kimi.
-        None
+    fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
+        // `muse exec --json` emits one `run.usage` envelope per run, just
+        // before `run.terminal.completed` (verified on 1.4.11). It covers the
+        // run only: two resumed turns on one `--session-id` each reported
+        // their own counts, so the default `UsageScope::Turn` applies
+        // unchanged. Its stream kind is `exec.usage`, never `session`, so
+        // session-id extraction is unaffected. `cached_tokens` is not added
+        // to input: on the echo provider all buckets are zero, so whether it
+        // sits inside or beside `input_tokens` needs one authed meta run.
+        if event.get("payload_type").and_then(|t| t.as_str()) != Some("run.usage") {
+            return None;
+        }
+        let models = event.get("payload")?.get("models")?.as_array()?;
+        let mut input_tokens: u64 = 0;
+        let mut output_tokens: u64 = 0;
+        for model in models {
+            input_tokens += model.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            output_tokens += model.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        }
+        Some(TurnTokenUsage {
+            output_tokens,
+            input_tokens: Some(input_tokens),
+            last_updated_at: crate::util::now_millis(),
+            source: TokenUsageSource::Final,
+            provider: Some("muse".to_string()),
+        })
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
@@ -428,7 +450,25 @@ mod tests {
     }
 
     #[test]
-    fn no_token_usage_is_reported() {
+    fn run_usage_envelope_reports_per_run_totals() {
+        let usage_event = json!({
+            "stream": { "kind": "exec.usage", "id": "01a0b758" },
+            "record_type": "status",
+            "payload_type": "run.usage",
+            "payload": {
+                "kind": "run_usage",
+                "models": [
+                    { "model": null, "input_tokens": 120, "cached_tokens": 0, "output_tokens": 45, "reasoning_tokens": 0, "calls": 1 }
+                ],
+                "calls": 1, "completed_calls": 1, "failed_calls": 0, "cancelled_calls": 0
+            }
+        });
+        let usage = MuseProvider.extract_token_usage(&usage_event).expect("run.usage parses");
+        assert_eq!(usage.input_tokens, Some(120));
+        assert_eq!(usage.output_tokens, 45);
+        assert_eq!(usage.source, TokenUsageSource::Final);
+
+        // Non-usage payloads (including the terminal event itself) stay silent.
         let terminal = json!({
             "payload_type": "run.terminal.completed",
             "payload": { "kind": "run_terminal", "terminal": "completed", "text": "ok" }
