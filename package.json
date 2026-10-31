@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "2.13.3",
+  "version": "2.13.4",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Open-source AI pair programming desktop app with Mentor and Executor agents for cross-validated AI code review",
@@ -49,7 +49,6 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "bump": "node scripts/bump-version.mjs",
-    "build:logos": "node scripts/build-logo-variants.mjs",
     "validate:changelog": "node scripts/validate-changelog.mjs",
     "test:js": "node --import tsx --test tests/*.test.ts",
     "test:ui": "node scripts/with-env.mjs TSX_TSCONFIG_PATH=tsconfig.web.json node --import tsx --test tests/render/*.test.tsx",

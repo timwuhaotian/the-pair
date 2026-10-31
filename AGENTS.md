@@ -4,7 +4,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Project Identity
 
-"The Pair" is a Desktop application (v1.2.3) built with Tauri 2.x, React 19, and TypeScript. It orchestrates two local AI agents — a **Mentor** (planner/reviewer, read-only) and an **Executor** (code writer/command runner) — that cross-check each other's work. The app manages their lifecycle, monitors resources, tracks git changes, and provides a polished UI for humans to observe and intervene.
+"The Pair" is a Desktop application built with Tauri 2.x, React 19, and TypeScript. It orchestrates two local AI agents — a **Mentor** (planner/reviewer, read-only) and an **Executor** (code writer/command runner) — that cross-check each other's work. The app manages their lifecycle, monitors resources, tracks git changes, and provides a polished UI for humans to observe and intervene.
 
 ## Tech Stack
 
@@ -13,7 +13,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
 - **Frontend:** React 19, TypeScript
 - **Styling:** Tailwind CSS v4, `clsx`, `tailwind-merge`
 - **Icons:** `lucide-react`
-- **State Management:** `zustand` (`usePairStore`, `useUpdateStore`, `useThemeStore`)
+- **State Management:** `zustand` (`usePairStore`, `useUpdateStore`, `useThemeStore`, `useLocaleStore`)
 - **Animations:** Framer Motion
 
 ## Architecture Rules
@@ -28,7 +28,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
    - Shell surfaces use `.shell-card` (+ `.shell-card-hover`); the sidebar rail uses `.app-source-list`. The stream stays flat with hairline borders.
    - Use the `cn()` utility from `src/renderer/src/lib/utils.ts` for conditional class merging.
 3. **Agent Interactions:**
-   - The application spawns processes. Always implement an iteration limit (`maxIterations`) before pausing for human intervention.
+   - The application spawns processes. Runs are unbounded by default (`maxIterations = 0`); an optional per-pair iteration cap pauses the pair into human review when reached — keep that cap semantics intact when touching turn logic.
    - Use the handoff guard (`src/renderer/src/lib/handoffGuard.ts`) to prevent race conditions when pairs finish.
 4. **Error Handling:**
    - Handle permissions and locked files defensively in the Rust backend.
@@ -39,14 +39,20 @@ This file contains instructions and context for any AI agents (like yourself) wo
 | Module               | Responsibility                                                                                                                                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pair_manager`       | Pair lifecycle: create, list, delete, pause, resume, assign task, update models; resolves each pair's workspace (in-place, or a fresh worktree on an auto-named `the-pair/…` branch — per task when requested)                               |
-| `message_broker`     | State machine for agent turn coordination and event routing                                                                                                                                                                                  |
-| `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction                                                                                                                                                  |
+| `message_broker`     | State machine for agent turn coordination and event routing; also flags stalled turns (warning at 120s without output, stalled at 600s)                                                                                                      |
+| `context_bridge`     | Parses the mentor's plan checklist and bridges handoff context between mentor/executor turns                                                                                                                                                 |
+| `process_spawner`    | Spawns CLI processes, parses JSON event streams; delegates to provider trait for extraction; per-turn step-cycle runaway guard                                                                                                               |
+| `acceptance`         | Mentor acceptance loop: parses verdict JSON, classifies change risk, runs verification checks (`git diff --check`, typecheck, tests) with timeouts, builds repair/follow-up prompts                                                          |
+| `quality_gate`       | Validates mentor review evidence (files reviewed, checks performed) before a verdict is accepted                                                                                                                                             |
+| `smart_pause`        | Pause reasons (iteration budget exhausted) and the plan-approval gate decision; human-readable pause messages                                                                                                                                |
 | `worktree_manager`   | Git worktree lifecycle: repo state checks, branch listing, worktree creation with work-preservation contract on delete (stash + rescued/kept `the-pair/…` branches)                                                                          |
 | `provider_adapter`   | Facade over the provider trait; legacy compatibility shim for `ProviderAdapter::build_turn_command()` etc.                                                                                                                                   |
 | `provider_registry`  | `ProviderKind` enum, shared helpers (`which_binary`, `collect_*`), model discovery utilities                                                                                                                                                 |
 | `providers`          | **Provider trait + per-provider modules** (`opencode.rs`, `codex.rs`, `claude.rs`, `gemini.rs`, `kimi.rs`, `pi.rs`, `kiro.rs`, `aider.rs`, `grok.rs`, `muse.rs`). Each implements CLI args, token extraction, detection, and model metadata. |
 | `model_catalog`      | Static model metadata (display names, billing kind, recommended roles); delegates to provider trait for per-provider fields                                                                                                                  |
 | `session_snapshot`   | Persists and restores full pair state; supports session recovery after crash/restart                                                                                                                                                         |
+| `recent_activity`    | Derives the cross-pair recent-activity feed from session snapshots/messages                                                                                                                                                                  |
+| `report_generator`   | Session run reports (markdown + file export), written to the app data dir — never into the user's repository                                                                                                                                 |
 | `skill_discovery`    | Scans project dirs for `.md` skill files with YAML frontmatter                                                                                                                                                                               |
 | `resource_monitor`   | Per-agent CPU/memory polling (1s interval)                                                                                                                                                                                                   |
 | `git_tracker`        | Detects modified/added/deleted files relative to a baseline commit                                                                                                                                                                           |
@@ -54,39 +60,56 @@ This file contains instructions and context for any AI agents (like yourself) wo
 | `path_env`           | Refreshes `$PATH` from login shell so CLI tools are discoverable                                                                                                                                                                             |
 | `config_paths`       | Resolves platform-specific config file locations                                                                                                                                                                                             |
 | `intelligence_store` | Cross-run intelligence: local SQLite store (`intelligence.db`) of run outcomes + human interventions, heuristic task tagging, insights/recommendation queries, one-time snapshot backfill                                                    |
+| `types`              | Shared serde types (pair state, messages, acceptance, token usage) exchanged over Tauri IPC                                                                                                                                                  |
+| `util`               | Small shared helpers (`now_millis`, mock-mode check, handoff prompt builders)                                                                                                                                                                |
+| `test_env`           | Test-only lock serializing process-wide env mutations across `cargo test` threads                                                                                                                                                            |
 | `stubs`              | Config/model-cache/provider-login commands                                                                                                                                                                                                   |
 
-## Frontend Components (`src/renderer/src/components/`)
+## Frontend Components
 
-| Component                                       | Purpose                                                                                            |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `App.tsx`                                       | Root: app shell routing (hub sections vs pair detail), modals, shortcuts, updater                  |
-| `AppChrome.tsx`                                 | Window chrome, title bar, theme toggle                                                             |
-| `AppShell.tsx`                                  | Left section rail (Pairs / Activity / Insights) with running + attention badges                    |
-| `PairsHub.tsx`                                  | Pairs home: stat cards + workspace-grouped pair cards with quick actions                           |
-| `ShellViews.tsx`                                | `ActivityView` (needs-attention + recent activity) and `InsightsView` (cross-run leaderboard)      |
-| `OnboardingWizard.tsx`                          | First-run guided setup (model config, directory selection)                                         |
-| `CreatePairModal.tsx`                           | New pair creation form                                                                             |
-| `PairSettingsModal.tsx`                         | Edit existing pair settings                                                                        |
-| `AssignTaskModal.tsx`                           | Assign a new task to an existing pair                                                              |
-| `ModelPicker.tsx`                               | Model selection dropdown with role headers, drop-up support, recent model tracking (role-specific) |
-| `SkillPicker.tsx`                               | Browse and attach skill files to a task                                                            |
-| `SessionRecoveryModal.tsx`                      | Restore interrupted sessions                                                                       |
-| `TaskHistoryPanel.tsx`                          | View past run history for a pair                                                                   |
-| `MessageFilterBar.tsx`                          | Filter console messages by role (All/Mentor/Executor)                                              |
-| `ScrollToBottomButton.tsx`                      | Auto-appears when new messages arrive                                                              |
-| `IterationProgress.tsx`                         | Visual indicator with warning when approaching iteration limit                                     |
-| `Dashboard.tsx`                                 | Pair detail view: conversation console + operations inspector (no list state)                      |
-| `PairOperationsPanel.tsx`                       | Inspector: collapsible sections (models, run state, resources, files, history, timeline)           |
-| `inspector/InspectorSection.tsx`                | Collapsible section primitive with header badge + actions slots                                    |
-| `inspector/InlineDiff.tsx`                      | Inline file-diff body (shared diff rendering, no modal)                                            |
-| `RecoveryBanner.tsx`                            | Hub banner listing restored pairs needing a human decision                                         |
-| `CommandPalette.tsx`                            | Global fuzzy command palette (Cmd+K) with grouped actions + pair jump                              |
-| `ErrorDetailPanel.tsx`                          | Actionable error display with retry/discard options                                                |
-| `InsightsPanel.tsx`                             | Cross-run combo leaderboard on the insights section (hidden until ≥5 recorded runs)                |
-| `FileMention.tsx`                               | Renders `@file` mentions in messages                                                               |
-| `StatusBadge.tsx`                               | Pair status pill (Idle/Mentoring/Executing/Reviewing/Paused/Error/Finished)                        |
-| `UpdateNotification.tsx` / `UpdateControls.tsx` | In-app updater UI                                                                                  |
+Paths are relative to `src/renderer/src/components/` unless noted.
+
+| Component                                                             | Purpose                                                                                                             |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `../App.tsx`                                                          | Root: app shell routing (hub sections vs pair detail), modals, shortcuts, updater                                   |
+| `AppChrome.tsx`                                                       | Window chrome, title bar, theme toggle                                                                              |
+| `AppShell.tsx`                                                        | Left section rail (Pairs / Activity / Insights) with running + attention badges                                     |
+| `PairsHub.tsx`                                                        | Pairs home: stat cards + workspace-grouped pair cards with quick actions                                            |
+| `StartupHero.tsx` / `BootSplash.tsx`                                  | Boot splash + first-run empty-state hero (model config & directory selection happen in the hub)                     |
+| `ShellViews.tsx`                                                      | `ActivityView` (needs-attention + recent activity) and `InsightsView` (cross-run leaderboard)                       |
+| `StatCards.tsx`                                                       | Hub stat cards (running/paused/finished/attention counts)                                                           |
+| `RecentActivityPanel.tsx`                                             | Cross-pair recent activity feed (activity section)                                                                  |
+| `CreatePairModal.tsx`                                                 | New pair creation form (task presets via `PresetPicker.tsx`)                                                        |
+| `PairSettingsModal.tsx`                                               | Edit existing pair settings                                                                                         |
+| `AssignTaskModal.tsx`                                                 | Assign a new task to an existing pair                                                                               |
+| `ModelPicker.tsx`                                                     | Model selection dropdown with role headers, drop-up support, recent model tracking (role-specific)                  |
+| `BranchPicker.tsx`                                                    | Fuzzy repo/worktree branch picker                                                                                   |
+| `SkillPicker.tsx`                                                     | Browse and attach skill files to a task                                                                             |
+| `TaskHistoryPanel.tsx`                                                | View past run history for a pair                                                                                    |
+| `MessageFilterBar.tsx`                                                | Filter console messages by role (All/Mentor/Executor)                                                               |
+| `ScrollToBottomButton.tsx`                                            | Auto-appears when new messages arrive                                                                               |
+| `IterationProgress.tsx`                                               | Visual indicator with warning when approaching iteration limit                                                      |
+| `Dashboard.tsx`                                                       | Pair detail view: conversation console + operations inspector (no list state)                                       |
+| `PairConsole.tsx`                                                     | Unified per-pair console: turn cards, terminal events, plan review bar, composer, search                            |
+| `MessageCard.tsx` / `TurnCardView.tsx`                                | Message and turn-card rendering (markdown, mentions, token chips)                                                   |
+| `AcceptanceMessageBody.tsx`                                           | Acceptance verdict/record rendering with tone chips                                                                 |
+| `PlanReviewBar.tsx`                                                   | Human approval bar for the plan gate (Awaiting Human Review)                                                        |
+| `MarkdownContent.tsx`                                                 | Markdown rendering with syntax highlighting for agent messages                                                      |
+| `FileMention.tsx` / `SkillMention.tsx`                                | Renders `@file` and skill mentions in messages                                                                      |
+| `TokenChip.tsx`                                                       | Inline per-turn token-usage chip                                                                                    |
+| `SystemBanner.tsx` / `ShortcutsModal.tsx` / `LanguageSwitcher.tsx`    | System banners, shortcuts help modal, i18n language switch                                                          |
+| `ErrorBoundary.tsx` / `ErrorDetailPanel.tsx`                          | Renderer crash boundary; actionable error display with retry/discard options                                        |
+| `PairOperationsPanel.tsx`                                             | Inspector: collapsible sections (models, run state, resources, files, history, timeline)                            |
+| `TimelinePanel.tsx` (+ `TimelineEventItem`, `TimelineIterationGroup`) | Run timeline rendering shared by inspector + console                                                                |
+| `inspector/InspectorSection.tsx`                                      | Collapsible section primitive with header badge + actions slots                                                     |
+| `inspector/InlineDiff.tsx`                                            | Inline file-diff body (shared diff rendering, no modal)                                                             |
+| `terminal/`                                                           | Terminal event primitives (`TerminalBlock`, `TerminalEventRow`, `TerminalDivider`)                                  |
+| `ui/`                                                                 | Reusable primitives: `GlassButton`, `GlassModal`, `ConfirmModal`, `Chip`, `IconButton`, `ResourceMeter`, `StatCard` |
+| `RecoveryBanner.tsx`                                                  | Hub banner listing restored pairs needing a human decision                                                          |
+| `CommandPalette.tsx`                                                  | Global fuzzy command palette (Cmd+K) with grouped actions + pair jump                                               |
+| `InsightsPanel.tsx`                                                   | Cross-run combo leaderboard on the insights section (hidden until ≥5 recorded runs)                                 |
+| `StatusBadge.tsx`                                                     | Pair status pill (Idle/Mentoring/Executing/Reviewing/Paused/Error/Finished)                                         |
+| `UpdateNotification.tsx` / `UpdateControls.tsx`                       | In-app updater UI                                                                                                   |
 
 ## Key Frontend Libraries (`src/renderer/src/lib/`)
 

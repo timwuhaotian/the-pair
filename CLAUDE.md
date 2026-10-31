@@ -28,8 +28,9 @@ npm run dev:renderer           # Renderer-only (browser at :5173, no Tauri APIs)
 # Quality gates (run before committing)
 npm run lint                   # eslint --cache
 npm run typecheck              # Runs both typecheck:node and typecheck:web
-npm test                       # JS tests then `cargo test` for src-tauri
+npm test                       # test:js + test:ui, then `cargo test` for src-tauri
 npm run test:js                # node --test against tests/*.test.ts (tsx loader)
+npm run test:ui                # jsdom component tests, tests/render/*.test.tsx
 npm run test:rust              # cargo test in src-tauri
 
 # Run a single JS test file
@@ -44,16 +45,17 @@ npm run build:mac:release      # Release ZIP bundle used in GitHub Releases
 npm run build:win              # x86_64-pc-windows-msvc
 npm run build:linux            # x86_64-unknown-linux-gnu
 
-# E2E (Appium + WebdriverIO, macOS only, mock mode)
-npm run e2e:setup              # One-time: appium driver install mac2
-npm run e2e
+# E2E
+npm run e2e:web                # Playwright headless e2e against a mocked Tauri IPC (e2e-web/)
+npm run e2e:setup              # Appium: one-time mac2 driver install (macOS only)
+npm run e2e                    # Appium + WebdriverIO, macOS, mock mode
 
 # Release
 npm run bump <version>         # Updates package.json, package-lock.json, src-tauri/Cargo.toml + Cargo.lock
 npm run validate:changelog
 ```
 
-`npm test` does **not** invoke the renderer or run e2e — `tests/*.test.ts` are pure-Node unit tests covering lib utilities, store logic, and build scripts. Renderer components are tested by reasoning about pure helpers extracted out of them (see `tests/dashboardPairs.test.ts`, `tests/pairListSection.test.ts`).
+`npm test` does **not** run e2e — it runs three layers: pure-Node unit tests (`tests/*.test.ts`: lib utilities, store logic, build scripts), jsdom renderer component tests (`npm run test:ui` → `tests/render/*.test.tsx`, e.g. `pairsHub.test.tsx`, `worktreeUi.test.tsx`), then Rust tests. Dumb-render logic should still be extracted into pure helpers under `src/renderer/src/lib/` and covered by `tests/*.test.ts` (see `tests/dashboardPairs.test.ts`).
 
 ## Architecture in 60 seconds
 

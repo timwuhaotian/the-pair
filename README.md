@@ -137,9 +137,9 @@ Both use the same Mentor + Executor idea: one agent plans and reviews, the other
 - **Unified Pair Console** — Conversation, timeline, terminal events, and activity in one scrollable feed
 - **Cognitive Event Stream** — Intent chips, reasoning steps, and tool call status surfaced per turn
 - **Smart Coordination** — Structured handoff prompts, quality gates, and smart-pause logic for healthier iterations
-- **Iteration Budgeting** — Flat 20-turn default with human-in-the-loop pause when the budget is reached
+- **Iteration Budgeting** — Optional per-pair iteration cap with human-in-the-loop pause when the budget is reached (runs are unbounded by default)
 - **Full Automation Mode** — Agents work autonomously with workspace-scoped permissions
-- **Real-Time Activity Tracking** — Live status with stalled-activity detection after 60s of inactivity
+- **Real-Time Activity Tracking** — Live status with stall detection (warning after 120s without output, stalled after 600s)
 - **Resource Monitoring** — CPU and memory usage per agent, updated every second
 - **Git Change Tracking** — Detect modified/added/deleted files, with click-through unified diff viewer
 - **Sound Cues** — Contextual finish, pause, and error chimes with global mute toggle
@@ -263,7 +263,7 @@ Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, and Mus
 
 ### Pair Runtime
 
-Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` within your project directory, including session files, runtime permissions, and conversation history.
+Each pair works either directly in your chosen directory or in its own git worktree on a `the-pair/…` branch. Session state — snapshots, run reports, and the cross-run intelligence store — lives in the app's data directory, never inside your repository.
 
 > [!NOTE]
 > The Pair does not modify your global opencode permissions. All permissions are session-specific.
@@ -341,7 +341,7 @@ Start → Initialize & Baseline → Mentoring → Executing → Reviewing
                                   (loop back to Mentoring)
 ```
 
-Pairs are capped at a flat 20-iteration default and pause for human review on hitting the budget — rather than running unbounded — so you can continue, reassign, or finish from the console.
+Pairs run until the mentor signals completion or you stop them. If you set an iteration cap for a pair, hitting the budget pauses it into human review — so you can continue, reassign, or finish from the console.
 
 ---
 
@@ -464,7 +464,7 @@ A: Yes. Each turn renders a stream of **cognitive events** — intent chips (ana
 
 **Q: What happens if an agent gets stuck in a loop?**
 
-A: The Pair caps each run at a flat 20-iteration default. When the limit is reached, the pair pauses into **Awaiting Human Review** so you can continue, reassign, or finish. A per-turn step-cycle guard also kills runaway agent processes to prevent CPU exhaustion.
+A: Runs are unbounded by default; if you set an iteration cap for a pair, reaching it pauses the run into **Awaiting Human Review** so you can continue, reassign, or finish. A per-turn step-cycle guard also kills runaway agent processes to prevent CPU exhaustion.
 
 **Q: What if the app crashes or I close it mid-session?**
 

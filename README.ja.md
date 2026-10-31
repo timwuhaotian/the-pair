@@ -209,7 +209,7 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build�
 
 ### Pairランタイム
 
-各Pairはプロジェクトディレクトリ内の `.pair/runtime/<pairId>/` で独自のランタイム設定を維持し、セッションファイル、ランタイム権限、会話履歴を含みます。
+各Pairは、選択したディレクトリで直接作業するか、独自のgitワークツリー（`the-pair/…` ブランチ）で作業します。セッション状態（スナップショット、実行レポート、クロスラン知能ストア）はアプリのデータディレクトリに保存され、リポジトリ内には書き込まれません。
 
 > [!NOTE]
 > The Pairはグローバルなopencode権限を変更しません。すべての権限はセッション固有です。
@@ -238,7 +238,9 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build�
 ├─────────────────────────────────────────────────────────┤
 │  フロントエンド (React UI)                              │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  ダッシュボード│ Pair詳細     │    設定          │    │
+│  │  Pairs Hub   │ PairConsole  │   Inspector      │    │
+│  │  + Activity  │ (Unified)    │  (Collapsible)   │    │
+│  │  + Insights  │              │                  │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │                          ↕ Tauri IPC                    │
 ├─────────────────────────────────────────────────────────┤
@@ -246,6 +248,10 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build�
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
 │  │ (ライフサイクル)│(ステートマシン)│(マルチプロバイダー)│    │
+│  └──────────────┴──────────────┴──────────────────┘    │
+│  ┌──────────────┬──────────────┬──────────────────┐    │
+│  │ContextBridge │ QualityGate  │   SmartPause     │    │
+│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ Git Tracker  │ Worktrees    │ セッションスナップショット│

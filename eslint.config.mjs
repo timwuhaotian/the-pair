@@ -46,18 +46,6 @@ export default [
     }
   },
   {
-    // Vendored film scripts load as classic <script> (window) and are also
-    // required from Node for headless renders.
-    files: ['film/**/*.js'],
-    languageOptions: {
-      globals: {
-        window: 'readonly',
-        module: 'readonly',
-        console: 'readonly'
-      }
-    }
-  },
-  {
     files: ['**/*.{ts,tsx}'],
     plugins: {
       'react-hooks': eslintPluginReactHooks,

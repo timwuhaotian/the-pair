@@ -18,7 +18,6 @@ rsvg-convert -w 1024 -h 1024 -o /tmp/app-icon-master.png docs/assets/app-icon-da
 npx tauri icon /tmp/app-icon-master.png   # rebuilds src-tauri/icons/* (icns/ico/png/android/ios)
 cp /tmp/app-icon-master.png resources/logo-the-pair.png
 cp /tmp/app-icon-master.png docs/assets/logo-the-pair.png
-cp /tmp/app-icon-master.png src/renderer/src/assets/app-icon.png
 ```
 
 The dark tile is the shipped icon: it reads on both light and dark docks/desktops, same as oMLX shipping only the dark tile. `docs/assets/social-preview.png` still uses the old mark — needs a re-layout, not a swap.

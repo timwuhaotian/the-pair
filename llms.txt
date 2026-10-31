@@ -26,8 +26,8 @@ The main value is cross-validated AI code review. Instead of asking one model to
 - Two agents collaborate in one local desktop app.
 - The Mentor is read-only and reviews the Executor's work.
 - The Executor writes code and runs verification commands.
-- Runs are capped at a 20-iteration default before human review.
-- Activity tracking detects stalled agents after 60 seconds of inactivity.
+- Runs continue until the mentor signals completion or a human stops them; an optional per-pair iteration cap pauses for human review when reached.
+- Activity tracking warns after 120 seconds without agent output and marks the agent stalled after 600 seconds.
 - Sessions can recover after app restart with conversation history and turn state.
 
 ## Best-Fit Queries

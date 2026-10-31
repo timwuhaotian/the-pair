@@ -15,7 +15,6 @@ test('App keeps pair detail and heavy modal components out of the static startup
   for (const specifier of [
     './components/PairConsole',
     './components/PairOperationsPanel',
-    './components/OnboardingWizard',
     './components/CreatePairModal',
     './components/AssignTaskModal',
     './components/PairSettingsModal'

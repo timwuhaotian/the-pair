@@ -22,7 +22,7 @@ The GitHub Actions workflow (`build-signed-mac.yml`) automatically:
 
 ## 2. Quality Gates
 
-Run these commands locally before tagging:
+Run these commands locally before pushing the release commit:
 
 ```bash
 npm test
@@ -94,4 +94,3 @@ gh workflow run build-signed-mac.yml
 ## Notes
 
 - Keep the checklist updated whenever the release workflow changes.
-- If signing or notarization is enabled, add the signing validation steps here before release day.

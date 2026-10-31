@@ -6,7 +6,7 @@ We release patches for security vulnerabilities. Currently supported versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.x     | :white_check_mark: |
+| 2.x     | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
@@ -61,6 +61,6 @@ When using The Pair:
 - The Pair executes AI-generated commands in your local environment
 - Always review changes before accepting them in manual approval mode
 - Use workspace-scoped permissions to limit file system access
-- The app requires access to your opencode configuration for AI model access
+- The app reads your opencode configuration for opencode-backed model access
 
 Thank you for helping keep The Pair secure!

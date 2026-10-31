@@ -48,7 +48,6 @@
     ],
     "macOS": {
       "minimumSystemVersion": "12.0",
-      "entitlements": "../build/entitlements.mac.plist",
       "signingIdentity": null
     },
     "category": "DeveloperTool",

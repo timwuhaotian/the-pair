@@ -30,7 +30,7 @@ _Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
 
 [![The Pair 10초 런치 필름 — 두 에이전트, 한 번의 리뷰](./docs/assets/launch-10s.gif)](docs/assets/launch-10s.mp4)
 
-🎬 **10초 런치 필름 · 음소거 자동 재생** — [4K60 원본（소리 포함）보기](docs/assets/launch-10s.mp4)
+🎬 **10초 런치 필름 · 음소거 자동 재생** — [4K60 원본(소리 포함) 보기](docs/assets/launch-10s.mp4)
 
 </div>
 
@@ -209,7 +209,7 @@ Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Co
 
 ### Pair 런타임
 
-각 Pair는 프로젝트 디렉토리 내 `.pair/runtime/<pairId>/`에서 자체 런타임 구성을 유지하며, 세션 파일, 런타임 권한 및 대화 기록을 포함합니다.
+각 Pair는 선택한 디렉토리에서 직접 작업하거나 자체 git 워크트리(`the-pair/…` 브랜치)에서 작업합니다. 세션 상태(스냅샷, 실행 보고서, 크로스 런 인텔리전스 저장소)는 앱의 데이터 디렉토리에 저장되며 저장소 안에는 절대 기록되지 않습니다.
 
 > [!NOTE]
 > The Pair는 전역 opencode 권한을 수정하지 않습니다. 모든 권한은 세션별입니다.
@@ -238,7 +238,9 @@ Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Co
 ├─────────────────────────────────────────────────────────┤
 │  프론트엔드 (React UI)                                  │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  대시보드     │ Pair 상세     │    설정          │    │
+│  │  Pairs Hub   │ PairConsole  │   Inspector      │    │
+│  │  + Activity  │ (Unified)    │  (Collapsible)   │    │
+│  │  + Insights  │              │                  │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │                          ↕ Tauri IPC                    │
 ├─────────────────────────────────────────────────────────┤
@@ -246,6 +248,10 @@ Claude Code, Codex, Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Co
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
 │  │ (라이프사이클) │(상태 기계)    │(멀티 프로바이더)  │    │
+│  └──────────────┴──────────────┴──────────────────┘    │
+│  ┌──────────────┬──────────────┬──────────────────┐    │
+│  │ContextBridge │ QualityGate  │   SmartPause     │    │
+│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ Git Tracker  │ Worktrees    │ 세션 스냅샷       │    │

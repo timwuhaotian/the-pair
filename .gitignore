@@ -7,7 +7,6 @@ out
 .pair
 .vscode
 .worktrees
-docs/superpowers
 test-*.txt
 IDEAS.md
 # test coverage output

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.13.3"
+version = "2.13.4"
 description = "The Pair desktop orchestrator for dual AI agents"
 authors = ["timwuhaotian"]
 license = "Apache-2.0"
@@ -23,7 +23,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 log = "0.4"
 tauri = { version = "2.10.3", features = [] }
-tauri-plugin-log = "2"
 tauri-plugin-updater = "2.10.0"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
@@ -32,5 +31,4 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-fs = "2.4.5"
 tauri-plugin-opener = "2.5"
 dirs = "5.0"
-base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }

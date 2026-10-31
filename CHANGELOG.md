@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.4] - 2026-10-31
+
+Deep repository cleanup. No application behavior changes — every test suite and the headless e2e run pass unchanged.
+
+### Removed
+
+- **~85 MB of dead repository weight.** Unreferenced marketing assets (`deck.mp4` / `deck.pdf` / `deck-simple.pdf`, `onepager.png`), the one-off launch-film source project (`film/`), the discarded logo-variant exploration, and its generator script (`build:logos`) — the shipped icon chain (`app-icon-*.svg` → `src-tauri/icons/`) is untouched.
+- **Historical planning artifacts.** `docs/plans/`, `docs/roadmap/` (v1.4→v2.0, long shipped), `docs/superpowers/`, `.superpowers/`, and `.opencode/plans/`.
+- **Dead code and config.** Unreachable renderer modules (`PairListGroup`, `onboardingLayout`, template assets), the unreferenced `scripts/screenshots.mts`, the Electron-era `dev-app-update.yml`, unused Rust dependencies (`base64`, `tauri-plugin-log`), and the empty macOS entitlements plist plus its config reference (an empty plist is identical to no entitlements).
+
+### Fixed
+
+- **Docs now match the code.** AGENTS.md module/component tables completed against the actual tree, stale hardcoded version removed; CLAUDE.md test-layer description updated (`test:ui` exists); README (all four languages) and llms.txt corrected on iteration limits (unbounded by default), stall thresholds (120 s / 600 s), and the nonexistent `.pair/runtime/` path; SECURITY.md supported versions 1.x → 2.x; `.env.example` rewritten from Electron signing vars to the Tauri ones CI actually uses.
+
 ## [2.13.3] - 2026-10-29
 
 Provider interface audit across all ten agent CLIs. Eight needed no changes; three fixes below.

@@ -209,7 +209,7 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build �
 
 ### Pair 运行时
 
-每个 Pair 在项目目录下的 `.pair/runtime/<pairId>/` 中维护自己的运行时配置，包括会话文件、运行时权限和对话历史。
+每个 Pair 要么直接在你选择的目录中工作，要么在自己的 git worktree（`the-pair/…` 分支）中工作。会话状态——快照、运行报告与跨运行智能存储——保存在应用数据目录中，绝不会写入你的仓库。
 
 > [!NOTE]
 > The Pair 不会修改你的全局 opencode 权限。所有权限都与会话绑定。
@@ -238,7 +238,9 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build �
 ├─────────────────────────────────────────────────────────┤
 │  Frontend (React UI)                                    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  Dashboard   │ Pair Detail  │    Settings      │    │
+│  │  Pairs Hub   │ PairConsole  │   Inspector      │    │
+│  │  + Activity  │ (Unified)    │  (Collapsible)   │    │
+│  │  + Insights  │              │                  │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │                          ↕ Tauri IPC                    │
 ├─────────────────────────────────────────────────────────┤
@@ -246,6 +248,10 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build �
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
 │  │ (Lifecycle)  │(State Machine)│(Multi-Provider) │    │
+│  └──────────────┴──────────────┴──────────────────┘    │
+│  ┌──────────────┬──────────────┬──────────────────┐    │
+│  │ContextBridge │ QualityGate  │   SmartPause     │    │
+│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
