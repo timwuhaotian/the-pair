@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.5] - 2026-10-31
+
+No code changes. The MiniMax model-picker fix merged in [#16](https://github.com/timwuhaotian/the-pair/pull/16) shipped with 2.13.3 and is in every build since, but it was missing from the 2.13.3 and 2.13.4 release notes; this release documents it.
+
+### Fixed
+
+- **The model picker only offers current MiniMax text models.** MiniMax M3.1 Flash and MiniMax M3 are listed first, and stale MiniMax text ids (older `text-01` lines) are no longer offered as choices — they remain as fallbacks when no current MiniMax text model is detected, while saved selections and recent-model history keep resolving against the full catalog.
+- **Flash models no longer advertise an unsupported reasoning variant.** MiniMax M3.1 Flash (including the `-free` and `:free` gateway routes) has no "disabled" effort level, so the effort control stays hidden for it; the OpenCode command still carries the model id, the resumed session and the prompt unchanged.
+
 ## [2.13.4] - 2026-10-31
 
 Deep repository cleanup. No application behavior changes — every test suite and the headless e2e run pass unchanged.
