@@ -48,7 +48,8 @@ impl Provider for CodexProvider {
         // "Not inside a trusted directory and --skip-git-repo-check was not
         // specified." (exit 1, on stderr, before any JSON event). The flag is
         // `global`, so it is accepted by `exec resume` too. Re-checked against
-        // codex-cli 0.149.1, 0.160.0 and 0.163.0 (2026-10-19).
+        // codex-cli 0.149.1, 0.160.0, 0.163.0 (2026-10-19) and 0.166.0
+        // (2026-11-02): still listed on both `exec` and `exec resume`.
         args.push("--skip-git-repo-check".into());
         // Strip provider prefix if present (e.g. "codex/model-id" → "model-id").
         let model = request
@@ -62,8 +63,9 @@ impl Provider for CodexProvider {
         // set through `-c sandbox_mode=` because `codex exec resume` rejects
         // `--sandbox`, and a resume without any sandbox setting would fall back
         // to the user's config.toml. Re-checked against codex-cli 0.163.0
-        // (2026-10-19): `codex exec resume --help` still offers `-c`/`--model`/
-        // `--json`/`--output-last-message` but no `--sandbox`.
+        // (2026-10-19) and 0.166.0 (2026-11-02): `codex exec resume --help`
+        // still offers `-c`/`--model`/`--json`/`--output-last-message` but no
+        // `--sandbox`.
         let sandbox = if request.role == "mentor" {
             "read-only"
         } else {
@@ -77,9 +79,10 @@ impl Provider for CodexProvider {
         // (stdin is /dev/null). Pin "never" for the executor — the sandbox
         // above stays the real boundary. The mentor does not need it: it runs
         // read-only, where nothing is ever approved into a write. Verified on
-        // 0.163.0: `codex doctor -c 'approval_policy="never"'` reports
-        // "approval Never", and `-c` is accepted by `exec resume` too (that
-        // subcommand has no `--ask-for-approval`).
+        // 0.163.0 and re-checked on 0.166.0 (2026-11-02): `codex doctor -c
+        // 'approval_policy="never"'` reports "approval Never", and `-c` is
+        // accepted by `exec resume` too (that subcommand still has no
+        // `--ask-for-approval`).
         if request.role != "mentor" {
             args.push("-c".into());
             args.push("approval_policy=\"never\"".into());
@@ -439,7 +442,12 @@ mod tests {
     fn codex_fallback_ladder_is_conservative_and_prefix_based() {
         // The fallback only runs when the CLI can't be asked, so it stops at
         // xhigh rather than guessing at max/ultra.
-        for model in ["gpt-5.5", "gpt-5.6-terra", "gpt-6-luna", "codex/gpt-5.6-sol"] {
+        for model in [
+            "gpt-5.5",
+            "gpt-5.6-terra",
+            "gpt-6-luna",
+            "codex/gpt-5.6-sol",
+        ] {
             assert_eq!(
                 fallback_reasoning_levels(model),
                 Some(

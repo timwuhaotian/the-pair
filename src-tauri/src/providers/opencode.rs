@@ -52,24 +52,29 @@ const CONFIG_FILES: [&str; 2] = ["opencode.json", "opencode.jsonc"];
 /// agent `plan` is `<dir>/plan.md`.
 const AGENT_FILE_DIRS: [&str; 4] = ["agent", "agents", "mode", "modes"];
 
-/// Fixed config locations OpenCode 2.x reads before the user's own config
+/// Fixed config locations OpenCode reads as its managed layer
 /// (`packages/core/src/config/discovery.ts`: system directory + managed
-/// preferences, verified against the v2.0.32 tag source). An MDM policy that
-/// disables `plan` here must still drop `--agent plan`. Listed first in the
-/// source order, so a later explicit value overrides them.
+/// preferences; `Config.load` in `packages/core/src/config.ts` appends the
+/// managed layer LAST — "Managed settings load last so they override
+/// everything" — so a `plan` disable here beats project config and
+/// `$OPENCODE_CONFIG_CONTENT`. Identical in v2.0.32 and v2.2.5 (2026-11-02).
+/// An MDM policy that disables `plan` here must still drop `--agent plan`.
 #[cfg(target_os = "macos")]
-const SYSTEM_CONFIG_DIRS: [&str; 2] =
-    ["/Library/Application Support/opencode", "/etc/opencode"];
+const SYSTEM_CONFIG_DIRS: [&str; 2] = ["/Library/Application Support/opencode", "/etc/opencode"];
 #[cfg(target_os = "windows")]
 const SYSTEM_CONFIG_DIRS: [&str; 1] = ["C:/ProgramData/opencode"];
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const SYSTEM_CONFIG_DIRS: [&str; 1] = ["/etc/opencode"];
 
-/// The macOS managed-preferences plist MDM tooling can use to pin OpenCode
-/// config (`ai.opencode.managed`, verified against v2.0.32 source). Its
-/// payload is OpenCode's config JSON; parsing plist ourselves would need a
-/// new dependency, so a file that mentions `plan` and one of the disable
-/// keys fails open (see `plan_agent_disabled`).
+/// The macOS managed-preferences plists MDM tooling can use to pin OpenCode
+/// config (`ConfigDiscovery.preferencePaths` in
+/// `packages/core/src/config/discovery.ts`: per-user first, then the
+/// host-wide one; "the first one present wins". Both paths present in
+/// v2.0.32 and v2.2.5 (verified 2026-11-02); the host-wide second path was
+/// missed until now. Only the first path that exists as a file loads — see
+/// `first_existing_path`. A plist payload is OpenCode's config JSON; parsing
+/// plist ourselves would need a new dependency, so a file that mentions
+/// `plan` and one of the disable keys fails open (see `plan_agent_disabled`).
 #[cfg(target_os = "macos")]
 fn managed_preferences_paths(home: &Path) -> Vec<std::path::PathBuf> {
     let user = home
@@ -79,23 +84,50 @@ fn managed_preferences_paths(home: &Path) -> Vec<std::path::PathBuf> {
     if user.is_empty() {
         return Vec::new();
     }
-    vec![std::path::PathBuf::from(format!(
-        "/Library/Managed Preferences/{user}/ai.opencode.managed.plist"
-    ))]
+    vec![
+        std::path::PathBuf::from(format!(
+            "/Library/Managed Preferences/{user}/ai.opencode.managed.plist"
+        )),
+        std::path::PathBuf::from("/Library/Managed Preferences/ai.opencode.managed.plist"),
+    ]
+}
+
+/// First of `paths` that exists as a file, most specific first: upstream
+/// filters `preferencePaths` by `isFile` and loads `.at(0)`, so a present
+/// per-user plist masks the host-wide one entirely instead of merging.
+#[cfg(target_os = "macos")]
+fn first_existing_path(paths: &[std::path::PathBuf]) -> Option<&Path> {
+    paths
+        .iter()
+        .map(std::path::PathBuf::as_path)
+        .find(|path| path.is_file())
 }
 
 /// Whether the user's OpenCode config disables the built-in `plan` agent:
-/// `{"agent":{"plan":{"disable":true}}}` (1.x schema, still read by 2.x),
-/// `{"agents":{"plan":{"disabled":true}}}` (2.x), the deprecated `mode.plan`,
-/// or a `plan.md` agent file with `disable: true` front matter.
+/// `{"agent":{"plan":{"disable":true}}}` (1.x `agent` section, V1-decoded
+/// and migrated), `{"mode":{"plan":...}}` (same path), or
+/// `{"agents":{"plan":{"disabled":true}}}` (2.x native) — all three
+/// sections still decode in 2.2.5 (`normalize.ts`: `input.agent`/`input.mode`
+/// via `ConfigAgentV1`, `input.agents` native with `disabled`; V1 `disable`
+/// migrates to `disabled` in `v1/config/migrate.ts`) — or a `plan.md` agent
+/// file with `disable`/`disabled` front matter (`{agent,agents}/**/*.md` and
+/// `{mode,modes}/*.md` patterns in the agent config plugin, whose transform
+/// `editor.remove`s a disabled agent).
 ///
 /// OpenCode 1.x answers `--agent plan` for a disabled agent by falling back to
 /// the default one; 2.x fails every such run with `Agent not found: "plan"`.
 ///
-/// Sources are read in OpenCode 2.x's precedence order and a later explicit
-/// value wins: the global config dir(s), `$OPENCODE_CONFIG`, then (when
+/// Sources are read in OpenCode's precedence order and a later explicit value
+/// wins: the global config dir(s), `$OPENCODE_CONFIG`, then (when
 /// `project_dir` is known) `opencode.json[c]` and `.opencode/` from the
-/// filesystem root down to `project_dir`, then `$OPENCODE_CONFIG_CONTENT`.
+/// filesystem root down to `project_dir`, then `$OPENCODE_CONFIG_CONTENT`,
+/// and finally the managed layer — system dir(s), then the MDM plist — which
+/// `Config.load` (`packages/core/src/config.ts`) appends last so it
+/// "override[s] everything" ("Global entries sit below explicit and direct
+/// files; project directories rank above them"). Order and the managed-last
+/// rule are identical in v2.0.32 and v2.2.5 (verified 2026-11-02 against both
+/// sources); the previous revision here had the managed layer first, letting
+/// project config wrongly overrule an MDM `plan` disable.
 ///
 /// Fails open: a config file this parser can't read (OpenCode also accepts
 /// `{env:...}` / `{file:...}` substitutions) counts as disabling the agent
@@ -110,13 +142,6 @@ pub(crate) fn plan_agent_disabled(project_dir: Option<&Path>) -> bool {
         }
     };
 
-    for dir in SYSTEM_CONFIG_DIRS {
-        apply(config_dir_plan_flag(Path::new(dir)));
-    }
-    #[cfg(target_os = "macos")]
-    for path in managed_preferences_paths(&crate::provider_registry::homedir()) {
-        apply(config_file_plan_flag(&path));
-    }
     for dir in crate::config_paths::opencode_config_dirs() {
         apply(config_dir_plan_flag(&dir));
     }
@@ -137,6 +162,19 @@ pub(crate) fn plan_agent_disabled(project_dir: Option<&Path>) -> bool {
     if let Ok(content) = std::env::var("OPENCODE_CONFIG_CONTENT") {
         if !content.trim().is_empty() {
             apply(config_text_plan_flag(&content));
+        }
+    }
+    // Managed layer loads last so it overrides everything above: system
+    // dir(s), then the MDM plist (first existing path only — a present
+    // per-user plist masks the host-wide one).
+    for dir in SYSTEM_CONFIG_DIRS {
+        apply(config_dir_plan_flag(Path::new(dir)));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let paths = managed_preferences_paths(&crate::provider_registry::homedir());
+        if let Some(path) = first_existing_path(&paths) {
+            apply(config_file_plan_flag(path));
         }
     }
 
@@ -314,6 +352,9 @@ fn build_opencode_turn_command(
 
     // OpenCode 1.x: emit `--variant <cli>` as a separate flag.
     // OpenCode 2.x: bake the variant into the model id (`provider/model#variant`).
+    // Still current in 2.2.5: `commands.ts` defines no `--variant` flag and
+    // `--model` reads "Model to use in the format provider/model#variant"
+    // (verified 2026-11-02 against the v2.2.5 source and local 2.0.14 help).
     // Older installs without either form silently skip the variant.
     match (variant_syntax, variant) {
         (crate::provider_registry::OpencodeVariantSyntax::Flag, Some(cli_variant)) => {
@@ -336,7 +377,10 @@ fn build_opencode_turn_command(
     //
     // This is safe for non-interactive `run`: `deny` rules never prompt, and
     // the plan agent adds no `ask` rules beyond the build agent's defaults.
-    // Verified against v1.1.1–v1.18.32 and 2.0.14. Early 1.0.x releases had
+    // Verified against v1.1.1–v1.18.32 and 2.0.14. `--agent` ("Agent to use")
+    // is still a `run` flag in 2.2.5 (`commands.ts`), and an unknown agent
+    // still fails the turn via `switchAgent → NotFoundError`
+    // (`packages/core/src/session.ts`) — re-verified 2026-11-02. Early 1.0.x
     // a plan agent with `bash: {"*": "ask"}` and a `run` that answered
     // permission requests through an interactive terminal prompt, which could
     // stall a headless turn. No 1.0.x release supports variants (`--variant`
@@ -354,15 +398,21 @@ fn build_opencode_turn_command(
     // The executor runs unattended: `--auto` approves whatever is not
     // explicitly denied. Without it a headless turn that hits one of the
     // build agent's built-in `ask` rules (external directories, `*.env*`
-    // reads) is either failed (1.x and early 2.x) or, since 2.0.15, answered
-    // with a rejection while the turn still exits 0 — the action silently
-    // never ran. Deny rules keep applying under `--auto`, so a user's
-    // explicit denies still bind. The flag exists in `run` on both majors
-    // (verified against opencode-ai 1.18.32 and 2.0.14/2.0.32) but not on
-    // pre-variant 1.0.x, whose `run` answered permission prompts on the
-    // terminal; those installs keep the old behavior instead of an unknown
-    // flag. The mentor never gets it: `plan`'s deny rules and ask posture
-    // are its read-only guard.
+    // reads) is either failed (1.x and early 2.x) or answered with a
+    // rejection while the turn still exits 0 — the action silently never
+    // ran (2.0.15–2.0.x). 2.2.5 (`run/noninteractive.ts`, verified 2026-11-02)
+    // still rejects without `--auto`, but now with model-visible feedback
+    // ("...cannot ask the user for permission, so the request was rejected.
+    // Continue without this action.") and keeps going. Deny rules keep
+    // applying under `--auto`, so a user's explicit denies still bind. The
+    // flag exists in `run` on both majors (verified against opencode-ai
+    // 1.18.32 and 2.0.14/2.0.32; 2.2.5 adds hidden `--yolo` and
+    // `--dangerously-skip-permissions` aliases for the same bit, but `--auto`
+    // stays the documented spelling so it is kept) but not on pre-variant
+    // 1.0.x, whose `run` answered permission prompts on the terminal; those
+    // installs keep the old behavior instead of an unknown flag. The mentor
+    // never gets it: `plan`'s deny rules and ask posture are its read-only
+    // guard.
     if request.role != "mentor"
         && variant_syntax != crate::provider_registry::OpencodeVariantSyntax::Unsupported
     {
@@ -371,9 +421,11 @@ fn build_opencode_turn_command(
 
     // OpenCode 1.x fails a run whose `--session` id is unknown ("Error:
     // Session not found", verified against 1.18.32), but 2.x silently creates
-    // a fresh empty session under that id (verified live on 2.0.14 and
-    // 2.0.32; the 2.0.32 help spells it out: "Session ID to continue, or to
-    // create if it does not exist") and every event still echoes the same
+    // a fresh empty session under that id — spelled out in the 2.2.5 help
+    // ("Session ID to continue, or to create if it does not exist",
+    // `commands.ts`) and the `session.create({id})` path in
+    // `session-target.ts` (verified live on 2.0.14 and 2.0.32, re-verified in
+    // the 2.2.5 source 2026-11-02) — and every event still echoes the same
     // id, so a run whose snapshot references a deleted session would keep
     // "resuming" a context-free ghost. When the probe proved the id gone,
     // drop the flag: the turn starts a real new session and the spawner
@@ -458,19 +510,28 @@ impl Provider for OpenCodeProvider {
     }
 
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
-        // `run --format json` emits one `step_finish` event per model step.
+        // `run --format json` emits one `step_finish` event per model step
+        // (event type `step_finish`, `part.type` hyphenated `step-finish` — both
+        // spellings accepted everywhere below; verified in 2.2.5's
+        // `run/noninteractive.ts` 2026-11-02).
         // Its `part.tokens` holds `{input, output, reasoning, cache: {read,
-        // write}}` for that step only (1.x and 2.x). The whole turn's usage
-        // is the sum over its steps. Providers are stateless per event, so
-        // the spawner has to do that summing; each step is reported as-is here.
+        // write}}` for that step only (1.x and 2.x; the `Schema.Finite` shape
+        // is unchanged in 2.2.5's `packages/schema/src/token-usage.ts`). The
+        // whole turn's usage is the sum over its steps. Providers are
+        // stateless per event, so the spawner has to do that summing; each
+        // step is reported as-is here.
         //
-        // Caveat: 2.x may drop the final step's `step_finish`. Once the
+        // Caveat: 2.0.x may drop the final step's `step_finish`. Once the
         // session finishes, `run/noninteractive.ts` skips every event still
         // in flight, so whether the closing `reason: "stop"` step arrives is a
         // race (verified live on 2.0.14 and 2.0.24: single-step turns usually
         // print it, multi-step tool turns usually end on `text`). 1.x
-        // (verified live on 1.18.32) always prints it. When it is dropped the
-        // turn total misses the last step and the source stays Live.
+        // (verified live on 1.18.32) always prints it. 2.2.x closes the race:
+        // after `session.wait` it reconciles missed steps and emits the
+        // absent `step_finish` ("Reconcile uses this to emit only the
+        // step_start/step_finish lines the live stream missed"). When the
+        // event is dropped the turn total misses the last step and the source
+        // stays Live; summing stays correct either way.
         if let Some(part) = event.get("part") {
             let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
             if part_type == "step-finish" || part_type == "step_finish" {
@@ -505,7 +566,8 @@ impl Provider for OpenCodeProvider {
                         // A step is final when the model will not continue:
                         // `FinishReason` is
                         // `stop|length|tool-calls|content-filter|error|unknown`
-                        // (2.x schema), and only `tool-calls` continues into
+                        // (`packages/schema/src/llm.ts`, unchanged in 2.2.5 —
+                        // verified 2026-11-02), and only `tool-calls` continues into
                         // the next tool round -> Live. An absent reason keeps
                         // the 1.x reading of final; an unrecognized one stays
                         // Live so a future reason can't freeze the total early.
@@ -586,7 +648,9 @@ impl Provider for OpenCodeProvider {
             .filter(|s| !s.is_empty());
         // Since opencode 2.0.14+ the raw upstream error document rides in
         // `error.response.body` (string or object); on HTTP-level provider
-        // failures the actionable detail lives there.
+        // failures the actionable detail lives there. Envelope unchanged in
+        // 2.2.5 (`emit("error", …, {error})`; `reportRunError` writes
+        // `{type:"unknown",message}` — verified 2026-11-02).
         let body_detail = error
             .pointer("/response/body")
             .and_then(|body| {
@@ -1030,12 +1094,8 @@ mod tests {
             message: "plan the work",
             reasoning_effort: None,
         };
-        let command = build_opencode_turn_command(
-            &mentor_request,
-            OpencodeVariantSyntax::Suffix,
-            true,
-            None,
-        );
+        let command =
+            build_opencode_turn_command(&mentor_request, OpencodeVariantSyntax::Suffix, true, None);
         assert!(!command.args.contains(&"--agent".to_string()));
         assert_eq!(command.args.last().unwrap(), "plan the work");
     }
@@ -1105,14 +1165,40 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn managed_preferences_path_names_the_plist_for_the_home_user() {
+        // Upstream checks the per-user plist first, then the host-wide one;
+        // only the first path that exists as a file loads.
         assert_eq!(
             managed_preferences_paths(Path::new("/Users/alex")),
-            vec![std::path::PathBuf::from(
-                "/Library/Managed Preferences/alex/ai.opencode.managed.plist"
-            )]
+            vec![
+                std::path::PathBuf::from(
+                    "/Library/Managed Preferences/alex/ai.opencode.managed.plist"
+                ),
+                std::path::PathBuf::from("/Library/Managed Preferences/ai.opencode.managed.plist"),
+            ]
         );
         // A home with no final component has no user to name.
         assert!(managed_preferences_paths(Path::new("/")).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn first_existing_path_prefers_the_per_user_plist() {
+        let dir = std::env::temp_dir().join(format!("the-pair-oc-plist-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("user.plist");
+        let host = dir.join("host.plist");
+        let paths = vec![user.clone(), host.clone()];
+
+        assert_eq!(first_existing_path(&paths), None);
+
+        std::fs::write(&host, "{}").unwrap();
+        assert_eq!(first_existing_path(&paths), Some(host.as_path()));
+
+        // A present per-user plist masks the host-wide one entirely.
+        std::fs::write(&user, "{}").unwrap();
+        assert_eq!(first_existing_path(&paths), Some(user.as_path()));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1225,7 +1311,9 @@ mod tests {
             format!(
                 "{}:{}",
                 bin_dir.display(),
-                std::env::var_os("PATH").unwrap_or_default().to_string_lossy()
+                std::env::var_os("PATH")
+                    .unwrap_or_default()
+                    .to_string_lossy()
             ),
         );
         for key in [

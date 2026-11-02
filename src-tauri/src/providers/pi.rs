@@ -11,16 +11,24 @@ use serde_json::Value;
 /// is stripped at spawn time so Pi receives the inner `provider/model` value,
 /// plus `--provider <provider>` to pin the route the id names.
 ///
-/// Event shapes verified against pi 0.87.0 (2026-09-26) and re-checked
-/// against the 0.87.0 docs on 2026-10-19: the stream opens with a
-/// `{"type":"session","id":…}` header, assistant messages carry
+/// Event shapes verified against pi 0.87.0 (2026-09-26), re-checked against
+/// the 0.87.0 docs on 2026-10-19, and re-verified against pi 1.5.0 on
+/// 2026-11-02 (live `--mode json` stream with a bad key plus the 1.5.0
+/// bundle's `agent-session.d.ts` / pi-ai `types.d.ts`): the stream opens with
+/// a `{"type":"session","id":…}` header, assistant messages carry
 /// `usage.{input,output,cacheRead,cacheWrite}` (`input` excludes both cache
 /// buckets — a live `agent_end` summed to `totalTokens` only after folding
-/// them in; recent versions add `reasoning`/`totalTokens`/`cost` alongside,
-/// which we ignore), and `agent_end` carries the run's messages. `agent_end`
+/// them in; 1.5.0 adds `reasoning` (subset of `output`), `cacheWrite1h`
+/// (subset of `cacheWrite`), `totalTokens` and `cost` alongside, all
+/// ignored), and `agent_end` carries the run's messages plus a `willRetry`
+/// flag (optional pre-1.0, always present since). `agent_end`
 /// is only "one low-level run ended": Pi may still auto-retry, compact and
 /// retry, or continue with queued follow-ups before `agent_settled`
 /// (`extensions.md`), so a turn can see several `agent_end` events.
+/// `agent_settled` carries `{"aborted":…}` (added in 1.1.0) and no payload.
+/// Assistant `content` is still `TextContent | ThinkingContent | ToolCall`
+/// blocks, and the only terminal `stopReason`s are still `error`/`aborted`
+/// (1.5.0 adds non-terminal `pending`/`deferred`, treated as success).
 pub struct PiProvider;
 
 impl Provider for PiProvider {
@@ -49,11 +57,14 @@ impl Provider for PiProvider {
 
         // Pi 1.3.0 changed `--model` disambiguation: it now prefers the
         // provider with credentials and otherwise reports the ambiguity,
-        // which a headless turn cannot answer. The Pair's ids always name
-        // their provider (`source_provider` from `pi --list-models`), so pin
-        // it explicitly — `--provider` predates 0.87 and the pair is already
-        // what `--model provider/model` meant. A bare id without `/` (or an
-        // id whose first segment is empty) has nothing to pin.
+        // which a headless turn cannot answer (re-verified in the 1.5.0
+        // bundle resolver on 2026-11-02: named `provider/model` still wins
+        // and a `--provider X --model X/Y` pair resolves deterministically).
+        // The Pair's ids always name their provider (`source_provider` from
+        // `pi --list-models`), so pin it explicitly — `--provider` predates
+        // 0.87 and the pair is already what `--model provider/model` meant.
+        // A bare id without `/` (or an id whose first segment is empty) has
+        // nothing to pin.
         if let Some((provider, _)) = model.split_once('/') {
             if !provider.is_empty() {
                 args.push("--provider".into());
@@ -70,7 +81,7 @@ impl Provider for PiProvider {
         }
 
         // `--session-id` resumes the session captured from the header event,
-        // creating it if missing.
+        // creating it if missing (unchanged in the 1.5.0 `--help`, 2026-11-02).
         if let Some(sid) = request.session_id {
             args.push("--session-id".into());
             args.push(sid.into());
@@ -80,7 +91,10 @@ impl Provider for PiProvider {
         // Since pi 1.0.4 `--tools` keeps MCP tools enabled unless an entry
         // starts with `mcp__`, so the mentor additionally passes `--no-mcp`
         // (probed, since older CLIs hard-fail on the unknown flag) to keep the
-        // read-only guarantee when MCP servers are configured.
+        // read-only guarantee when MCP servers are configured. Re-verified on
+        // 1.5.0 (2026-11-02): plain `--tools read,grep,find,ls` still yields
+        // exactly those four tools (`toolsAdded` in a live JSON run) and the
+        // help still says MCP tools are kept, so `--no-mcp` is still required.
         if request.role == "mentor" {
             args.push("--tools".into());
             args.push("read,grep,find,ls".into());
@@ -188,7 +202,8 @@ impl Provider for PiProvider {
         // recovered turn: `agent_settled` proves Pi will not continue
         // automatically, and a later `agent_end` whose final message did not
         // fail proves the same thing on CLIs that never emit `agent_settled`
-        // (0.87.0's JSON event set has none). Without this, a turn that
+        // (pre-1.1.0; `agent_settled` with `aborted` verified present in the
+        // 1.5.0 live stream on 2026-11-02). Without this, a turn that
         // recovered via Pi's own retry would still surface the first run's
         // error.
         match event.get("type").and_then(|v| v.as_str()) {
@@ -258,6 +273,8 @@ impl Provider for PiProvider {
         // pi 0.80.6 and is only valid on GPT-5.6 / adaptive Claude models. We
         // expose it only when the installed `pi --help` advertises it, so
         // picking "max" never silently degrades a turn on a too-old CLI.
+        // (1.5.0 `--help` still lists `off` through `max`; re-checked
+        // 2026-11-02.)
         let base = vec![
             "off".to_string(),
             "minimal".to_string(),
@@ -286,10 +303,11 @@ fn is_assistant(message: &Value) -> bool {
 
 /// The last assistant message of an `agent_end` event (`{type, messages}`).
 /// An `agent_end` flagged `willRetry` is superseded by the retry's own
-/// `agent_end`. Note 0.87.0's `AgentEndEvent` type has no `willRetry` field
-/// (`willRetry` lives on the compaction events), so this check is defensive
-/// for streams that do carry it; the real recovery handling is the
-/// last-wins `final_output_text` / `clears_turn_error` pair.
+/// `agent_end`. Pre-1.0 `AgentEndEvent` types declare no `willRetry` field
+/// (`willRetry` lived on the compaction events), and 1.5.0 declares it as a
+/// mandatory `boolean` (verified in the 1.5.0 bundle on 2026-11-02), so this
+/// check is defensive for old streams that lack it; the real recovery
+/// handling is the last-wins `final_output_text` / `clears_turn_error` pair.
 fn final_assistant_message(event: &Value) -> Option<&Value> {
     if event.get("type").and_then(|v| v.as_str()) != Some("agent_end")
         || event.get("willRetry").and_then(|v| v.as_bool()) == Some(true)
@@ -335,7 +353,9 @@ fn collect_pi_content(content: Option<&Value>, out: &mut Vec<String>) {
 
 /// Pi appends the whole JS stack to auth failures (`…; details=…;
 /// stack=Error: …\n    at postJson (file:///…)`, verified against pi 0.87.0
-/// and 1.0.4). The message before it is what the user can act on.
+/// and 1.0.4; a live 1.5.0 `agent_end` error (`401 {"type":"error",…}` on
+/// one line, no `; stack=`) passes through untouched, verified 2026-11-02).
+/// The message before it is what the user can act on.
 fn strip_pi_stack_trace(message: &str) -> &str {
     let message = message.split("; stack=").next().unwrap_or(message);
     message.trim().lines().next().unwrap_or("").trim()
@@ -564,15 +584,15 @@ mod tests {
     #[test]
     fn pi_reads_live_and_final_token_usage() {
         let provider = PiProvider;
-        let usage = |input: u64, output: u64| {
-            json!({"input": input, "output": output, "cacheRead": 0, "cacheWrite": 0})
-        };
+        let usage = |input: u64, output: u64| json!({"input": input, "output": output, "cacheRead": 0, "cacheWrite": 0});
 
         let message_end = json!({
             "type": "message_end",
             "message": {"role": "assistant", "usage": usage(46958, 3)}
         });
-        let live = provider.extract_token_usage(&message_end).expect("live usage");
+        let live = provider
+            .extract_token_usage(&message_end)
+            .expect("live usage");
         assert_eq!(live.output_tokens, 3);
         assert_eq!(live.input_tokens, Some(46958));
         assert!(matches!(live.source, TokenUsageSource::Live));
@@ -585,7 +605,9 @@ mod tests {
                 {"role": "assistant", "usage": usage(200, 20)}
             ]
         });
-        let final_usage = provider.extract_token_usage(&agent_end).expect("final usage");
+        let final_usage = provider
+            .extract_token_usage(&agent_end)
+            .expect("final usage");
         assert_eq!(final_usage.output_tokens, 30);
         assert_eq!(final_usage.input_tokens, Some(300));
         assert!(matches!(final_usage.source, TokenUsageSource::Final));
@@ -615,7 +637,9 @@ mod tests {
                 {"role": "assistant", "usage": {"input": 100, "output": 10, "cacheRead": 0, "cacheWrite": 0}}
             ]
         });
-        let usage = provider.extract_token_usage(&settled).expect("settled usage");
+        let usage = provider
+            .extract_token_usage(&settled)
+            .expect("settled usage");
         assert_eq!(usage.input_tokens, Some(100));
         assert!(matches!(usage.source, TokenUsageSource::Final));
     }
@@ -631,7 +655,9 @@ mod tests {
                 {"role": "assistant", "usage": {"input": 5, "output": 7, "cacheRead": 47000, "cacheWrite": 0}}
             ]
         });
-        let usage = provider.extract_token_usage(&agent_end).expect("final usage");
+        let usage = provider
+            .extract_token_usage(&agent_end)
+            .expect("final usage");
         assert_eq!(usage.input_tokens, Some(12 + 46000 + 900 + 5 + 47000));
         assert_eq!(usage.output_tokens, 47);
 
@@ -640,8 +666,47 @@ mod tests {
             "type": "message_end",
             "message": {"role": "assistant", "usage": {"input": 10, "output": 2}}
         });
-        let live = provider.extract_token_usage(&message_end).expect("live usage");
+        let live = provider
+            .extract_token_usage(&message_end)
+            .expect("live usage");
         assert_eq!(live.input_tokens, Some(10));
+    }
+
+    #[test]
+    fn pi_parses_the_1_5_0_event_shape() {
+        // Captured live from pi 1.5.0 (2026-11-02, bad API key): `agent_end`
+        // always carries `willRetry`, `usage` adds `reasoning` (subset of
+        // `output`), `totalTokens` and `cost`, and `agent_settled` carries
+        // `aborted`. Extras must not disturb the counts, and the new
+        // non-terminal `deferred` stopReason must read as a success.
+        let provider = PiProvider;
+        let agent_end = json!({
+            "type": "agent_end",
+            "willRetry": false,
+            "messages": [{
+                "role": "assistant",
+                "content": [{"type": "text", "text": "hi there"}],
+                "stopReason": "deferred",
+                "usage": {
+                    "input": 10, "output": 5, "cacheRead": 100, "cacheWrite": 20,
+                    "reasoning": 2, "totalTokens": 135,
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}
+                }
+            }]
+        });
+        let usage = provider
+            .extract_token_usage(&agent_end)
+            .expect("final usage");
+        assert_eq!(usage.input_tokens, Some(130));
+        assert_eq!(usage.output_tokens, 5);
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+        assert_eq!(
+            provider.final_output_text(&agent_end).as_deref(),
+            Some("hi there")
+        );
+        assert!(provider.extract_error_detail(&agent_end).is_none());
+        assert!(provider.clears_turn_error(&agent_end));
+        assert!(provider.clears_turn_error(&json!({"type": "agent_settled", "aborted": false})));
     }
 
     #[test]
@@ -688,7 +753,11 @@ mod tests {
             message: "@review the diff",
             reasoning_effort: None,
         });
-        let sid = mentor.args.iter().position(|a| a == "--session-id").unwrap();
+        let sid = mentor
+            .args
+            .iter()
+            .position(|a| a == "--session-id")
+            .unwrap();
         assert_eq!(mentor.args[sid + 1], "0199a1b2-c3d4");
         let tools = mentor.args.iter().position(|a| a == "--tools").unwrap();
         assert_eq!(mentor.args[tools + 1], "read,grep,find,ls");

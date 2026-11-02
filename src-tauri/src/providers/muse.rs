@@ -12,12 +12,15 @@ use serde_json::Value;
 /// Uses `muse exec --json`, which emits one JSONL envelope per line:
 /// `{schema_version, id, stream{kind,id}, sequence, payload_type, payload}`.
 /// Verified against Muse Code 1.4.0 (2026-09-26; first integrated on 1.0.3).
-/// Flags re-checked against 1.4.11 `exec --help` (2026-10-22): same surface,
-/// effort still `none|minimal|low|medium|high|xhigh|max|ultra`. The `run.terminal.*` payload
-/// still carries the reply in `payload.text`, and a `run.usage` envelope just
-/// before it carries per-run totals in `payload.models[]` (`input_tokens` /
-/// `output_tokens` per model). Usage covers the run only (resumed turns each
-/// report their own counts), so the default `UsageScope::Turn` applies.
+/// Flags re-checked against 1.4.14 `exec --help` (2026-11-02): same surface,
+/// effort still `none|minimal|low|medium|high|xhigh|max|ultra`. Live
+/// `--provider echo` runs on 1.4.14 re-verified the envelope schema (one
+/// `run.usage` with `payload.models[]` just before `run.terminal.completed`,
+/// usage stream `exec.usage`) and `--session-id` create-or-resume (a reused id
+/// continues the session; each resumed turn emits its own `run.usage`). Usage
+/// covers the run only, so the default `UsageScope::Turn` applies (per-run
+/// scope from authed two-turn runs on 1.4.11, matching the 1.4.11 changelog's
+/// "the run's token usage per model").
 ///
 /// Two behaviours to know:
 ///
@@ -113,7 +116,8 @@ impl Provider for MuseProvider {
             "--json".into(),
             // Pin the provider: a user's settings.json `provider: "local"`
             // otherwise overrides the `meta` default and the turn dies with
-            // no JSON on stdout (verified on Muse Code 1.4.7).
+            // no JSON on stdout (behavior verified on 1.4.7; `--provider`
+            // still `echo or meta (default: meta)` in 1.4.14 `exec --help`).
             "--provider".into(),
             "meta".into(),
             "--model".into(),
@@ -162,13 +166,16 @@ impl Provider for MuseProvider {
 
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
         // `muse exec --json` emits one `run.usage` envelope per run, just
-        // before `run.terminal.completed` (verified on 1.4.11). It covers the
-        // run only: two resumed turns on one `--session-id` each reported
-        // their own counts, so the default `UsageScope::Turn` applies
-        // unchanged. Its stream kind is `exec.usage`, never `session`, so
-        // session-id extraction is unaffected. `cached_tokens` is not added
-        // to input: on the echo provider all buckets are zero, so whether it
-        // sits inside or beside `input_tokens` needs one authed meta run.
+        // before `run.terminal.completed` (envelope position, `exec.usage`
+        // stream kind and `models[]` buckets re-verified on 1.4.14 echo runs,
+        // 2026-11-02). It covers the run only: two resumed authed turns on one
+        // `--session-id` each reported their own counts (1.4.11), so the
+        // default `UsageScope::Turn` applies unchanged. Since 1.4.11 the
+        // payload also carries `allowance` (subscription info) and
+        // `children_included`; both are ignored — only `models[]` is usage.
+        // `cached_tokens` is not added to input: on the echo provider all
+        // buckets are zero, so whether it sits inside or beside
+        // `input_tokens` needs one authed meta run.
         if event.get("payload_type").and_then(|t| t.as_str()) != Some("run.usage") {
             return None;
         }
@@ -176,8 +183,14 @@ impl Provider for MuseProvider {
         let mut input_tokens: u64 = 0;
         let mut output_tokens: u64 = 0;
         for model in models {
-            input_tokens += model.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            output_tokens += model.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            input_tokens += model
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            output_tokens += model
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
         }
         Some(TurnTokenUsage {
             output_tokens,
@@ -451,6 +464,8 @@ mod tests {
 
     #[test]
     fn run_usage_envelope_reports_per_run_totals() {
+        // Fixture mirrors real 1.4.14 echo output, including the non-usage
+        // `allowance` / `children_included` members the parser must ignore.
         let usage_event = json!({
             "stream": { "kind": "exec.usage", "id": "01a0b758" },
             "record_type": "status",
@@ -460,10 +475,13 @@ mod tests {
                 "models": [
                     { "model": null, "input_tokens": 120, "cached_tokens": 0, "output_tokens": 45, "reasoning_tokens": 0, "calls": 1 }
                 ],
-                "calls": 1, "completed_calls": 1, "failed_calls": 0, "cancelled_calls": 0
+                "calls": 1, "completed_calls": 1, "failed_calls": 0, "cancelled_calls": 0,
+                "children_included": false, "allowance": null
             }
         });
-        let usage = MuseProvider.extract_token_usage(&usage_event).expect("run.usage parses");
+        let usage = MuseProvider
+            .extract_token_usage(&usage_event)
+            .expect("run.usage parses");
         assert_eq!(usage.input_tokens, Some(120));
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.source, TokenUsageSource::Final);
@@ -493,10 +511,7 @@ mod tests {
         let levels = MuseProvider
             .reasoning_effort_levels("muse-spark-1.2")
             .expect("muse supports reasoning effort");
-        assert_eq!(
-            levels,
-            vec!["minimal", "low", "medium", "high", "xhigh"]
-        );
+        assert_eq!(levels, vec!["minimal", "low", "medium", "high", "xhigh"]);
 
         // The frontend qualifies stored ids with the provider.
         assert_eq!(

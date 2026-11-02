@@ -11,34 +11,44 @@ use serde_json::Value;
 /// Uses `kiro-cli chat --no-interactive` for plain-text stdout output.
 /// `chat --model <MODEL>` selects the model — on the default (V2) engine only
 /// from kiro-cli 2.26.1, which fixed `--model` being ignored by
-/// `--no-interactive` runs. Unknown ids are not rejected: V2 passes them to the
-/// backend and V3 warns on stderr and keeps the account default (kiro.dev
-/// docs, re-checked against kiro-cli 2.28.0 on 2026-10-06). The CLI now also
+/// `--no-interactive` runs. Unknown ids are not rejected: V2 passes them to
+/// the backend and V3 warns on stderr and keeps the account default (kiro.dev
+/// headless docs, re-checked against kiro-cli 2.37.1 on 2026-11-02). The CLI
+/// now also
 /// carries a V3 engine alongside V2; the turn command pins the V2 engine
 /// (`--v2`, falling back to `--agent-engine v2`) on every turn, because V3's
 /// tool-id names break the mentor's `--trust-tools` allowlist (see
-/// `kiro_engine_pin`). AWS has announced CLI 3.0 defaults to V3 at the end of
-/// October 2026; if a release drops the V2 pin entirely, mentor turns are
-/// refused rather than silently running with write access
-/// (`validate_turn_request`). Flags re-verified against `kiro-cli chat
-/// --help` on 2.33.1 (2026-10-22). Headless `--output-format stream-json`
-/// emits the run's ACP events as JSON Lines (and implies `--no-interactive`),
-/// but that schema is unparsed today, so the plain-text transport is kept; switching to the structured stream would
-/// enable session-id capture and token usage, neither of which surface today.
+/// `kiro_engine_pin`). AWS announced CLI 3.0 would default to V3 "at the end
+/// of October 2026"; that flip had not shipped as of 2.37.1 — `--agent-engine`
+/// still defaults to "v2" and both pins are advertised — but it can land in
+/// any release, so if one drops the V2 pin entirely, mentor turns are refused
+/// rather than silently running with write access (`validate_turn_request`).
+/// Flags re-verified against `kiro-cli chat --help` plus a live
+/// (unauthenticated, flag-parse-only) invocation on 2.37.1 (2026-11-02).
+/// Headless `--output-format stream-json` emits the run's ACP events as JSON
+/// Lines (and implies `--no-interactive`), but that schema is unparsed today,
+/// so the plain-text transport is kept; switching to the structured stream
+/// would enable session-id capture and token usage, neither of which surface
+/// today.
 ///
 /// Permissions are per role. The executor runs with `--trust-all-tools`. The
 /// mentor only trusts [`MENTOR_TRUSTED_TOOLS`], Kiro's read-only built-ins
 /// (`read` is also known as `fs_read`). Every other tool (`write`, `shell`,
 /// `aws`, `code`, ...) would need approval, and `--no-interactive` refuses
 /// approval requests ("tool permission approval is not supported in
-/// non-interactive mode", kiro-cli 2.24.0). The call fails and the turn
+/// non-interactive mode", kiro-cli 2.24.0; same wording in the headless docs
+/// as of 2.37.1, re-checked 2026-11-02). The call fails and the turn
 /// continues. So the mentor never hangs, and it cannot edit the worktree
 /// unless the user's own Kiro settings pre-approve writes or commands.
 pub struct KiroProvider;
 
 /// Kiro's read-only built-in tools, passed as `--trust-tools=<list>` on
-/// mentor turns. Names come from the Kiro built-in tools reference; `code` is
-/// left out because it can also rewrite code.
+/// mentor turns. Names re-verified against the built-in-tools reference on
+/// 2026-11-02 (`read` — aliases `fs_read`/`fsRead` — plus `grep` and `glob`,
+/// all three trusted in the cwd by default); `code` is left out because it
+/// can also rewrite code. V3 matches `--trust-tools` against different
+/// internal ids (`read_file`, `grep_search`; headless docs), so the engine
+/// pin below decides whether this list means anything.
 const MENTOR_TRUSTED_TOOLS: &str = "read,grep,glob";
 
 fn build_kiro_turn_command(
@@ -46,10 +56,7 @@ fn build_kiro_turn_command(
     engine_pin: crate::provider_registry::KiroEnginePin,
 ) -> ProviderTurnCommand {
     // Strip "kiro/" qualifier if present.
-    let model = request
-        .model
-        .strip_prefix("kiro/")
-        .unwrap_or(request.model);
+    let model = request.model.strip_prefix("kiro/").unwrap_or(request.model);
 
     // Guard leading-dash prompts.
     let prompt = if request.message.starts_with('-') {
@@ -68,8 +75,9 @@ fn build_kiro_turn_command(
     let mut args: Vec<String> = vec!["chat".into(), "--no-interactive".into()];
 
     // Pin the V2 engine whenever the CLI offers a pin (see `kiro_engine_pin`;
-    // the probe keys on the help text, not the version). A user's V3 startup
-    // offer persists `chat.agentEngine = v3`, and V3 matches `--trust-tools`
+    // the probe keys on the help text, not the version — 2.37.1's help still
+    // advertises both spellings). A user's V3 startup offer persists
+    // `chat.agentEngine = v3`, and V3 matches `--trust-tools`
     // against exact internal tool ids that the mentor's V2 names never match —
     // silently dropping the read-only pre-approval below. `Unavailable`
     // (V3 present, no pin) never reaches here for the mentor —
@@ -90,7 +98,9 @@ fn build_kiro_turn_command(
 
     // Pairs saved before 2.8.1 may hold a whole `--list-models` table row
     // as their model id. Kiro forwards an unknown id to the backend rather
-    // than rejecting it, so only a real model token is passed and anything
+    // than rejecting it ("V2 trims surrounding whitespace before passing an
+    // unlisted, non-empty ID to the backend", headless docs, re-checked on
+    // 2.37.1, 2026-11-02), so only a real model token is passed and anything
     // else keeps the account default.
     if !model.is_empty() && !model.contains(char::is_whitespace) {
         args.push("--model".into());
@@ -99,7 +109,8 @@ fn build_kiro_turn_command(
 
     // Continue a previous conversation when resuming a pair: the Daytona
     // integration (and Kiro's own chat docs) use `--resume-id <SESSION_ID>`
-    // to carry context across turns.
+    // to carry context across turns (flag still in 2.37.1's `chat --help`,
+    // 2026-11-02).
     if let Some(sid) = request.session_id {
         args.push("--resume-id".into());
         args.push(sid.into());
@@ -131,9 +142,7 @@ fn validate_kiro_turn(
     engine_pin: crate::provider_registry::KiroEnginePin,
 ) -> Result<(), String> {
     if role == "mentor" && engine_pin == crate::provider_registry::KiroEnginePin::Unavailable {
-        return Err(
-            crate::provider_registry::KIRO_V2_PIN_UNAVAILABLE_MESSAGE.to_string(),
-        );
+        return Err(crate::provider_registry::KIRO_V2_PIN_UNAVAILABLE_MESSAGE.to_string());
     }
     Ok(())
 }
@@ -176,8 +185,11 @@ impl Provider for KiroProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Plain-text output carries no token usage data (verified against
-        // kiro-cli 2.23.0 on 2026-09-23). Structured usage would require the
-        // headless `--agent-engine v2 --output-format stream-json` stream.
+        // kiro-cli 2.23.0 on 2026-09-23; 2.37.1 still defaults to
+        // `--output-format text`, 2026-11-02, but a runtime capture needs
+        // auth, so the absence itself was not re-observed). Structured usage
+        // would require the headless `--agent-engine v2 --output-format
+        // stream-json` stream.
         None
     }
 
@@ -205,6 +217,10 @@ impl Provider for KiroProvider {
         "Kiro plan".into()
     }
 
+    /// The `--effort` ladder: "Initial effort level (e.g. low, medium, high,
+    /// xhigh, max)" (2.37.1 `chat --help` and the effort docs, 2026-11-02).
+    /// Per-model support varies (GPT-5.6 models also take `none`); the list
+    /// stays the five documented picker levels.
     fn reasoning_effort_levels(&self, _model_id: &str) -> Option<Vec<String>> {
         Some(vec![
             "low".into(),
@@ -242,9 +258,7 @@ mod tests {
         });
 
         assert_eq!(command.executable, "kiro-cli");
-        assert!(command
-            .args
-            .contains(&"--no-interactive".to_string()));
+        assert!(command.args.contains(&"--no-interactive".to_string()));
         assert!(command.args.contains(&"--trust-all-tools".to_string()));
         assert!(command.last_message_path.is_none());
         // Prompt is the last positional arg.
@@ -264,8 +278,8 @@ mod tests {
             reasoning_effort: None,
         };
 
-        // `--v2` is the spelling 2.32 documents for holding the pre-3.0
-        // default; it wins when the help advertises it.
+        // `--v2` is the spelling 2.32 through 2.37.1 document for holding the
+        // pre-3.0 default; it wins when the help advertises it.
         let shorthand = build_kiro_turn_command(&request, KiroEnginePin::V2Shorthand);
         assert!(shorthand.args.contains(&"--v2".to_string()));
         assert!(!shorthand.args.contains(&"--agent-engine".to_string()));

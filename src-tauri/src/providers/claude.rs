@@ -56,7 +56,8 @@ impl Provider for ClaudeProvider {
         // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
         // the session's reasoning effort. The Pair maps its reasoning_effort
         // picker value through verbatim. Omitted when the caller passes None.
-        // Verified against claude-code 2.1.308 (2026-10-22).
+        // Re-verified against claude-code 2.1.316 (2026-11-02): help lists the
+        // same ladder and a live `-p --effort low` turn ran clean.
         if let Some(level) = request.reasoning_effort {
             args.push("--effort".into());
             args.push(level.into());
@@ -64,7 +65,8 @@ impl Provider for ClaudeProvider {
         // The message is a bare positional, so one starting with `-` (a markdown
         // bullet or a `---` diff header, routine in handoff text) is parsed as an
         // unknown option and the turn exits 1 before any JSON event. `--` ends
-        // option parsing (verified against claude-code 2.1.291).
+        // option parsing (verified against claude-code 2.1.291; still holds on
+        // 2.1.316, 2026-11-02 — both audit runs passed the message after `--`).
         args.push("--".into());
         args.push(request.message.into());
 
@@ -78,10 +80,11 @@ impl Provider for ClaudeProvider {
     fn extract_token_usage(&self, event: &Value) -> Option<TurnTokenUsage> {
         // `result.usage` covers only this invocation's own API calls (the
         // event's `iterations` array), not a session running total — verified
-        // live on 2.1.300 with two `--resume`d `-p` turns: the second turn
-        // reported the session context as one fresh call (~49.7k input),
-        // not the accumulated sum (~99k). So the default `UsageScope::Turn`
-        // is correct and no baseline subtraction (codex-style) is needed.
+        // live on 2.1.300 and re-verified on 2.1.316 (2026-11-02) with two
+        // `--resume`d `-p` turns: the resumed turn's usage held one iteration
+        // (~48.2k input), not the two-turn sum (~96k). So the default
+        // `UsageScope::Turn` is correct and no baseline subtraction
+        // (codex-style) is needed.
         let event_type = event.get("type").and_then(|v| v.as_str())?;
 
         let (usage_obj, is_final) = match event_type {
@@ -157,8 +160,11 @@ impl Provider for ClaudeProvider {
         // "default" to "manual"; the init event still reported
         // `permissionMode: "default"` on the downgrade (verified live against
         // claude-code 2.1.283 with `--model haiku --permission-mode auto`),
-        // but 2.1.308's help lists only `manual`, so accept both spellings —
-        // either one means the requested `auto`/`plan` never took effect.
+        // but 2.1.316's help lists only `manual` (choices: acceptEdits, auto,
+        // bypassPermissions, manual, dontAsk, plan), so accept both spellings —
+        // either one means the requested `auto`/`plan` never took effect. The
+        // camelCase `permissionMode` key on the init event was re-verified live
+        // on 2.1.316 (2026-11-02; reports "auto" when the mode takes).
         if event_type == Some("system")
             && event.get("subtype").and_then(|v| v.as_str()) == Some("init")
             && matches!(
@@ -289,7 +295,8 @@ impl Provider for ClaudeProvider {
     fn login_command(&self) -> Option<String> {
         // `claude login` is not a subcommand: it starts a session with "login"
         // as the prompt. Sign-in lives under `claude auth` (verified against
-        // claude-code 2.1.283).
+        // claude-code 2.1.283; `claude auth --help` on 2.1.316, 2026-11-02,
+        // still lists login/logout/status).
         Some("claude auth login".into())
     }
 
@@ -299,15 +306,17 @@ impl Provider for ClaudeProvider {
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
         // The ladder is per-model, so the CLI's cached model catalog wins: it
-        // drops `xhigh` for the 4.6 models and hides the control for Haiku,
-        // which ignores `--effort`.
+        // drops `xhigh` for the 4.6 models and hides the control for Haiku 4.5
+        // (`thinking: none`) — re-checked against the live
+        // `~/.claude/cache/model-catalog` on 2.1.316 (2026-11-02).
         let model_id = model_id.strip_prefix("claude/").unwrap_or(model_id);
         if let Some(levels) = crate::provider_registry::claude_catalog_effort_levels(model_id) {
             return (!levels.is_empty()).then_some(levels);
         }
         // Uncatalogued model (or no cache yet): the full set `--effort` accepts
-        // (verified against claude-code 2.1.308). Older installs (pre-2.1.111)
-        // reject the flag outright; callers should hide the picker for those.
+        // (verified against claude-code 2.1.316, 2026-11-02). Older installs
+        // (pre-2.1.111) reject the flag outright; callers should hide the
+        // picker for those.
         Some(vec![
             "low".into(),
             "medium".into(),

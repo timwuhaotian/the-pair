@@ -12,16 +12,22 @@ use serde_json::Value;
 /// `--model <alias>` surface used by The Pair; argument order around `-p`
 /// is strict (the prompt value follows `-p` directly), but the Pair's
 /// invocation already follows that order. Flag surface re-checked against
-/// kimi-code 2.3.0 `--help` (2026-10-22): same `-p` / `--output-format` /
-/// `--session` / `--model` surface. The stream still carries no token usage
-/// (`extract_token_usage` stays `None`), and failures still print `error: …`
-/// to stderr with exit 1 (last verified live on 2.2.0, 2026-10-15).
+/// kimi-code 2.4.1 `--help` (2026-11-02, local npm install probed live): same
+/// `-p` / `--output-format` / `--session` / `--model` surface, and the
+/// `writeRetrying` / `flushAssistant` / `writeResumeHint` event shapes were
+/// re-verified against the 2.4.1 dist bundle. The stream still carries no
+/// token usage (`extract_token_usage` stays `None`), and failures still
+/// print `error: …` to stderr with exit 1 (re-verified live on 2.4.1,
+/// 2026-11-02: stdout held only the `system.version` meta event).
 ///
 /// KNOWN LIMITATION: the Kimi mentor is NOT read-only at the CLI level.
 /// Prompt mode (`-p`) always uses the auto permission policy, so every tool,
-/// including file writes and shell, runs without approval. kimi-code 2.2.0
-/// rejects each restricting flag alongside `-p` ("Cannot combine --prompt
-/// with --plan." / "--yolo." / "--auto."). Note the 2.2.0 flag meanings:
+/// including file writes and shell, runs without approval. kimi-code 2.4.1
+/// still rejects each restricting flag alongside `-p` ("Cannot combine
+/// --prompt with --plan." / "--yolo." / "--auto." — re-verified live,
+/// 2026-11-02). Since 2.4.0 `-p` also skips `default_plan_mode` and cannot
+/// approve a plan-mode session's plan (changelog #4247), so our invocations
+/// never enter plan mode either. Note the 2.2.0 flag meanings:
 /// `--yolo` is now "Ask When Needed" (routine edits auto-run, risky actions
 /// still ask) and `--auto` is "Never Ask". There is no tool allowlist flag
 /// either: `--agent`/`--agent-file` profiles cannot be combined with
@@ -36,8 +42,10 @@ use serde_json::Value;
 /// `turn.step.retrying`. So there is nothing for `extract_error_detail` to
 /// match, and failures are caught by exit status.
 ///
-/// Note: `--session` resume is pinned to the session's original cwd; if a
-/// pair's worktree is recreated at a new path the resumed turn fails.
+/// Note: `--session` resume is pinned to the session's original cwd
+/// (`Session "…" was created under a different directory` — still thrown in
+/// 2.4.1, re-verified in dist source on 2026-11-02); if a pair's worktree is
+/// recreated at a new path the resumed turn fails.
 pub struct KimiProvider;
 
 impl Provider for KimiProvider {
@@ -96,8 +104,9 @@ impl Provider for KimiProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Kimi's stream-json messages carry no usage data (verified against
-        // kimi-code 2.0.2 on 2026-09-23, and against kimi-code 0.42.0
-        // previously); token counts stay hidden for this provider.
+        // kimi-code 2.0.2 on 2026-09-23; re-checked against the 2.4.1
+        // `PromptJsonWriter` dist source on 2026-11-02 — no usage/token/cost
+        // key is emitted); token counts stay hidden for this provider.
         None
     }
 
@@ -110,7 +119,8 @@ impl Provider for KimiProvider {
         // the stream-json writer flushes a step's text together with its tool
         // calls, so that text is narration ("I'll check the tests first.").
         // The turn ends on a step without tool calls, and that step holds the
-        // reply.
+        // reply. (Matches 2.4.1 `flushAssistant` source, re-verified
+        // 2026-11-02.)
         let mut out = Vec::new();
         let has_tool_calls = event
             .get("tool_calls")
@@ -125,8 +135,9 @@ impl Provider for KimiProvider {
     fn extract_error_detail(&self, event: &Value) -> Option<String> {
         // A step the runtime is about to retry arrives as a meta event
         // (`{"role":"meta","type":"turn.step.retrying","failed_attempt":…,
-        // "error_name":…,"error_message":…,"status_code":…}` — verified in
-        // kimi-code 2.2.0's `PromptJsonWriter.writeRetrying`). Surfacing it
+        // "error_name":…,"error_message":…,"status_code":…}` — re-verified
+        // field-for-field in kimi-code 2.4.1's `PromptJsonWriter.writeRetrying`
+        // dist source, 2026-11-02). Surfacing it
         // explains a turn that eventually dies; if a later attempt succeeds,
         // `clears_turn_error` drops it again. Terminal failures still end the
         // process non-zero with `error: <code>: <message>` on stderr.
@@ -253,7 +264,8 @@ mod tests {
 
     #[test]
     fn kimi_surfaces_retrying_errors_and_clears_them_on_recovery() {
-        // Shape from kimi-code 2.2.0's `PromptJsonWriter.writeRetrying`:
+        // Shape from `PromptJsonWriter.writeRetrying` (verified on 2.2.0,
+        // re-verified byte-identical in the 2.4.1 dist bundle, 2026-11-02):
         // a failed step the runtime is about to retry.
         let provider = KimiProvider;
         let retrying = json!({

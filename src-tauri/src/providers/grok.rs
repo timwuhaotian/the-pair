@@ -24,6 +24,14 @@ use serde_json::Value;
 /// line" (the agent's native format, not the Messages API shape parsed here).
 /// The `result` event omits its text field on the error path, so
 /// `collect_json_candidates` correctly yields nothing for a failed turn.
+/// Re-verified live against Grok Build 1.0.44 (2026-11-02): `grok --help`
+/// lists the same four formats and flags, and an unauthenticated `grok -p`
+/// run emits exactly the documented error envelope (`result` with
+/// `error_during_execution`, `errors[]`, all-zero `usage`, no text field,
+/// exit 1). The bundled user-guide docs and the x.ai changelog through 1.0.70
+/// (2026-10-23) show no headless-surface change since 1.0.44 — only `-p`
+/// exit/wait fixes and a `--background-wait-timeout` addition we don't use —
+/// so no flag change was needed.
 pub struct GrokProvider;
 
 impl Provider for GrokProvider {
@@ -69,20 +77,24 @@ impl Provider for GrokProvider {
             // read-only guarantee comes from the tool allowlist below.
             // `--yolo` still works but is a hidden alias absent from
             // `grok --help`; `--always-approve` is the documented spelling
-            // (verified 1.0.44), so nothing breaks if the alias is dropped.
+            // (1.0.44 `--help`, re-verified live 2026-11-02; the bundled
+            // permissions guide names it canonical with `--yolo` the alias),
+            // so nothing breaks if the alias is dropped.
             "--always-approve".into(),
             // xAI's headless guide recommends `--no-auto-update` for scripts:
             // no background update check mid-turn. The flag is hidden from
             // `grok --help`, so it cannot be probed that way; it is accepted
-            // by 1.0.44 (verified live: `grok --no-auto-update --version`
-            // runs, while an unknown flag errors) and documented in the
+            // by 1.0.44 (re-verified live 2026-11-02: `grok --no-auto-update
+            // --version` runs, while an unknown flag errors) and documented in the
             // bundled headless-mode guide, so it rides unconditionally.
             "--no-auto-update".into(),
         ];
         if request.role == "mentor" {
-            // Grok's documented read-only tool allowlist (internal tool IDs,
-            // verified 2026-09-19): the mentor can read and search the repo
-            // but has no file-editing or shell tools available at all.
+            // Grok's documented read-only tool allowlist (internal tool IDs;
+            // the bundled headless guide's own example is exactly
+            // `read_file,grep,list_dir`, re-verified 2026-11-02): the mentor
+            // can read and search the repo but has no file-editing or shell
+            // tools available at all.
             args.push("--tools".into());
             args.push("read_file,grep,list_dir".into());
             // `--tools` alone is NOT read-only: Grok's own headless guide
@@ -92,10 +104,10 @@ impl Provider for GrokProvider {
             // user's MCP server can write. Deny every MCP invocation for the
             // mentor. `MCPTool(*)` is the native rule spelling (glob over
             // `server__tool` names; the Claude-style `mcp__*` is also
-            // accepted, 22-permissions-and-safety.md:366-368), and deny rules
-            // apply on top of `--always-approve` ("Deny always wins over
-            // allow and over always-approve's normal pass-through", same
-            // guide:96). The flag predates the oldest verified install
+            // accepted, 22-permissions-and-safety.md:366-368 — re-verified
+            // 2026-11-02), and deny rules apply on top of `--always-approve`
+            // ("Deny always wins over allow and over always-approve's normal
+            // pass-through", same guide:96, re-verified). The flag predates the oldest verified install
             // (1.0.40), and an unrecognized rule is skipped with a warning
             // rather than failing the turn, so this is safe unprobed.
             args.push("--deny".into());
@@ -146,8 +158,10 @@ impl Provider for GrokProvider {
 
         // Grok reports `input_tokens` as the uncached portion only; fold the
         // cache buckets in so the displayed count reflects the full prompt.
-        let input_tokens = usage_obj.get("input_tokens").and_then(|v| v.as_u64()).map(
-            |uncached| {
+        let input_tokens = usage_obj
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|uncached| {
                 uncached
                     + usage_obj
                         .get("cache_read_input_tokens")
@@ -157,8 +171,7 @@ impl Provider for GrokProvider {
                         .get("cache_creation_input_tokens")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0)
-            },
-        );
+            });
 
         // An all-zero terminal usage means "unknown", not "free" (see the
         // `result` arm above); keep the live total accumulated from the
@@ -264,9 +277,12 @@ impl Provider for GrokProvider {
     }
 
     fn reasoning_effort_levels(&self, model_id: &str) -> Option<Vec<String>> {
-        // Each model only honors the levels its menu advertises. Grok Build
-        // 1.0.40's bundled catalog gives grok-4.6 xhigh/high/medium/low and
-        // grok-4.5 high/medium/low; custom aliases get the safe trio.
+        // Each model only honors the levels its menu advertises — and since
+        // 1.0.52 the CLI refuses invalid levels instead of ignoring them, so
+        // this stays a safe subset. The bundled docs (`/effort`, re-verified
+        // 2026-11-02) list low/medium/high/xhigh; grok-4.6 gets xhigh and
+        // grok-4.5 (high/medium/low per 1.0.40's bundled catalog) plus any
+        // custom alias gets the trio.
         let mut levels: Vec<String> = vec!["low".into(), "medium".into(), "high".into()];
         if model_id.strip_prefix("grok/").unwrap_or(model_id) == "grok-4.6" {
             levels.push("xhigh".into());
@@ -477,7 +493,9 @@ mod tests {
         });
         assert_eq!(
             provider.collect_json_candidates(&result),
-            Some(vec!["I've updated `src/main.rs`.\n\nAll tests pass.".to_string()])
+            Some(vec![
+                "I've updated `src/main.rs`.\n\nAll tests pass.".to_string()
+            ])
         );
     }
 
@@ -498,7 +516,9 @@ mod tests {
                 }
             }
         });
-        let usage = provider.extract_token_usage(&live).expect("assistant usage");
+        let usage = provider
+            .extract_token_usage(&live)
+            .expect("assistant usage");
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.input_tokens, Some(812 + 1000 + 8));
         assert_eq!(usage.source, TokenUsageSource::Live);
@@ -579,7 +599,10 @@ mod tests {
             "errors": ["tool crashed", " "],
             "result": "partial"
         });
-        assert_eq!(provider.extract_error_detail(&failed).as_deref(), Some("tool crashed"));
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("tool crashed")
+        );
         assert_eq!(provider.collect_json_candidates(&failed), Some(vec![]));
 
         let error = json!({"type": "error", "message": "Couldn't start session: bad auth"});
@@ -596,6 +619,42 @@ mod tests {
 
         let ok = json!({"type": "result", "is_error": false, "result": "done"});
         assert!(provider.extract_error_detail(&ok).is_none());
+    }
+
+    #[test]
+    fn grok_error_envelope_matches_live_unauthenticated_capture() {
+        // Verbatim wire shape from an unauthenticated `grok -p ... -m grok-4.6
+        // --always-approve --no-auto-update` run on 1.0.44 (2026-11-02, exit
+        // 1; uuids redacted): the error `result` carries `errors[]` and an
+        // all-zero `usage` but no text field, while the human-readable error
+        // goes to stderr and stdout stays pure NDJSON.
+        let provider = GrokProvider;
+        let failed = json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": true,
+            "duration_ms": 0,
+            "duration_api_ms": 0,
+            "num_turns": 0,
+            "stop_reason": null,
+            "total_cost_usd": 0.0,
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "server_tool_use": {"web_search_requests": 0}
+            },
+            "modelUsage": {},
+            "errors": ["Not signed in. To authenticate without a browser, run:\n  grok login --device-code\n\nAlternatively, set the XAI_API_KEY environment variable or run `grok login` on a machine with a browser."],
+            "session_id": "",
+        });
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("Not signed in. To authenticate without a browser, run:\n  grok login --device-code\n\nAlternatively, set the XAI_API_KEY environment variable or run `grok login` on a machine with a browser.")
+        );
+        assert_eq!(provider.collect_json_candidates(&failed), Some(vec![]));
+        assert!(provider.extract_token_usage(&failed).is_none());
     }
 
     #[test]
@@ -616,7 +675,9 @@ mod tests {
             ])
         );
         assert_eq!(
-            provider.reasoning_effort_levels("grok-4.5").map(|l| l.len()),
+            provider
+                .reasoning_effort_levels("grok-4.5")
+                .map(|l| l.len()),
             Some(3)
         );
     }

@@ -311,7 +311,8 @@ pub(crate) fn opencode_variant_syntax() -> OpencodeVariantSyntax {
 /// project `directory`. The list is scoped to the project of the *actual*
 /// cwd (this subcommand resolves `process.cwd()`, not `$PWD` — verified on
 /// 2.0.32), so the probe runs in the pair's directory. `-n 1000` widens the
-/// default 100-session window; `-n 0` prints the help instead. PWD is still
+/// default 100-session window; `-n 0` is rejected by flag validation
+/// (2.2.5 requires max-count >= 1). PWD is still
 /// pinned to the directory so the probe sees the same root the turn itself
 /// will (see the PWD note in `process_spawner`).
 pub(crate) fn opencode_session_exists(session_id: &str, working_dir: Option<&Path>) -> Option<bool> {
@@ -2876,7 +2877,8 @@ mod tests {
         );
         assert_eq!(opencode_session_list_contains("[]", "ses_any"), Some(false));
         // Anything unparsable is inconclusive, never "missing": 1.18.32
-        // prints nothing at all for an empty store, and `-n 0` prints help.
+        // prints nothing at all for an empty store, and `-n 0` is a
+        // flag-validation error (2.2.5 requires max-count >= 1).
         assert_eq!(opencode_session_list_contains("", "ses_any"), None);
         assert_eq!(
             opencode_session_list_contains("DESCRIPTION\n  List top-level sessions", "ses_any"),

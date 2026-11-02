@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn gemini_provider_returns_login_command() {
         let provider = gemini::GeminiProvider;
-        // Gemini login command depends on agy vs legacy, but should always be Some
+        // Gemini login is always `agy ...` (legacy gemini-cli is long gone).
         let login = provider.login_command();
         assert!(login.is_some(), "Gemini should always have a login command");
         let cmd = login.unwrap();

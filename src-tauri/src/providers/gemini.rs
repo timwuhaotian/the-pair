@@ -9,13 +9,18 @@ use serde_json::Value;
 
 /// Antigravity CLI (`agy`) - Google's successor to the Gemini CLI.
 /// Uses `agy --print --output-format stream-json`, which emits one NDJSON
-/// envelope per line keyed by `event` (verified against agy 1.2.11, 2026-09-26):
+/// envelope per line keyed by `event` (captured live on agy 1.2.11,
+/// 2026-09-26; shape re-verified against the 1.4.12 `--help` and the headless
+/// docs, 2026-11-02):
 ///
 /// - `{"event":"init","conversation_id":"…","init":{…}}` — the id
 ///   `--conversation` takes to resume.
 /// - `{"event":"step_update","step_update":{"text_delta":"…","usage":{…}}}`
 /// - `{"event":"result","result":{"status":"SUCCESS"|"ERROR","response":"…",
 ///   "error":"…","usage":{"input_tokens":…,"output_tokens":…}}}`
+/// Since 1.4.11 `result` may also carry `finished_reason` (omitted on a
+/// normal finish); it only labels early ends (print_timeout/interrupted/
+/// error), so `status`+`error` stay the whole error contract.
 pub struct GeminiProvider;
 
 impl Provider for GeminiProvider {
@@ -64,7 +69,8 @@ impl Provider for GeminiProvider {
         // `--conversation` it still counts every earlier turn (verified live
         // against agy 1.2.14 and 1.3.0, 2026-10-06 — turn 2's result was
         // 64961/476 = turn 1's 11832/1 + its own steps' 53129/475), so the
-        // turn's usage is the sum of its steps.
+        // turn's usage is the sum of its steps. The headless docs now state
+        // this outright (`usage` is "Cumulative over the session").
         match event.get("event").and_then(|v| v.as_str()) {
             Some("step_update") => super::UsageScope::Step,
             _ => super::UsageScope::Session,
@@ -81,13 +87,16 @@ impl Provider for GeminiProvider {
         let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64())?;
         // `input_tokens` excludes cache hits, which agy reports separately as
         // `cache_read_tokens`; fold them in so the count reflects the prompt.
-        let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64()).map(|uncached| {
-            uncached
-                + usage
-                    .get("cache_read_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-        });
+        let input_tokens = usage
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|uncached| {
+                uncached
+                    + usage
+                        .get("cache_read_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+            });
 
         Some(TurnTokenUsage {
             output_tokens,
@@ -184,6 +193,8 @@ impl Provider for GeminiProvider {
 /// agy soft-denies anything it cannot auto-approve in headless mode (shell
 /// commands, most notably) and reports them here with a `SUCCESS` status and an
 /// empty `response`, so a wholly-refused turn would otherwise look clean.
+/// (Documented in the CLI changelog: headless runs report refused actions as
+/// `denied_actions` in the JSON output — not just a captured quirk.)
 fn describe_denied_actions(event: &Value) -> Option<String> {
     let denied = event
         .pointer("/result/denied_actions")
@@ -203,10 +214,7 @@ fn describe_denied_actions(event: &Value) -> Option<String> {
         })
         .collect();
     if names.is_empty() {
-        return Some(format!(
-            "agy denied {} tool action(s)",
-            denied.len()
-        ));
+        return Some(format!("agy denied {} tool action(s)", denied.len()));
     }
     Some(format!("agy denied tool actions: {}", names.join(", ")))
 }
@@ -217,22 +225,25 @@ fn describe_denied_actions(event: &Value) -> Option<String> {
 ///   read-only operations.
 /// - **Executor** (code writing): `--mode accept-edits` allows file edits,
 ///   and `--dangerously-skip-permissions` auto-approves tool calls.
-/// - **Reasoning effort**: `--effort <low|medium|high|xhigh|max>` (verified
-///   against agy 1.3.5's help and runtime error, 2026-10-19; `minimal` is
-///   rejected). Omitted when the caller passes `None`,
-///   and when the model id already ends in an effort tier
-///   (`gemini-3.8-flash-high`, which is every id `agy models` lists): agy
-///   rejects any `--effort` that differs from the id's own tier ("--model
-///   gemini-3.8-flash-low conflicts with --effort=high", exit 1 — verified
-///   against agy 1.2.14 and 1.3.0, 2026-10-06), so the id's tier wins. The
-///   legacy `--thinking-budget` flag was never supported on `agy` and is
-///   rejected outright, so we don't fall back to it.
+/// - **Reasoning effort**: `--effort <low|medium|high|xhigh|max>` (vocabulary
+///   re-verified in agy 1.4.12's `--help`, 2026-11-02; `minimal` is rejected).
+///   Omitted when the caller passes `None`, and when the model id already
+///   ends in an effort tier (`gemini-3.8-flash-high`, which is every id `agy
+///   models` lists): agy rejects any `--effort` that differs from the id's
+///   own tier ("--model gemini-3.8-flash-low conflicts with --effort=high",
+///   exit 1 — verified against agy 1.2.14 and 1.3.0, 2026-10-06; not
+///   re-verifiable on 1.4.12 without a login, so the suppression stays), so
+///   the id's tier wins. Since 1.3.4 a tier-less id without `--effort` runs at
+///   the server default instead of failing, which our forwarding already
+///   satisfies. The legacy `--thinking-budget` flag was never supported on
+///   `agy` and is rejected outright, so we don't fall back to it.
 /// - **Session**: `--conversation <id>` resumes the conversation captured from
 ///   the `init` event of an earlier turn.
 ///
-/// No `--print-timeout` is passed: since agy 1.2.6 the default is to wait
-/// until the turn completes, and an expired timeout returns *partial* output
-/// with a success exit code, which would hand off a truncated turn.
+/// No `--print-timeout` is passed: the default is 0, i.e. wait until the turn
+/// completes (re-verified in agy 1.4.12's `--help`, 2026-11-02), and an
+/// expired timeout returns *partial* output with a success exit code, which
+/// would hand off a truncated turn.
 pub fn build_agy_args(
     model: &str,
     message: &str,
@@ -280,8 +291,8 @@ pub fn build_agy_args(
 }
 
 /// Whether the model id pins its own effort (`gemini-3.8-flash-high`).
-/// The vocabulary is exactly what `--effort` accepts (verified on agy
-/// 1.3.5); `minimal` is not one of them.
+/// The vocabulary is exactly what `--effort` accepts (re-verified on agy
+/// 1.4.12's `--help`, 2026-11-02); `minimal` is not one of them.
 fn model_has_effort_tier(model: &str) -> bool {
     model
         .rsplit_once('-')
@@ -333,7 +344,13 @@ mod tests {
 
     #[test]
     fn agy_executor_args_use_accept_edits_and_skip_permissions() {
-        let args = build_agy_args("gemini-3.8-flash-low", "do the work", "executor", None, None);
+        let args = build_agy_args(
+            "gemini-3.8-flash-low",
+            "do the work",
+            "executor",
+            None,
+            None,
+        );
         assert_eq!(
             args,
             vec![
@@ -354,10 +371,22 @@ mod tests {
     fn agy_passes_a_leading_dash_prompt_through_untouched() {
         // `--print` takes the next argv element verbatim, so no guard is needed
         // and prefixing a newline would just corrupt the prompt.
-        let args = build_agy_args("gemini-3.8-flash-low", "- Do the next step", "executor", None, None);
+        let args = build_agy_args(
+            "gemini-3.8-flash-low",
+            "- Do the next step",
+            "executor",
+            None,
+            None,
+        );
         assert_eq!(args.last().expect("prompt is last"), "- Do the next step");
 
-        let args = build_agy_args("gemini-3.8-flash-low", "Plan the refactor", "executor", None, None);
+        let args = build_agy_args(
+            "gemini-3.8-flash-low",
+            "Plan the refactor",
+            "executor",
+            None,
+            None,
+        );
         assert_eq!(args.last().expect("prompt is last"), "Plan the refactor");
     }
 
@@ -409,7 +438,13 @@ mod tests {
 
     #[test]
     fn agy_omits_effort_when_reasoning_effort_is_none() {
-        let args = build_agy_args("gemini-3.8-flash-low", "do the work", "executor", None, None);
+        let args = build_agy_args(
+            "gemini-3.8-flash-low",
+            "do the work",
+            "executor",
+            None,
+            None,
+        );
         assert!(!args.contains(&"--effort".to_string()));
     }
 
@@ -449,7 +484,9 @@ mod tests {
         assert_eq!(command.executable, "agy");
         assert!(command.args.contains(&"--mode".to_string()));
         assert!(command.args.contains(&"plan".to_string()));
-        assert!(!command.args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!command
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
@@ -468,7 +505,9 @@ mod tests {
         assert_eq!(command.executable, "agy");
         assert!(command.args.contains(&"--mode".to_string()));
         assert!(command.args.contains(&"accept-edits".to_string()));
-        assert!(command.args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(command
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
@@ -520,7 +559,9 @@ mod tests {
             provider.collect_json_candidates(&result),
             Some(vec!["OK".to_string()])
         );
-        let usage = provider.extract_token_usage(&result).expect("result carries usage");
+        let usage = provider
+            .extract_token_usage(&result)
+            .expect("result carries usage");
         assert_eq!(usage.output_tokens, 1);
         assert_eq!(usage.input_tokens, Some(13878 + 20342));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -540,7 +581,9 @@ mod tests {
         });
 
         assert_eq!(provider.collect_json_candidates(&step), Some(vec![]));
-        let usage = provider.extract_token_usage(&step).expect("step carries usage");
+        let usage = provider
+            .extract_token_usage(&step)
+            .expect("step carries usage");
         assert!(matches!(usage.source, TokenUsageSource::Live));
 
         let init = json!({"event": "init", "conversation_id": "235ff5af-1c2d", "init": {}});
@@ -571,6 +614,44 @@ mod tests {
             provider.extract_error_detail(&no_message).as_deref(),
             Some("agy turn ended with status CANCELED")
         );
+    }
+
+    #[test]
+    fn agy_error_envelope_carries_finished_reason_since_1_4_11() {
+        // Verbatim unauthenticated `agy -p --output-format json` envelope
+        // (agy 1.4.12, 2026-11-02): `finished_reason` labels the early end but
+        // `status`+`error` stay the contract we read, so it needs no handling.
+        let provider = GeminiProvider;
+        let failed = json!({
+            "event": "result",
+            "result": {
+                "conversation_id": "",
+                "status": "ERROR",
+                "response": "",
+                "error": "authentication failed or timed out",
+                "duration_seconds": 0,
+                "num_turns": 0,
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "thinking_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "total_tokens": 0
+                },
+                "finished_reason": "error"
+            }
+        });
+        assert_eq!(
+            provider.extract_error_detail(&failed).as_deref(),
+            Some("authentication failed or timed out")
+        );
+        let usage = provider
+            .extract_token_usage(&failed)
+            .expect("result carries usage");
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.input_tokens, Some(0));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+        assert_eq!(provider.collect_json_candidates(&failed), Some(vec![]));
     }
 
     #[test]

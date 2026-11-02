@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.6] - 2026-11-02
+
+Provider interface audit across all ten agent CLIs, re-verified against current releases (opencode 2.2.5, codex 0.166.0, claude 2.1.316, agy 1.4.12, kimi-code 2.4.1, pi 1.5.0, kiro-cli 2.37.1, aider 0.86.2, grok 1.0.70, muse 1.4.14). Nine needed no behavior changes; one fix below.
+
+### Fixed
+
+- **An MDM-disabled OpenCode `plan` agent can no longer be overruled by project config.** OpenCode's managed layer (system dirs + MDM plist) loads last so it overrides everything; the `plan`-disable probe now checks it last. Also added the host-wide managed-preferences plist, which a present per-user plist masks rather than merges with.
+
 ## [2.13.5] - 2026-10-31
 
 No code changes. The MiniMax model-picker fix merged in [#16](https://github.com/timwuhaotian/the-pair/pull/16) shipped with 2.13.3 and is in every build since, but it was missing from the 2.13.3 and 2.13.4 release notes; this release documents it.

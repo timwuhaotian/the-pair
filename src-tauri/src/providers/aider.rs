@@ -1,7 +1,5 @@
 use super::Provider;
-use crate::provider_adapter::{
-    ProviderRuntimeSpec, ProviderTurnCommand, ProviderTurnRequest,
-};
+use crate::provider_adapter::{ProviderRuntimeSpec, ProviderTurnCommand, ProviderTurnRequest};
 use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use crate::types::TurnTokenUsage;
 use serde_json::Value;
@@ -9,8 +7,9 @@ use serde_json::Value;
 /// Aider CLI (`aider`) — open-source AI pair programmer in your terminal.
 /// Headless invocation: `aider --message "<prompt>" --no-pretty --stream
 /// --yes-always --no-auto-commits --no-dirty-commits`. Aider emits plain
-/// Markdown to stdout (verified against aider-chat 0.86.x; surface
-/// re-checked 2026-09-19); there is no `--json` flag, so the orchestrator
+/// Markdown to stdout (verified against aider 0.86.2: `--help`, installed
+/// `args.py`, plus a live `--exit` run; surface re-checked 2026-11-02);
+/// there is no `--json` flag, so the orchestrator
 /// reads the streamed text directly via `OutputTransport::Stdio`.
 /// Aider is stateless per `--message` invocation (git history is the persistence),
 /// so `SessionStrategy::NewFirst` is the correct choice.
@@ -21,8 +20,8 @@ use serde_json::Value;
 /// cannot change the worktree. `--no-suggest-shell-commands` also turns off
 /// shell-command suggestions. `--yes-always` stays: it answers aider's
 /// add-file prompts, and it declines shell commands anyway because they need
-/// an explicit yes. Flags verified against aider-chat v0.86.1 `aider/args.py`
-/// (2026-09-26).
+/// an explicit yes. Flags verified against aider 0.86.2 `aider/args.py` and
+/// `coders/ask_coder.py` (2026-11-02).
 pub struct AiderProvider;
 
 impl Provider for AiderProvider {
@@ -68,8 +67,8 @@ impl Provider for AiderProvider {
             model.into(),
             // Headless flags: auto-approve all actions, don't dirty the git
             // history with auto-commits, and stream plain Markdown to stdout.
-            // Aider has no --json flag (verified against aider-chat 0.86.2 on
-            // 2026-09-23).
+            // Aider has no --json flag (verified against aider 0.86.2 on
+            // 2026-11-02).
             "--yes-always".into(),
             "--no-auto-commits".into(),
             "--no-dirty-commits".into(),
@@ -89,8 +88,9 @@ impl Provider for AiderProvider {
             // Keep aider's bookkeeping out of the worktree. By default it
             // appends `.aider*` to `.gitignore` and writes chat/input history
             // files into the repo root — even for the read-only mentor, and
-            // into the diff a pair commits (verified against aider-chat 0.86.2,
-            // 2026-10-06). Each `--message` run is a fresh process that never
+            // into the diff a pair commits (HISTORY/chat-history `--help`
+            // defaults and `main.py` re-checked against aider 0.86.2,
+            // 2026-11-02). Each `--message` run is a fresh process that never
             // restores chat history, so nothing is lost. The remaining
             // `.aider.tags.cache.v4/` repo-map cache has no flag; it is a
             // regenerable dir in `git_tracker`.
@@ -124,14 +124,15 @@ impl Provider for AiderProvider {
 
     fn extract_token_usage(&self, _event: &Value) -> Option<TurnTokenUsage> {
         // Aider has no structured token usage field on its streamed output
-        // (verified against aider-chat 0.86.x; re-checked 2026-09-19). Token
+        // (aider 0.86.2 prints only an unstructured `Tokens: ... / Cost: $...`
+        // footer after a successful reply; re-checked 2026-11-02). Token
         // counts stay hidden for this provider, matching Kimi.
         None
     }
 
     fn collect_json_candidates(&self, event: &Value) -> Option<Vec<String>> {
         // Legacy: Aider was assumed to expose `--json` NDJSON events, but the
-        // flag does not exist in aider-chat 0.86.x (re-checked 2026-09-19) —
+        // flag does not exist in aider 0.86.2 (re-checked 2026-11-02) —
         // assistant text arrives as plain Markdown on stdout. This branch is
         // unreachable for real Aider output today (the orchestrator uses
         // `OutputTransport::Stdio`); it is retained so the orchestrator can
@@ -200,8 +201,9 @@ const NULL_DEVICE: &str = "NUL";
 #[cfg(not(windows))]
 const NULL_DEVICE: &str = "/dev/null";
 
-/// Lines aider prints on startup before the reply (aider-chat 0.86.2):
-/// version, models, repo and repo-map summary, and git identity hints.
+/// Lines aider prints on startup before the reply (aider 0.86.2, re-checked
+/// against a live `--exit` run 2026-11-02): version, models, repo and
+/// repo-map summary, and git identity hints.
 /// The dumb-terminal notice (`aider/io.py`, when `$TERM` is `dumb`/`unknown`)
 /// precedes even the version line; without it here the skip loop would stop
 /// at line 1 and the whole banner would become the "reply".
@@ -223,8 +225,8 @@ const AIDER_BANNER_PREFIXES: &[&str] = &[
 ///
 /// `aider --message` exits 0 even when the model call fails: litellm errors
 /// are printed to stdout as a block opening with `litellm.<Name>Error:` and
-/// wrapped at 80 columns, followed by a docs URL (verified against aider-chat
-/// 0.86.2 with an invalid API key and an unknown model, 2026-10-06). A
+/// wrapped at 80 columns, followed by a docs URL (re-verified against aider
+/// 0.86.2 with an invalid API key and an unknown model, 2026-11-02). A
 /// retryable error is followed by `Retrying in …` and, if the retry works, by
 /// the reply — so only an error block that ends the output fails the turn.
 fn split_aider_output(output: &str) -> (String, Option<String>) {
@@ -372,9 +374,10 @@ mod tests {
 
     #[test]
     fn aider_failed_model_call_is_a_turn_error_not_a_reply() {
-        // Captured from aider-chat 0.86.2 with an invalid OpenAI key: exit 0.
+        // Captured from aider 0.86.2 with an invalid OpenAI key: exit 0.
         // The dumb-terminal notice leads the output when `$TERM` is dumb/
-        // unknown (captured 2026-10-19); it must not stop the banner skip.
+        // unknown (shape re-captured 2026-11-02); it must not stop the
+        // banner skip.
         let output = "\
 Detected dumb terminal, disabling fancy input and pretty output.
 Update git name with: git config user.name \"Your Name\"
@@ -586,16 +589,10 @@ Model: the tests pass now.
         let provider = AiderProvider;
 
         let file_event = json!({"type": "file", "path": "src/main.rs", "action": "edit"});
-        assert_eq!(
-            provider.collect_json_candidates(&file_event),
-            Some(vec![])
-        );
+        assert_eq!(provider.collect_json_candidates(&file_event), Some(vec![]));
 
         let tool_event = json!({"type": "command", "command": "ls", "output": "file.txt"});
-        assert_eq!(
-            provider.collect_json_candidates(&tool_event),
-            Some(vec![])
-        );
+        assert_eq!(provider.collect_json_candidates(&tool_event), Some(vec![]));
     }
 
     #[test]
