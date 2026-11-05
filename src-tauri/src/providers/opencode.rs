@@ -57,10 +57,13 @@ const AGENT_FILE_DIRS: [&str; 4] = ["agent", "agents", "mode", "modes"];
 /// preferences; `Config.load` in `packages/core/src/config.ts` appends the
 /// managed layer LAST — "Managed settings load last so they override
 /// everything" — so a `plan` disable here beats project config and
-/// `$OPENCODE_CONFIG_CONTENT`. Identical in v2.0.32 and v2.2.5 (2026-11-02).
+/// `$OPENCODE_CONFIG_CONTENT`. One directory per platform (`systemDirectory`,
+/// identical in v2.0.32 and v2.2.5; v1.18.32's `systemManagedConfigDir` in
+/// `packages/opencode/src/config/managed.ts` agrees) — notably macOS reads
+/// only `/Library/Application Support/opencode`, never `/etc/opencode`.
 /// An MDM policy that disables `plan` here must still drop `--agent plan`.
 #[cfg(target_os = "macos")]
-const SYSTEM_CONFIG_DIRS: [&str; 2] = ["/Library/Application Support/opencode", "/etc/opencode"];
+const SYSTEM_CONFIG_DIRS: [&str; 1] = ["/Library/Application Support/opencode"];
 #[cfg(target_os = "windows")]
 const SYSTEM_CONFIG_DIRS: [&str; 1] = ["C:/ProgramData/opencode"];
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -72,9 +75,11 @@ const SYSTEM_CONFIG_DIRS: [&str; 1] = ["/etc/opencode"];
 /// host-wide one; "the first one present wins". Both paths present in
 /// v2.0.32 and v2.2.5 (verified 2026-11-02); the host-wide second path was
 /// missed until now. Only the first path that exists as a file loads — see
-/// `first_existing_path`. A plist payload is OpenCode's config JSON; parsing
-/// plist ourselves would need a new dependency, so a file that mentions
-/// `plan` and one of the disable keys fails open (see `plan_agent_disabled`).
+/// `first_existing_path`. OpenCode reads the plist through
+/// `plutil -convert json` (`Config.loadPreferences` in
+/// `packages/core/src/config.ts`; v1.18.32's `readManagedPreferences` likewise),
+/// so the file itself is XML or binary plist — never JSON — and is byte-scanned
+/// for the disable keys instead of JSON-parsed (see `plist_plan_flag`).
 #[cfg(target_os = "macos")]
 fn managed_preferences_paths(home: &Path) -> Vec<std::path::PathBuf> {
     let user = home
@@ -174,7 +179,7 @@ pub(crate) fn plan_agent_disabled(project_dir: Option<&Path>) -> bool {
     {
         let paths = managed_preferences_paths(&crate::provider_registry::homedir());
         if let Some(path) = first_existing_path(&paths) {
-            apply(config_file_plan_flag(path));
+            apply(plist_plan_flag(path));
         }
     }
 
@@ -196,6 +201,21 @@ fn config_dir_plan_flag(dir: &Path) -> Option<bool> {
 
 fn config_file_plan_flag(path: &Path) -> Option<bool> {
     config_text_plan_flag(&std::fs::read_to_string(path).ok()?)
+}
+
+/// The plan agent's disable flag from a macOS MDM managed-preferences plist.
+/// The converted payload decodes with the same `agent`/`mode`/`agents` +
+/// `disable`/`disabled` keys as any config file, so a plist mentioning `plan`
+/// and one of the disable keys counts as disabling the agent (`disabled`
+/// contains `disable`, so one needle covers both). A byte scan covers the XML
+/// and binary plist encodings without a parser dependency; a JSON substring
+/// check would miss both (`<key>plan</key>` carries no quotes, and binary
+/// plists are not valid UTF-8).
+#[cfg(target_os = "macos")]
+fn plist_plan_flag(path: &Path) -> Option<bool> {
+    let bytes = std::fs::read(path).ok()?;
+    let mentions = |needle: &[u8]| bytes.windows(needle.len()).any(|window| window == needle);
+    (mentions(b"plan") && mentions(b"disable")).then_some(true)
 }
 
 fn config_text_plan_flag(text: &str) -> Option<bool> {
@@ -1197,6 +1217,55 @@ mod tests {
         // A present per-user plist masks the host-wide one entirely.
         std::fs::write(&user, "{}").unwrap();
         assert_eq!(first_existing_path(&paths), Some(user.as_path()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_config_dirs_match_upstream_platform_paths() {
+        // `systemDirectory` reads exactly one directory per platform
+        // (v1.18.32 `systemManagedConfigDir`, v2.0.32/v2.2.5 `discovery.ts`);
+        // macOS never reads the Linux path.
+        assert_eq!(
+            SYSTEM_CONFIG_DIRS,
+            ["/Library/Application Support/opencode"]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn plist_plan_flag_byte_scans_xml_and_binary_plists() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-oc-plist-flag-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // XML plist as `plutil -convert json` would read it: keys without quotes.
+        let xml = dir.join("managed.plist");
+        std::fs::write(
+            &xml,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\n<key>agents</key><dict><key>plan</key><dict><key>disabled</key><true/></dict></dict>\n</dict></plist>\n",
+        )
+        .unwrap();
+        assert_eq!(plist_plan_flag(&xml), Some(true));
+
+        // A `plan` mention without a disable key is not a disable.
+        std::fs::write(
+            &xml,
+            "<plist><dict><key>agents</key><dict><key>plan</key><dict><key>model</key><string>x/y</string></dict></dict></dict></plist>",
+        )
+        .unwrap();
+        assert_eq!(plist_plan_flag(&xml), None);
+
+        // Binary plists are not valid UTF-8, so a text read would miss them.
+        let bplist = dir.join("binary.plist");
+        let mut bytes = b"bplist00".to_vec();
+        bytes.extend_from_slice(b"\x00\x01plan disabled\x00\xff\xfe payload");
+        std::fs::write(&bplist, bytes).unwrap();
+        assert!(std::fs::read_to_string(&bplist).is_err());
+        assert_eq!(plist_plan_flag(&bplist), Some(true));
+
+        assert_eq!(plist_plan_flag(&dir.join("missing.plist")), None);
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -50,7 +50,9 @@ const MUSE_REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "x
 /// muse-spark-1.3 and later accept `max` on top of the shared ladder, and the
 /// wonder line (muse-wonder-1.0 / muse-wonder-full-1.0, released 2026-10-12)
 /// declares `max` from day one despite its 1.0 suffix (Meta's own model
-/// catalog lists `minimal…max` for both). Anything unknown falls back to the
+/// catalog lists `minimal…max` for both). The `-contributor` variants are
+/// excluded: Meta's reasoning and models docs state `max` is "not available
+/// with muse-spark-1.3-contributor". Anything unknown falls back to the
 /// shared ladder only: offering a subset narrows the picker, offering a level
 /// a model rejects fails the turn.
 const MUSE_MAX_EFFORT_FROM_MINOR: u32 = 3;
@@ -69,6 +71,11 @@ fn muse_model_minor(model_id: &str) -> Option<u32> {
 
 fn muse_supports_max_effort(model_id: &str) -> bool {
     let id = model_id.strip_prefix("muse/").unwrap_or(model_id);
+    // Since 1.1.1 a forced `max` is sent to the model as-is instead of being
+    // downgraded, so offering it where the provider rejects it fails the turn.
+    if id.contains("contributor") {
+        return false;
+    }
     id.contains("wonder")
         || muse_model_minor(id).is_some_and(|minor| minor >= MUSE_MAX_EFFORT_FROM_MINOR)
 }
@@ -518,10 +525,6 @@ mod tests {
             MuseProvider.reasoning_effort_levels("muse/muse-spark-1.2"),
             Some(levels.clone())
         );
-        assert_eq!(
-            MuseProvider.reasoning_effort_levels("muse-spark-1.3-contributor"),
-            MuseProvider.reasoning_effort_levels("muse-spark-1.3")
-        );
         // An unknown model gets the shared ladder, never a guess.
         assert_eq!(
             MuseProvider.reasoning_effort_levels("muse-spark-latest"),
@@ -547,6 +550,24 @@ mod tests {
                         .map(|level| level.to_string())
                         .collect::<Vec<_>>()
                 )
+            );
+        }
+    }
+
+    #[test]
+    fn contributor_variants_stay_off_max() {
+        // Meta's reasoning and models docs: `max` is "not available with
+        // muse-spark-1.3-contributor", and since 1.1.1 a forced `max` is sent
+        // as-is, so offering it would fail the turn with the provider's error.
+        let shared = vec!["minimal", "low", "medium", "high", "xhigh"];
+        for model in [
+            "muse-spark-1.3-contributor",
+            "muse/muse-spark-1.3-contributor",
+            "muse-spark-1.2-contributor",
+        ] {
+            assert_eq!(
+                MuseProvider.reasoning_effort_levels(model),
+                Some(shared.iter().map(|level| level.to_string()).collect())
             );
         }
     }

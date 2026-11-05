@@ -53,9 +53,11 @@ impl Provider for ClaudeProvider {
             args.push("--resume".into());
             args.push(sid.into());
         }
-        // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>` for
-        // the session's reasoning effort. The Pair maps its reasoning_effort
-        // picker value through verbatim. Omitted when the caller passes None.
+        // Claude Code 2.1.111+ accepts `--effort <low|medium|high|xhigh|max>`
+        // for the session's reasoning effort, plus `ultracode` (xhigh effort
+        // with the ultracode workflow on, v2.1.203+) per the CLI reference.
+        // The Pair maps its reasoning_effort picker value through verbatim.
+        // Omitted when the caller passes None.
         // Re-verified against claude-code 2.1.316 (2026-11-02): help lists the
         // same ladder and a live `-p --effort low` turn ran clean.
         if let Some(level) = request.reasoning_effort {
@@ -314,7 +316,9 @@ impl Provider for ClaudeProvider {
             return (!levels.is_empty()).then_some(levels);
         }
         // Uncatalogued model (or no cache yet): the full set `--effort` accepts
-        // (verified against claude-code 2.1.316, 2026-11-02). Older installs
+        // (verified against claude-code 2.1.316, 2026-11-02; `ultracode` added
+        // per the CLI reference, which lists it alongside the ladder as an
+        // xhigh-effort + ultracode-workflow request, v2.1.203+). Older installs
         // (pre-2.1.111) reject the flag outright; callers should hide the
         // picker for those.
         Some(vec![
@@ -323,6 +327,7 @@ impl Provider for ClaudeProvider {
             "high".into(),
             "xhigh".into(),
             "max".into(),
+            "ultracode".into(),
         ])
     }
 }
@@ -591,6 +596,7 @@ mod tests {
                 "high".to_string(),
                 "xhigh".to_string(),
                 "max".to_string(),
+                "ultracode".to_string(),
             ])
         );
     }

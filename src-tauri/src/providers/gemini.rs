@@ -241,9 +241,12 @@ fn describe_denied_actions(event: &Value) -> Option<String> {
 ///   the `init` event of an earlier turn.
 ///
 /// No `--print-timeout` is passed: the default is 0, i.e. wait until the turn
-/// completes (re-verified in agy 1.4.12's `--help`, 2026-11-02), and an
-/// expired timeout returns *partial* output with a success exit code, which
-/// would hand off a truncated turn.
+/// completes (re-verified in agy 1.4.12's `--help`, 2026-11-02; the headless
+/// docs still document `0s` as "no limit"). Since 1.5.0 an expired timeout
+/// exits 3 with an `AGY_ERROR` line and a partial `result`
+/// (`finished_reason: "print_timeout"`), which would still hand off a
+/// truncated turn — so the flag stays omitted. (Untimed runs now also wait
+/// for background tasks instead of the old hidden 30-minute cap.)
 pub fn build_agy_args(
     model: &str,
     message: &str,

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.7] - 2026-11-05
+
+Docs-only provider audit across all ten agent CLIs (opencode 2.2.5, codex 0.166.0, claude 2.1.316, agy 1.5.0, kimi-code 2.5.1, pi 1.5.0, kiro-cli 3.0.0, aider 0.86.2, grok 1.0.70, muse 1.4.13). Six needed no changes; four fixes below.
+
+### Fixed
+
+- **An MDM-disabled OpenCode `plan` agent is detected again.** The managed-preferences plist is XML or binary, never JSON, so the old JSON check never matched and a real MDM `plan` disable was missed; the probe now byte-scans the plist. Also corrected the macOS system config dir (upstream reads only `/Library/Application Support/opencode`).
+- **Codex counts as logged in when credentials live in the OS keyring.** Detection previously required `~/.codex/auth.json`; it now also trusts `codex login status` (exit 0 = logged in), with the file check kept as fallback.
+- **Muse contributor models no longer offer the `max` reasoning effort.** Meta's docs state `max` is not available with `muse-spark-1.3-contributor`, and since CLI 1.1.1 a forced `max` is sent as-is and rejected by the provider, failing the turn.
+- **Claude's effort picker offers `ultracode` for uncatalogued models.** The CLI reference lists it alongside the ladder (xhigh effort with the ultracode workflow, v2.1.203+).
+
 ## [2.13.6] - 2026-11-02
 
 Provider interface audit across all ten agent CLIs, re-verified against current releases (opencode 2.2.5, codex 0.166.0, claude 2.1.316, agy 1.4.12, kimi-code 2.4.1, pi 1.5.0, kiro-cli 2.37.1, aider 0.86.2, grok 1.0.70, muse 1.4.14). Nine needed no behavior changes; one fix below.

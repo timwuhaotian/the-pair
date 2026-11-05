@@ -407,19 +407,21 @@ fn pi_help_lists_no_mcp_flag(help_text: &str) -> bool {
 /// How the installed `kiro-cli` can be kept on the V2 engine, probed from
 /// `kiro-cli chat --help`.
 ///
-/// kiro-cli ships a V3 engine alongside V2 (still the default as of 2.32.0),
-/// and accepting the V3 startup offer persists `chat.agentEngine = v3`.
+/// kiro-cli ships a V3 engine alongside V2; CLI 3.0.0 (2026-11-03) made V3
+/// the interactive default while headless runs still default to V2 — except
+/// `--trust-all-tools` runs, which take the interactive default (V3). Both
+/// pins below are still documented in 3.0 (CLI commands reference +
+/// agent-harness docs, re-checked 2026-11-05).
+///
 /// The Pair's adapter is built for V2 semantics — above all the mentor's
 /// `--trust-tools=read,grep,glob`, whose V2 tool names match nothing under
 /// V3's exact internal ids (`read_file`, …), which would silently drop the
 /// read-only pre-approval. Pinning the engine on every turn keeps the
-/// adapter stable regardless of the saved setting.
+/// adapter stable regardless of the saved `chat.agentEngine` setting.
 ///
-/// AWS has announced CLI 3.0 makes V3 the default at the end of October
-/// 2026 (2.30.0 changelog; 2.32.0's help already calls `--v2` "the pre-3.0
-/// default"). If 3.0 also renames or drops the V2 pin, a probe that only
-/// asked "is `--agent-engine` there?" would go quiet and the mentor would
-/// run writable on V3 — so the probe distinguishes "pinnable" from
+/// If a future release renames or drops the V2 pin, a probe that only asked
+/// "is `--agent-engine` there?" would go quiet and the mentor would run
+/// writable on V3 — so the probe distinguishes "pinnable" from
 /// "V3-present but unpinnable", and the adapter refuses mentor turns in the
 /// latter case instead of degrading silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1681,13 +1683,27 @@ impl ProviderRegistry {
     }
 
     pub fn detect_codex() -> DetectedProviderProfile {
-        let installed = which_binary_exists("codex");
+        let codex_bin = which_binary("codex");
+        let installed = codex_bin.is_some();
 
         let homedir = homedir();
         let auth_path = homedir.join(".codex/auth.json");
         let config_path = homedir.join(".codex/config.toml");
 
-        let authenticated = auth_path.exists();
+        // Credentials may live in the OS keyring instead of auth.json (0.161.0
+        // changelog), so a missing file is not proof of logged-out: `codex
+        // login status` exits 0 exactly when logged in (official docs). CLIs
+        // too old for the subcommand exit non-zero and fall back to the file.
+        let authenticated = auth_path.exists()
+            || codex_bin.as_ref().is_some_and(|bin| {
+                capture_command_output_with_timeout(
+                    bin,
+                    &["login", "status"],
+                    &homedir,
+                    CLI_PROBE_TIMEOUT,
+                )
+                .is_some()
+            });
         let subscription_label = "subscription-backed".to_string();
         let models = if installed {
             // Warm the version probe here so a turn's usage handling, which
@@ -3833,6 +3849,109 @@ exit 0
 
     #[cfg(unix)]
     #[test]
+    fn detect_codex_trusts_login_status_when_auth_json_is_missing() {
+        // Credentials may live in the OS keyring instead of auth.json (0.161.0
+        // changelog), so `codex login status` (exit 0 = logged in) decides
+        // when the file is absent.
+        let _guard = crate::test_env::lock_env();
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let codex_dir = temp_home.join("bin");
+        fs::create_dir_all(&codex_dir).expect("failed to create temp codex dir");
+
+        write_executable_script(
+            &codex_dir,
+            "codex",
+            r#"#!/bin/sh
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+    exit 0
+fi
+exit 1
+"#,
+        );
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", codex_dir.display(), existing.to_string_lossy())
+        } else {
+            codex_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+
+        let profile = ProviderRegistry::detect_codex();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(profile.installed);
+        assert!(
+            profile.authenticated,
+            "a zero `login status` exit must count as logged in without auth.json"
+        );
+        assert!(profile.runnable);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_codex_stays_logged_out_when_login_status_fails() {
+        let _guard = crate::test_env::lock_env();
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let codex_dir = temp_home.join("bin");
+        fs::create_dir_all(&codex_dir).expect("failed to create temp codex dir");
+
+        write_executable_script(
+            &codex_dir,
+            "codex",
+            r#"#!/bin/sh
+exit 1
+"#,
+        );
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", codex_dir.display(), existing.to_string_lossy())
+        } else {
+            codex_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+
+        let profile = ProviderRegistry::detect_codex();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(profile.installed);
+        assert!(
+            !profile.authenticated,
+            "a failing `login status` without auth.json must stay logged out"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn binary_exists_at_known_locations_finds_gemini_in_nvm_layout() {
         let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
         let gemini_dir = temp_root.join(".nvm/versions/node/v24.14.0/bin");
@@ -4077,6 +4196,13 @@ exit 0
             kiro_engine_pin_from_help(v232),
             KiroEnginePin::V2Shorthand
         );
+        // The actual 3.0.0 shape (docs only, re-checked 2026-11-05): V3 is the
+        // default but both pins are still advertised; the shorthand wins.
+        let v3 = "      --agent-engine <ENGINE>\n          Agent engine to use: \"v3\" (default), \"v2\", or \"v1\"\n\n      --v2\n          Use the V2 agent engine\n";
+        assert_eq!(
+            kiro_engine_pin_from_help(v3),
+            KiroEnginePin::V2Shorthand
+        );
         // A help with only the long flag (the 2.31 shape).
         assert_eq!(
             kiro_engine_pin_from_help(
@@ -4085,6 +4211,8 @@ exit 0
             KiroEnginePin::AgentEngineFlag
         );
         // The CLI 3.0 shape this probe exists for: V3 present, no V2 pin.
+        // (3.0.0 shipped 2026-11-03 and kept both pins per the kiro.dev docs;
+        // this is the future shape where a release drops them.)
         assert_eq!(
             kiro_engine_pin_from_help(
                 "      --v3\n          Launch the next generation Kiro agent\n  --no-interactive\n"

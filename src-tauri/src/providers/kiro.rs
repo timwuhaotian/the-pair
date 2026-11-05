@@ -18,13 +18,18 @@ use serde_json::Value;
 /// carries a V3 engine alongside V2; the turn command pins the V2 engine
 /// (`--v2`, falling back to `--agent-engine v2`) on every turn, because V3's
 /// tool-id names break the mentor's `--trust-tools` allowlist (see
-/// `kiro_engine_pin`). AWS announced CLI 3.0 would default to V3 "at the end
-/// of October 2026"; that flip had not shipped as of 2.37.1 — `--agent-engine`
-/// still defaults to "v2" and both pins are advertised — but it can land in
-/// any release, so if one drops the V2 pin entirely, mentor turns are refused
-/// rather than silently running with write access (`validate_turn_request`).
+/// `kiro_engine_pin`). CLI 3.0.0 (2026-11-03) made V3 the interactive default;
+/// headless runs still default to V2 — except `--trust-all-tools` runs, which
+/// take the interactive default (V3), so the pin is now load-bearing for the
+/// executor's flag set too, not just the mentor's. Both pins are still
+/// documented in 3.0 (`kiro-cli chat --v2`, `chat --agent-engine v2`; CLI
+/// commands reference + agent-harness docs, re-checked 2026-11-05); if a
+/// future release drops the V2 pin entirely, mentor turns are refused rather
+/// than silently running with write access (`validate_turn_request`).
 /// Flags re-verified against `kiro-cli chat --help` plus a live
-/// (unauthenticated, flag-parse-only) invocation on 2.37.1 (2026-11-02).
+/// (unauthenticated, flag-parse-only) invocation on 2.37.1 (2026-11-02); the
+/// 3.0 flag surface was re-checked against the kiro.dev docs on 2026-11-05
+/// (docs only — the 3.0 `chat --help` text itself is unverified).
 /// Headless `--output-format stream-json` emits the run's ACP events as JSON
 /// Lines (and implies `--no-interactive`), but that schema is unparsed today,
 /// so the plain-text transport is kept; switching to the structured stream
@@ -76,13 +81,16 @@ fn build_kiro_turn_command(
 
     // Pin the V2 engine whenever the CLI offers a pin (see `kiro_engine_pin`;
     // the probe keys on the help text, not the version — 2.37.1's help still
-    // advertises both spellings). A user's V3 startup offer persists
+    // advertises both spellings, and 3.0's docs still document both). A
+    // user's V3 startup offer persists
     // `chat.agentEngine = v3`, and V3 matches `--trust-tools`
     // against exact internal tool ids that the mentor's V2 names never match —
     // silently dropping the read-only pre-approval below. `Unavailable`
     // (V3 present, no pin) never reaches here for the mentor —
     // `validate_turn_request` refuses it — and executor turns, which trust
-    // everything anyway, may ride whichever engine the CLI defaults to.
+    // everything anyway, may ride whichever engine the CLI defaults to (on
+    // 3.0+, `--trust-all-tools` runs default to V3 — still supported, since
+    // V3 keeps `--trust-all-tools`, `--model`, and `--effort` on `chat`).
     match engine_pin {
         crate::provider_registry::KiroEnginePin::V2Shorthand => args.push("--v2".into()),
         crate::provider_registry::KiroEnginePin::AgentEngineFlag => {
@@ -278,8 +286,8 @@ mod tests {
             reasoning_effort: None,
         };
 
-        // `--v2` is the spelling 2.32 through 2.37.1 document for holding the
-        // pre-3.0 default; it wins when the help advertises it.
+        // `--v2` is the spelling 2.32 through 3.0 document for holding V2
+        // (the pre-3.0 default); it wins when the help advertises it.
         let shorthand = build_kiro_turn_command(&request, KiroEnginePin::V2Shorthand);
         assert!(shorthand.args.contains(&"--v2".to_string()));
         assert!(!shorthand.args.contains(&"--agent-engine".to_string()));
@@ -316,9 +324,9 @@ mod tests {
     #[test]
     fn kiro_refuses_mentor_turns_when_the_v2_pin_is_gone() {
         use crate::provider_registry::KiroEnginePin;
-        // The scenario CLI 3.0 threatens: V3 present, no V2 pin. The mentor
-        // must be refused rather than silently run writable; every other
-        // combination still runs.
+        // A future CLI that drops the V2 pin (3.0.0 kept it): V3 present, no
+        // V2 pin. The mentor must be refused rather than silently run
+        // writable; every other combination still runs.
         let refused = validate_kiro_turn("mentor", KiroEnginePin::Unavailable)
             .expect_err("mentor must be refused without a V2 pin");
         assert!(refused.contains("V2 engine"), "{refused}");

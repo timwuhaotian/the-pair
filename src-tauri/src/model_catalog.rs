@@ -389,7 +389,8 @@ mod tests {
 
     #[test]
     fn reasoning_effort_levels_offered_for_codex_and_claude() {
-        // Claude Code 2.1.111+ exposes --effort low|medium|high|xhigh|max, so an
+        // Claude Code 2.1.111+ exposes --effort low|medium|high|xhigh|max, plus
+        // ultracode (v2.1.203+, xhigh effort with the ultracode workflow), so an
         // uncatalogued model surfaces those values. Antigravity (Gemini) bakes effort into
         // the model slug and is omitted on purpose. Opencode delegates to the
         // underlying model. Only Codex o-series honors reasoning via
@@ -405,6 +406,7 @@ mod tests {
                 "high".to_string(),
                 "xhigh".to_string(),
                 "max".to_string(),
+                "ultracode".to_string(),
             ])
         );
         assert_eq!(
