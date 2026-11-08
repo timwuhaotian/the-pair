@@ -368,7 +368,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
           <div key={`drops-${msg.id}`} className={cn('flex', alignClass)}>
             <div className={cn(maxWidthClass, 'pl-[3ch]')}>
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint">
-                {t('console.earlierMessagesDropped', { count: droppedBefore })}
+                {t('console.earlierMessagesDropped', {
+                  count: droppedBefore,
+                  role: msg.from === 'mentor' ? t('common.mentor') : t('common.executor')
+                })}
               </span>
             </div>
           </div>
@@ -697,7 +700,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         )}
         <span className="text-muted-foreground-faint">·</span>
         <span className="tabular-nums">
-          iter {formatIterations(pair.iterations, pair.maxIterations)}
+          {t('console.iteration', {
+            value: formatIterations(pair.iterations, pair.maxIterations)
+          })}
         </span>
         <div className="ml-auto flex items-center gap-3">
           {!isViewingArchived && (
@@ -727,8 +732,8 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
             >
               ●
             </span>
-            <span className="text-[10px] uppercase tracking-[0.14em]">
-              {isRunning ? t('pair.systemOnline') : t('pair.systemIdle')}
+            <span className="whitespace-nowrap text-[10px] uppercase tracking-[0.14em]">
+              {t(`status.${pair.status}`)}
             </span>
           </div>
           <div className="flex items-center gap-0.5">
@@ -830,9 +835,13 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                   <span className="uppercase tracking-[0.14em] text-foreground/80">
                     {t('pair.freshSession')}
                   </span>
-                  <span className="text-[11px] text-muted-foreground-faint">
-                    {t('pair.awaitingFirst')}
-                  </span>
+                  {!isViewingArchived && (
+                    <span className="text-[11px] text-muted-foreground-faint">
+                      {isPairActive(pair.status)
+                        ? t('pair.awaitingFirst')
+                        : t('pair.emptyIdleHint')}
+                    </span>
+                  )}
                 </div>
               </>
             ) : (

@@ -3,14 +3,38 @@ import {
   parseAcceptanceRecordForDisplay,
   isAcceptanceRecordContent
 } from '../lib/acceptance'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { verdictTone } from '../lib/acceptanceTone'
 import { MarkdownContent } from './MarkdownContent'
 import { Chip } from './ui/Chip'
 
+// Parsed enums are validated upstream; unknown values still render as-is.
+function verdictLabel(verdict: string, t: TFunction): string {
+  if (verdict === 'pass') return t('console.verdict.pass')
+  if (verdict === 'fail') return t('console.verdict.fail')
+  return verdict
+}
+
+function riskLabel(risk: string, t: TFunction): string {
+  if (risk === 'low') return t('console.risk.low')
+  if (risk === 'medium') return t('console.risk.medium')
+  if (risk === 'high') return t('console.risk.high')
+  return risk
+}
+
+function nextActionLabel(action: string, t: TFunction): string {
+  if (action === 'continue') return t('console.nextAction.continue')
+  if (action === 'finish') return t('console.nextAction.finish')
+  return action
+}
+
 function VerdictChip({ verdict }: { verdict: string }): React.ReactNode {
+  const { t } = useTranslation()
   return (
     <Chip tone={verdictTone(verdict)}>
-      <span aria-hidden>{verdict === 'pass' ? '✓' : '!'}</span>[{verdict}]
+      <span aria-hidden>{verdict === 'pass' ? '✓' : '!'}</span>
+      {verdictLabel(verdict, t)}
     </Chip>
   )
 }
@@ -27,6 +51,7 @@ function formatDuration(ms: number): string {
 }
 
 export function AcceptanceMessageBody({ content }: { content: string }): React.ReactNode {
+  const { t } = useTranslation()
   if (isAcceptanceRecordContent(content)) {
     return <AcceptanceRecordBody content={content} />
   }
@@ -43,15 +68,15 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
     <div className="space-y-2 font-mono">
       <div className="flex flex-wrap items-baseline gap-1.5">
         <VerdictChip verdict={verdict.verdict} />
-        <Chip>risk·{verdict.risk}</Chip>
-        <Chip>next·{verdict.nextStep.action}</Chip>
+        <Chip>{riskLabel(verdict.risk, t)}</Chip>
+        <Chip>{nextActionLabel(verdict.nextStep.action, t)}</Chip>
       </div>
 
       <p className="text-[12px] leading-relaxed text-foreground/90">{verdict.summary}</p>
 
       <div className="space-y-0.5">
         <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          ── evidence ──
+          ── {t('console.evidenceHeading')} ──
         </div>
         <ul className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
           {verdict.evidence.map((item) => (
@@ -66,7 +91,7 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
       {verdict.nextStep.instructions.length > 0 && (
         <div className="space-y-0.5">
           <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            ── next step ──
+            ── {t('console.nextStepsHeading')} ──
           </div>
           <ol className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
             {verdict.nextStep.instructions.map((step, index) => (
@@ -83,6 +108,7 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
 }
 
 function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode {
+  const { t } = useTranslation()
   let record
   try {
     record = parseAcceptanceRecordForDisplay(content)
@@ -97,10 +123,10 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
   return (
     <div className="space-y-2 font-mono">
       <div className="flex flex-wrap items-baseline gap-1.5">
-        <Chip>risk·{record.risk}</Chip>
-        <Chip>iter·{record.iteration}</Chip>
+        <Chip>{riskLabel(record.risk, t)}</Chip>
+        <Chip>{t('console.iteration', { value: record.iteration })}</Chip>
         <Chip tone={failedCount === 0 ? 'done' : 'error'}>
-          {passedCount}/{record.checks.length} passed
+          {t('console.checksPassed', { passed: passedCount, total: record.checks.length })}
         </Chip>
       </div>
 
@@ -108,7 +134,7 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
 
       <div className="space-y-1">
         <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          ── checks ──
+          ── {t('console.checksHeading')} ──
         </div>
         <div className="space-y-0.5">
           {record.checks.map((check, index) => (

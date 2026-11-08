@@ -194,7 +194,7 @@
     "sentBackMessage": "Sent the plan back for revision.",
     "reviewPending": "Plan awaiting review",
     "returnToReview": "Return to review",
-    "failed": "Couldn't submit the review decision"
+    "failed": "Couldn't send your decision. Try again."
   },
   "modals": {
     "recommendationHint": "{{mentor}} + {{executor}} succeeded {{successes}}/{{runs}} times on similar tasks",
@@ -300,8 +300,6 @@
     "taskHistory": "Task History",
     "sessionConsole": "Session Console",
     "viewingArchived": "viewing archived run",
-    "systemOnline": "SYSTEM ONLINE",
-    "systemIdle": "SYSTEM IDLE",
     "humanReview": "Human review required",
     "killProcess": "Kill Process",
     "systemResources": "System Resources",
@@ -323,8 +321,8 @@
     "failedToLoadDiff": "Failed to load diff",
     "timeline": "Timeline",
     "noTimelineEvents": "No timeline events yet.",
-    "freshSession": "Fresh Session",
-    "awaitingFirst": "Awaiting first agent instruction",
+    "freshSession": "No messages yet",
+    "awaitingFirst": "The mentor's first reply will appear here.",
     "invalidData": "Invalid pair data",
     "invalidDataDesc": "Please try selecting another pair",
     "stillActive": "still active",
@@ -335,19 +333,20 @@
     "retryFailed": "Retry failed",
     "loadingDiff": "loading diff…",
     "copyTimelineMarkdown": "Copy as Markdown",
-    "exportTimelineHtml": "Export as HTML"
+    "exportTimelineHtml": "Export as HTML",
+    "emptyIdleHint": "Describe a task below to start."
   },
   "console": {
     "all": "All",
-    "missionSpecs": "MISSION SPECS",
+    "missionSpecs": "Task",
     "acceptance": "acceptance",
     "collapse": "Collapse",
-    "expand": "Expand full report",
-    "showDetailsBoth_one": "Show {{count}} step + full report",
-    "showDetailsBoth_other": "Show {{count}} steps + full report",
+    "expand": "Show full message",
+    "showDetailsBoth_one": "Show {{count}} step and full message",
+    "showDetailsBoth_other": "Show {{count}} steps and full message",
     "showStepsOnly_one": "Show {{count}} step",
     "showStepsOnly_other": "Show {{count}} steps",
-    "showReportOnly": "Show full report",
+    "showReportOnly": "Show full message",
     "hideDetails": "Hide details",
     "stalled": "Stalled",
     "noOutput": "no output",
@@ -371,13 +370,11 @@
     "viewingArchived": "viewing archived run",
     "attachedFile": "Attached: {{path}}",
     "attachedSkill": "Attached skill: /{{name}}",
-    "inputDisabledRunningHint": "Pair is running — pause first to queue a new task",
+    "inputDisabledRunningHint": "Pause the pair to give it a new task",
     "stopTurn": "Stop turn",
-    "earlierStepsButton": "Show {{count}} earlier step",
-    "earlierStepsButton_plural": "Show {{count}} earlier steps",
     "earlierStepsHide": "Hide earlier steps",
-    "earlierMessagesDropped_one": "+ {{count}} earlier message hidden",
-    "earlierMessagesDropped_other": "+ {{count}} earlier messages hidden",
+    "earlierMessagesDropped_one": "+ {{count}} earlier {{role}} message from this iteration not shown",
+    "earlierMessagesDropped_other": "+ {{count}} earlier {{role}} messages from this iteration not shown",
     "submitFailed": "Failed to start the task",
     "stopFailed": "Failed to stop the turn",
     "searchOpen": "Search transcript",
@@ -403,7 +400,35 @@
     "mentionLoading": "loading files…",
     "mentionLoadFailed": "couldn't list files",
     "moreFiles_one": "{{count}} more file…",
-    "moreFiles_other": "{{count}} more files…"
+    "moreFiles_other": "{{count}} more files…",
+    "you": "You",
+    "iteration": "iteration {{value}}",
+    "messageType": {
+      "plan": "plan",
+      "result": "result",
+      "feedback": "feedback",
+      "question": "question",
+      "progress": "progress"
+    },
+    "earlierStepsButton_one": "Show {{count}} earlier step",
+    "earlierStepsButton_other": "Show {{count}} earlier steps",
+    "verdict": {
+      "pass": "Accepted",
+      "fail": "Changes needed"
+    },
+    "risk": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "nextAction": {
+      "continue": "Next: another iteration",
+      "finish": "Next: finish"
+    },
+    "checksPassed": "{{passed}}/{{total}} checks passed",
+    "checksHeading": "Checks",
+    "evidenceHeading": "Evidence",
+    "nextStepsHeading": "Next steps"
   },
   "skills": {
     "popoverTitle": "skills",

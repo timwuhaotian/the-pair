@@ -37,7 +37,7 @@ export function SystemBanner({
     return (
       <TerminalDivider
         className={cn('my-1', className)}
-        label={`iteration ${iteration}/${maxIterations || '∞'}`}
+        label={t('console.iteration', { value: `${iteration}/${maxIterations || '∞'}` })}
       />
     )
   }
@@ -83,7 +83,6 @@ export function SystemBanner({
       role="human"
       state="done"
       glyph=">"
-      label="HUMAN"
       timestamp={timestamp}
       accentBorder
       className={className}

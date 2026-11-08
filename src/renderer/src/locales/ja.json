@@ -184,7 +184,7 @@
     "sentBackMessage": "プランを修正のため差し戻しました。",
     "reviewPending": "プランがレビュー待ちです",
     "returnToReview": "レビューに戻る",
-    "failed": "レビュー結果を送信できませんでした"
+    "failed": "判断を送信できませんでした。もう一度お試しください。"
   },
   "modals": {
     "recommendationHint": "類似タスクで {{mentor}} + {{executor}} は {{runs}} 回中 {{successes}} 回成功しました",
@@ -290,8 +290,6 @@
     "taskHistory": "タスク履歴",
     "sessionConsole": "セッションコンソール",
     "viewingArchived": "アーカイブ済み実行を表示",
-    "systemOnline": "システムオンライン",
-    "systemIdle": "システムアイドル",
     "humanReview": "人間のレビューが必要です",
     "killProcess": "プロセスを強制終了",
     "systemResources": "システムリソース",
@@ -313,8 +311,8 @@
     "failedToLoadDiff": "差分の読み込みに失敗しました",
     "timeline": "タイムライン",
     "noTimelineEvents": "まだタイムラインイベントはありません。",
-    "freshSession": "新規セッション",
-    "awaitingFirst": "最初のエージェント指示を待機中",
+    "freshSession": "メッセージはまだありません",
+    "awaitingFirst": "メンターの最初の返信がここに表示されます。",
     "invalidData": "ペアデータが無効です",
     "invalidDataDesc": "別のペアを選択してください",
     "stillActive": "まだアクティブ",
@@ -325,14 +323,15 @@
     "retryFailed": "再試行に失敗しました",
     "loadingDiff": "差分を読み込み中…",
     "copyTimelineMarkdown": "Markdown としてコピー",
-    "exportTimelineHtml": "HTML としてエクスポート"
+    "exportTimelineHtml": "HTML としてエクスポート",
+    "emptyIdleHint": "下にタスクを入力して開始します。"
   },
   "console": {
     "all": "すべて",
-    "missionSpecs": "ミッション仕様",
+    "missionSpecs": "タスク",
     "acceptance": "検収",
     "collapse": "折りたたむ",
-    "expand": "完全なレポートを展開",
+    "expand": "メッセージ全文を表示",
     "stalled": "停滞",
     "noOutput": "出力なし",
     "error": "エラー",
@@ -355,18 +354,16 @@
     "viewingArchived": "アーカイブされた実行を閲覧中",
     "attachedFile": "添付ファイル：{{path}}",
     "attachedSkill": "添付スキル：/{{name}}",
-    "inputDisabledRunningHint": "ペアが実行中です — 新しいタスクを入れる前に一時停止してください",
+    "inputDisabledRunningHint": "新しいタスクを渡すにはペアを一時停止してください",
     "stopTurn": "現在のターンを停止",
-    "earlierStepsButton": "前の{{count}}ステップを表示",
-    "earlierStepsButton_plural": "前の{{count}}ステップを表示",
     "earlierStepsHide": "前のステップを非表示",
-    "earlierMessagesDropped_one": "+ 前のメッセージ {{count}} 件を非表示",
-    "earlierMessagesDropped_other": "+ 前のメッセージ {{count}} 件を非表示",
-    "showDetailsBoth_one": "{{count}}ステップとレポート全文を表示",
-    "showDetailsBoth_other": "{{count}}ステップとレポート全文を表示",
+    "earlierMessagesDropped_one": "+ この反復の{{role}}の以前のメッセージ {{count}} 件は非表示",
+    "earlierMessagesDropped_other": "+ この反復の{{role}}の以前のメッセージ {{count}} 件は非表示",
+    "showDetailsBoth_one": "{{count}}ステップとメッセージ全文を表示",
+    "showDetailsBoth_other": "{{count}}ステップとメッセージ全文を表示",
     "showStepsOnly_one": "{{count}}ステップを表示",
     "showStepsOnly_other": "{{count}}ステップを表示",
-    "showReportOnly": "レポート全文を表示",
+    "showReportOnly": "メッセージ全文を表示",
     "hideDetails": "詳細を非表示",
     "submitFailed": "タスクを開始できませんでした",
     "stopFailed": "ターンを停止できませんでした",
@@ -393,7 +390,35 @@
     "mentionLoading": "ファイルを読み込み中…",
     "mentionLoadFailed": "ファイル一覧を取得できません",
     "moreFiles_one": "他 {{count}} 件のファイル…",
-    "moreFiles_other": "他 {{count}} 件のファイル…"
+    "moreFiles_other": "他 {{count}} 件のファイル…",
+    "you": "あなた",
+    "iteration": "反復 {{value}}",
+    "messageType": {
+      "plan": "計画",
+      "result": "結果",
+      "feedback": "フィードバック",
+      "question": "質問",
+      "progress": "進捗"
+    },
+    "earlierStepsButton_one": "前の{{count}}ステップを表示",
+    "earlierStepsButton_other": "前の{{count}}ステップを表示",
+    "verdict": {
+      "pass": "合格",
+      "fail": "要修正"
+    },
+    "risk": {
+      "low": "低リスク",
+      "medium": "中リスク",
+      "high": "高リスク"
+    },
+    "nextAction": {
+      "continue": "次: 次の反復へ",
+      "finish": "次: 完了"
+    },
+    "checksPassed": "チェック {{passed}}/{{total}} 件合格",
+    "checksHeading": "チェック",
+    "evidenceHeading": "根拠",
+    "nextStepsHeading": "次のステップ"
   },
   "skills": {
     "popoverTitle": "スキル",

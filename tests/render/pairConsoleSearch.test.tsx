@@ -304,7 +304,7 @@ test('search never un-hides a message collapsed away by dedup', () => {
   // When the final message matches, the drop marker still reports the draft.
   fireEvent.change(input, { target: { value: 'final' } })
   assert.ok(document.getElementById('console-msg-b'))
-  assert.ok(screen.getByText('+ 1 earlier message hidden'))
+  assert.ok(screen.getByText('+ 1 earlier Mentor message from this iteration not shown'))
   assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
 })
 

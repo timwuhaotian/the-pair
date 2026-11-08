@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { cn } from '../lib/utils'
 import { isAcceptanceVerdictContent, isAcceptanceRecordContent } from '../lib/acceptance'
 import { acceptanceContentTone } from '../lib/acceptanceTone'
@@ -27,20 +28,20 @@ function formatDuration(ms: number | undefined): string | undefined {
   return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
 }
 
-function typeLabel(type: Message['type']): string {
+function typeLabel(type: Message['type'], t: TFunction): string {
   switch (type) {
     case 'plan':
-      return 'plan'
+      return t('console.messageType.plan')
     case 'result':
-      return 'result'
+      return t('console.messageType.result')
     case 'acceptance':
-      return 'review'
+      return t('console.acceptance')
     case 'feedback':
-      return 'feedback'
+      return t('console.messageType.feedback')
     case 'question':
-      return 'question'
+      return t('console.messageType.question')
     case 'progress':
-      return 'progress'
+      return t('console.messageType.progress')
     default:
       return type
   }
@@ -124,7 +125,7 @@ export const MessageCard = memo(function MessageCard({
 
   const typeTag = (
     <Chip tone={acceptanceTone ?? role}>
-      {isAcceptance ? t('console.acceptance') : typeLabel(msg.type)}
+      {isAcceptance ? t('console.acceptance') : typeLabel(msg.type, t)}
     </Chip>
   )
 

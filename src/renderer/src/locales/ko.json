@@ -184,7 +184,7 @@
     "sentBackMessage": "수정을 위해 계획을 되돌렸습니다.",
     "reviewPending": "계획 검토 대기 중",
     "returnToReview": "검토로 돌아가기",
-    "failed": "검토 결과를 제출하지 못했습니다"
+    "failed": "결정을 보내지 못했습니다. 다시 시도하세요."
   },
   "modals": {
     "recommendationHint": "유사한 작업에서 {{mentor}} + {{executor}} 조합이 {{runs}}회 중 {{successes}}회 성공했습니다",
@@ -290,8 +290,6 @@
     "taskHistory": "작업 기록",
     "sessionConsole": "세션 콘솔",
     "viewingArchived": "보관된 실행 보기",
-    "systemOnline": "시스템 온라인",
-    "systemIdle": "시스템 대기 중",
     "humanReview": "인간 검토 필요",
     "killProcess": "프로세스 강제 종료",
     "systemResources": "시스템 리소스",
@@ -313,8 +311,8 @@
     "failedToLoadDiff": "차이 로드 실패",
     "timeline": "타임라인",
     "noTimelineEvents": "아직 타임라인 이벤트가 없습니다.",
-    "freshSession": "새 세션",
-    "awaitingFirst": "첫 번째 에이전트 지시를 기다리는 중",
+    "freshSession": "아직 메시지가 없습니다",
+    "awaitingFirst": "멘토의 첫 응답이 여기에 표시됩니다.",
     "invalidData": "페어 데이터가 유효하지 않습니다",
     "invalidDataDesc": "다른 페어를 선택하십시오",
     "stillActive": "아직 활성",
@@ -325,14 +323,15 @@
     "retryFailed": "재시도 실패",
     "loadingDiff": "diff 불러오는 중…",
     "copyTimelineMarkdown": "Markdown으로 복사",
-    "exportTimelineHtml": "HTML로 내보내기"
+    "exportTimelineHtml": "HTML로 내보내기",
+    "emptyIdleHint": "아래에 작업을 입력해 시작하세요."
   },
   "console": {
     "all": "전체",
-    "missionSpecs": "미션 사양",
+    "missionSpecs": "작업",
     "acceptance": "승인",
     "collapse": "접기",
-    "expand": "전체 보고서 펼치기",
+    "expand": "전체 메시지 보기",
     "stalled": "정체됨",
     "noOutput": "출력 없음",
     "error": "오류",
@@ -355,18 +354,16 @@
     "viewingArchived": "보관된 실행 보기",
     "attachedFile": "첨부됨: {{path}}",
     "attachedSkill": "첨부된 스킬: /{{name}}",
-    "inputDisabledRunningHint": "페어가 실행 중입니다 — 새 작업을 추가하려면 먼저 일시 중지하세요",
+    "inputDisabledRunningHint": "새 작업을 주려면 페어를 일시 중지하세요",
     "stopTurn": "현재 턴 중지",
-    "earlierStepsButton": "이전 {{count}}개 단계 표시",
-    "earlierStepsButton_plural": "이전 {{count}}개 단계 표시",
     "earlierStepsHide": "이전 단계 숨기기",
-    "earlierMessagesDropped_one": "+ 이전 메시지 {{count}}개 숨김",
-    "earlierMessagesDropped_other": "+ 이전 메시지 {{count}}개 숨김",
-    "showDetailsBoth_one": "{{count}}개 단계와 전체 보고서 보기",
-    "showDetailsBoth_other": "{{count}}개 단계와 전체 보고서 보기",
+    "earlierMessagesDropped_one": "+ 이번 반복의 이전 {{role}} 메시지 {{count}}개 숨김",
+    "earlierMessagesDropped_other": "+ 이번 반복의 이전 {{role}} 메시지 {{count}}개 숨김",
+    "showDetailsBoth_one": "{{count}}개 단계와 전체 메시지 보기",
+    "showDetailsBoth_other": "{{count}}개 단계와 전체 메시지 보기",
     "showStepsOnly_one": "{{count}}개 단계 보기",
     "showStepsOnly_other": "{{count}}개 단계 보기",
-    "showReportOnly": "전체 보고서 보기",
+    "showReportOnly": "전체 메시지 보기",
     "hideDetails": "세부 정보 숨기기",
     "submitFailed": "작업을 시작하지 못했습니다",
     "stopFailed": "턴을 중지하지 못했습니다",
@@ -393,7 +390,35 @@
     "mentionLoading": "파일을 불러오는 중…",
     "mentionLoadFailed": "파일 목록을 가져올 수 없음",
     "moreFiles_one": "파일 {{count}}개 더…",
-    "moreFiles_other": "파일 {{count}}개 더…"
+    "moreFiles_other": "파일 {{count}}개 더…",
+    "you": "나",
+    "iteration": "반복 {{value}}",
+    "messageType": {
+      "plan": "계획",
+      "result": "결과",
+      "feedback": "피드백",
+      "question": "질문",
+      "progress": "진행 상황"
+    },
+    "earlierStepsButton_one": "이전 {{count}}개 단계 표시",
+    "earlierStepsButton_other": "이전 {{count}}개 단계 표시",
+    "verdict": {
+      "pass": "통과",
+      "fail": "수정 필요"
+    },
+    "risk": {
+      "low": "낮은 위험",
+      "medium": "중간 위험",
+      "high": "높은 위험"
+    },
+    "nextAction": {
+      "continue": "다음: 다음 반복",
+      "finish": "다음: 완료"
+    },
+    "checksPassed": "검사 {{passed}}/{{total}}개 통과",
+    "checksHeading": "검사",
+    "evidenceHeading": "근거",
+    "nextStepsHeading": "다음 단계"
   },
   "skills": {
     "popoverTitle": "스킬",

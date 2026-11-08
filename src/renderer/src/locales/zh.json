@@ -194,7 +194,7 @@
     "sentBackMessage": "已将计划打回重新规划。",
     "reviewPending": "计划待审核",
     "returnToReview": "返回审核",
-    "failed": "无法提交审查结果"
+    "failed": "无法提交你的决定，请重试。"
   },
   "modals": {
     "recommendationHint": "类似任务中,{{mentor}} + {{executor}} 成功了 {{successes}}/{{runs}} 次",
@@ -300,8 +300,6 @@
     "taskHistory": "任务历史",
     "sessionConsole": "会话控制台",
     "viewingArchived": "查看归档运行",
-    "systemOnline": "系统在线",
-    "systemIdle": "系统空闲",
     "humanReview": "需要人工审查",
     "killProcess": "终止进程",
     "systemResources": "系统资源",
@@ -323,8 +321,8 @@
     "failedToLoadDiff": "加载差异失败",
     "timeline": "时间线",
     "noTimelineEvents": "暂无时间线事件。",
-    "freshSession": "全新会话",
-    "awaitingFirst": "等待首个智能体指令",
+    "freshSession": "暂无消息",
+    "awaitingFirst": "导师的首条回复会显示在这里。",
     "invalidData": "Pair 数据无效",
     "invalidDataDesc": "请尝试选择另一个 Pair",
     "stillActive": "仍在活跃",
@@ -335,14 +333,15 @@
     "retryFailed": "重试失败",
     "loadingDiff": "正在加载差异…",
     "copyTimelineMarkdown": "复制为 Markdown",
-    "exportTimelineHtml": "导出为 HTML"
+    "exportTimelineHtml": "导出为 HTML",
+    "emptyIdleHint": "在下方描述任务即可开始。"
   },
   "console": {
     "all": "全部",
-    "missionSpecs": "任务规格",
+    "missionSpecs": "任务",
     "acceptance": "验收",
     "collapse": "收起",
-    "expand": "展开完整报告",
+    "expand": "显示完整消息",
     "stalled": "已停滞",
     "noOutput": "无输出",
     "error": "错误",
@@ -365,18 +364,16 @@
     "viewingArchived": "查看历史运行",
     "attachedFile": "已附加：{{path}}",
     "attachedSkill": "已附加技能：/{{name}}",
-    "inputDisabledRunningHint": "配对正在运行 — 请先暂停再排队新任务",
+    "inputDisabledRunningHint": "暂停配对后即可下达新任务",
     "stopTurn": "停止当前轮次",
-    "earlierStepsButton": "显示之前的 {{count}} 个步骤",
-    "earlierStepsButton_plural": "显示之前的 {{count}} 个步骤",
     "earlierStepsHide": "隐藏之前的步骤",
-    "earlierMessagesDropped_one": "+ 已隐藏 {{count}} 条早期消息",
-    "earlierMessagesDropped_other": "+ 已隐藏 {{count}} 条早期消息",
-    "showDetailsBoth_one": "显示 {{count}} 个步骤 + 完整报告",
-    "showDetailsBoth_other": "显示 {{count}} 个步骤 + 完整报告",
+    "earlierMessagesDropped_one": "+ 本轮另有 {{count}} 条较早的{{role}}消息未显示",
+    "earlierMessagesDropped_other": "+ 本轮另有 {{count}} 条较早的{{role}}消息未显示",
+    "showDetailsBoth_one": "显示 {{count}} 个步骤和完整消息",
+    "showDetailsBoth_other": "显示 {{count}} 个步骤和完整消息",
     "showStepsOnly_one": "显示 {{count}} 个步骤",
     "showStepsOnly_other": "显示 {{count}} 个步骤",
-    "showReportOnly": "显示完整报告",
+    "showReportOnly": "显示完整消息",
     "hideDetails": "隐藏详情",
     "submitFailed": "任务启动失败",
     "stopFailed": "无法停止当前轮次",
@@ -403,7 +400,35 @@
     "mentionLoading": "正在加载文件…",
     "mentionLoadFailed": "无法列出文件",
     "moreFiles_one": "还有 {{count}} 个文件…",
-    "moreFiles_other": "还有 {{count}} 个文件…"
+    "moreFiles_other": "还有 {{count}} 个文件…",
+    "you": "你",
+    "iteration": "迭代 {{value}}",
+    "messageType": {
+      "plan": "计划",
+      "result": "结果",
+      "feedback": "反馈",
+      "question": "提问",
+      "progress": "进展"
+    },
+    "earlierStepsButton_one": "显示之前的 {{count}} 个步骤",
+    "earlierStepsButton_other": "显示之前的 {{count}} 个步骤",
+    "verdict": {
+      "pass": "已通过",
+      "fail": "需要修改"
+    },
+    "risk": {
+      "low": "低风险",
+      "medium": "中风险",
+      "high": "高风险"
+    },
+    "nextAction": {
+      "continue": "下一步：继续迭代",
+      "finish": "下一步：结束"
+    },
+    "checksPassed": "{{passed}}/{{total}} 项检查通过",
+    "checksHeading": "检查",
+    "evidenceHeading": "依据",
+    "nextStepsHeading": "后续步骤"
   },
   "skills": {
     "popoverTitle": "技能",

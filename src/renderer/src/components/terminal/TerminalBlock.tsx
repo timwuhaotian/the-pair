@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
 
 type TerminalRole = 'mentor' | 'executor' | 'human' | 'system'
@@ -80,6 +81,7 @@ export function TerminalBlock({
   flat = false,
   accentBorder = false
 }: TerminalBlockProps): React.ReactNode {
+  const { t } = useTranslation()
   const Wrap = flat ? 'div' : motion.div
   const wrapProps = flat
     ? {}
@@ -93,7 +95,15 @@ export function TerminalBlock({
   const effectiveGlyph = glyph ?? STATE_GLYPH[state]
   const glyphClass =
     state === 'running' ? ROLE_TEXT_CLASS[role] : STATE_TEXT_CLASS[state] || ROLE_TEXT_CLASS[role]
-  const labelText = label ?? role.toUpperCase()
+  const roleName =
+    role === 'mentor'
+      ? t('common.mentor')
+      : role === 'executor'
+        ? t('common.executor')
+        : role === 'human'
+          ? t('console.you')
+          : role
+  const labelText = label ?? roleName.toUpperCase()
 
   return (
     <Wrap

@@ -134,7 +134,12 @@ test('MessageCard hides the no-op collapse toggle on an active long-body match',
     </I18nextProvider>
   )
   assert.ok(anchor.innerHTML.includes('max-h-[280px]'), 'collapsed again after deactivation')
-  assert.ok(screen.getByRole('button', { name: /Show full report/ }), 'toggle restored')
+  assert.ok(
+    screen
+      .getAllByRole('button', { name: /Show full message/ })
+      .some((button) => button.hasAttribute('aria-expanded')),
+    'toggle restored'
+  )
 })
 
 test('MessageCard keeps the details toggle honest on an active match with steps', async () => {
