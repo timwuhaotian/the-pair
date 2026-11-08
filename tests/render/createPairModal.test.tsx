@@ -15,30 +15,16 @@ import './mock-ipc.ts'
 import React from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
-import { registerHooks } from 'node:module'
 import { I18nextProvider } from 'react-i18next'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import i18n from '../../src/renderer/src/i18n.ts'
+import {
+  CreatePairModal,
+  PresetHintBar
+} from '../../src/renderer/src/components/CreatePairModal.tsx'
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
 import type { PairPreset } from '../../src/renderer/src/types.ts'
 import { commitPush, mockRepoState, state } from './mock-ipc.ts'
-
-// The node test runtime has no `import.meta.env`, so the preset list would
-// never load and the picker would only ever show its error state. Patch the
-// flag read into the hook, then import the component under test.
-registerHooks({
-  load(url, context, nextLoad) {
-    const loaded = nextLoad(url, context)
-    if (!url.endsWith('usePresets.ts')) return loaded
-    return {
-      ...loaded,
-      source: loaded.source.toString().replace('import.meta.env.PROD', 'false')
-    }
-  }
-})
-
-const { CreatePairModal, PresetHintBar } =
-  await import('../../src/renderer/src/components/CreatePairModal.tsx')
 
 function setLocale(): void {
   void i18n.changeLanguage('en')

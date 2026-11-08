@@ -18,7 +18,9 @@ export function usePresets(): UsePresetsResult {
     setLoading(true)
     setError(null)
     try {
-      const isDev = !import.meta.env.PROD
+      // The node test runner has no import.meta.env; treat that as the dev
+      // preset list so the picker still renders outside the vite dev server.
+      const isDev = typeof import.meta.env === 'undefined' ? true : !import.meta.env.PROD
       setPresets(getPresets(isDev))
     } catch {
       setError('Failed to load presets')
