@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.1] - 2026-11-08
+
+A Create Pair dialog that leads with the new logo, and commit/push moved to the top of the changed-files list.
+
+### Changed
+
+- **The Create Pair dialog leads with the logo.** The brand mark — two agents, a `</>` and a cup of coffee — now sits in the dialog header next to the wordmark and the tagline, the same lockup the boot splash and the empty hub use.
+- **The form reads as three rules instead of three headed blocks.** Task, Workspace and Roles are now terse headings with a hairline; the one-line explainer under each heading is gone, and the sections no longer repeat themselves.
+- **Required fields carry an accent asterisk.** Name, Directory and the task specification are marked with an amber `*` (hover it for the word), instead of printing "Required" three times.
+- **Commit and push moved to the top of the changed files.** The commit box and the push button are the first thing in the Modified Files section, with the branch they act on named in the section header — no branch picker, they always work on the current one.
+- **A commit no longer needs a message.** Leave the box empty and the pair commits with a generated subject (`the-pair: commit 3 files`); type one to override it. The subject is machine-generated, so it stays in English whatever the interface language is.
+
+### Fixed
+
+- **The logo's `</>` could vanish.** It was an SVG text node, so it depended on the font's metrics and could disappear or drift when the mark was scaled or cropped. It is drawn as vector paths now and renders identically everywhere.
+- **The logo's animations pivoted around the wrong point.** The float, blink and pulse animations resolved their transform origin against the artwork's own bounding box, so the eyes and the code symbol moved off their marks. They pivot on their centre again.
+- **The Create Pair button could sit outside the dialog.** On a short window the form was taller than the card and the submit button was clipped below it; the footer now rides the bottom of the scroll area and stays reachable.
+- **Committing twice could fail with "Nothing to commit".** The changed-file list only refreshes while a pair runs, so the second click hit a tree that was already clean. The commit controls now wait for a fresh list.
+- **Pushing during a commit could report the wrong thing.** Push and commit now exclude each other, so a green "Pushed" can no longer mean the previous commit.
+- **The branch chip promised a push that was not there.** It only names the branch now, and it disappears when the workspace has no Git tracking.
+
 ## [2.14.0] - 2026-11-08
 
 A reshaped Create Pair dialog, and an update toast that no longer covers the app chrome.
