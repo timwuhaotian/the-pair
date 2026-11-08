@@ -170,7 +170,7 @@ function App(): React.ReactNode {
       // or an installed update waiting for restart is shown as-is instead.
       if (!canStartUpdateCheck(useUpdateStore.getState().phase)) return
       setPhase('checking')
-      setMessage('Checking for updates...')
+      setMessage(t('updates.checking'))
 
       const TIMEOUT = Symbol('timeout')
       const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
@@ -187,15 +187,16 @@ function App(): React.ReactNode {
 
         if (update === TIMEOUT) {
           console.error('[Updater] Check timed out after 30 seconds')
-          setMessage('Update check timed out')
+          setMessage(t('updates.checkTimedOut'))
           setPhase('error')
-          if (!useUpdateStore.getState().showModal) displayToast('Update check timed out', 'error')
+          if (!useUpdateStore.getState().showModal)
+            displayToast(t('updates.checkTimedOut'), 'error')
           return
         }
 
         if (!update) {
           setVersion(null)
-          setMessage('You are up to date')
+          setMessage(t('updates.upToDate'))
           setPhase('up-to-date')
           return
         }
@@ -204,12 +205,12 @@ function App(): React.ReactNode {
         setUpdate(update)
         setVersion(update.version)
         setReleaseBody(update.body || null)
-        setMessage(`Version ${update.version} is available`)
+        setMessage(t('updates.available', { version: update.version }))
         setPhase('available')
         setShowModal(true)
       } catch (error) {
         console.error('[Updater] Check failed:', error)
-        const message = error instanceof Error ? error.message : 'Unable to check for updates'
+        const message = error instanceof Error ? error.message : t('updates.checkFailed')
         setMessage(message)
         setPhase('error')
         if (!useUpdateStore.getState().showModal) displayToast(message, 'error')
@@ -238,11 +239,19 @@ function App(): React.ReactNode {
       active = false
       cancelQueuedUpdateCheck?.()
       unlisten?.()
+    }
+  }, [t, setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
+
+  // The updater handle outlives the effect above: a locale switch re-runs it
+  // (it depends on `t`), and releasing the handle there would break the
+  // pending install. Only a real unmount gives it back.
+  useEffect(() => {
+    return () => {
       if (updateRef.current) {
         void updateRef.current.close().catch(() => {})
       }
     }
-  }, [setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
+  }, [])
 
   useEffect(() => {
     preloadSounds()

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen, Sparkles } from 'lucide-react'
+import { FolderOpen, RefreshCw, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
@@ -17,7 +17,14 @@ import { usePresets } from '../lib/usePresets'
 import { prependFileContext } from '../lib/fileMentions'
 import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
-import { errorCallout, fieldInput, fieldLabel, hoverTint, warningCallout } from '../lib/ui'
+import {
+  errorCallout,
+  fieldInput,
+  fieldLabel,
+  hoverTint,
+  sectionLabel,
+  warningCallout
+} from '../lib/ui'
 import type { ConfigRecommendation, PairPreset } from '../types'
 import { preventImeEnterSubmit } from './keyboard'
 import {
@@ -30,6 +37,64 @@ import {
 interface CreatePairModalProps {
   isOpen: boolean
   onClose: () => void
+}
+
+/** Section heading: an uppercase shell label plus a one-line explainer. */
+function SectionHeading({ title, hint }: { title: string; hint: string }): React.ReactNode {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <h3 className={sectionLabel}>{title}</h3>
+      <p className="text-[11px] leading-snug text-muted-foreground-faint">{hint}</p>
+    </div>
+  )
+}
+
+/** Marks a field the user must fill in before the pair can be created. */
+function RequiredBadge(): React.ReactNode {
+  const { t } = useTranslation()
+  return (
+    <span className="text-[10px] normal-case tracking-normal text-muted-foreground-faint">
+      {t('modals.requiredHint')}
+    </span>
+  )
+}
+
+function FieldLabel({
+  htmlFor,
+  children,
+  required = false
+}: {
+  htmlFor: string
+  children: React.ReactNode
+  required?: boolean
+}): React.ReactNode {
+  return (
+    <label htmlFor={htmlFor} className={cn(fieldLabel, 'flex items-baseline gap-1.5')}>
+      {children}
+      {required && <RequiredBadge />}
+    </label>
+  )
+}
+
+/** What the active preset brings with it: skills it expects and its pause point. */
+export function PresetHintBar({ preset }: { preset: PairPreset }): React.ReactNode {
+  const { t } = useTranslation()
+  return (
+    <div className={warningCallout}>
+      <div className="flex items-baseline gap-1.5 state-running uppercase tracking-[0.14em]">
+        <span>→</span>
+        <span>{t('modals.usingPreset', { name: preset.name })}</span>
+      </div>
+      <p className="mt-1 text-muted-foreground normal-case tracking-normal">
+        {preset.recommendedSkills.length > 0 && (
+          <>{t('pickers.presetSkills', { skills: preset.recommendedSkills.join(', ') })}</>
+        )}
+        {preset.pauseOnIteration && (
+          <> · {t('pickers.presetAutoPause', { count: preset.pauseOnIteration })}</>
+        )}
+      </p>
+    </div>
+  )
 }
 
 export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): React.ReactNode {
@@ -263,245 +328,263 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-full text-[13px]">
         {/* -mx/px gives the toggles' -mx-1.5 hover tint room inside the scroll clip. */}
-        <div className="-mx-1.5 flex flex-1 flex-col gap-3 overflow-y-auto px-1.5">
-          <div>
-            <div className={cn(fieldLabel, 'mb-1 flex items-baseline gap-1.5')}>
-              <Sparkles size={11} className="state-running translate-y-px" />
-              <span>{t('modals.choosePreset')}</span>
-            </div>
-            <PresetPicker
-              presets={presets}
-              selectedPresetId={selectedPreset?.id ?? null}
-              onSelect={handlePresetSelect}
-              loading={presetsLoading}
-              onRetry={loadPresets}
-              error={presetsError}
-            />
-          </div>
+        <div className="-mx-1.5 flex flex-1 flex-col gap-4 overflow-y-auto px-1.5">
+          {/* ── Task ─────────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-3">
+            <SectionHeading title={t('common.task')} hint={t('modals.sectionTaskHint')} />
 
-          {selectedPreset && (
-            <div className={warningCallout}>
-              <div className="flex items-baseline gap-1.5 state-running uppercase tracking-[0.14em]">
-                <span>→</span>
-                <span>{t('modals.usingPreset', { name: selectedPreset.name })}</span>
+            <div>
+              <div className={cn(fieldLabel, 'mb-1 flex items-baseline gap-1.5')}>
+                <Sparkles size={11} className="state-running translate-y-px" />
+                <span>{t('modals.choosePreset')}</span>
               </div>
-              <p className="mt-1 text-muted-foreground normal-case tracking-normal">
-                {selectedPreset.recommendedSkills.length > 0 && (
-                  <>skills: {selectedPreset.recommendedSkills.join(', ')}</>
-                )}
-                {selectedPreset.pauseOnIteration && (
-                  <> · auto-pause @ iter {selectedPreset.pauseOnIteration}</>
-                )}
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${fieldId}-name`} className={fieldLabel}>
-              {t('common.name')}
-            </label>
-            <input
-              id={`${fieldId}-name`}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={preventImeEnterSubmit}
-              placeholder={t('onboarding.pairNamePlaceholder')}
-              className={fieldInput}
-              required
-              data-testid="pair-name-input"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${fieldId}-directory`} className={fieldLabel}>
-              {t('common.directory')}
-            </label>
-            <div className="flex gap-1.5">
-              <input
-                id={`${fieldId}-directory`}
-                type="text"
-                value={directory}
-                onChange={(e) => changeDirectory(e.target.value)}
-                onBlur={(e) => commitScanDirectory(e.target.value)}
-                onKeyDown={preventImeEnterSubmit}
-                onClick={() => {
-                  if (!directory) {
-                    void handleSelectDirectory()
-                  }
-                }}
-                placeholder="/path/to/project"
-                className={cn(fieldInput, 'min-w-0 flex-1', !directory && 'cursor-pointer')}
-                required
-                data-testid="pair-directory-input"
+              <PresetPicker
+                presets={presets}
+                selectedPresetId={selectedPreset?.id ?? null}
+                onSelect={handlePresetSelect}
+                loading={presetsLoading}
+                onRetry={loadPresets}
+                error={presetsError}
               />
-              {/* h-auto lets the row stretch it to the input's height: a square, aligned pair. */}
-              <IconButton
-                size="md"
-                bordered
-                onClick={handleSelectDirectory}
-                aria-label={t('modals.pickDirectory')}
-                className="h-auto w-8 rounded-sm"
-              >
-                <FolderOpen size={13} />
-              </IconButton>
             </div>
+
+            {selectedPreset && <PresetHintBar preset={selectedPreset} />}
+
+            <div className="relative flex flex-col gap-1">
+              <FieldLabel htmlFor={`${fieldId}-spec`} required>
+                {t('onboarding.taskSpec')}
+              </FieldLabel>
+              <textarea
+                id={`${fieldId}-spec`}
+                ref={textareaRef}
+                value={spec}
+                onChange={(e) => setSpec(e.target.value)}
+                placeholder={t('onboarding.taskPlaceholder')}
+                rows={4}
+                className={cn(fieldInput, 'resize-none leading-relaxed')}
+                required
+                data-testid="pair-task-spec"
+              />
+              <div className="absolute top-[26px] right-2 flex items-center gap-1">
+                {scanDirectory && scanDirectory === directory.trim() && (
+                  <>
+                    <SkillPicker projectDir={scanDirectory} onSelect={handleSkillSelect} />
+                    <FileMention
+                      textareaRef={textareaRef}
+                      onChange={setSpec}
+                      directory={scanDirectory}
+                      onFileSelect={handleFileSelect}
+                    />
+                  </>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground-faint">{t('modals.mentionHint')}</p>
+              {recommendation && (
+                <p
+                  data-testid="recommendation-hint"
+                  className="text-[10px] leading-snug state-running"
+                >
+                  ▸{' '}
+                  {t('modals.recommendationHint', {
+                    mentor: recommendation.mentorModel,
+                    executor: recommendation.executorModel,
+                    successes: recommendation.successes,
+                    runs: recommendation.runs
+                  })}
+                </p>
+              )}
+            </div>
+
+            {presetTaskMissing && (
+              <div className={warningCallout}>! {t('modals.presetTaskMissing')}</div>
+            )}
           </div>
 
-          {scanDirectory && scanDirectory === directory.trim() && (
-            <div className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setUseWorktree((v) => !v)
-                  // The selection means different things in the two modes
-                  // (work on the branch vs. start from it), so start clean.
-                  setBranch(undefined)
-                }}
-                aria-pressed={useWorktree}
-                data-testid="worktree-toggle"
-                className={cn(
-                  '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-                  hoverTint
-                )}
-              >
-                <span
+          {/* ── Workspace ────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-3 border-t border-border pt-4">
+            <SectionHeading title={t('common.workspace')} hint={t('modals.sectionWorkspaceHint')} />
+
+            <div className="flex flex-col gap-1">
+              <FieldLabel htmlFor={`${fieldId}-name`} required>
+                {t('common.name')}
+              </FieldLabel>
+              <input
+                id={`${fieldId}-name`}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={preventImeEnterSubmit}
+                placeholder={t('onboarding.pairNamePlaceholder')}
+                className={fieldInput}
+                required
+                data-testid="pair-name-input"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <FieldLabel htmlFor={`${fieldId}-directory`} required>
+                {t('common.directory')}
+              </FieldLabel>
+              <div className="flex gap-1.5">
+                <input
+                  id={`${fieldId}-directory`}
+                  type="text"
+                  value={directory}
+                  onChange={(e) => changeDirectory(e.target.value)}
+                  onBlur={(e) => commitScanDirectory(e.target.value)}
+                  onKeyDown={preventImeEnterSubmit}
+                  onClick={() => {
+                    if (!directory) {
+                      void handleSelectDirectory()
+                    }
+                  }}
+                  placeholder={t('modals.directoryPlaceholder')}
+                  className={cn(fieldInput, 'min-w-0 flex-1', !directory && 'cursor-pointer')}
+                  required
+                  data-testid="pair-directory-input"
+                />
+                {/* h-auto lets the row stretch it to the input's height: a square, aligned pair. */}
+                <IconButton
+                  size="md"
+                  bordered
+                  onClick={handleSelectDirectory}
+                  aria-label={t('modals.pickDirectory')}
+                  className="h-auto w-8 rounded-sm"
+                >
+                  <FolderOpen size={13} />
+                </IconButton>
+              </div>
+            </div>
+
+            {scanDirectory && scanDirectory === directory.trim() && (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseWorktree((v) => !v)
+                    // The selection means different things in the two modes
+                    // (work on the branch vs. start from it), so start clean.
+                    setBranch(undefined)
+                  }}
+                  aria-pressed={useWorktree}
+                  data-testid="worktree-toggle"
                   className={cn(
-                    'mt-px select-none font-mono text-[12px]',
-                    useWorktree ? 'state-running' : 'text-muted-foreground-faint'
+                    '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+                    hoverTint
                   )}
                 >
-                  {useWorktree ? '[x]' : '[ ]'}
-                </span>
-                <span className="flex flex-col gap-0.5">
-                  <span className={fieldLabel}>{t('modals.worktreeLabel')}</span>
-                  <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-                    {t('modals.worktreeHint')}
+                  <span
+                    className={cn(
+                      'mt-px select-none font-mono text-[12px]',
+                      useWorktree ? 'state-running' : 'text-muted-foreground-faint'
+                    )}
+                  >
+                    {useWorktree ? '[x]' : '[ ]'}
                   </span>
-                </span>
-              </button>
-              {useWorktree ? (
-                <>
-                  <BranchPicker
-                    directory={scanDirectory}
-                    value={branch}
-                    onChange={setBranch}
-                    variant="base"
-                  />
-                  <div className={warningCallout}>→ {t('modals.worktreePreview')}</div>
-                </>
-              ) : (
-                <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
-              )}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setPlanGate((v) => !v)}
-            aria-pressed={planGate}
-            data-testid="plan-gate-toggle"
-            className={cn(
-              '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-              hoverTint
+                  <span className="flex flex-col gap-0.5">
+                    <span className={fieldLabel}>{t('modals.worktreeLabel')}</span>
+                    <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+                      {t('modals.worktreeHint')}
+                    </span>
+                  </span>
+                </button>
+                {useWorktree ? (
+                  <>
+                    <BranchPicker
+                      directory={scanDirectory}
+                      value={branch}
+                      onChange={setBranch}
+                      variant="base"
+                    />
+                    <div className={warningCallout}>→ {t('modals.worktreePreview')}</div>
+                  </>
+                ) : (
+                  <BranchPicker directory={scanDirectory} value={branch} onChange={setBranch} />
+                )}
+              </div>
             )}
-          >
-            <span
+          </div>
+
+          {/* ── Roles ────────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-3 border-t border-border pt-4">
+            <SectionHeading title={t('modals.sectionRoles')} hint={t('modals.sectionRolesHint')} />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ModelPicker
+                value={mentorModel}
+                models={availableModels}
+                onChange={setMentorModel}
+                role="mentor"
+                variant="card"
+                reasoningEffort={mentorReasoningEffort}
+                onReasoningEffortChange={setMentorReasoningEffort}
+              />
+              <ModelPicker
+                value={executorModel}
+                models={availableModels}
+                onChange={setExecutorModel}
+                role="executor"
+                variant="card"
+                reasoningEffort={executorReasoningEffort}
+                onReasoningEffortChange={setExecutorReasoningEffort}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setPlanGate((v) => !v)}
+              aria-pressed={planGate}
+              data-testid="plan-gate-toggle"
               className={cn(
-                'mt-px select-none font-mono text-[12px]',
-                planGate ? 'state-running' : 'text-muted-foreground-faint'
+                '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+                hoverTint
               )}
             >
-              {planGate ? '[x]' : '[ ]'}
-            </span>
-            <span className="flex flex-col gap-0.5">
-              <span className={fieldLabel}>{t('modals.planGateLabel')}</span>
-              <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-                {t('modals.planGateHint')}
-              </span>
-            </span>
-          </button>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ModelPicker
-              value={mentorModel}
-              models={availableModels}
-              onChange={setMentorModel}
-              role="mentor"
-              variant="card"
-              reasoningEffort={mentorReasoningEffort}
-              onReasoningEffortChange={setMentorReasoningEffort}
-            />
-            <ModelPicker
-              value={executorModel}
-              models={availableModels}
-              onChange={setExecutorModel}
-              role="executor"
-              variant="card"
-              reasoningEffort={executorReasoningEffort}
-              onReasoningEffortChange={setExecutorReasoningEffort}
-            />
-          </div>
-          {modelsError && (
-            <div role="alert" className={errorCallout}>
-              ✗ {modelsError}
-            </div>
-          )}
-
-          <div className="relative flex flex-col gap-1">
-            <label htmlFor={`${fieldId}-spec`} className={fieldLabel}>
-              {t('onboarding.taskSpec')}
-            </label>
-            <textarea
-              id={`${fieldId}-spec`}
-              ref={textareaRef}
-              value={spec}
-              onChange={(e) => setSpec(e.target.value)}
-              placeholder={t('onboarding.taskPlaceholder')}
-              rows={4}
-              className={cn(fieldInput, 'resize-none leading-relaxed')}
-              required
-              data-testid="pair-task-spec"
-            />
-            <div className="absolute top-[26px] right-2 flex items-center gap-1">
-              {scanDirectory && scanDirectory === directory.trim() && (
-                <>
-                  <SkillPicker projectDir={scanDirectory} onSelect={handleSkillSelect} />
-                  <FileMention
-                    textareaRef={textareaRef}
-                    onChange={setSpec}
-                    directory={scanDirectory}
-                    onFileSelect={handleFileSelect}
-                  />
-                </>
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground-faint">
-              · type @ to reference workspace files
-            </p>
-            {recommendation && (
-              <p
-                data-testid="recommendation-hint"
-                className="text-[10px] leading-snug state-running"
+              <span
+                className={cn(
+                  'mt-px select-none font-mono text-[12px]',
+                  planGate ? 'state-running' : 'text-muted-foreground-faint'
+                )}
               >
-                ▸{' '}
-                {t('modals.recommendationHint', {
-                  mentor: recommendation.mentorModel,
-                  executor: recommendation.executorModel,
-                  successes: recommendation.successes,
-                  runs: recommendation.runs
-                })}
-              </p>
+                {planGate ? '[x]' : '[ ]'}
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span className={fieldLabel}>{t('modals.planGateLabel')}</span>
+                <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+                  {t('modals.planGateHint')}
+                </span>
+              </span>
+            </button>
+
+            {modelsError && (
+              <div role="alert" className={cn(errorCallout, 'flex flex-col gap-1.5')}>
+                <span>✗ {t('modals.modelsError')}</span>
+                <span className="text-[11px] normal-case tracking-normal text-muted-foreground">
+                  {t('modals.modelsErrorHint')}
+                </span>
+                <span className="text-[10px] normal-case tracking-normal text-muted-foreground-faint">
+                  {modelsError}
+                </span>
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void loadAvailableModels()}
+                  icon={<RefreshCw size={12} />}
+                  className="self-start"
+                >
+                  {t('common.retry')}
+                </GlassButton>
+              </div>
             )}
           </div>
 
-          {presetTaskMissing && (
-            <div className={warningCallout}>! {t('modals.presetTaskMissing')}</div>
-          )}
-
           {error && (
-            <div role="alert" className={errorCallout}>
-              ✗ {error}
+            <div role="alert" className={cn(errorCallout, 'flex flex-col gap-1')}>
+              <span>✗ {error}</span>
+              <span className="text-[11px] normal-case tracking-normal text-muted-foreground">
+                {t('modals.createErrorHint')}
+              </span>
             </div>
           )}
         </div>

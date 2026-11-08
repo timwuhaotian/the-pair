@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import { Z, emptyHint, menuItem, popoverSurface } from '../lib/ui'
 import { IconButton } from './ui/IconButton'
@@ -17,6 +18,7 @@ interface SkillPickerProps {
 }
 
 export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.ReactNode {
+  const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -111,7 +113,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
         onClick={() => setIsOpen(!isOpen)}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        aria-label="add skill"
+        aria-label={t('skills.add')}
       >
         <Sparkles size={13} />
       </IconButton>
@@ -137,12 +139,12 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
                 setSelectedIndex(0)
               }}
               onKeyDown={handleKeyDown}
-              placeholder="search skills…"
+              placeholder={t('skills.search')}
               className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground-faint"
               autoFocus
             />
             <IconButton
-              aria-label="refresh"
+              aria-label={t('skills.refresh')}
               onClick={() => void loadSkills()}
               disabled={loading}
               className="h-5 w-5"
@@ -159,10 +161,12 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
             {loading && skills.length === 0 ? (
               <div className={cn(emptyHint, 'flex items-center justify-center gap-2')}>
                 <Loader2 size={12} className="animate-spin text-muted-foreground" />
-                discovering skills…
+                {t('skills.discovering')}
               </div>
             ) : filteredSkills.length === 0 ? (
-              <div className={emptyHint}>— {filter ? 'no skills match' : 'no skills found'} —</div>
+              <div className={emptyHint}>
+                — {filter ? t('skills.noMatch') : t('skills.empty')} —
+              </div>
             ) : (
               <div role="listbox" className="p-1">
                 {filteredSkills.map((skill, index) => (

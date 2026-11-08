@@ -230,7 +230,17 @@
     "deleteWorktreeNote": "ワークツリーも削除されます。未コミットの変更は git stash に保存され、ペアのコミットは the-pair/… ブランチに残ります。",
     "deleteFailed": "ペアを削除できませんでした: {{error}}",
     "presetTaskMissing": "開始する前に、プリセットテンプレートのプレースホルダーをタスク内容に置き換えてください。",
-    "pickDirectory": "ディレクトリを選択"
+    "pickDirectory": "ディレクトリを選択",
+    "sectionRoles": "役割",
+    "sectionTaskHint": "ペアが達成すべきこと",
+    "sectionWorkspaceHint": "ペアが作業する場所",
+    "sectionRolesHint": "計画と実装を行うモデル",
+    "directoryPlaceholder": "/path/to/project",
+    "mentionHint": "@ を入力してワークスペースのファイルを参照",
+    "modelsError": "モデル一覧を読み込めませんでした。",
+    "modelsErrorHint": "プロバイダーの CLI がインストールされログイン済みか確認し、再試行してください。",
+    "createErrorHint": "何も作成されませんでした — 該当する項目を修正して再試行してください。",
+    "requiredHint": "必須"
   },
   "pickers": {
     "mentorLabel": "メンター",
@@ -270,7 +280,16 @@
     "today": "今日",
     "yesterday": "昨日",
     "daysAgo": "{{count}} 日前",
-    "weeksAgo": "{{count}} 週間前"
+    "weeksAgo": "{{count}} 週間前",
+    "baseBranch": "ベースブランチ（既定は現在のブランチ）",
+    "fromCurrentBranch": "現在のブランチから",
+    "clearFilter": "フィルターをクリア",
+    "dirtyWarning": "! リポジトリに未コミットの変更があります — {{hint}}",
+    "dirtyBaseHint": "現在のブランチのみを基準にできます",
+    "dirtyBranchHint": "ブランチを選ぶ前にコミットまたはスタッシュしてください",
+    "presetSkills": "スキル: {{skills}}",
+    "presetAutoPause": "第 {{count}} 迭代で自動一時停止",
+    "presetGitBaseline": "ペア開始時に git ベースラインを作成"
   },
   "pair": {
     "resumePair": "ペアを再開",
@@ -425,7 +444,10 @@
     "refresh": "更新",
     "empty": "スキルが見つかりません",
     "noMatch": "一致するスキルなし",
-    "moreSkills": "他のスキル…"
+    "moreSkills": "他のスキル…",
+    "add": "スキルを追加",
+    "search": "スキルを検索…",
+    "discovering": "スキルを探しています…"
   },
   "panel": {
     "modelsUpdateHint": "保存後に適用されます",
@@ -504,7 +526,9 @@
       "download": "ダウンロード",
       "install": "インストール",
       "restart": "再起動"
-    }
+    },
+    "checkTimedOut": "更新の確認がタイムアウトしました",
+    "checkFailed": "更新を確認できませんでした"
   },
   "history": {
     "title": "タスク履歴",

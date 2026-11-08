@@ -1,0 +1,230 @@
+/**
+ * Component unit tests for the CreatePairModal's task / workspace / roles
+ * layout, rendered in jsdom:
+ *   - the three section headings and their hints
+ *   - required-field markers
+ *   - the preset hint bar copy (skills + auto-pause)
+ *   - actionable error callouts (model list, create failure)
+ *   - the preset gate and the payload the modal submits
+ *
+ * The Tauri IPC layer is mocked (mock-ipc.ts); the store is seeded with stubbed
+ * actions so we can assert the exact payload the modal sends.
+ */
+import './setup-dom.ts'
+import './mock-ipc.ts'
+import React from 'react'
+import assert from 'node:assert/strict'
+import test, { afterEach } from 'node:test'
+import { registerHooks } from 'node:module'
+import { I18nextProvider } from 'react-i18next'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import i18n from '../../src/renderer/src/i18n.ts'
+import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
+import type { PairPreset } from '../../src/renderer/src/types.ts'
+import { mockRepoState, state } from './mock-ipc.ts'
+
+// The node test runtime has no `import.meta.env`, so the preset list would
+// never load and the picker would only ever show its error state. Patch the
+// flag read into the hook, then import the component under test.
+registerHooks({
+  load(url, context, nextLoad) {
+    const loaded = nextLoad(url, context)
+    if (!url.endsWith('usePresets.ts')) return loaded
+    return {
+      ...loaded,
+      source: loaded.source.toString().replace('import.meta.env.PROD', 'false')
+    }
+  }
+})
+
+const { CreatePairModal, PresetHintBar } =
+  await import('../../src/renderer/src/components/CreatePairModal.tsx')
+
+function setLocale(): void {
+  void i18n.changeLanguage('en')
+}
+
+const modelStub = {
+  provider: 'grok',
+  modelId: 'fast',
+  displayName: 'Fast',
+  providerLabel: 'Grok',
+  sourceProviderLabel: 'xAI',
+  billingKind: 'byok',
+  billingLabel: 'BYOK',
+  accessLabel: 'Ready',
+  availabilityStatus: 'ready',
+  supportsPairExecution: true,
+  recommendedRoles: ['mentor', 'executor']
+}
+
+/** Seeds the store with a ready model list and inert actions. */
+function seedStore(overrides: Record<string, unknown> = {}): void {
+  usePairStore.setState({
+    availableModels: [modelStub],
+    loadAvailableModels: async () => undefined,
+    createPair: async () => undefined,
+    error: null,
+    modelsError: null,
+    ...overrides
+  } as never)
+}
+
+function wrap(node: React.ReactNode): React.ReactNode {
+  return <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
+}
+
+function renderModal(): void {
+  render(wrap(<CreatePairModal isOpen onClose={() => undefined} />))
+}
+
+// jsdom has no per-test DOM reset in node:test; clean up after every test so
+// queries never see leftovers from a failed one.
+afterEach(() => cleanup())
+
+test('CreatePairModal: renders the task, workspace and roles sections', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  assert.ok(screen.getByText('Task'))
+  assert.ok(screen.getByText('What the pair should accomplish'))
+  assert.ok(screen.getByText('Workspace'))
+  assert.ok(screen.getByText('Where the pair works'))
+  assert.ok(screen.getByText('Roles'))
+  assert.ok(screen.getByText('Which models plan the work and write the code'))
+})
+
+test('CreatePairModal: marks the required fields next to their labels', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  // Name, directory and task specification are the required fields.
+  assert.equal(screen.getAllByText('Required').length, 3)
+  for (const testId of ['pair-name-input', 'pair-directory-input', 'pair-task-spec']) {
+    // The label is tied to the control through htmlFor, not by wrapping it.
+    const field = screen.getByTestId(testId) as HTMLInputElement | HTMLTextAreaElement
+    const label = field.labels?.[0]
+    assert.ok(label, `${testId} has no label`)
+    assert.ok(label.textContent?.includes('Required'), `${testId} label lacks the marker`)
+  }
+})
+
+test('CreatePairModal: the mention hint explains the @ reference syntax', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  assert.ok(screen.getByText('Type @ to reference workspace files'))
+})
+
+test('PresetHintBar: lists the preset skills and its auto-pause point', () => {
+  setLocale()
+  const preset: PairPreset = {
+    id: 'custom',
+    name: 'Custom',
+    description: 'a preset',
+    icon: 'Sparkles',
+    mentorPromptTemplate: 'TASK:\n{task}',
+    executorPromptTemplate: 'execute',
+    recommendedSkills: ['alpha', 'beta'],
+    pauseOnIteration: 3
+  }
+
+  render(wrap(<PresetHintBar preset={preset} />))
+
+  assert.ok(screen.getByText(/Skills: alpha, beta/))
+  assert.ok(screen.getByText(/Auto-pause at iteration 3/))
+})
+
+test('CreatePairModal: selecting a preset shows its hint bar', async () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  fireEvent.click(await screen.findByTestId('preset-card-bug-fix'))
+
+  assert.ok(screen.getByText(/Using "Bug Fix" preset/))
+  assert.ok(screen.getByText(/Auto-pause at iteration 5/))
+})
+
+test('CreatePairModal: a model list failure explains itself and retries', async () => {
+  setLocale()
+  let loads = 0
+  seedStore({
+    modelsError: 'Failed to load models',
+    loadAvailableModels: async () => {
+      loads += 1
+    }
+  })
+  renderModal()
+
+  assert.ok(screen.getByText("✗ Couldn't load the model list."))
+  assert.ok(
+    screen.getByText('Check that your provider CLI is installed and signed in, then retry.')
+  )
+  // The raw store message stays as the technical detail.
+  assert.ok(screen.getByText('Failed to load models'))
+
+  fireEvent.click(screen.getByRole('button', { name: /Retry/i }))
+  await waitFor(() => assert.equal(loads, 1))
+})
+
+test('CreatePairModal: a create failure shows the reason and the next step', async () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  // The modal clears a stale global error when it opens, so the failure has to
+  // land after the modal is on screen.
+  await act(async () => {
+    usePairStore.setState({ error: 'directory is not a git repository' })
+  })
+
+  assert.ok(screen.getByText(/directory is not a git repository/))
+  assert.ok(screen.getByText('Nothing was created — fix the highlighted fields and try again.'))
+})
+
+test('CreatePairModal: an unfilled preset task blocks the submission', async () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  fireEvent.click(await screen.findByTestId('preset-card-bug-fix'))
+
+  assert.ok(screen.getByText(/Replace the placeholder in the preset template/))
+  const submit = screen.getByTestId('pair-submit-btn') as HTMLButtonElement
+  assert.equal(submit.disabled, true)
+})
+
+test('CreatePairModal: submitting forwards the workspace and role choices', async () => {
+  setLocale()
+  state.repo = mockRepoState.committedRepo
+  const created: Array<Record<string, unknown>> = []
+  seedStore({
+    createPair: async (input: Record<string, unknown>) => {
+      created.push(input)
+    }
+  })
+  renderModal()
+
+  fireEvent.change(screen.getByTestId('pair-name-input'), { target: { value: 'Isolated' } })
+  fireEvent.change(screen.getByTestId('pair-directory-input'), { target: { value: '/repo' } })
+  fireEvent.blur(screen.getByTestId('pair-directory-input'))
+  fireEvent.change(screen.getByTestId('pair-task-spec'), { target: { value: 'do the thing' } })
+
+  // A committed git repo defaults the worktree opt-in on.
+  const toggle = await screen.findByTestId('worktree-toggle')
+  await waitFor(() => assert.equal(toggle.getAttribute('aria-pressed'), 'true'))
+
+  fireEvent.click(screen.getByTestId('plan-gate-toggle'))
+  fireEvent.click(screen.getByTestId('pair-submit-btn'))
+
+  await waitFor(() => assert.equal(created.length, 1))
+  assert.equal(created[0].name, 'Isolated')
+  assert.equal(created[0].directory, '/repo')
+  assert.equal(created[0].spec, 'do the thing')
+  assert.equal(created[0].useWorktree, true)
+  assert.equal(created[0].planGate, true)
+})

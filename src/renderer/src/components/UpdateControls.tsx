@@ -74,6 +74,10 @@ export function UpdateControls(): React.ReactNode {
 
   const variant = phase === 'available' || isReady ? 'primary' : 'secondary'
 
+  // A failed check leaves no message behind in some paths; fall back to the
+  // localized reason so the tooltip is never empty.
+  const buttonTitle = message || (isError ? t('updates.checkFailed') : undefined)
+
   return (
     <div className="flex items-center gap-1.5">
       <GlassButton
@@ -93,7 +97,8 @@ export function UpdateControls(): React.ReactNode {
           isError && 'border-state-error state-error hover:bg-state-error/10',
           isUpToDate && 'border-state-done state-done hover:bg-state-done/10'
         )}
-        title={message || undefined}
+        title={buttonTitle}
+        data-testid="update-check-btn"
       >
         {label}
       </GlassButton>

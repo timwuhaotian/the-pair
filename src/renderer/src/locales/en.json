@@ -240,7 +240,17 @@
     "deleteWorktreeNote": "Its worktree is removed too: uncommitted changes are saved to git stash, and the pair's commits stay on its the-pair/… branch.",
     "deleteFailed": "Couldn't delete the pair: {{error}}",
     "presetTaskMissing": "Replace the placeholder in the preset template with your task before starting.",
-    "pickDirectory": "Pick directory"
+    "pickDirectory": "Pick directory",
+    "sectionRoles": "Roles",
+    "sectionTaskHint": "What the pair should accomplish",
+    "sectionWorkspaceHint": "Where the pair works",
+    "sectionRolesHint": "Which models plan the work and write the code",
+    "directoryPlaceholder": "/path/to/project",
+    "mentionHint": "Type @ to reference workspace files",
+    "modelsError": "Couldn't load the model list.",
+    "modelsErrorHint": "Check that your provider CLI is installed and signed in, then retry.",
+    "createErrorHint": "Nothing was created — fix the highlighted fields and try again.",
+    "requiredHint": "Required"
   },
   "pickers": {
     "mentorLabel": "Mentor",
@@ -264,9 +274,9 @@
     "noPresets": "No presets available",
     "presetsError": "Presets could not be loaded.",
     "presetInfo": "Info about {{name}}",
-    "selectBranch": "Select branch (optional)",
+    "selectBranch": "select branch (optional)",
     "filterBranches": "Filter branches...",
-    "noBranch": "No branch (work in directory)",
+    "noBranch": "no branch (work in directory)",
     "localBranches": "Local branches",
     "remoteBranches": "Remote branches",
     "current": "current",
@@ -280,7 +290,16 @@
     "today": "Today",
     "yesterday": "Yesterday",
     "daysAgo": "{{count}} days ago",
-    "weeksAgo": "{{count}} weeks ago"
+    "weeksAgo": "{{count}} weeks ago",
+    "baseBranch": "base branch (defaults to current)",
+    "fromCurrentBranch": "from current branch",
+    "clearFilter": "Clear filter",
+    "dirtyWarning": "! Repo has uncommitted changes — {{hint}}",
+    "dirtyBaseHint": "only the current branch can be the base",
+    "dirtyBranchHint": "commit or stash before selecting a branch",
+    "presetSkills": "Skills: {{skills}}",
+    "presetAutoPause": "Auto-pause at iteration {{count}}",
+    "presetGitBaseline": "Git baseline created when the pair starts"
   },
   "pair": {
     "resumePair": "Resume Pair",
@@ -435,7 +454,10 @@
     "refresh": "refresh",
     "empty": "no skills found",
     "noMatch": "no skills match",
-    "moreSkills": "more skills…"
+    "moreSkills": "more skills…",
+    "add": "Add skill",
+    "search": "Search skills…",
+    "discovering": "Discovering skills…"
   },
   "panel": {
     "modelsUpdateHint": "Changes apply after you save",
@@ -514,7 +536,9 @@
       "download": "Download",
       "install": "Install",
       "restart": "Restart"
-    }
+    },
+    "checkTimedOut": "Update check timed out",
+    "checkFailed": "Couldn't check for updates"
   },
   "history": {
     "title": "Task History",

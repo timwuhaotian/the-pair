@@ -240,7 +240,17 @@
     "deleteWorktreeNote": "其工作树也会被移除：未提交的改动会保存到 git stash，Pair 的提交保留在其 the-pair/… 分支上。",
     "deleteFailed": "无法删除 Pair：{{error}}",
     "presetTaskMissing": "开始前，请将预设模板中的占位文字替换为你的任务。",
-    "pickDirectory": "选择目录"
+    "pickDirectory": "选择目录",
+    "sectionRoles": "角色",
+    "sectionTaskHint": "这对 Pair 要完成什么",
+    "sectionWorkspaceHint": "Pair 在哪里工作",
+    "sectionRolesHint": "哪些模型负责规划与编写代码",
+    "directoryPlaceholder": "/path/to/project",
+    "mentionHint": "输入 @ 引用工作区文件",
+    "modelsError": "无法加载模型列表。",
+    "modelsErrorHint": "请确认 provider CLI 已安装并已登录，然后重试。",
+    "createErrorHint": "未创建任何内容 — 请修正标出的字段后重试。",
+    "requiredHint": "必填"
   },
   "pickers": {
     "mentorLabel": "导师",
@@ -280,7 +290,16 @@
     "today": "今天",
     "yesterday": "昨天",
     "daysAgo": "{{count}} 天前",
-    "weeksAgo": "{{count}} 周前"
+    "weeksAgo": "{{count}} 周前",
+    "baseBranch": "基准分支（默认当前分支）",
+    "fromCurrentBranch": "从当前分支",
+    "clearFilter": "清除筛选",
+    "dirtyWarning": "! 仓库有未提交的更改 — {{hint}}",
+    "dirtyBaseHint": "只有当前分支能作为基准",
+    "dirtyBranchHint": "选择分支前请先提交或暂存",
+    "presetSkills": "技能：{{skills}}",
+    "presetAutoPause": "第 {{count}} 次迭代自动暂停",
+    "presetGitBaseline": "Pair 启动时创建 git 基线"
   },
   "pair": {
     "resumePair": "恢复 Pair",
@@ -435,7 +454,10 @@
     "refresh": "刷新",
     "empty": "未找到技能",
     "noMatch": "没有匹配的技能",
-    "moreSkills": "更多技能…"
+    "moreSkills": "更多技能…",
+    "add": "添加技能",
+    "search": "搜索技能…",
+    "discovering": "正在查找技能…"
   },
   "panel": {
     "modelsUpdateHint": "保存后生效",
@@ -514,7 +536,9 @@
       "download": "下载",
       "install": "安装",
       "restart": "重启"
-    }
+    },
+    "checkTimedOut": "检查更新超时",
+    "checkFailed": "无法检查更新"
   },
   "history": {
     "title": "任务历史",

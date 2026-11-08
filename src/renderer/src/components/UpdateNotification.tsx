@@ -330,7 +330,12 @@ export function UpdateNotification(): React.ReactNode {
         showToast &&
         toastMessage &&
         createPortal(
-          <div className={cn('fixed top-3 right-3 font-mono', Z.toast)}>
+          // Sits below the app chrome bar so it never covers the chrome icons.
+          <div
+            role="status"
+            aria-live="polite"
+            className={cn('fixed top-12 right-3 max-w-[22rem] font-mono', Z.toast)}
+          >
             <div
               className={cn(
                 'flex items-baseline gap-2 rounded-sm border px-3 py-2 text-[11px]',
@@ -340,7 +345,7 @@ export function UpdateNotification(): React.ReactNode {
               <span aria-hidden className="select-none">
                 {toastGlyph}
               </span>
-              <span>{toastMessage}</span>
+              <span className="min-w-0 break-words">{toastMessage}</span>
             </div>
           </div>,
           portalRoot

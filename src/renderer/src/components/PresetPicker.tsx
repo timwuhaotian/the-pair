@@ -44,6 +44,7 @@ function PresetPopover({
   preset: PairPreset
   children: React.ReactNode
 }): React.ReactNode {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -124,14 +125,11 @@ function PresetPopover({
               )}
               {preset.pauseOnIteration && (
                 <div className="text-muted-foreground">
-                  <span className="text-foreground/85">· auto-pause</span> @ iter{' '}
-                  {preset.pauseOnIteration}
+                  · {t('pickers.presetAutoPause', { count: preset.pauseOnIteration })}
                 </div>
               )}
               {preset.autoAttachGitBaseline && (
-                <div className="text-muted-foreground">
-                  <span className="text-foreground/85">· git baseline</span> created on pair start
-                </div>
+                <div className="text-muted-foreground">· {t('pickers.presetGitBaseline')}</div>
               )}
             </div>
           </div>,

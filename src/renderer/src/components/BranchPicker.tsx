@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { ChevronDown, GitBranch, Loader2, Search, X } from 'lucide-react'
 import Fuse from 'fuse.js'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { tauriApi } from '../lib/tauri-api'
 import type { RepoState } from '../types'
 import { cn } from '../lib/utils'
@@ -28,15 +30,15 @@ interface BranchPickerProps {
   variant?: 'branch' | 'base'
 }
 
-function formatDate(timestamp: number): string {
+function formatDate(timestamp: number, t: TFunction): string {
   const date = new Date(timestamp * 1000)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-  if (diffDays === 0) return 'today'
-  if (diffDays === 1) return 'yesterday'
-  if (diffDays < 7) return `${diffDays}d ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
+  if (diffDays === 0) return t('pickers.today')
+  if (diffDays === 1) return t('pickers.yesterday')
+  if (diffDays < 7) return t('pickers.daysAgo', { count: diffDays })
+  if (diffDays < 30) return t('pickers.weeksAgo', { count: Math.floor(diffDays / 7) })
   return date.toLocaleDateString()
 }
 
@@ -47,6 +49,7 @@ export function BranchPicker({
   className,
   variant = 'branch'
 }: BranchPickerProps): React.ReactNode {
+  const { t } = useTranslation()
   const isBaseVariant = variant === 'base'
   const [repoState, setRepoState] = useState<RepoState | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -133,7 +136,7 @@ export function BranchPicker({
     return (
       <div className={cn('flex items-center gap-2 text-[12px] text-muted-foreground', className)}>
         <Loader2 size={12} className="animate-spin text-muted-foreground" />
-        <span>checking repo…</span>
+        <span>{t('pickers.checkingRepo')}</span>
       </div>
     )
   }
@@ -141,10 +144,10 @@ export function BranchPicker({
   if (loadError) {
     return (
       <div role="alert" className={cn('flex flex-col gap-0.5', errorCallout, className)}>
-        <span>✗ repo state unreadable</span>
+        <span>✗ {t('pickers.repoError')}</span>
         {errorMessage && (
           <span className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
-            {errorMessage}
+            {t('pickers.gitError', { message: errorMessage })}
           </span>
         )}
       </div>
@@ -155,7 +158,7 @@ export function BranchPicker({
     return (
       <div className={cn('flex items-baseline gap-2 text-[12px] text-muted-foreground', className)}>
         <GitBranch className="h-3 w-3 translate-y-px" />
-        <span>· not a git repo — worktrees unavailable</span>
+        <span>{t('pickers.notGitRepo')}</span>
       </div>
     )
   }
@@ -208,7 +211,7 @@ export function BranchPicker({
             <span className="role-mentor truncate">{selectedBranch.name}</span>
           ) : (
             <span className="text-muted-foreground">
-              {isBaseVariant ? 'base branch (defaults to current)' : 'select branch (optional)'}
+              {isBaseVariant ? t('pickers.baseBranch') : t('pickers.selectBranch')}
             </span>
           )}
         </div>
@@ -247,12 +250,12 @@ export function BranchPicker({
                   )
                   if (first) handleSelect(first.name)
                 }}
-                placeholder="filter branches…"
+                placeholder={t('pickers.filterBranches')}
                 className={cn(searchInput, 'pr-7')}
               />
               {search && (
                 <IconButton
-                  aria-label="clear filter"
+                  aria-label={t('pickers.clearFilter')}
                   onClick={() => setSearch('')}
                   className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2"
                 >
@@ -270,21 +273,24 @@ export function BranchPicker({
               onClick={handleClear}
               className={cn(menuItem(!value), value && 'text-muted-foreground')}
             >
-              — {isBaseVariant ? 'from current branch' : 'no branch (work in directory)'}
+              — {isBaseVariant ? t('pickers.fromCurrentBranch') : t('pickers.noBranch')}
             </button>
 
             {repoState.isDirty && (
-              <div className={cn('my-1', warningCallout)}>
-                ! uncommitted changes —{' '}
-                {isBaseVariant
-                  ? 'only the current branch can be the base'
-                  : 'commit or stash before selecting a branch'}
+              <div className={cn('my-1', warningCallout)} title={t('pickers.uncommittedChanges')}>
+                {t('pickers.dirtyWarning', {
+                  hint: isBaseVariant ? t('pickers.dirtyBaseHint') : t('pickers.dirtyBranchHint')
+                })}
               </div>
             )}
 
             {filteredLocal.length > 0 && (
-              <div role="group" aria-label="local" className="mt-1 border-t border-border pt-1">
-                <div className={groupHeader}>── local ──</div>
+              <div
+                role="group"
+                aria-label={t('pickers.localBranches')}
+                className="mt-1 border-t border-border pt-1"
+              >
+                <div className={groupHeader}>── {t('pickers.localBranches')} ──</div>
                 {filteredLocal.map((branch) => {
                   const isCurrent = repoState.currentBranch === branch.name
                   const disabled = repoState.isDirty && !isCurrent
@@ -306,7 +312,7 @@ export function BranchPicker({
                       <div className="flex items-baseline gap-2 min-w-0">
                         {isCurrent && (
                           <Chip tone="done" outline>
-                            current
+                            {t('pickers.current')}
                           </Chip>
                         )}
                         <span
@@ -331,8 +337,12 @@ export function BranchPicker({
             )}
 
             {filteredRemote.length > 0 && (
-              <div role="group" aria-label="remote" className="mt-1 border-t border-border pt-1">
-                <div className={groupHeader}>── remote ──</div>
+              <div
+                role="group"
+                aria-label={t('pickers.remoteBranches')}
+                className="mt-1 border-t border-border pt-1"
+              >
+                <div className={groupHeader}>── {t('pickers.remoteBranches')} ──</div>
                 {filteredRemote.map((branch) => {
                   const selected = value === branch.name
                   return (
@@ -360,13 +370,13 @@ export function BranchPicker({
                         </span>
                         {!branch.isCheckedOutLocally && (
                           <span className="text-[10px] role-mentor">
-                            → creates local tracking branch
+                            → {t('pickers.trackingBranch')}
                           </span>
                         )}
                       </div>
                       {branch.lastCommitDate && (
                         <span className="text-[10px] text-muted-foreground-faint">
-                          {formatDate(branch.lastCommitDate)}
+                          {formatDate(branch.lastCommitDate, t)}
                         </span>
                       )}
                     </button>
@@ -376,7 +386,7 @@ export function BranchPicker({
             )}
 
             {search && filteredLocal.length === 0 && filteredRemote.length === 0 && (
-              <div className={emptyHint}>— no branches match &ldquo;{search}&rdquo; —</div>
+              <div className={emptyHint}>— {t('pickers.noMatch', { query: search })} —</div>
             )}
           </div>
         </div>
