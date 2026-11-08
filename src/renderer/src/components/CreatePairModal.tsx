@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen, RefreshCw, Sparkles } from 'lucide-react'
+import { FolderOpen, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
 import { IconButton } from './ui/IconButton'
 import { ModelPicker } from './ModelPicker'
+import { BrandMark } from './BrandMark'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
@@ -39,26 +40,21 @@ interface CreatePairModalProps {
   onClose: () => void
 }
 
-/** Section heading: an uppercase shell label plus a one-line explainer. */
-function SectionHeading({ title, hint }: { title: string; hint: string }): React.ReactNode {
+/** Section rule: a terse uppercase heading and a hairline that fills the rest. */
+function SectionLabel({ children }: { children: React.ReactNode }): React.ReactNode {
   return (
-    <div className="flex flex-col gap-0.5">
-      <h3 className={sectionLabel}>{title}</h3>
-      <p className="text-[11px] leading-snug text-muted-foreground-faint">{hint}</p>
+    <div className="flex items-center gap-3">
+      <h3 className={cn(sectionLabel, 'shrink-0')}>{children}</h3>
+      <span aria-hidden className="h-px flex-1 bg-border" />
     </div>
   )
 }
 
-/** Marks a field the user must fill in before the pair can be created. */
-function RequiredBadge(): React.ReactNode {
-  const { t } = useTranslation()
-  return (
-    <span className="text-[10px] normal-case tracking-normal text-muted-foreground-faint">
-      {t('modals.requiredHint')}
-    </span>
-  )
-}
-
+/**
+ * Field label. Required fields carry the brand accent asterisk; the native
+ * `required` attribute on the control is what screen readers announce, and
+ * the asterisk's tooltip spells the marker out for the mouse.
+ */
 function FieldLabel({
   htmlFor,
   children,
@@ -68,11 +64,64 @@ function FieldLabel({
   children: React.ReactNode
   required?: boolean
 }): React.ReactNode {
+  const { t } = useTranslation()
   return (
-    <label htmlFor={htmlFor} className={cn(fieldLabel, 'flex items-baseline gap-1.5')}>
+    <label htmlFor={htmlFor} className={cn(fieldLabel, 'flex items-baseline gap-1')}>
       {children}
-      {required && <RequiredBadge />}
+      {required && (
+        <span
+          aria-hidden
+          title={t('modals.requiredHint')}
+          className="font-mono text-[11px] leading-none text-state-running"
+        >
+          *
+        </span>
+      )}
     </label>
+  )
+}
+
+/** A checkbox row: label plus a one-line explainer. */
+function ToggleRow({
+  checked,
+  onToggle,
+  label,
+  hint,
+  testId
+}: {
+  checked: boolean
+  onToggle: () => void
+  label: string
+  hint: string
+  testId: string
+}): React.ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={checked}
+      data-testid={testId}
+      className={cn(
+        '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
+        hoverTint
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'mt-px select-none font-mono text-[12px]',
+          checked ? 'state-running' : 'text-muted-foreground-faint'
+        )}
+      >
+        {checked ? '[x]' : '[ ]'}
+      </span>
+      <span className="flex flex-col gap-0.5">
+        <span className={fieldLabel}>{label}</span>
+        <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
+          {hint}
+        </span>
+      </span>
+    </button>
   )
 }
 
@@ -319,25 +368,42 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     }
   }
 
+  const workspaceReady = Boolean(scanDirectory) && scanDirectory === directory.trim()
+
+  // Brand lockup: the logo mark next to the wordmark and tagline.
+  const brandHeader = (
+    <div className="flex min-w-0 items-center gap-3">
+      <BrandMark variant="band" size={112} className="shrink-0" />
+      <div className="flex min-w-0 flex-col gap-1">
+        <h2 className="truncate text-[13px] font-semibold uppercase tracking-[0.16em] text-foreground">
+          {t('modals.createTitle')}
+        </h2>
+        <p className="truncate text-[10px] leading-none tracking-[0.06em] text-muted-foreground-faint">
+          <span className="uppercase tracking-[0.22em]">{t('startup.wordmark')}</span>
+          <span aria-hidden> · </span>
+          <span>{t('startup.tagline')}</span>
+        </p>
+      </div>
+    </div>
+  )
+
   return (
     <GlassModal
       isOpen={isOpen}
       onClose={onClose}
       title={t('modals.createTitle')}
-      className="max-w-3xl"
+      header={brandHeader}
+      className="max-w-2xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col h-full text-[13px]">
+      <form onSubmit={handleSubmit} className="flex flex-col text-[13px]">
         {/* -mx/px gives the toggles' -mx-1.5 hover tint room inside the scroll clip. */}
-        <div className="-mx-1.5 flex flex-1 flex-col gap-4 overflow-y-auto px-1.5">
+        <div className="-mx-1.5 flex flex-1 flex-col gap-5 overflow-y-auto px-1.5">
           {/* ── Task ─────────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-3">
-            <SectionHeading title={t('common.task')} hint={t('modals.sectionTaskHint')} />
+          <div className="flex flex-col gap-2.5">
+            <SectionLabel>{t('common.task')}</SectionLabel>
 
-            <div>
-              <div className={cn(fieldLabel, 'mb-1 flex items-baseline gap-1.5')}>
-                <Sparkles size={11} className="state-running translate-y-px" />
-                <span>{t('modals.choosePreset')}</span>
-              </div>
+            <div className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>{t('modals.choosePreset')}</span>
               <PresetPicker
                 presets={presets}
                 selectedPresetId={selectedPreset?.id ?? null}
@@ -350,7 +416,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
             {selectedPreset && <PresetHintBar preset={selectedPreset} />}
 
-            <div className="relative flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor={`${fieldId}-spec`} required>
                 {t('onboarding.taskSpec')}
               </FieldLabel>
@@ -365,9 +431,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                 required
                 data-testid="pair-task-spec"
               />
-              <div className="absolute top-[26px] right-2 flex items-center gap-1">
-                {scanDirectory && scanDirectory === directory.trim() && (
-                  <>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="text-[10px] leading-snug text-muted-foreground-faint">
+                  {t('modals.mentionHint')}
+                </p>
+                {/* Right-aligned: the skill dropdown opens leftwards from its
+                    trigger, so the trigger has to sit near the modal's edge. */}
+                {workspaceReady && (
+                  <div className="flex items-center gap-1">
                     <SkillPicker projectDir={scanDirectory} onSelect={handleSkillSelect} />
                     <FileMention
                       textareaRef={textareaRef}
@@ -375,10 +446,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                       directory={scanDirectory}
                       onFileSelect={handleFileSelect}
                     />
-                  </>
+                  </div>
                 )}
               </div>
-              <p className="text-[10px] text-muted-foreground-faint">{t('modals.mentionHint')}</p>
               {recommendation && (
                 <p
                   data-testid="recommendation-hint"
@@ -401,10 +471,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {/* ── Workspace ────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-3 border-t border-border pt-4">
-            <SectionHeading title={t('common.workspace')} hint={t('modals.sectionWorkspaceHint')} />
+          <div className="flex flex-col gap-2.5">
+            <SectionLabel>{t('common.workspace')}</SectionLabel>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor={`${fieldId}-name`} required>
                 {t('common.name')}
               </FieldLabel>
@@ -421,7 +491,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               />
             </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor={`${fieldId}-directory`} required>
                 {t('common.directory')}
               </FieldLabel>
@@ -456,38 +526,20 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               </div>
             </div>
 
-            {scanDirectory && scanDirectory === directory.trim() && (
+            {workspaceReady && (
               <div className="flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
+                <ToggleRow
+                  checked={useWorktree}
+                  onToggle={() => {
                     setUseWorktree((v) => !v)
                     // The selection means different things in the two modes
                     // (work on the branch vs. start from it), so start clean.
                     setBranch(undefined)
                   }}
-                  aria-pressed={useWorktree}
-                  data-testid="worktree-toggle"
-                  className={cn(
-                    '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-                    hoverTint
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'mt-px select-none font-mono text-[12px]',
-                      useWorktree ? 'state-running' : 'text-muted-foreground-faint'
-                    )}
-                  >
-                    {useWorktree ? '[x]' : '[ ]'}
-                  </span>
-                  <span className="flex flex-col gap-0.5">
-                    <span className={fieldLabel}>{t('modals.worktreeLabel')}</span>
-                    <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-                      {t('modals.worktreeHint')}
-                    </span>
-                  </span>
-                </button>
+                  label={t('modals.worktreeLabel')}
+                  hint={t('modals.worktreeHint')}
+                  testId="worktree-toggle"
+                />
                 {useWorktree ? (
                   <>
                     <BranchPicker
@@ -506,10 +558,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
 
           {/* ── Roles ────────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-3 border-t border-border pt-4">
-            <SectionHeading title={t('modals.sectionRoles')} hint={t('modals.sectionRolesHint')} />
+          <div className="flex flex-col gap-2.5">
+            <SectionLabel>{t('modals.sectionRoles')}</SectionLabel>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <ModelPicker
                 value={mentorModel}
                 models={availableModels}
@@ -530,31 +582,13 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setPlanGate((v) => !v)}
-              aria-pressed={planGate}
-              data-testid="plan-gate-toggle"
-              className={cn(
-                '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-                hoverTint
-              )}
-            >
-              <span
-                className={cn(
-                  'mt-px select-none font-mono text-[12px]',
-                  planGate ? 'state-running' : 'text-muted-foreground-faint'
-                )}
-              >
-                {planGate ? '[x]' : '[ ]'}
-              </span>
-              <span className="flex flex-col gap-0.5">
-                <span className={fieldLabel}>{t('modals.planGateLabel')}</span>
-                <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-                  {t('modals.planGateHint')}
-                </span>
-              </span>
-            </button>
+            <ToggleRow
+              checked={planGate}
+              onToggle={() => setPlanGate((v) => !v)}
+              label={t('modals.planGateLabel')}
+              hint={t('modals.planGateHint')}
+              testId="plan-gate-toggle"
+            />
 
             {modelsError && (
               <div role="alert" className={cn(errorCallout, 'flex flex-col gap-1.5')}>
@@ -589,7 +623,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           )}
         </div>
 
-        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
+        {/* The footer rides the bottom of the scroll area: the dialog is
+            content-sized, so on a short window the form is taller than the
+            card and the submit button has to stay reachable. */}
+        <div className="sticky bottom-0 -mx-1.5 mt-1 flex shrink-0 justify-end gap-2 border-t border-border bg-surface-raised px-1.5 pt-3">
           <GlassButton
             type="button"
             variant="secondary"

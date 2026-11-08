@@ -232,9 +232,6 @@
     "presetTaskMissing": "시작하기 전에 프리셋 템플릿의 자리 표시자를 작업 내용으로 바꾸세요.",
     "pickDirectory": "디렉터리 선택",
     "sectionRoles": "역할",
-    "sectionTaskHint": "페어가 달성해야 할 것",
-    "sectionWorkspaceHint": "페어가 작업하는 위치",
-    "sectionRolesHint": "계획과 코드를 담당할 모델",
     "directoryPlaceholder": "/path/to/project",
     "mentionHint": "@ 를 입력해 작업 공간 파일을 참조하세요",
     "modelsError": "모델 목록을 불러올 수 없습니다.",
@@ -317,7 +314,6 @@
     "gitUnavailable": "이 작업 공간에서 Git 추적을 사용할 수 없습니다",
     "noModifiedFiles": "이 실행에서 아직 수정된 파일이 없습니다",
     "commitMessage": "커밋 메시지",
-    "commitPlaceholder": "커밋 메시지(예: the-pair: 변경 내용 요약)",
     "commit": "커밋",
     "commitActionHint": "나열된 변경 사항을 모두 커밋",
     "pushTo": "{{branch}}에 푸시",
@@ -343,7 +339,8 @@
     "loadingDiff": "diff 불러오는 중…",
     "copyTimelineMarkdown": "Markdown으로 복사",
     "exportTimelineHtml": "HTML로 내보내기",
-    "emptyIdleHint": "아래에 작업을 입력해 시작하세요."
+    "emptyIdleHint": "아래에 작업을 입력해 시작하세요.",
+    "branchLabel": "브랜치 {{branch}}"
   },
   "console": {
     "all": "전체",

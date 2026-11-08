@@ -15,7 +15,17 @@ interface GlassModalProps {
   isOpen: boolean
   onClose: () => void
   children: React.ReactNode
-  title?: string
+  /**
+   * Accessible name of the dialog. Required: it names the dialog and keeps
+   * the close button in the header bar.
+   */
+  title: string
+  /**
+   * Custom header content. Replaces the default title block inside the
+   * dialog's header bar (the close button stays). It must be shrinkable and
+   * truncate its own text — the bar gives it a bounded box.
+   */
+  header?: React.ReactNode
   className?: string
   /** False while the dialog must stay up (e.g. mid-install): Esc, the backdrop
    *  and the close button are inert. */
@@ -32,6 +42,7 @@ export function GlassModal({
   onClose,
   children,
   title,
+  header,
   className,
   dismissible = true,
   'data-testid': dataTestId
@@ -39,6 +50,7 @@ export function GlassModal({
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
   const reduceMotion = useReducedMotion()
   const containerRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -62,10 +74,13 @@ export function GlassModal({
     // Save the element that had focus before the modal opened
     previouslyFocused.current = document.activeElement as HTMLElement | null
 
-    // Move focus into the modal
+    // Move focus into the modal — into its body, not the header bar: the
+    // close button is chrome, the content is what the user came for.
     const container = containerRef.current
     if (container) {
-      const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      const focusable = (bodyRef.current ?? container).querySelectorAll<HTMLElement>(
+        FOCUSABLE_SELECTOR
+      )
       if (focusable.length > 0) {
         focusable[0].focus()
       } else {
@@ -85,13 +100,16 @@ export function GlassModal({
       }
       const first = nodes[0]
       const last = nodes[nodes.length - 1]
+      // Focus on the dialog itself counts as "outside" the focusables: the
+      // next Tab has to land on a control, never escape the dialog.
+      const outside = !el.contains(document.activeElement) || document.activeElement === el
       if (e.shiftKey) {
-        if (document.activeElement === first || !el.contains(document.activeElement)) {
+        if (document.activeElement === first || outside) {
           e.preventDefault()
           last.focus()
         }
       } else {
-        if (document.activeElement === last || !el.contains(document.activeElement)) {
+        if (document.activeElement === last || outside) {
           e.preventDefault()
           first.focus()
         }
@@ -132,17 +150,26 @@ export function GlassModal({
           className
         )}
       >
-        {title && (
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+          {header ? (
+            // Bounded box: a custom header must not push the close button
+            // out of the card.
+            <div className="min-w-0 flex-1 overflow-hidden">{header}</div>
+          ) : (
             <h2 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-foreground">
               {title}
             </h2>
-            <IconButton aria-label="close" onClick={onClose} disabled={!dismissible}>
-              <X size={14} />
-            </IconButton>
-          </div>
-        )}
-        <div className="p-5 overflow-y-auto flex-1 scrollbar-thin">{children}</div>
+          )}
+          <IconButton aria-label="close" onClick={onClose} disabled={!dismissible}>
+            <X size={14} />
+          </IconButton>
+        </div>
+        {/* min-h-0 lets the body shrink inside the max-h card, so long
+            content scrolls inside the dialog instead of pushing the footer
+            (and the submit button) out of it. */}
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
+          {children}
+        </div>
       </motion.div>
     </div>,
     portalRoot

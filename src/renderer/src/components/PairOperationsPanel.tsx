@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   CloudUpload,
+  GitBranch,
   GitCommitHorizontal,
   Loader2,
   Pause,
@@ -148,11 +149,22 @@ function PairOperationsPanel({
 
   const pushBranch = pair.worktreeBranch ?? pair.branch ?? null
   const hasChanges = pair.gitTracking.available && pair.modifiedFiles.length > 0
+  // The tracked file list only refreshes while the pair runs, so after a
+  // manual commit the panel still shows the old files. The commit controls
+  // stay disabled until the backend sends a fresh list.
+  const [awaitingFreshList, setAwaitingFreshList] = useState(false)
+  useEffect(() => {
+    setAwaitingFreshList(false)
+  }, [pair.modifiedFiles])
+  // Machine-generated commit subject: it lands in the user's git history, so
+  // it stays English and locale-independent.
+  const defaultCommitMessage = `the-pair: commit ${pair.modifiedFiles.length} file${
+    pair.modifiedFiles.length === 1 ? '' : 's'
+  }`
 
   const handleCommit = async (): Promise<void> => {
     if (commitStatus === 'committing' || !hasChanges) return
-    const message = commitMessage.trim()
-    if (!message) return
+    const message = commitMessage.trim() || defaultCommitMessage
     setCommitStatus('committing')
     setCommitDetail(null)
     try {
@@ -160,6 +172,7 @@ function PairOperationsPanel({
       setCommitDetail(t('pair.committed', { sha: outcome.sha }))
       setCommitStatus('success')
       setCommitMessage('')
+      setAwaitingFreshList(true)
     } catch (err) {
       setCommitDetail(extractErrorMessage(err, t('pair.commitFailed')))
       setCommitStatus('error')
@@ -605,30 +618,25 @@ function PairOperationsPanel({
             </span>
           ) : undefined
         }
+        actions={
+          pushBranch && pair.gitTracking.available ? (
+            <span
+              className="inline-flex min-w-0 items-baseline gap-1 rounded-full border border-border px-2 py-px font-mono text-[10px] text-muted-foreground"
+              title={t('pair.branchLabel', { branch: pushBranch })}
+              data-testid="ops-branch-chip"
+            >
+              <GitBranch size={10} aria-hidden className="translate-y-px shrink-0" />
+              <span className="truncate">{pushBranch}</span>
+            </span>
+          ) : undefined
+        }
       >
         {!pair.gitTracking.available ? (
           <div className="text-[11px] state-running">{t('pair.gitUnavailable')}</div>
         ) : (
           <>
-            {pair.modifiedFiles.length === 0 ? (
-              <div className="text-[11px] text-muted-foreground-faint">
-                {t('pair.noModifiedFiles')}
-              </div>
-            ) : (
-              <div className="shell-card divide-y divide-border/40 overflow-hidden">
-                {pair.modifiedFiles.map((file) => (
-                  <ModifiedFileRow
-                    key={file.path}
-                    file={file}
-                    expanded={expandedPath === file.path}
-                    diff={diffCache[file.path] ?? null}
-                    loading={diffLoadingPath === file.path}
-                    error={diffErrorCache[file.path] ?? null}
-                    onToggle={() => handleToggleFile(file)}
-                  />
-                ))}
-              </div>
-            )}
+            {/* Commit + push come first: the action is the first thing in the
+                block, not the last thing under the file list. */}
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-1.5">
                 <input
@@ -637,9 +645,9 @@ function PairOperationsPanel({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void handleCommit()
                   }}
-                  placeholder={t('pair.commitPlaceholder')}
+                  placeholder={hasChanges ? defaultCommitMessage : t('pair.commitMessage')}
                   aria-label={t('pair.commitMessage')}
-                  disabled={!hasChanges || commitStatus === 'committing'}
+                  disabled={!hasChanges || commitStatus === 'committing' || awaitingFreshList}
                   data-testid="ops-commit-input"
                   className={cn(
                     fieldInput,
@@ -657,7 +665,12 @@ function PairOperationsPanel({
                     )
                   }
                   onClick={() => void handleCommit()}
-                  disabled={!hasChanges || !commitMessage.trim() || commitStatus === 'committing'}
+                  disabled={
+                    !hasChanges ||
+                    commitStatus === 'committing' ||
+                    pushStatus === 'pushing' ||
+                    awaitingFreshList
+                  }
                   title={t('pair.commitActionHint')}
                   data-testid="ops-commit-btn"
                 >
@@ -689,7 +702,7 @@ function PairOperationsPanel({
                       )
                     }
                     onClick={() => void handlePush()}
-                    disabled={pushStatus === 'pushing'}
+                    disabled={pushStatus === 'pushing' || commitStatus === 'committing'}
                     title={t('pair.pushActionHint', { branch: pushBranch })}
                     data-testid="ops-push-btn"
                     className="self-start"
@@ -711,6 +724,26 @@ function PairOperationsPanel({
                 </>
               )}
             </div>
+
+            {pair.modifiedFiles.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground-faint">
+                {t('pair.noModifiedFiles')}
+              </div>
+            ) : (
+              <div className="shell-card divide-y divide-border/40 overflow-hidden">
+                {pair.modifiedFiles.map((file) => (
+                  <ModifiedFileRow
+                    key={file.path}
+                    file={file}
+                    expanded={expandedPath === file.path}
+                    diff={diffCache[file.path] ?? null}
+                    loading={diffLoadingPath === file.path}
+                    error={diffErrorCache[file.path] ?? null}
+                    onToggle={() => handleToggleFile(file)}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </InspectorSection>

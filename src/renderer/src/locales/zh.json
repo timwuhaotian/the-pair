@@ -242,9 +242,6 @@
     "presetTaskMissing": "开始前，请将预设模板中的占位文字替换为你的任务。",
     "pickDirectory": "选择目录",
     "sectionRoles": "角色",
-    "sectionTaskHint": "这对 Pair 要完成什么",
-    "sectionWorkspaceHint": "Pair 在哪里工作",
-    "sectionRolesHint": "哪些模型负责规划与编写代码",
     "directoryPlaceholder": "/path/to/project",
     "mentionHint": "输入 @ 引用工作区文件",
     "modelsError": "无法加载模型列表。",
@@ -327,7 +324,6 @@
     "gitUnavailable": "此工作区不可用 Git 跟踪",
     "noModifiedFiles": "本次运行尚未修改任何文件",
     "commitMessage": "提交信息",
-    "commitPlaceholder": "提交信息，例如 the-pair: 概括本次修改",
     "commit": "提交",
     "commitActionHint": "提交所有列出的更改",
     "pushTo": "推送到 {{branch}}",
@@ -353,7 +349,8 @@
     "loadingDiff": "正在加载差异…",
     "copyTimelineMarkdown": "复制为 Markdown",
     "exportTimelineHtml": "导出为 HTML",
-    "emptyIdleHint": "在下方描述任务即可开始。"
+    "emptyIdleHint": "在下方描述任务即可开始。",
+    "branchLabel": "分支 {{branch}}"
   },
   "console": {
     "all": "全部",

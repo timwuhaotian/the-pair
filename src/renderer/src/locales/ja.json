@@ -232,9 +232,6 @@
     "presetTaskMissing": "開始する前に、プリセットテンプレートのプレースホルダーをタスク内容に置き換えてください。",
     "pickDirectory": "ディレクトリを選択",
     "sectionRoles": "役割",
-    "sectionTaskHint": "ペアが達成すべきこと",
-    "sectionWorkspaceHint": "ペアが作業する場所",
-    "sectionRolesHint": "計画と実装を行うモデル",
     "directoryPlaceholder": "/path/to/project",
     "mentionHint": "@ を入力してワークスペースのファイルを参照",
     "modelsError": "モデル一覧を読み込めませんでした。",
@@ -317,7 +314,6 @@
     "gitUnavailable": "このワークスペースでは Git 追跡は利用できません",
     "noModifiedFiles": "この実行ではまだファイルは変更されていません",
     "commitMessage": "コミットメッセージ",
-    "commitPlaceholder": "コミットメッセージ（例: the-pair: 変更内容の要約）",
     "commit": "コミット",
     "commitActionHint": "一覧の変更をすべてコミット",
     "pushTo": "{{branch}} にプッシュ",
@@ -343,7 +339,8 @@
     "loadingDiff": "差分を読み込み中…",
     "copyTimelineMarkdown": "Markdown としてコピー",
     "exportTimelineHtml": "HTML としてエクスポート",
-    "emptyIdleHint": "下にタスクを入力して開始します。"
+    "emptyIdleHint": "下にタスクを入力して開始します。",
+    "branchLabel": "ブランチ {{branch}}"
   },
   "console": {
     "all": "すべて",

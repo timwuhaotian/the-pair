@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { GlassModal } from '../../src/renderer/src/components/ui/GlassModal.tsx'
+import { assertAbsent } from './assert-dom.ts'
 
 afterEach(cleanup)
 
@@ -36,7 +37,7 @@ function renderModal(
         isOpen
         onClose={props.onClose ?? (() => undefined)}
         dismissible={props.dismissible}
-        title={props.title}
+        title={props.title ?? 'Test dialog'}
       >
         {children}
       </GlassModal>
@@ -68,7 +69,7 @@ test('opening focuses the first control and closing restores the previous focus'
   const tree = (isOpen: boolean): React.ReactNode => (
     <>
       <button type="button">outside</button>
-      <GlassModal isOpen={isOpen} onClose={() => undefined}>
+      <GlassModal isOpen={isOpen} onClose={() => undefined} title="Test dialog">
         <Body />
       </GlassModal>
     </>
@@ -81,11 +82,11 @@ test('opening focuses the first control and closing restores the previous focus'
   assert.ok(isFocused('outside'), 'focus returned to the opener')
 })
 
-test('Tab wraps from the last control to the first, Shift+Tab the other way', () => {
+test('Tab wraps from the last control to the header close button, Shift+Tab the other way', () => {
   renderModal()
   screen.getByRole('button', { name: 'last' }).focus()
   assert.ok(pressTab().defaultPrevented)
-  assert.ok(isFocused('first'), 'Tab wrapped to first')
+  assert.ok(isFocused('close'), 'Tab wrapped to the header close button')
 
   assert.ok(pressTab(true).defaultPrevented)
   assert.ok(isFocused('last'), 'Shift+Tab wrapped to last')
@@ -103,19 +104,20 @@ test('focus that escaped the dialog is pulled back in on Tab', () => {
   renderModal()
   screen.getByRole('button', { name: 'outside' }).focus()
   pressTab()
-  assert.ok(isFocused('first'), 'Tab pulled focus to first')
+  assert.ok(isFocused('close'), 'Tab pulled focus back into the dialog')
 
   screen.getByRole('button', { name: 'outside' }).focus()
   pressTab(true)
   assert.ok(isFocused('last'), 'Shift+Tab pulled focus to last')
 })
 
-test('a dialog with nothing focusable keeps focus on itself', () => {
+test('a dialog whose body has nothing focusable keeps focus on itself', () => {
   renderModal({}, <p>Nothing to press here</p>)
   const dialog = screen.getByRole('dialog')
   assert.ok(document.activeElement === dialog, 'dialog focused on open')
+  // Tab must not escape the dialog: it lands on the header's close button.
   assert.ok(pressTab().defaultPrevented)
-  assert.ok(document.activeElement === dialog, 'dialog still focused')
+  assert.ok(isFocused('close'), 'Tab stayed inside the dialog')
 })
 
 test('Escape and the backdrop close a dismissible dialog', () => {
@@ -138,4 +140,25 @@ test('a non-dismissible dialog ignores Escape, the backdrop and its close button
   fireEvent.click(backdrop)
   fireEvent.click(screen.getByRole('button', { name: 'close' }))
   assert.equal(closes, 0)
+})
+
+test('a custom header replaces the title block and keeps the dialog named', () => {
+  render(
+    <GlassModal
+      isOpen
+      onClose={() => undefined}
+      title="Create New Pair"
+      header={<span data-testid="brand-header">brand</span>}
+    >
+      <Body />
+    </GlassModal>
+  )
+
+  const dialog = screen.getByRole('dialog')
+  // The title still names the dialog even though the title block is gone.
+  assert.equal(dialog.getAttribute('aria-label'), 'Create New Pair')
+  assert.ok(screen.getByTestId('brand-header'))
+  // The default title heading is replaced, and the close button survives.
+  assertAbsent(screen.queryByRole('heading', { name: 'Create New Pair' }))
+  assert.ok(screen.getByRole('button', { name: 'close' }))
 })

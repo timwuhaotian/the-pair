@@ -76,6 +76,7 @@ Paths are relative to `src/renderer/src/components/` unless noted.
 | `AppShell.tsx`                                                        | Left section rail (Pairs / Activity / Insights) with running + attention badges                                     |
 | `PairsHub.tsx`                                                        | Pairs home: stat cards + workspace-grouped pair cards with quick actions                                            |
 | `StartupHero.tsx` / `BootSplash.tsx`                                  | Boot splash + first-run empty-state hero (model config & directory selection happen in the hub)                     |
+| `BrandMark.tsx`                                                       | The logo artwork (two agents, `</>`, coffee) reused by the splash, hub and dialog headers                           |
 | `ShellViews.tsx`                                                      | `ActivityView` (needs-attention + recent activity) and `InsightsView` (cross-run leaderboard)                       |
 | `StatCards.tsx`                                                       | Hub stat cards (running/paused/finished/attention counts)                                                           |
 | `RecentActivityPanel.tsx`                                             | Cross-pair recent activity feed (activity section)                                                                  |

@@ -101,8 +101,6 @@ test('Commit: sends directory + message and shows the returned SHA', async () =>
 
   const input = screen.getByTestId('ops-commit-input')
   const button = screen.getByTestId('ops-commit-btn')
-  // Blank message keeps the button disabled.
-  assert.equal(button.hasAttribute('disabled'), true)
   fireEvent.change(input, { target: { value: 'the-pair: ship it' } })
   assert.equal(button.hasAttribute('disabled'), false)
   fireEvent.click(button)
@@ -119,6 +117,87 @@ test('Commit: sends directory + message and shows the returned SHA', async () =>
     )
   )
   assert.ok(await screen.findByText(/Committed abc1234/))
+})
+
+test('Commit: a blank message commits with the default message', async () => {
+  setLocale()
+  renderPanel(makePair())
+
+  const button = screen.getByTestId('ops-commit-btn')
+  // One click is enough: no message needed.
+  assert.equal(button.hasAttribute('disabled'), false)
+  fireEvent.click(button)
+
+  await waitFor(() =>
+    assert.ok(
+      commitPush.calls.some(
+        (c) =>
+          c.cmd === 'git_commit_changes' &&
+          (c.args as { message: string }).message === 'the-pair: commit 1 file'
+      ),
+      'commit invoked with the default message'
+    )
+  )
+})
+
+test('Commit: the default message is the input placeholder', () => {
+  setLocale()
+  renderPanel(
+    makePair({
+      modifiedFiles: [
+        { path: 'src/a.ts', displayPath: 'src/a.ts', status: 'M' },
+        { path: 'src/b.ts', displayPath: 'src/b.ts', status: 'M' }
+      ]
+    })
+  )
+
+  const input = screen.getByTestId('ops-commit-input') as HTMLInputElement
+  assert.equal(input.placeholder, 'the-pair: commit 2 files')
+})
+
+test('Commit: is disabled when there is nothing to commit', () => {
+  setLocale()
+  renderPanel(makePair({ modifiedFiles: [] }))
+
+  assert.equal(screen.getByTestId('ops-commit-btn').hasAttribute('disabled'), true)
+  assert.equal(screen.getByTestId('ops-commit-input').hasAttribute('disabled'), true)
+  // No "commit 0 files" placeholder on a clean tree.
+  const input = screen.getByTestId('ops-commit-input') as HTMLInputElement
+  assert.doesNotMatch(input.placeholder, /0 files/)
+})
+
+test('Commit: the controls stay disabled until the tracked list refreshes', async () => {
+  setLocale()
+  renderPanel(makePair())
+
+  fireEvent.click(screen.getByTestId('ops-commit-btn'))
+  assert.ok(await screen.findByText(/Committed abc1234/))
+
+  // The backend only re-polls while the pair runs, so a second commit would
+  // fail with "Nothing to commit". The controls wait for a fresh list.
+  assert.equal(screen.getByTestId('ops-commit-btn').hasAttribute('disabled'), true)
+  assert.equal(screen.getByTestId('ops-commit-input').hasAttribute('disabled'), true)
+})
+
+test('Commit and push sit above the file list', () => {
+  setLocale()
+  renderPanel(makePair())
+
+  const commitInput = screen.getByTestId('ops-commit-input')
+  const firstFile = screen.getByTestId('ops-file-row-src/a.ts')
+  // The action comes first, the diffs second.
+  assert.ok(
+    commitInput.compareDocumentPosition(firstFile) & Node.DOCUMENT_POSITION_FOLLOWING,
+    'the commit controls must come before the file rows'
+  )
+})
+
+test('The section header names the branch commit and push work on', () => {
+  setLocale()
+  renderPanel(makePair())
+
+  const chip = screen.getByTestId('ops-branch-chip')
+  assert.match(chip.textContent ?? '', /the-pair\/pair-ui/)
 })
 
 test('Commit: failures render inline', async () => {
@@ -167,8 +246,19 @@ test('Push: hidden when the pair has no known branch', async () => {
   renderPanel(makePair({ worktreeBranch: undefined, branch: undefined }))
 
   assertAbsent(screen.queryByTestId('ops-push-btn'))
+  assertAbsent(screen.queryByTestId('ops-branch-chip'))
   // Commit still works without a branch.
   assert.ok(screen.getByTestId('ops-commit-btn'))
+})
+
+test('The branch chip disappears when git tracking is unavailable', () => {
+  setLocale()
+  renderPanel(makePair({ gitTracking: { available: false } }))
+
+  assertAbsent(screen.queryByTestId('ops-branch-chip'))
+  assertAbsent(screen.queryByTestId('ops-push-btn'))
+  assertAbsent(screen.queryByTestId('ops-commit-btn'))
+  assert.ok(screen.getByText('Git tracking unavailable for this workspace'))
 })
 
 test('Commit: success detail auto-clears after a few seconds', async () => {

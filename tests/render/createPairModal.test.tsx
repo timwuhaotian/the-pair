@@ -1,7 +1,7 @@
 /**
  * Component unit tests for the CreatePairModal's task / workspace / roles
  * layout, rendered in jsdom:
- *   - the three section headings and their hints
+ *   - the brand header (logo mark + wordmark) and the three section rules
  *   - required-field markers
  *   - the preset hint bar copy (skills + auto-pause)
  *   - actionable error callouts (model list, create failure)
@@ -25,6 +25,7 @@ import {
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
 import type { PairPreset } from '../../src/renderer/src/types.ts'
 import { commitPush, mockRepoState, state } from './mock-ipc.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function setLocale(): void {
   void i18n.changeLanguage('en')
@@ -73,12 +74,40 @@ test('CreatePairModal: renders the task, workspace and roles sections', () => {
   seedStore()
   renderModal()
 
-  assert.ok(screen.getByText('Task'))
-  assert.ok(screen.getByText('What the pair should accomplish'))
-  assert.ok(screen.getByText('Workspace'))
-  assert.ok(screen.getByText('Where the pair works'))
-  assert.ok(screen.getByText('Roles'))
-  assert.ok(screen.getByText('Which models plan the work and write the code'))
+  // The sections stay headings, so screen-reader heading navigation still
+  // finds them.
+  for (const name of ['Task', 'Workspace', 'Roles']) {
+    assert.ok(screen.getByRole('heading', { name }))
+  }
+  // The old one-line explainers are gone.
+  assertAbsent(screen.queryByText('What the pair should accomplish'))
+})
+
+test('CreatePairModal: each section label is followed by a hairline rule', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  for (const name of ['Task', 'Workspace', 'Roles']) {
+    const rule = screen.getByRole('heading', { name }).nextElementSibling
+    assert.ok(rule?.className.includes('bg-border'), `${name} has no rule`)
+  }
+})
+
+test('CreatePairModal: leads with the brand mark and wordmark', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  // The logo mark sits in the dialog's header bar, next to the wordmark.
+  const dialog = screen.getByRole('dialog')
+  const mark = dialog.querySelector('.brand-mark__art')
+  assert.ok(mark, 'the brand mark is missing from the header')
+  assert.equal(mark?.getAttribute('viewBox'), '32 12 256 96')
+  // The header bar is the dialog's first child.
+  assert.ok(dialog.firstElementChild?.contains(mark), 'the mark is not in the header bar')
+  assert.ok(screen.getByText('The Pair'))
+  assert.ok(screen.getByText('Mentor plans. Executor ships.'))
 })
 
 test('CreatePairModal: marks the required fields next to their labels', () => {
@@ -86,15 +115,31 @@ test('CreatePairModal: marks the required fields next to their labels', () => {
   seedStore()
   renderModal()
 
-  // Name, directory and task specification are the required fields.
-  assert.equal(screen.getAllByText('Required').length, 3)
+  // Name, directory and task specification are the required fields. The
+  // control carries the native `required` flag; the label adds the accent
+  // asterisk, whose tooltip spells the marker out.
   for (const testId of ['pair-name-input', 'pair-directory-input', 'pair-task-spec']) {
-    // The label is tied to the control through htmlFor, not by wrapping it.
     const field = screen.getByTestId(testId) as HTMLInputElement | HTMLTextAreaElement
+    assert.equal(field.required, true, `${testId} is not required`)
     const label = field.labels?.[0]
     assert.ok(label, `${testId} has no label`)
-    assert.ok(label.textContent?.includes('Required'), `${testId} label lacks the marker`)
+    assert.ok(label.textContent?.includes('*'), `${testId} label lacks the marker`)
+    assert.ok(
+      label.textContent?.includes('Required') || label.querySelector('[title="Required"]'),
+      `${testId} label does not explain the marker`
+    )
   }
+})
+
+test('CreatePairModal: the toggle rows show their checked state', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  const toggle = screen.getByTestId('plan-gate-toggle')
+  assert.match(toggle.textContent ?? '', /\[ \]/)
+  fireEvent.click(toggle)
+  assert.match(toggle.textContent ?? '', /\[x\]/)
 })
 
 test('CreatePairModal: the mention hint explains the @ reference syntax', () => {
