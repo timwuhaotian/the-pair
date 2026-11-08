@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] - 2026-11-08
+
+A reshaped Create Pair dialog, and an update toast that no longer covers the app chrome.
+
+### Changed
+
+- **Create New Pair is grouped into three sections** — Task (preset, task specification), Workspace (name, directory, worktree isolation) and Roles (the two model pickers, the plan gate). Each section carries a one-line explainer, so the form reads top to bottom as "what to do, where to do it, who does it".
+- **Required fields are marked.** Name, Directory and the task specification say so next to their label, instead of the browser rejecting the submit with no explanation.
+- **Errors explain the next step.** A failed model load names the likely cause (the provider CLI is not installed or not signed in) and offers a Retry button; a failed create says that nothing was created and points at the fields to fix.
+- **The update toast moved below the app chrome.** It used to sit on top of the top-right icon buttons and the update button, covering them. It now clears the chrome bar, wraps long messages and announces itself politely.
+
+### Fixed
+
+- **Untranslated text in the create-pair and picker dialogs.** The branch picker, the skill picker and the preset details spoke hardcoded English in every language; they now read from the locale files (English, 简体中文, 日本語, 한국어).
+- **A failed update check reported a bare English error.** The toast and the update dialog now say what failed in the user's language and keep the backend's raw reason as the detail; the check button's tooltip always carries that reason.
+- **Switching the language could cancel a pending update.** The update check now reads its copy without re-running its effect, so a locale switch no longer releases the download it had already found.
+
 ## [2.13.8] - 2026-11-08
 
 Two-step model picker and a clearer, fully localized pair conversation.
