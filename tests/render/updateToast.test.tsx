@@ -82,3 +82,19 @@ test('a failed check keeps the backend reason in the tooltip', () => {
   assert.match(button.textContent ?? '', /Check again/)
   assert.equal(button.getAttribute('title'), 'signature verification failed')
 })
+
+test('the update modal explains the failure and keeps the backend reason', () => {
+  useUpdateStore.setState({
+    phase: 'error',
+    showModal: true,
+    message: 'signature verification failed'
+  })
+  renderUpdate()
+
+  // What happened, in the user's language...
+  assert.ok(screen.getByText("Couldn't check for updates"))
+  // ...and why, verbatim.
+  assert.ok(screen.getByText('signature verification failed'))
+  // The failure is announced assertively, unlike the polite toast.
+  assert.ok(screen.getByRole('alert'))
+})

@@ -24,6 +24,9 @@ test('update release notes render only through markdown in the modal', () => {
 
 test('update check stores release notes separately from the status message', () => {
   assert.match(appSource, /setReleaseBody\(update\.body \|\| null\)/)
-  assert.match(appSource, /setMessage\(t\('updates\.available', \{ version: update\.version \}\)\)/)
+  assert.match(
+    appSource,
+    /setMessage\(i18n\.t\('updates\.available', \{ version: update\.version \}\)\)/
+  )
   assert.doesNotMatch(appSource, /setMessage\(update\.body/)
 })

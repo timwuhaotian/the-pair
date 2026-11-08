@@ -7,6 +7,7 @@
 import { mockIPC } from '@tauri-apps/api/mocks'
 // The app installs window.api via this shim in main.tsx; components read it.
 import '../../src/renderer/src/tauri-shim.ts'
+import type { ConfigRecommendation } from '../../src/renderer/src/types.ts'
 
 export interface MockRepoState {
   isGitRepo: boolean
@@ -76,11 +77,14 @@ export interface MockState {
   repo: MockRepoState
   /** When true, repo_check_state rejects (unreadable repository). */
   failRepoCheck: boolean
+  /** What get_recommendation answers; null means "no recommendation". */
+  recommendation: ConfigRecommendation[] | null
 }
 
 export const state: MockState = {
   repo: mockRepoState.committedRepo,
-  failRepoCheck: false
+  failRepoCheck: false,
+  recommendation: null
 }
 
 export interface MockCommitPush {
@@ -117,7 +121,7 @@ mockIPC((cmd, args) => {
     case 'repo_list_branches':
       return state.repo.branches
     case 'get_recommendation':
-      return []
+      return state.recommendation ?? []
     case 'get_insights_summary':
       return { runs: 0, interventions: 0, combos: [] }
     case 'skill_discover':

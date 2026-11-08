@@ -77,7 +77,7 @@ function describePhase(
     default:
       return {
         title: t('updates.failedTitle'),
-        body: '',
+        body: t('updates.checkFailed'),
         icon: <XCircle size={14} />,
         tone: 'error'
       }
@@ -254,16 +254,24 @@ export function UpdateNotification(): React.ReactNode {
           >
             {view.icon}
           </span>
-          <p
-            role={isError ? 'alert' : 'status'}
-            aria-live="polite"
-            className={cn(
-              'pt-1 text-[12px] [overflow-wrap:anywhere]',
-              isError ? 'state-error' : 'text-muted-foreground'
+          <div className="min-w-0 flex-1">
+            <p
+              role={isError ? 'alert' : 'status'}
+              aria-live={isError ? undefined : 'polite'}
+              className={cn(
+                'pt-1 text-[12px] [overflow-wrap:anywhere]',
+                isError ? 'state-error' : 'text-muted-foreground'
+              )}
+            >
+              {isError ? view.body : phase === 'available' ? message : view.body}
+            </p>
+            {/* The raw backend reason keeps the error diagnosable. */}
+            {isError && message && (
+              <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+                {message}
+              </p>
             )}
-          >
-            {isError || phase === 'available' ? message : view.body}
-          </p>
+          </div>
         </div>
         {(phase === 'checking' || isInstalling || phase === 'ready') && (
           <UpdateProgress

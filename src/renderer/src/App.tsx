@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { usePairStore, type Pair } from './store/usePairStore'
 import { useThemeStore } from './store/useThemeStore'
 import { useUpdateStore } from './store/useUpdateStore'
-import './i18n'
+import i18n from './i18n'
 import { AppChrome } from './components/AppChrome'
 import { AppShell, type ShellSection } from './components/AppShell'
 import { PairsHub } from './components/PairsHub'
@@ -170,7 +170,9 @@ function App(): React.ReactNode {
       // or an installed update waiting for restart is shown as-is instead.
       if (!canStartUpdateCheck(useUpdateStore.getState().phase)) return
       setPhase('checking')
-      setMessage(t('updates.checking'))
+      // i18n.t, not the hook's `t`: the hook value would re-run this effect on
+      // every locale switch and release a pending update.
+      setMessage(i18n.t('updates.checking'))
 
       const TIMEOUT = Symbol('timeout')
       const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
@@ -187,16 +189,16 @@ function App(): React.ReactNode {
 
         if (update === TIMEOUT) {
           console.error('[Updater] Check timed out after 30 seconds')
-          setMessage(t('updates.checkTimedOut'))
+          setMessage(i18n.t('updates.checkTimedOut'))
           setPhase('error')
           if (!useUpdateStore.getState().showModal)
-            displayToast(t('updates.checkTimedOut'), 'error')
+            displayToast(i18n.t('updates.checkTimedOut'), 'error')
           return
         }
 
         if (!update) {
           setVersion(null)
-          setMessage(t('updates.upToDate'))
+          setMessage(i18n.t('updates.upToDate'))
           setPhase('up-to-date')
           return
         }
@@ -205,15 +207,19 @@ function App(): React.ReactNode {
         setUpdate(update)
         setVersion(update.version)
         setReleaseBody(update.body || null)
-        setMessage(t('updates.available', { version: update.version }))
+        setMessage(i18n.t('updates.available', { version: update.version }))
         setPhase('available')
         setShowModal(true)
       } catch (error) {
         console.error('[Updater] Check failed:', error)
-        const message = error instanceof Error ? error.message : t('updates.checkFailed')
-        setMessage(message)
+        // The raw backend reason stays in the store (button tooltip, modal
+        // detail); the toast carries the localized, actionable line.
+        const detail = error instanceof Error ? error.message : String(error)
+        setMessage(detail)
         setPhase('error')
-        if (!useUpdateStore.getState().showModal) displayToast(message, 'error')
+        if (!useUpdateStore.getState().showModal) {
+          displayToast(i18n.t('updates.checkFailed'), 'error')
+        }
       }
     }
 
@@ -239,19 +245,11 @@ function App(): React.ReactNode {
       active = false
       cancelQueuedUpdateCheck?.()
       unlisten?.()
-    }
-  }, [t, setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
-
-  // The updater handle outlives the effect above: a locale switch re-runs it
-  // (it depends on `t`), and releasing the handle there would break the
-  // pending install. Only a real unmount gives it back.
-  useEffect(() => {
-    return () => {
       if (updateRef.current) {
         void updateRef.current.close().catch(() => {})
       }
     }
-  }, [])
+  }, [setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
 
   useEffect(() => {
     preloadSounds()

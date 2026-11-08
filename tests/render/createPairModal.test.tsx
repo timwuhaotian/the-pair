@@ -21,7 +21,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import i18n from '../../src/renderer/src/i18n.ts'
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
 import type { PairPreset } from '../../src/renderer/src/types.ts'
-import { mockRepoState, state } from './mock-ipc.ts'
+import { commitPush, mockRepoState, state } from './mock-ipc.ts'
 
 // The node test runtime has no `import.meta.env`, so the preset list would
 // never load and the picker would only ever show its error state. Patch the
@@ -227,4 +227,46 @@ test('CreatePairModal: submitting forwards the workspace and role choices', asyn
   assert.equal(created[0].spec, 'do the thing')
   assert.equal(created[0].useWorktree, true)
   assert.equal(created[0].planGate, true)
+})
+
+test('CreatePairModal: clicking an empty directory asks the host for a folder', async () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  fireEvent.click(screen.getByTestId('pair-directory-input'))
+
+  await waitFor(() =>
+    assert.ok(
+      commitPush.calls.some((call) => call.cmd.includes('dialog')),
+      'the folder picker was never opened'
+    )
+  )
+})
+
+test('CreatePairModal: the recommendation hint names the models that worked', async () => {
+  setLocale()
+  state.recommendation = [
+    {
+      mentorModel: 'grok:fast',
+      executorModel: 'grok:fast',
+      runs: 4,
+      successes: 3,
+      successRate: 0.75
+    }
+  ]
+  try {
+    seedStore()
+    renderModal()
+
+    fireEvent.change(screen.getByTestId('pair-task-spec'), {
+      target: { value: 'refactor the parser module' }
+    })
+
+    // The lookup is debounced, so the hint lands a beat later.
+    const hint = await screen.findByTestId('recommendation-hint', undefined, { timeout: 3000 })
+    assert.match(hint.textContent ?? '', /grok:fast \+ grok:fast succeeded 3\/4 times/)
+  } finally {
+    state.recommendation = null
+  }
 })
