@@ -19,6 +19,7 @@ import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
 import type { Message, Pair, PairRunSummary } from '../../src/renderer/src/store/usePairStore.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function makeMessage(overrides: Partial<Message>): Message {
   return {
@@ -140,13 +141,13 @@ test('an archived run on screen shows no input', () => {
   usePairStore.getState().setViewingRunId('run-arch')
   renderConsole(makePair(MESSAGES, { runHistory: [ARCHIVED_RUN] }))
   assert.ok(document.getElementById('console-msg-a1'), 'archived run rendered')
-  assert.equal(screen.queryByTestId('pair-task-input'), null)
+  assertAbsent(screen.queryByTestId('pair-task-input'))
 })
 
 test('awaiting review on an archived run, the dock returns to the pending plan', () => {
   usePairStore.getState().setViewingRunId('run-arch')
   renderConsole(makePair(MESSAGES, { status: 'Awaiting Human Review', runHistory: [ARCHIVED_RUN] }))
-  assert.equal(screen.queryByTestId('plan-approve-btn'), null, 'no approve on an archived run')
+  assertAbsent(screen.queryByTestId('plan-approve-btn'), 'no approve on an archived run')
   const back = screen.getByText(/Return to review/).closest('button')
   assert.ok(back, 'return-to-review button rendered')
   assertDocked(back)

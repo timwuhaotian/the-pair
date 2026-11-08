@@ -19,6 +19,7 @@ import i18n from '../../src/renderer/src/i18n.ts'
 import PairConsole from '../../src/renderer/src/components/PairConsole.tsx'
 import { usePairStore } from '../../src/renderer/src/store/usePairStore.ts'
 import type { Message, Pair, PairRunSummary } from '../../src/renderer/src/store/usePairStore.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 // jsdom lacks scrollIntoView. Tests assert on the recorded targets.
 const scrollTargets: Element[] = []
@@ -119,7 +120,7 @@ test('search filters messages, counts occurrences, highlights', () => {
 
   assert.equal(screen.getByTestId('console-search-count').textContent, '3 matches')
   assert.ok(document.getElementById('console-msg-m1'))
-  assert.equal(document.getElementById('console-msg-m2'), null)
+  assertAbsent(document.getElementById('console-msg-m2'))
   assert.ok(document.getElementById('console-msg-m3'))
   assert.equal(document.querySelectorAll('mark').length, 3)
 })
@@ -139,7 +140,7 @@ test('Enter cycles the active match; Esc closes and restores the transcript', ()
   assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
 
   fireEvent.keyDown(input, { key: 'Escape' })
-  assert.equal(screen.queryByTestId('console-search-input'), null)
+  assertAbsent(screen.queryByTestId('console-search-input'))
   assert.ok(document.getElementById('console-msg-m2'), 'full transcript restored')
   assert.equal(document.querySelectorAll('mark').length, 0)
 })
@@ -166,7 +167,7 @@ test('search does not count or cycle to the human mission banner', () => {
 
   // Only the mentor card renders a highlighted, anchored match.
   assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
-  assert.equal(document.getElementById('console-msg-h1'), null)
+  assertAbsent(document.getElementById('console-msg-h1'))
   assert.equal(document.querySelectorAll('mark').length, 1)
 
   fireEvent.keyDown(input, { key: 'Enter' })
@@ -188,7 +189,7 @@ test('search count ignores messages collapsed away by dedup', () => {
   const input = screen.getByTestId('console-search-input')
   fireEvent.change(input, { target: { value: 'parser' } })
 
-  assert.equal(document.getElementById('console-msg-a'), null, 'collapsed draft not rendered')
+  assertAbsent(document.getElementById('console-msg-a'), 'collapsed draft not rendered')
   assert.equal(screen.getByTestId('console-search-count').textContent, '2 matches')
   assert.equal(document.querySelectorAll('mark').length, 2)
 
@@ -216,7 +217,7 @@ test('search count, filtered list and highlights agree for link URLs', () => {
   // The only "github" hit is the link URL, which renders as an href, not text.
   fireEvent.change(input, { target: { value: 'github' } })
   assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
-  assert.equal(document.getElementById('console-msg-m1'), null, 'card filtered out')
+  assertAbsent(document.getElementById('console-msg-m1'), 'card filtered out')
   assert.equal(document.querySelectorAll('mark').length, 0)
 
   // Only the link label renders, so exactly one mark and one counted match.
@@ -290,7 +291,7 @@ test('search never un-hides a message collapsed away by dedup', () => {
       <PairConsole pair={makePair(messages)} />
     </I18nextProvider>
   )
-  assert.equal(document.getElementById('console-msg-a'), null, 'draft collapsed without search')
+  assertAbsent(document.getElementById('console-msg-a'), 'draft collapsed without search')
 
   fireEvent.click(screen.getByTestId('console-search-toggle'))
   const input = screen.getByTestId('console-search-input')
@@ -298,7 +299,7 @@ test('search never un-hides a message collapsed away by dedup', () => {
   // Only the draft contains "parser": it stays hidden and the search reports
   // no matches rather than resurrecting the collapsed draft.
   fireEvent.change(input, { target: { value: 'parser' } })
-  assert.equal(document.getElementById('console-msg-a'), null, 'draft stays collapsed in search')
+  assertAbsent(document.getElementById('console-msg-a'), 'draft stays collapsed in search')
   assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
 
   // When the final message matches, the drop marker still reports the draft.
@@ -355,7 +356,7 @@ test('search count, filtered list and highlights agree for excess table cells', 
 
   fireEvent.change(input, { target: { value: 'extra' } })
   assert.equal(screen.getByTestId('console-search-count').textContent, 'No matches')
-  assert.equal(document.getElementById('console-msg-m1'), null, 'card filtered out')
+  assertAbsent(document.getElementById('console-msg-m1'), 'card filtered out')
   assert.equal(document.querySelectorAll('mark').length, 0)
 
   fireEvent.change(input, { target: { value: 'ok' } })
@@ -396,7 +397,7 @@ test('search count, filtered list and highlights agree for footnote definitions'
   // A query hitting only the unreferenced definition's text finds nothing.
   fireEvent.change(input, { target: { value: 'detail here' } })
   assert.equal(screen.getByTestId('console-search-count').textContent, '1 match')
-  assert.equal(document.getElementById('console-msg-m1'), null, 'unreferenced footnote not listed')
+  assertAbsent(document.getElementById('console-msg-m1'), 'unreferenced footnote not listed')
   assert.ok(document.getElementById('console-msg-m2'), 'referenced footnote listed')
   const marks = document.querySelectorAll('mark')
   assert.equal(marks.length, 1)
@@ -538,7 +539,7 @@ test('a live append that supersedes the active match deactivates it instead of r
     </I18nextProvider>
   )
 
-  assert.equal(document.getElementById('console-msg-p2'), null, 'superseded card collapsed away')
+  assertAbsent(document.getElementById('console-msg-p2'), 'superseded card collapsed away')
   assert.equal(scrollTargets.length, 2, 'the append never scrolls')
   for (const id of ['p1', 'p2b', 'p3']) {
     assert.ok(
@@ -745,7 +746,7 @@ test('IME Enter and Escape confirm/cancel the composition, not the search', () =
   fireEvent.keyDown(input, { key: 'Enter' })
   assert.ok(document.getElementById('console-msg-m1')?.className.includes('outline'))
   fireEvent.keyDown(input, { key: 'Escape' })
-  assert.equal(screen.queryByTestId('console-search-input'), null)
+  assertAbsent(screen.queryByTestId('console-search-input'))
 })
 
 // The deferred search list lags the typed query by one commit. fireEvent
@@ -855,7 +856,7 @@ test('Enter pressed while the deferred list lags applies to the final query, not
       )
       assert.equal(scrollTargets.length, 1, 'one scroll once the list catches up')
     })
-    assert.equal(document.getElementById('console-msg-m1'), null, 'stale match filtered out')
+    assertAbsent(document.getElementById('console-msg-m1'), 'stale match filtered out')
     assert.ok(scrollTargets[0].closest('#console-msg-e1'), 'scroll aims inside the active card')
   })
 })
@@ -909,7 +910,7 @@ test('a parked Shift+Enter activates the last match of the final list', async ()
       false,
       'the first match stays inactive'
     )
-    assert.equal(document.getElementById('console-msg-m0'), null, 'stale match filtered out')
+    assertAbsent(document.getElementById('console-msg-m0'), 'stale match filtered out')
   })
 })
 
@@ -949,9 +950,8 @@ test('a parked press on a query with no final matches activates nothing', async 
       )
     )
     for (const id of ['m1', 'e1']) {
-      assert.equal(
+      assertAbsent(
         document.getElementById(`console-msg-${id}`),
-        null,
         `${id} filtered out entirely with no matches`
       )
     }

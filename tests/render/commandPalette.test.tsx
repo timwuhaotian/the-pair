@@ -15,6 +15,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import i18n from '../../src/renderer/src/i18n.ts'
 import { CommandPalette } from '../../src/renderer/src/components/CommandPalette.tsx'
 import type { PaletteAction } from '../../src/renderer/src/lib/paletteActions.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function setLocale(): void {
   void i18n.changeLanguage('en')
@@ -64,7 +65,7 @@ test('Palette: lists available actions under group headers', () => {
   assert.ok(screen.getByTestId('palette-item-pair.new'))
   assert.ok(screen.getByTestId('palette-item-nav.activity'))
   // Gated actions never render.
-  assert.equal(screen.queryByTestId('palette-item-pair.pause'), null)
+  assertAbsent(screen.queryByTestId('palette-item-pair.pause'))
 })
 
 test('Palette: typing filters to matches, Enter runs the top hit', () => {
@@ -76,7 +77,7 @@ test('Palette: typing filters to matches, Enter runs the top hit', () => {
   })
 
   fireEvent.change(screen.getByTestId('command-palette-input'), { target: { value: 'activ' } })
-  assert.equal(screen.queryByTestId('palette-item-pair.new'), null)
+  assertAbsent(screen.queryByTestId('palette-item-pair.new'))
   assert.ok(screen.getByTestId('palette-item-nav.activity'))
 
   fireEvent.keyDown(screen.getByTestId('command-palette-input'), { key: 'Enter' })
@@ -89,7 +90,7 @@ test('Palette: no matches render the empty state', () => {
   renderPalette(makeActions([]))
 
   fireEvent.change(screen.getByTestId('command-palette-input'), { target: { value: 'zzz-nope' } })
-  assert.equal(screen.queryByTestId('palette-item-pair.new'), null)
+  assertAbsent(screen.queryByTestId('palette-item-pair.new'))
   assert.ok(screen.getByText(/No matching commands/))
 })
 

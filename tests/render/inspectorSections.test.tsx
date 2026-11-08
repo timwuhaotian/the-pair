@@ -17,6 +17,7 @@ import PairOperationsPanel from '../../src/renderer/src/components/PairOperation
 import { InspectorSection } from '../../src/renderer/src/components/inspector/InspectorSection.tsx'
 import type { Pair } from '../../src/renderer/src/store/usePairStore.ts'
 import { commitPush } from './mock-ipc.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function setLocale(): void {
   void i18n.changeLanguage('en')
@@ -108,7 +109,7 @@ test('InspectorSection: toggle collapses and re-expands the body', () => {
 
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-expanded'), 'false')
-  assert.equal(screen.queryByText('body content'), null)
+  assertAbsent(screen.queryByText('body content'))
 
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-expanded'), 'true')
@@ -127,7 +128,7 @@ test('InspectorSection: defaultOpen=false starts collapsed', () => {
     )
   )
   assert.equal(screen.getByTestId('inspector-toggle-demo').getAttribute('aria-expanded'), 'false')
-  assert.equal(screen.queryByText('hidden body'), null)
+  assertAbsent(screen.queryByText('hidden body'))
   unmount()
   cleanup()
 })
@@ -161,7 +162,7 @@ test('Inspector: files rows expand an inline diff fetched from the backend', asy
 
     // Collapsing and re-opening serves the cached diff without refetching.
     fireEvent.click(screen.getByTestId('ops-file-row-src/a.ts'))
-    assert.equal(screen.queryByTestId('ops-file-diff-src/a.ts'), null)
+    assertAbsent(screen.queryByTestId('ops-file-diff-src/a.ts'))
     fireEvent.click(screen.getByTestId('ops-file-row-src/a.ts'))
     assert.ok(await screen.findByTestId('ops-file-diff-src/a.ts'))
     assert.deepEqual(diffCalls.length, 1)

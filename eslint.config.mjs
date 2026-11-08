@@ -55,5 +55,28 @@ export default [
       ...eslintPluginReactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }]
     }
+  },
+  {
+    // A failing node:assert comparison deep-inspects its operands; a jsdom node
+    // reaches the whole window graph and the diff eats tens of GB. See
+    // tests/render/assert-dom.ts.
+    files: ['tests/render/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.object.name='assert'][callee.property.name=/^(equal|strictEqual|notEqual|notStrictEqual|deepEqual|deepStrictEqual)$/] > CallExpression:first-child[callee.property.name=/^(query|get|find)(All)?By|^getElementById$|^querySelector(All)?$|^closest$/]",
+          message:
+            'Do not pass DOM nodes to assert.equal/deepEqual: a failure deep-inspects jsdom and exhausts memory. Use assertAbsent() from ./assert-dom.ts or compare a primitive.'
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='assert'][callee.property.name=/^(equal|strictEqual|notEqual|notStrictEqual|deepEqual|deepStrictEqual)$/] > MemberExpression:first-child[property.name='activeElement']",
+          message:
+            'Compare focus with assert.ok(document.activeElement === el): a failing assert.equal deep-inspects jsdom and exhausts memory.'
+        }
+      ]
+    }
   }
 ]

@@ -20,6 +20,7 @@ import i18n from '../../src/renderer/src/i18n.ts'
 import PairOperationsPanel from '../../src/renderer/src/components/PairOperationsPanel.tsx'
 import type { Pair } from '../../src/renderer/src/store/usePairStore.ts'
 import { commitPush } from './mock-ipc.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function setLocale(): void {
   void i18n.changeLanguage('en')
@@ -165,7 +166,7 @@ test('Push: hidden when the pair has no known branch', async () => {
   setLocale()
   renderPanel(makePair({ worktreeBranch: undefined, branch: undefined }))
 
-  assert.equal(screen.queryByTestId('ops-push-btn'), null)
+  assertAbsent(screen.queryByTestId('ops-push-btn'))
   // Commit still works without a branch.
   assert.ok(screen.getByTestId('ops-commit-btn'))
 })
@@ -180,7 +181,7 @@ test('Commit: success detail auto-clears after a few seconds', async () => {
 
   // Fast-forward the auto-clear timer; the detail must disappear.
   await new Promise((resolve) => setTimeout(resolve, 4500))
-  await waitFor(() => assert.equal(screen.queryByTestId('ops-commit-detail'), null))
+  await waitFor(() => assertAbsent(screen.queryByTestId('ops-commit-detail')))
 })
 
 test('Push: success detail auto-clears after a few seconds', async () => {
@@ -191,5 +192,5 @@ test('Push: success detail auto-clears after a few seconds', async () => {
   assert.ok(await screen.findByText(/Pushed the-pair\/pair-ui/))
 
   await new Promise((resolve) => setTimeout(resolve, 4500))
-  await waitFor(() => assert.equal(screen.queryByTestId('ops-push-detail'), null))
+  await waitFor(() => assertAbsent(screen.queryByTestId('ops-push-detail')))
 })

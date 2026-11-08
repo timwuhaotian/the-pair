@@ -13,6 +13,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from '../../src/renderer/src/i18n.ts'
 import { UpdateNotification } from '../../src/renderer/src/components/UpdateNotification.tsx'
 import { useUpdateStore } from '../../src/renderer/src/store/useUpdateStore.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 void i18n.changeLanguage('en')
 
@@ -67,8 +68,8 @@ test('downloading shows percent, megabytes and the active step', () => {
   const bar = screen.getByTestId('update-progress').querySelector('[role="progressbar"]')
   assert.equal(bar?.getAttribute('aria-valuenow'), '45')
   // No buttons mid-install: it can't be cancelled or dismissed.
-  assert.equal(screen.queryByText('Later'), null)
-  assert.equal(screen.queryByText('Close'), null)
+  assertAbsent(screen.queryByText('Later'))
+  assertAbsent(screen.queryByText('Close'))
 })
 
 test('a finished download shows installing', () => {

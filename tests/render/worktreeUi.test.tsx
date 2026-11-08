@@ -22,6 +22,7 @@ import { BranchPicker } from '../../src/renderer/src/components/BranchPicker.tsx
 import { AppChrome } from '../../src/renderer/src/components/AppChrome.tsx'
 import { usePairStore, type Pair } from '../../src/renderer/src/store/usePairStore.ts'
 import { mockRepoState, state } from './mock-ipc.ts'
+import { assertAbsent } from './assert-dom.ts'
 
 function setLocale(): void {
   void i18n.changeLanguage('en')
@@ -166,7 +167,7 @@ test('CreatePairModal: toggling the worktree opt-in off hides the preview', asyn
 
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-pressed'), 'false')
-  assert.equal(screen.queryByText(/the-pair\/… branch in/), null)
+  assertAbsent(screen.queryByText(/the-pair\/… branch in/))
   // The plain branch picker returns (its repo state loads a tick later).
   assert.ok(await screen.findByText('select branch (optional)'))
 })
@@ -299,7 +300,7 @@ test('AssignTaskModal: hides the fresh worktree toggle for a non-git workspace',
   const { unmount } = render(wrap(<AssignTaskModal pair={pair} isOpen onClose={() => undefined} />))
 
   await waitFor(() => assert.ok(screen.getByTestId('assign-task-spec')))
-  assert.equal(screen.queryByTestId('fresh-worktree-toggle'), null)
+  assertAbsent(screen.queryByTestId('fresh-worktree-toggle'))
   unmount()
 })
 
@@ -312,7 +313,7 @@ test('AssignTaskModal: hides the fresh worktree toggle when the repo state is un
   const { unmount } = render(wrap(<AssignTaskModal pair={pair} isOpen onClose={() => undefined} />))
 
   await waitFor(() => assert.ok(screen.getByTestId('assign-task-spec')))
-  assert.equal(screen.queryByTestId('fresh-worktree-toggle'), null)
+  assertAbsent(screen.queryByTestId('fresh-worktree-toggle'))
   unmount()
   cleanup()
   state.failRepoCheck = false
@@ -403,6 +404,6 @@ test('AppChrome: hides the branch chip for an in-place pair', () => {
       />
     )
   )
-  assert.equal(screen.queryByTestId('chrome-branch-chip'), null)
+  assertAbsent(screen.queryByTestId('chrome-branch-chip'))
   unmount()
 })
