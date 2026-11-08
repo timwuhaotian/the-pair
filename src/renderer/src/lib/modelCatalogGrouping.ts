@@ -327,3 +327,33 @@ export function modelMatchesQuery(model: CanonicalModel, query: string): boolean
       fuzzyMatch(route.baseQualifiedId, normalized)
   )
 }
+
+/** An agent CLI and the selectable models it can run — step one of the picker. */
+export interface AgentOption {
+  kind: ProviderKind
+  label: string
+  models: AvailableModel[]
+}
+
+/** Group models by the agent CLI that runs them, in route-preference order. */
+export function groupModelsByAgent(models: AvailableModel[]): AgentOption[] {
+  const byKind = new Map<ProviderKind, AgentOption>()
+  for (const model of models) {
+    const existing = byKind.get(model.provider)
+    if (existing) existing.models.push(model)
+    else
+      byKind.set(model.provider, {
+        kind: model.provider,
+        label: model.providerLabel,
+        models: [model]
+      })
+  }
+  return Array.from(byKind.values()).sort(
+    (a, b) => providerRank(a.kind) - providerRank(b.kind) || a.label.localeCompare(b.label)
+  )
+}
+
+/** The vendor brand behind a canonical model ("anthropic" for "anthropic::claude-…"). */
+export function modelVendorKey(canonicalKey: string): string {
+  return canonicalKey.split('::')[0] ?? ''
+}

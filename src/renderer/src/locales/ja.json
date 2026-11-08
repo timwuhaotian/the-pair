@@ -237,6 +237,8 @@
     "mentorDesc": "分析、計画、レビュー",
     "executorLabel": "実行者",
     "executorDesc": "コード作成、コマンド実行",
+    "agent": "エージェント",
+    "model": "モデル",
     "recent": "最近使用",
     "allModels": "すべてのモデル...",
     "selectModel": "モデルを選択",

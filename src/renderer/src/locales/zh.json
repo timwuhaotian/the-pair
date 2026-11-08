@@ -247,6 +247,8 @@
     "mentorDesc": "分析、规划、审查",
     "executorLabel": "执行者",
     "executorDesc": "编写代码、运行命令",
+    "agent": "智能体",
+    "model": "模型",
     "recent": "最近使用",
     "allModels": "所有模型...",
     "selectModel": "选择模型",

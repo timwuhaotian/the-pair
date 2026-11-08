@@ -8,8 +8,11 @@ import {
   pickDefaultRoute,
   resolveSelection,
   saveLastRouteKey,
-  modelMatchesQuery
+  modelMatchesQuery,
+  groupModelsByAgent,
+  modelVendorKey
 } from '../src/renderer/src/lib/modelCatalogGrouping.ts'
+import { agentIconKey, vendorIconKey } from '../src/renderer/src/lib/brandIcons.ts'
 
 function installLocalStorage(initial: Record<string, string> = {}): () => void {
   const store = new Map(Object.entries(initial))
@@ -408,4 +411,38 @@ test('a native CLI label names the model over every gateway slug, whatever the r
 
   assert.equal(models.length, 1)
   assert.equal(models[0].displayName, 'Grok 4.6', 'named after the native Grok route')
+})
+
+test('groups models by agent CLI in route-preference order', () => {
+  const agents = groupModelsByAgent([
+    makeModel({
+      provider: 'opencode',
+      modelId: 'anthropic/claude-sonnet-4-5',
+      providerLabel: 'OpenCode'
+    }),
+    makeModel({ provider: 'codex', modelId: 'gpt-5', providerLabel: 'Codex' }),
+    makeModel({ provider: 'claude', modelId: 'claude-sonnet-4-5', providerLabel: 'Claude Code' }),
+    makeModel({ provider: 'codex', modelId: 'gpt-5-mini', providerLabel: 'Codex' })
+  ])
+  assert.deepEqual(
+    agents.map((agent) => [agent.kind, agent.label, agent.models.length]),
+    [
+      ['claude', 'Claude Code', 1],
+      ['codex', 'Codex', 2],
+      ['opencode', 'OpenCode', 1]
+    ]
+  )
+})
+
+test('reads the model vendor from the canonical key and maps it to a brand mark', () => {
+  assert.equal(modelVendorKey('anthropic::claude-sonnet-4-5'), 'anthropic')
+  assert.equal(vendorIconKey(modelVendorKey('anthropic::claude-sonnet-4-5')), 'claude')
+  assert.equal(vendorIconKey('xai'), 'grok')
+  // Gateway source labels arrive lower-cased with spaces or dots.
+  assert.equal(vendorIconKey('github copilot'), 'githubcopilot')
+  assert.equal(vendorIconKey('Z.ai'), 'zai')
+  assert.equal(vendorIconKey('unknownvendor'), undefined)
+  assert.equal(agentIconKey('claude'), 'claudecode')
+  // Aider publishes no mark; the picker falls back to a monogram.
+  assert.equal(agentIconKey('aider'), undefined)
 })

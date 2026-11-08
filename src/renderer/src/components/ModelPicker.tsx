@@ -13,6 +13,8 @@ import {
   searchInput
 } from '../lib/ui'
 import { GlassButton } from './ui/GlassButton'
+import { BrandIcon } from './ui/BrandIcon'
+import { agentIconKey, vendorIconKey } from '../lib/brandIcons'
 import type { AvailableModel, ProviderKind } from '../types'
 import {
   getQualifiedModel,
@@ -24,7 +26,9 @@ import { modelMatchesId } from '../lib/providerResolution'
 import {
   buildCanonicalModels,
   defaultLeafForRoute,
+  groupModelsByAgent,
   modelMatchesQuery,
+  modelVendorKey,
   pickDefaultRoute,
   resolveSelection,
   saveLastRouteKey,
@@ -61,6 +65,15 @@ function effortTranslationKey(
     default:
       return undefined
   }
+}
+
+/** The listed choices for a model set: current MiniMax text slots only, Flash first. */
+function choiceModelsFor(models: AvailableModel[]): CanonicalModel[] {
+  return preferMiniMaxFlash(
+    buildCanonicalModels(ordinaryModelChoices(models)),
+    (model) =>
+      model.routes.find((route) => route.planLabel !== 'custom-provider')?.baseQualifiedId ?? ''
+  )
 }
 
 function getRecentModelIds(role: 'mentor' | 'executor'): string[] {
@@ -104,6 +117,11 @@ function roleClasses(role: 'mentor' | 'executor'): { fg: string; border: string;
   return { fg: 'role-executor', border: 'border-role-executor', bg: 'bg-role-executor' }
 }
 
+function VendorIcon({ canonicalKey }: { canonicalKey: string }): React.ReactNode {
+  const vendor = modelVendorKey(canonicalKey)
+  return <BrandIcon icon={vendorIconKey(vendor)} label={vendor} className="self-center" />
+}
+
 function QuickPickRow({
   model,
   selected,
@@ -133,11 +151,17 @@ function QuickPickRow({
       >
         {selected ? '●' : '○'}
       </span>
+      <VendorIcon canonicalKey={model.canonicalKey ?? `${model.provider}::`} />
       <span className="min-w-0 flex-1 truncate text-foreground/90">
         {model.canonicalDisplayName?.trim() || model.displayName}
       </span>
-      <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[12ch]">
-        {model.providerLabel}
+      <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground-faint">
+        <BrandIcon
+          icon={agentIconKey(model.provider)}
+          label={model.providerLabel}
+          className="size-3"
+        />
+        <span className="max-w-[12ch] truncate">{model.providerLabel}</span>
       </span>
     </button>
   )
@@ -163,6 +187,7 @@ export function ModelPicker({
   const [searchQuery, setSearchQuery] = useState('')
   const [recentModelIds] = useState<string[]>(() => getRecentModelIds(role))
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const c = roleClasses(role)
 
@@ -189,20 +214,18 @@ export function ModelPicker({
 
   // Keep the full catalog for saved selections and recent history.
   const canonicalModels = useMemo(() => buildCanonicalModels(selectableModels), [selectableModels])
-  const choiceModels = useMemo(
-    () =>
-      preferMiniMaxFlash(
-        buildCanonicalModels(ordinaryModelChoices(selectableModels)),
-        (model) =>
-          model.routes.find((route) => route.planLabel !== 'custom-provider')?.baseQualifiedId ?? ''
-      ),
-    [selectableModels]
-  )
 
   const current = useMemo(
     () => resolveSelection(canonicalModels, value, reasoningEffort),
     [canonicalModels, value, reasoningEffort]
   )
+
+  // Step one: the agent CLI. It follows the selection, so value and strip never disagree.
+  const agents = useMemo(() => groupModelsByAgent(selectableModels), [selectableModels])
+  const activeAgent = agents.find((agent) => agent.kind === current.route?.provider) ?? agents[0]
+
+  // Step two: that agent's models, with routes narrowed to it.
+  const choiceModels = useMemo(() => choiceModelsFor(activeAgent?.models ?? []), [activeAgent])
 
   const recentModels = useMemo(() => {
     return recentModelIds
@@ -292,6 +315,43 @@ export function ModelPicker({
     applyLeaf(route.baseQualifiedId, undefined, model.canonicalKey, route.key)
   }
 
+  const openDropdown = (): void => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (rect) setAutoDropUp(rect.top > window.innerHeight / 2)
+    setSearchQuery('')
+    setIsDropdownOpen(true)
+  }
+
+  // Switching agent lands on its most recent model for this role, else its first
+  // choice, then opens the model list so the second step is one click away.
+  const selectAgent = (kind: ProviderKind): void => {
+    if (kind === activeAgent?.kind) {
+      if (isDropdownOpen) closeDropdown()
+      else openDropdown()
+      return
+    }
+    const agent = agents.find((candidate) => candidate.kind === kind)
+    if (!agent) return
+    const canonical = buildCanonicalModels(agent.models)
+    const recent = getRecentModelIds(role)
+      .map((id) => resolveSelection(canonical, id))
+      .find((sel) => sel.model && sel.route)
+    if (recent?.model && recent.route) {
+      const leaf = recent.effort
+        ? { qualifiedId: recent.effort.qualifiedId, reasoningEffort: recent.effort.reasoningEffort }
+        : defaultLeafForRoute(recent.route)
+      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, recent.model.canonicalKey, recent.route.key)
+    } else {
+      const choices = choiceModelsFor(agent.models)
+      const model = choices.find((candidate) => candidate.available) ?? choices[0]
+      const route = model && pickDefaultRoute(model, role)
+      if (!model || !route) return
+      const leaf = defaultLeafForRoute(route)
+      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
+    }
+    openDropdown()
+  }
+
   const selectRecent = (model: AvailableModel): void => {
     const qualifiedId = getQualifiedModel(model)
     const sel = resolveSelection(canonicalModels, qualifiedId)
@@ -341,35 +401,59 @@ export function ModelPicker({
 
   const pickerContent = (
     <>
-      {/* Recent quick-picks */}
-      {recentModels.length > 0 && (
-        <div className="space-y-1">
-          <div className={groupHeader}>── {t('pickers.recent')} ──</div>
-          <div className="space-y-px">
-            {recentModels.map((model) => (
-              <QuickPickRow
-                key={getQualifiedModel(model)}
-                model={model}
-                selected={modelMatchesId(model, value)}
-                role={role}
-                onSelect={selectRecent}
-              />
-            ))}
+      {/* Step 1 — agent CLI */}
+      {agents.length > 0 && (
+        <div className="space-y-1 font-mono">
+          <div className="flex items-baseline gap-2">
+            <span className={fieldLabel}>{t('pickers.agent')}</span>
+            {activeAgent && (
+              <span className={cn('truncate text-[10px] uppercase tracking-[0.14em]', c.fg)}>
+                · {activeAgent.label}
+              </span>
+            )}
+          </div>
+          <div role="radiogroup" aria-label={t('pickers.agent')} className="flex flex-wrap gap-1">
+            {agents.map((agent) => {
+              const active = agent.kind === activeAgent?.kind
+              return (
+                <button
+                  key={agent.kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={agent.label}
+                  title={agent.label}
+                  onClick={() => selectAgent(agent.kind)}
+                  className={cn(
+                    'flex size-7 cursor-pointer items-center justify-center rounded-md border transition-colors',
+                    active
+                      ? cn(c.border, c.bg)
+                      : cn(
+                          'border-border opacity-70 hover:border-foreground/40 hover:opacity-100',
+                          hoverTint
+                        )
+                  )}
+                >
+                  <BrandIcon
+                    icon={agentIconKey(agent.kind)}
+                    label={agent.label}
+                    className="size-4"
+                  />
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
 
+      {/* Step 2 — a model the active agent can run */}
       <div className="flex flex-col gap-2">
+        <span className={cn(fieldLabel, 'font-mono')}>{t('pickers.model')}</span>
         <div className="relative" ref={dropdownRef} onKeyDown={handleDropdownKeyDown}>
           <button
+            ref={triggerRef}
             type="button"
-            onClick={(e) => {
-              if (!isDropdownOpen) {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setAutoDropUp(rect.top > window.innerHeight / 2)
-              }
-              setIsDropdownOpen(!isDropdownOpen)
-            }}
+            onClick={() => (isDropdownOpen ? closeDropdown() : openDropdown())}
             aria-haspopup="listbox"
             aria-expanded={isDropdownOpen}
             className={cn(
@@ -379,13 +463,11 @@ export function ModelPicker({
           >
             {current.model ? (
               <div className="flex min-w-0 flex-1 items-baseline gap-2">
-                <span aria-hidden className={c.fg}>
-                  ●
-                </span>
+                <VendorIcon canonicalKey={current.model.canonicalKey} />
                 <span className="truncate text-foreground/90">{current.model.displayName}</span>
                 {current.route && (
                   <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
-                    · {current.route.providerLabel}
+                    · {current.route.accessLabel}
                   </span>
                 )}
               </div>
@@ -462,6 +544,7 @@ export function ModelPicker({
                             >
                               {isActiveModel ? '●' : '○'}
                             </span>
+                            <VendorIcon canonicalKey={model.canonicalKey} />
                             <span className="min-w-0 flex-1 truncate text-foreground/90">
                               {model.displayName}
                             </span>
@@ -470,8 +553,8 @@ export function ModelPicker({
                                 {model.routes.length} {t('pickers.routes')} ›
                               </span>
                             ) : (
-                              <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[12ch]">
-                                {model.routes[0]?.providerLabel}
+                              <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
+                                {model.routes[0]?.accessLabel}
                               </span>
                             )}
                           </button>
@@ -507,9 +590,6 @@ export function ModelPicker({
                                       {selectedRoute ? '●' : '○'}
                                     </span>
                                     <span className="min-w-0 flex-1 truncate text-foreground/80">
-                                      {route.providerLabel}
-                                    </span>
-                                    <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
                                       {route.accessLabel}
                                     </span>
                                   </button>
@@ -610,6 +690,24 @@ export function ModelPicker({
           </div>
         )}
       </div>
+
+      {/* Recent quick-picks */}
+      {recentModels.length > 0 && (
+        <div className="space-y-1">
+          <div className={groupHeader}>── {t('pickers.recent')} ──</div>
+          <div className="space-y-px">
+            {recentModels.map((model) => (
+              <QuickPickRow
+                key={getQualifiedModel(model)}
+                model={model}
+                selected={modelMatchesId(model, value)}
+                role={role}
+                onSelect={selectRecent}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </>
   )
 

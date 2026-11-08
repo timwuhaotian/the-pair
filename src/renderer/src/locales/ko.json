@@ -237,6 +237,8 @@
     "mentorDesc": "분석, 계획, 검토",
     "executorLabel": "실행기",
     "executorDesc": "코드 작성, 명령 실행",
+    "agent": "에이전트",
+    "model": "모델",
     "recent": "최근 사용",
     "allModels": "모든 모델...",
     "selectModel": "모델 선택",

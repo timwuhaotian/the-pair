@@ -247,6 +247,8 @@
     "mentorDesc": "Analyzes, plans, reviews",
     "executorLabel": "Executor",
     "executorDesc": "Writes code, runs commands",
+    "agent": "Agent",
+    "model": "Model",
     "recent": "Recent",
     "allModels": "All models...",
     "selectModel": "Select a model",
