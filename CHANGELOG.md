@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.8] - 2026-11-08
+
+Two-step model picker and a clearer, fully localized pair conversation.
+
+### Changed
+
+- **Pick the agent first, then its model.** Each role's picker now shows the installed agent CLIs as a row of app icons; choosing one lists only that agent's models, each prefixed with its vendor's mark (Claude, OpenAI, Gemini, DeepSeek, Qwen, GLM, Kimi, MiniMax, …). Switching agent restores the model you last used with it for that role, so the saved selection always belongs to the agent shown. Search covers the active agent; the Recent row still spans all agents. Aider has no published mark and shows a monogram.
+- **The console header shows the pair's real status** ("Awaiting Human Review", "Executing", "Paused", …) instead of SYSTEM ONLINE/IDLE, which read "idle" while a plan waited for approval.
+- **Acceptance cards use words instead of raw values**: "Changes needed", "Low risk", "Next: another iteration", "1/2 checks passed".
+- **Clearer conversation wording.** The task banner reads "Task" (was MISSION SPECS), your messages are labelled "You" (was HUMAN), acceptance messages are always labelled acceptance, the collapse marker names what it hides ("+ 1 earlier Mentor message from this iteration not shown"), and an empty transcript says what happens next.
+
+### Fixed
+
+- **Untranslated conversation text in 简体中文, 日本語 and 한국어.** Message type tags, iteration labels, acceptance headings and the Mentor/Executor block labels were hardcoded English.
+- **"Show N earlier steps" used the singular for every count.** The pluralization key used a suffix the current i18n library ignores.
+
 ## [2.13.7] - 2026-11-05
 
 Docs-only provider audit across all ten agent CLIs (opencode 2.2.5, codex 0.166.0, claude 2.1.316, agy 1.5.0, kimi-code 2.5.1, pi 1.5.0, kiro-cli 3.0.0, aider 0.86.2, grok 1.0.70, muse 1.4.13). Six needed no changes; four fixes below.
