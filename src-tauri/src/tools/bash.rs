@@ -220,6 +220,9 @@ impl Running {
         }
         #[cfg(windows)]
         {
+            // `creation_flags` is an extension trait on the std command; the
+            // tokio one above has it built in.
+            use std::os::windows::process::CommandExt;
             let _ = std::process::Command::new("taskkill")
                 .args(["/T", "/F", "/PID", &self.pid.to_string()])
                 .creation_flags(CREATE_NO_WINDOW)
