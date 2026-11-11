@@ -444,6 +444,17 @@ mod tests {
     use crate::accounts::types::AccountKind;
     use std::fs;
 
+    /// Scans `home` with the environment held still.
+    ///
+    /// `pi_coding_agent_dir_moves_the_config` points `PI_CODING_AGENT_DIR` at
+    /// its own directory while it runs, and every scan reads that variable: a
+    /// test scanning at the same moment without the lock reads that test's
+    /// config instead of its own.
+    fn scan_home(home: &Path) -> ImportCandidate {
+        let _guard = crate::test_env::lock_env();
+        scan_from(home)
+    }
+
     fn write_files(root: &Path, files: &[(&str, &str)]) {
         for (relative, body) in files {
             let path = root.join(relative);
@@ -484,7 +495,7 @@ mod tests {
             ],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_none());
         assert_eq!(candidate.drafts.len(), 1);
         let draft = &candidate.drafts[0];
@@ -529,7 +540,7 @@ mod tests {
             )],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_none());
         let anthropic = candidate
             .drafts
@@ -758,7 +769,7 @@ mod tests {
             ],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_none());
         assert_eq!(candidate.drafts.len(), 1, "only the api_key entry imports");
         assert_eq!(
@@ -804,7 +815,7 @@ mod tests {
             )],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert_eq!(candidate.drafts[0].base_url, "https://api.moonshot.cn/v1");
         assert!(
@@ -821,7 +832,7 @@ mod tests {
     #[test]
     fn missing_config_is_not_an_error() {
         let root = std::env::temp_dir().join(format!("the-pair-pi-{}", uuid::Uuid::new_v4()));
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.drafts.is_empty());
         assert!(candidate.notes.is_empty());
         assert!(candidate.error.is_none());
@@ -832,7 +843,7 @@ mod tests {
     fn malformed_config_reports_an_error() {
         let root = std::env::temp_dir().join(format!("the-pair-pi-{}", uuid::Uuid::new_v4()));
         write_files(&root, &[(".pi/agent/models.json", "not json at all")]);
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_some());
         assert!(candidate.drafts.is_empty());
         fs::remove_dir_all(&root).ok();
@@ -848,7 +859,7 @@ mod tests {
                 (".pi/agent/models-store.json", "{oops"),
             ],
         );
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_some());
         fs::remove_dir_all(&root).ok();
     }
@@ -863,7 +874,7 @@ mod tests {
                 (".pi/agent/auth.json", "{oops"),
             ],
         );
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_some());
         fs::remove_dir_all(&root).ok();
     }
@@ -891,7 +902,7 @@ mod tests {
             )],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert_eq!(candidate.drafts[0].base_url, "https://api.moonshot.cn/v1");
         assert_eq!(candidate.notes.len(), 1);
@@ -973,7 +984,7 @@ mod tests {
             ],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_none());
         let draft = &candidate.drafts[0];
         assert_eq!(draft.protocol, Protocol::Anthropic);
@@ -1008,7 +1019,7 @@ mod tests {
             )],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts[0].models.len(), 1);
         fs::remove_dir_all(&root).ok();
     }
@@ -1043,7 +1054,7 @@ mod tests {
             ],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert_eq!(candidate.drafts[0].models.len(), 1);
         assert_eq!(candidate.drafts[0].models[0].default_effort, None);
@@ -1076,7 +1087,7 @@ mod tests {
             )],
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         let headers = &candidate.drafts[0].accounts[0].headers;
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0].name, "x-tenant");
