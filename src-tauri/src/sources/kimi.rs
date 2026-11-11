@@ -218,6 +218,17 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// Scans `home` with the environment held still.
+    ///
+    /// `kimi_code_home_moves_the_config` points `KIMI_CODE_HOME` at its own
+    /// directory while it runs, and every scan reads that variable: a test
+    /// scanning at the same moment without the lock reads that test's config
+    /// instead of its own.
+    fn scan_home(home: &Path) -> ImportCandidate {
+        let _guard = crate::test_env::lock_env();
+        scan_from(home)
+    }
+
     fn write_config(root: &Path, body: &str) {
         let path = root.join(CONFIG_RELATIVE);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -243,7 +254,7 @@ support_efforts = ["low", "high"]
 "#,
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         let draft = &candidate.drafts[0];
         assert_eq!(draft.protocol, crate::accounts::types::Protocol::OpenAiChat);
@@ -275,7 +286,7 @@ model = "kimi-k2-0905-preview"
 "#,
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         let draft = &candidate.drafts[0];
         assert_eq!(draft.base_url, "https://api.moonshot.ai/v1");
@@ -369,7 +380,7 @@ api_key = "sk-kimi-1"
 "#,
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert_eq!(candidate.drafts[0].base_url, "https://api.moonshot.cn/v1");
         assert!(candidate.notes.iter().any(|note| note.contains("vertex")
@@ -393,7 +404,7 @@ api_key = "sk-kimi-1"
 "#,
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert_eq!(candidate.drafts[0].accounts.len(), 1);
         assert_eq!(candidate.notes.len(), 1);
@@ -425,7 +436,7 @@ model = "kimi-k2-0905-preview"
 "#,
         );
 
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts.len(), 1);
         assert!(
             candidate
@@ -441,7 +452,7 @@ model = "kimi-k2-0905-preview"
     #[test]
     fn missing_config_is_not_an_error() {
         let root = std::env::temp_dir().join(format!("the-pair-kimi-{}", uuid::Uuid::new_v4()));
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.drafts.is_empty());
         assert!(candidate.error.is_none());
         fs::remove_dir_all(&root).ok();
@@ -451,7 +462,7 @@ model = "kimi-k2-0905-preview"
     fn malformed_config_reports_an_error() {
         let root = std::env::temp_dir().join(format!("the-pair-kimi-{}", uuid::Uuid::new_v4()));
         write_config(&root, "this is not = = toml");
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert!(candidate.error.is_some());
         fs::remove_dir_all(&root).ok();
     }
@@ -494,7 +505,7 @@ provider = "gone"
 model = "whatever"
 "#,
         );
-        let candidate = scan_from(&root);
+        let candidate = scan_home(&root);
         assert_eq!(candidate.drafts[0].models.len(), 0);
         fs::remove_dir_all(&root).ok();
     }
