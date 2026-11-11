@@ -1,136 +1,165 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/app-icon-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/assets/app-icon-light.svg" />
-  <img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
-</picture>
+<img src="./docs/assets/app-icon.svg" alt="The Pair" width="128" />
 
 # The Pair
 
-**自动化 AI 结对编程 —— 两个 AI Agent 互相交叉校验代码，让你喝杯咖啡的工夫就能拿到经过审查、交叉验证的成果。_（没错，The Pair 正是由 The Pair 自己构建的。）_**
+**两个 AI Agent 做同一个任务：一个写代码，另一个审查。**
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
-[![Build Status](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react&logoColor=black)](https://react.dev/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
+开源的桌面端 AI 结对编程：只读的 **Mentor** 负责规划与审查，
+**Executor** 负责写代码、跑命令，两者互相校验，
+把问题拦在进入你的代码库之前。_（没错，The Pair 正是由 The Pair 自己构建的。）_
 
-🌐 [English](README.md) • **简体中文** • [한국어](README.ko.md) • [日本語](README.ja.md)
+[![Release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github&label=release)](https://github.com/timwuhaotian/the-pair/releases)
+[![Downloads](https://img.shields.io/github/downloads/timwuhaotian/the-pair/total?label=downloads)](https://github.com/timwuhaotian/the-pair/releases)
+[![Build](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/timwuhaotian/the-pair?style=social)](https://github.com/timwuhaotian/the-pair/stargazers)
 
-**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;•&nbsp; [**🌐 官网**](https://apps.timwuhaotian.dev/)
+[English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-![The Pair 桌面应用 — Mentor 与 Executor 在会话控制台中协作，右侧是模型、运行状态与 Git 检查器](./docs/assets/pair-detail.png)
+[**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**快速开始**](#快速开始) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**官网**](https://apps.timwuhaotian.dev/)
 
-_实时观察 Mentor 和 Executor Agent 的协作过程_
+<sub>macOS · Windows · Linux</sub>
 
-[![The Pair 10 秒发布短片 — 两个 Agent，一次审查](./docs/assets/launch-10s.gif)](docs/assets/launch-10s.mp4)
+<br />
 
-🎬 **10 秒发布短片 · 默认静音自动播放** — [观看 4K60 原版（含声音）](docs/assets/launch-10s.mp4)
+<img src="./docs/assets/pair-detail.png" alt="The Pair 桌面应用：Mentor 的计划、Executor 的结果和 Mentor 的审查都在同一个会话控制台里，右侧检查器显示模型、运行状态、用量和变更文件" width="100%" />
+
+<sub>一次完成的运行：Mentor 制定计划，Executor 实现，Mentor 读完 diff 后签字放行。</sub>
 
 </div>
 
----
+<br />
 
-<details>
-<summary><b>目录</b></summary>
+## 为什么要两个 Agent
 
-- [概述](#概述) — The Pair 是什么，以及双 Agent 为何能减少 AI 幻觉
-- [功能特性](#功能特性)
-- [截图](#截图)
-- [安装](#安装) — macOS、Windows、Linux
-- [快速开始](#快速开始) — 连接一个模型端点并创建你的第一个 Pair
-- [配置](#配置)
-- [架构](#架构)
-- [开发](#开发)
-- [常见问题](#常见问题)
+让同一个模型写完代码再审查自己的代码，它往往会同意自己。The Pair 把这件事拆成两半，交给两个不同的 Agent —— 你愿意的话，也可以是两个不同的模型。
 
-</details>
+| 角色         | 做什么                                   | 能动什么             |
+| ------------ | ---------------------------------------- | -------------------- |
+| **Mentor**   | 阅读代码、制定计划、审查每一次结果       | 只读                 |
+| **Executor** | 写代码、跑命令、自行验证，再把结果交回去 | 仅限该 Pair 的工作区 |
 
-## 概述
+```mermaid
+flowchart LR
+    T([你的任务]) --> M[Mentor 规划]
+    M --> E[Executor 编写并运行]
+    E --> R[Mentor 审查]
+    R -- 需要返工 --> M
+    R -- 完成 --> F([已完成])
+    R -. 达到迭代上限 .-> H([等待人工审查])
+```
 
-**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：它通过 HTTPS 直连模型端点——不会启动任何 Agent CLI。端点可通过导入其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量发现，也可手动添加，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅在应用内登录——全部在左侧栏的「模型」分区中管理。可任意组合任意两个模型（也支持通过 Ollama 使用本地模型）。
+运行会一直持续，直到 Mentor 发出完成信号或你手动停止。给某个 Pair 设置迭代上限后，达到上限就会暂停并等你审查：你可以继续、换模型，或者直接结束。它们干活的时候，你可以去喝杯咖啡 —— 也可以留下来掌舵：随时停止当前轮次、发送反馈，或者在一行代码都还没写之前先审批计划。
 
-**担心 AI 代码幻觉？** The Pair 通过运行两个互相校验的 AI Agent 来解决这个问题：
+### 对比
 
-- **Mentor Agent** — 负责规划、审查和验证（只读）
-- **Executor Agent** — 负责编写代码和执行命令
+| 能力               | The Pair          | Cursor / Copilot | Claude Code（单 Agent） |
+| ------------------ | ----------------- | ---------------- | ----------------------- |
+| Agent 之间交叉校验 | ✅ 两个独立 Agent | ❌ 单 Agent      | ❌ 单 Agent             |
+| 专职审查角色       | ✅ Mentor（只读） | ❌ 只能自审      | ❌ 只能自审             |
+| 多模型提供方       | ✅ 任意模型端点   | ❌ 锁定一家      | ❌ 仅 Claude            |
+| 本地编排           | ✅ 完全本地       | ❌ 依赖云端      | ❌ 依赖云端             |
+| 会话恢复           | ✅ 完整快照恢复   | ❌               | ❌                      |
+| 开源               | ✅ Apache 2.0     | ❌ 闭源          | ❌ 闭源                 |
 
-它们工作时，你可以去喝杯咖啡。回来后即可获得经过交叉验证的代码。
+## 看一眼
 
-### 核心优势
-
-- **双模型交叉验证** — 两个模型互相检查对方的工作，大幅减少代码幻觉
-- **自动化协作** — Agent 无需人工频繁干预即可协同工作
-- **实时用量追踪** — 每次轮次和每次运行的 Token 用量、估算费用、请求数与最近输出，并带停滞检测
-- **Git 集成** — 自动跟踪会话期间的所有文件变更
-- **人工监督** — 随时介入暂停、调整或重新分配任务
-- **会话恢复** — 中断的会话可完整恢复对话历史
-- **引导式配置** — 首次使用引导，完成模型配置和目录选择
-- **深色/浅色主题** — 自动检测系统主题并支持手动切换
-- **命令面板** — ⌘K 模糊搜索所有操作，可直达任意 Pair
-- **原生菜单栏** — 完整的应用 / 文件 / 编辑 / 视图 / 窗口 / 帮助菜单与快捷键
-- **Pairs 主页** — 按工作区分组的 Pair 卡片，含状态、快捷操作与恢复横幅
-- **检查器面板** — 模型、运行状态、用量、文件、历史与时间线的可折叠分区
-
-### 使用场景
-
-- 自主编码会话——让 AI Agent 迭代功能，你专注于审查
-- 代码重构——自动分析和实施改进
-- 缺陷修复——Agent 协作诊断和解决问题
-- 学习工具——观察 AI Agent 如何拆解和解决问题
-- 中断工作恢复——应用重启或崩溃后恢复会话状态
-
----
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/pair-running.png" alt="正在进行的 Executor 轮次：已执行的工具调用、正在运行的命令，以及停止当前轮次按钮" />
+      <br />
+      <b>实时看着每一轮进行</b><br />
+      <sub>Executor 的每一次读取、编辑和命令都实时可见，旁边就是停止按钮。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/hub.png" alt="Pairs 总览：每个 Pair 的状态、迭代次数、分支和任务" />
+      <br />
+      <b>所有 Pair 汇集一处</b><br />
+      <sub>状态、迭代和分支一目了然，被中断的会话会主动提示恢复。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/models.png" alt="模型分区：各端点的协议、账号、凭据状态和模型" />
+      <br />
+      <b>用你自己的模型</b><br />
+      <sub>端点、账号和凭据集中管理，不需要安装任何 Agent CLI。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/palette.png" alt="命令面板，输入 pair 后列出相关操作和各个 Pair 的跳转项" />
+      <br />
+      <b>⌘K 搞定一切</b><br />
+      <sub>覆盖所有操作的模糊搜索面板，可直接跳转到任意 Pair。</sub>
+    </td>
+  </tr>
+</table>
 
 ## 功能特性
 
-- **双 Agent 架构** — 规划（Mentor）与执行（Executor）分离
-- **全自动模式** — Agent 在工作区权限范围内自主工作
-- **实时活动追踪** — 实时显示 Agent 状态（思考中、执行中、等待中）
-- **用量追踪** — 在检查器中显示每次轮次和每次运行的 Token 用量、估算费用、请求数与最近输出
-- **Git 变更追踪** — 自动检测修改、新增或删除的文件
-- **对话历史** — 完整的 Agent 交互记录
-- **本地编排** — 应用和 Agent 协调均在本地运行；模型调用直连你所选的端点或本地模型
-- **自建端点** — 连接任意模型端点：导入其他 Agent 的配置（opencode、codex、claude、kimi、pi、omp、gemini、killi）、手动添加密钥，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录
-- **推理控制** — 按 Agent 角色调整推理强度（低/中/高）
-- **Token 统计** — 实时显示每次交互的 Token 用量
-- **技能系统** — 附加项目特定的技能文件来引导 Agent 行为
-- **自动更新** — 应用内检查更新，一键安装
+**协作循环**
 
----
+- **双 Agent 架构** — 规划与审查（Mentor）和执行（Executor）分离
+- **智能协调** — 结构化的交接提示、质量门禁和智能暂停，让每次迭代不跑偏
+- **验收检查** — Mentor 运行测试和 lint，然后给出包含风险、证据和下一步的结论
+- **计划审批与迭代上限** — 可选择亲自审批第一份计划，也可为每个 Pair 设置迭代上限（默认不限）
+- **卡顿检测** — 120 秒无输出时警告，600 秒后标记为卡住
 
-## 截图
+**控制台**
 
-Pairs 主页
-<img width="2800" height="2000" alt="按工作区分组的 Pair 卡片主页" src="./docs/assets/hub.png" />
+- **统一的会话控制台** — 任务、计划、结果、审查和实时轮次都在同一条可滚动的信息流里，支持搜索和按角色筛选
+- **认知事件流** — 每一轮的意图标签、推理步骤和工具调用状态
+- **用量追踪** — 每轮与每次运行的 Token、估算费用、请求数和最近输出
+- **检查器** — 模型、运行状态、用量、文件、历史和时间线，各分区可折叠
+- **活动与洞察** — 所有 Pair 中需要你关注的事项，以及哪些模型组合效果好
 
-Pair 详情 — 审查
-<img width="2800" height="2000" alt="带会话控制台与检查器的 Pair 详情" src="./docs/assets/pair-detail.png" />
+**你的仓库**
 
-命令面板
-<img width="2800" height="2000" alt="带模糊搜索与 Pair 跳转的命令面板" src="./docs/assets/palette.png" />
+- **Git 变更追踪** — 相对基线提交的新增、修改和删除文件，每个文件都能看内联 diff
+- **Worktree** — 每个任务可以在独立的 git worktree 和 `the-pair/…` 分支上运行，然后直接在检查器里提交和推送
+- **技能与引用** — 用 `/skill` 附加项目技能文件，用 `@path` 引用文件
+- **会话恢复** — 运行过程中持续保存快照；被中断的会话可以连同历史和轮次状态一起恢复
 
-实时执行
-<img width="2800" height="2000" alt="带停止控制与排队输入的实时执行轮次" src="./docs/assets/pair-running.png" />
+**模型**
 
----
+- **自带端点** — 导入其他 Agent 的配置（opencode、codex、claude、kimi、pi、omp、gemini、killi）、手动添加密钥，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录
+- **任意模型，任意角色** — Mentor 和 Executor 各自独立选择端点、模型和推理强度
+- **本地编排** — 应用和协调逻辑都在你的机器上运行；模型调用直连你选择的端点或本地模型
+
+**应用本身**
+
+- **命令面板与快捷键** — ⌘K 覆盖所有操作，另有全局快捷键和完整的原生菜单栏
+- **四种语言** — English、简体中文、日本語、한국어
+- **浅色与深色主题**、可全局静音的提示音，以及应用内更新
 
 ## 安装
 
 从 [GitHub Releases](https://github.com/timwuhaotian/the-pair/releases) 下载最新版本：
 
-| 平台        | 文件                                                                  |
-| ----------- | --------------------------------------------------------------------- |
-| **macOS**   | `the-pair-{version}.zip`                                              |
-| **Windows** | `the-pair-{version}-setup.exe`                                        |
-| **Linux**   | `the-pair-{version}.AppImage.tar.gz` (extract, then run the AppImage) |
+| 平台        | 文件                                                            |
+| ----------- | --------------------------------------------------------------- |
+| **macOS**   | `the-pair-{version}.zip`                                        |
+| **Windows** | `the-pair-{version}-setup.exe`                                  |
+| **Linux**   | `the-pair-{version}.AppImage.tar.gz`（解压后直接运行 AppImage） |
 
-### 从源码构建
+更喜欢终端？**CLI** 用户可以从 [npm](https://www.npmjs.com/package/pair-code) 安装 [Pair Code](https://github.com/timwuhaotian/pair-code)，它是 The Pair 的终端版：
+
+```bash
+npm install -g pair-code
+```
+
+| 形态     | 适合                                  | 从这里开始                                                         |
+| -------- | ------------------------------------- | ------------------------------------------------------------------ |
+| **桌面** | 可视化监控、安装包、长时间运行的 Pair | [下载 The Pair](https://github.com/timwuhaotian/the-pair/releases) |
+| **CLI**  | 终端工作流、脚本、SSH 会话            | [Pair Code](https://github.com/timwuhaotian/pair-code)             |
+
+<details>
+<summary><b>从源码构建</b></summary>
+
+<br />
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
@@ -139,268 +168,189 @@ npm install
 npm run build:mac  # 或 build:win / build:linux
 ```
 
-在 macOS 上，`build:mac` 生成本地 DMG，而 `build:mac:release` 生成用于 GitHub Releases 的 ZIP 格式发布包。构建脚本会在调用 Tauri 之前自动安装所需的 Rust 目标平台。如需手动安装，请运行：
+在 macOS 上，`build:mac` 生成本地 DMG，`build:mac:release` 生成 GitHub Releases 使用的 ZIP 包。构建脚本会在调用 Tauri 之前装好所需的 Rust target。想自己安装的话：
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
----
+</details>
 
 ## 快速开始
 
 > [!NOTE]
-> The Pair 至少需要一个带凭据的模型端点。它通过 HTTPS 直连模型——无需安装任何 Agent CLI。添加端点及其 API 密钥、导入其他 Agent 已有的配置，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录——全部在「模型」分区中完成。
+> The Pair 需要一个带凭据的模型端点。它通过 HTTPS 直连模型 —— 不需要安装任何 Agent CLI。
 
-### 1. 连接模型
+**1. 连接模型。** 打开左侧栏的 **模型**，用下面任意一种方式添加端点：
 
-打开左侧栏的「模型」分区，通过以下任一方式添加端点：
-
-- **导入** — 从其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量中拉取端点和密钥
-- **手动添加** — 输入协议、base URL、API 密钥和模型 id
+- **扫描 agent** — 导入其他 Agent 已有的端点和密钥（kimi、pi、omp、opencode、codex、claude、gemini、killi），或环境变量里的配置
+- **添加接口** — 填写协议、Base URL、API Key 和模型 ID
 - **登录** — 在应用内授权 ChatGPT、Command Code、OpenCode Go 或 Muse Code 订阅
 
-没有可用凭据的端点也会列出，并显示阻碍它们的状态。
+没有可用凭据的端点也会列出来，并标明卡在哪一步。
 
-### 2. 为每个角色选择模型
+**2. 创建 Pair。** 点击 **新建 Pair**，选择目录、描述任务，再分别为 Mentor 和 Executor 选择端点、模型和推理强度。
 
-创建 Pair 时，为 Mentor 和 Executor 分别选择端点、模型和推理强度。Pair 只保存模型 id 及其推理强度；端点和凭据在轮次开始时解析。
+**3. 看着它干，或者不看。** Mentor 规划，Executor 实现，Mentor 审查。你可以在控制台里全程跟进、随时介入，结束后再检查变更的文件。
 
 > [!TIP]
-> 你也可以使用 [Ollama](https://ollama.com) 搭配本地模型进行完全离线的会话。
-
-### 3. 启动 The Pair
-
-从"应用程序"文件夹或开始菜单打开。
-
-### 4. 创建你的第一个 Pair
-
-1. 点击 **New Pair** 按钮
-2. 配置：名称、目录、任务描述和 AI 模型
-3. 观察 Agent 工作——Mentor 规划，Executor 实现，Mentor 审查
-4. 通过实时活动追踪和文件变更监控进度
-
----
+> 想完全离线运行，可以通过 [Ollama](https://ollama.com) 使用本地模型。
 
 ## 配置
 
-### 凭据
+**凭据** 保存在应用自己的存储 `credentials.json`（权限 0600）中，位于应用数据目录。读取其他 Agent 配置和环境变量的导入器只读不写，绝不会回写。
 
-The Pair 在应用数据目录中保留自己的凭据存储 `credentials.json`（权限 0600）。它通过读取其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量来发现端点——这些导入器只读，绝不回写——你也可以手动添加端点，或在「模型」分区中用订阅登录。
-
-### Pair 运行时
-
-每个 Pair 要么直接在你选择的目录中工作，要么在自己的 git worktree（`the-pair/…` 分支）中工作。会话状态——快照、运行报告与跨运行智能存储——保存在应用数据目录中，绝不会写入你的仓库。
+**Pair 运行时。** 每个 Pair 要么直接在你选择的目录里工作，要么在独立的 git worktree 和 `the-pair/…` 分支上工作。会话状态 —— 快照、运行报告和跨运行的经验库 —— 都保存在应用数据目录，绝不会写进你的仓库。
 
 > [!NOTE]
-> The Pair 将凭据复制进自己的存储，绝不回写你的 Agent 配置。它的工具在应用内运行，范围限定于 Pair 的工作区，Mentor 始终保持只读。
-
----
+> Agent 的工具在应用内部运行，作用范围限定在该 Pair 的工作区，Mentor 始终只读。
 
 ## 架构
 
-### 技术栈
+一个 Tauri 2 应用：Rust 后端通过 HTTPS 与模型端点通信并执行 Agent 的工具，React 前端渲染对话和各种控件。
 
-| 层级         | 技术                  |
-| ------------ | --------------------- |
-| **框架**     | Tauri 2.x             |
-| **后端**     | Rust                  |
-| **前端**     | React 19 + TypeScript |
-| **样式**     | Tailwind CSS v4       |
-| **状态管理** | Zustand               |
-| **动画**     | Framer Motion         |
-| **图标**     | Lucide React          |
-
-### 系统架构
+| 层级     | 包含什么                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| **前端** | React 19 + TypeScript、Tailwind CSS v4、Zustand、Framer Motion —— Pairs 总览、会话控制台、检查器 |
+| **桥接** | Tauri IPC                                                                                        |
+| **后端** | Rust —— Pair 生命周期、轮次状态机，以及流式接收回复并执行工具的 harness                          |
+| **模型** | 每种协议各一个流式客户端（OpenAI Chat、Anthropic、Responses、Command Code），外加凭据注册表      |
+| **Git**  | 相对基线提交的变更追踪、worktree、会话快照                                                       |
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    The Pair App                         │
-├─────────────────────────────────────────────────────────┤
-│  Frontend (React UI)                                    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  Pairs Hub   │ PairConsole  │   Inspector      │    │
-│  │  + Activity  │ (Unified)    │  (Collapsible)   │    │
-│  │  + Insights  │              │                  │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│                          ↕ Tauri IPC                    │
-├─────────────────────────────────────────────────────────┤
-│  Backend (Rust)                                         │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ Harness          │    │
-│  │ (Lifecycle)  │(State Machine)│(Direct HTTP)    │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ContextBridge │ QualityGate  │   SmartPause     │    │
-│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │Accounts      │ Acceptance   │ Report Generator │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-                            ↕
-              ┌─────────────┴─────────────┐
-              ↙                           ↘
-     ┌─────────────────┐          ┌─────────────────┐
-     │  Model Endpoints│          │   Git Repo      │
-     │OpenAI, Anthropic│          │  (Workspace)    │
-     │Gemini, Grok…    │          └─────────────────┘
-     │(over HTTPS)     │
-     └─────────────────┘
+Idle → Mentoring → Executing → Reviewing → (loop | Finished | Paused | Awaiting Human Review | Error)
 ```
 
-### Agent 工作流
-
-```
-开始 → 初始化与基线 → 指导阶段 → 执行阶段 → 审查阶段
-                                              ↓
-                                        完成？──是→ 已完成
-                                           │
-                                           否
-                                           ↓
-                                   （返回指导阶段循环）
-```
-
----
+完整的模块说明见 `AGENTS.md`。
 
 ## 开发
 
-### 前置条件
-
-- **Node.js** 22.22+
-- **npm** 或 **pnpm**
-- **Git**
-- **Rustup**（用于桌面端构建）
-
-> [!NOTE]
-> 发布版本需要在 GitHub Actions 中配置更新签名密钥。
-
-构建前运行环境检查：
-
-```bash
-npm run preflight
-```
-
-### 安装依赖
+需要 **Node.js 22.22+**、**Git**，桌面构建还需要 **Rustup**。
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
 cd the-pair
 npm install
-npm run dev
+npm run preflight   # 检查工具链
+npm run dev         # 启动应用，支持热重载
+npm run dev:mock    # 同上，但使用预置轮次，不调用模型
 ```
 
-### 项目结构
+<details>
+<summary><b>全部脚本</b></summary>
 
-```
-the-pair/
-├── src/
-│   └── renderer/          # React 前端
-│       └── src/
-│           ├── App.tsx
-│           ├── components/
-│           └── store/
-├── src-tauri/             # Rust 后端
-│   ├── src/
-│   │   ├── lib.rs
-│   │   ├── pair_manager.rs
-│   │   ├── message_broker.rs
-│   │   └── ...
-│   └── Cargo.toml
-├── build/                 # 构建资源
-└── package.json
-```
+<br />
 
-### 脚本命令
+| 命令                        | 说明                              |
+| --------------------------- | --------------------------------- |
+| `npm run dev`               | 启动应用（热重载）                |
+| `npm run dev:mock`          | 使用模拟 Agent 启动应用           |
+| `npm run dev:smoke`         | 以冒烟测试模式启动应用            |
+| `npm run preflight`         | 检查本地构建依赖                  |
+| `npm test`                  | 运行 JavaScript、组件和 Rust 测试 |
+| `npm run test:js`           | 运行 Node/TypeScript 单元测试     |
+| `npm run test:ui`           | 运行组件测试                      |
+| `npm run test:rust`         | 运行 Rust 测试                    |
+| `npm run typecheck`         | 检查 TypeScript 类型              |
+| `npm run lint`              | 运行 ESLint                       |
+| `npm run format`            | 用 Prettier 格式化                |
+| `npm run e2e:web`           | 基于模拟 IPC 运行无头端到端测试   |
+| `npm run e2e:setup`         | 安装 Appium macOS 驱动            |
+| `npm run e2e`               | 在 macOS 上运行模拟端到端测试     |
+| `npm run clean`             | 清理构建产物                      |
+| `npm run build:mac`         | 构建本地 macOS DMG                |
+| `npm run build:mac:release` | 构建 macOS 发布用 ZIP 包          |
+| `npm run build:win`         | 构建 Windows 版本                 |
+| `npm run build:linux`       | 构建 Linux 版本                   |
 
-| 命令                        | 说明                             |
-| --------------------------- | -------------------------------- |
-| `npm run dev`               | 启动热重载开发服务器             |
-| `npm run preflight`         | 检查本地构建前置条件             |
-| `npm run preflight:mac`     | 检查 macOS 构建前置条件          |
-| `npm run preflight:win`     | 检查 Windows 构建前置条件        |
-| `npm run preflight:linux`   | 检查 Linux 构建前置条件          |
-| `npm test`                  | 运行 JavaScript 和 Rust 单元测试 |
-| `npm run test:js`           | 运行 Node/TypeScript 单元测试    |
-| `npm run test:rust`         | 运行 Rust 单元测试               |
-| `npm run typecheck`         | 检查 TypeScript 类型             |
-| `npm run lint`              | 运行 ESLint                      |
-| `npm run format`            | 使用 Prettier 格式化             |
-| `npm run e2e:setup`         | 安装 Appium macOS 驱动           |
-| `npm run e2e`               | 运行端到端测试（模拟模式）       |
-| `npm run dev:mock`          | 以模拟 Agent 模式启动应用        |
-| `npm run dev:smoke`         | 以冒烟测试模式启动应用           |
-| `npm run clean`             | 清除生成的构建产物               |
-| `npm run build:mac`         | 构建本地 macOS DMG               |
-| `npm run build:mac:release` | 构建 macOS 发布版 ZIP 包         |
-| `npm run build:win`         | 构建 Windows 版本                |
-| `npm run build:linux`       | 构建 Linux 版本                  |
+</details>
 
----
+本页的截图都由应用自身生成：`node scripts/readme-shots.mjs`（需要先启动什么，文件开头有说明）。
+
+欢迎贡献 —— 请看 [CONTRIBUTING.md](CONTRIBUTING.md) 和[更新日志](CHANGELOG.md)。
 
 ## 常见问题
 
-**Q: The Pair 是免费和开源的吗？**
+<details>
+<summary><b>The Pair 是免费开源的吗？</b></summary>
 
-A: 是的。The Pair 在 Apache 2.0 许可证下完全开源，并且可免费下载用于 macOS、Windows 和 Linux。你只需为自己的 AI Provider 用量付费——或使用 [Ollama](https://ollama.com) 运行本地模型，零 API 成本。
+是的。The Pair 以 Apache 2.0 许可证开源，可免费下载，支持 macOS、Windows 和 Linux。你只需为自己的模型用量付费 —— 或者通过 [Ollama](https://ollama.com) 运行本地模型，零 API 成本。
 
-**Q: The Pair 是 Cursor、GitHub Copilot 或 Aider 的替代品吗？**
+</details>
 
-A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可任意组合两个通过你所连接端点可达的模型——导入其他 Agent 的配置、手动添加，或用订阅登录。
+<details>
+<summary><b>它是 Cursor、GitHub Copilot 或 Aider 的替代品吗？</b></summary>
 
-**Q: The Pair 支持哪些操作系统？**
+是，但思路不同。那些工具驱动的是单个 Agent。The Pair 运行两个独立的 Agent —— 只读的 Mentor 和 Executor —— 互相交叉校验，错误会被第二个模型拦下，而不是直接交付。它本地优先、开源，并且与模型无关。
 
-A: The Pair 是面向 **macOS、Windows 和 Linux** 的原生桌面应用，基于 Tauri 2（Rust 后端 + React 前端）构建。
+</details>
 
-**Q: The Pair 与单 Agent AI 编码工具有什么区别？**
+<details>
+<summary><b>支持哪些模型？</b></summary>
 
-A: 单 Agent 工具依赖一个模型来编写和自我审查代码，容易遗漏自己的错误。The Pair 使用两个独立的 Agent，由 Mentor 审查 Executor 的工作，在代码提交前捕获错误。
+任何能通过你所连接的端点访问的模型 —— 无论端点是从其他 Agent 的配置导入、手动添加，还是用订阅登录 —— 包括 GPT、Claude、Gemini、Grok、GLM、Qwen、Kimi、MiniMax 和 DeepSeek，以及通过 Ollama 运行的本地模型。可以自由搭配，例如 Claude 当 Mentor、GPT 当 Executor。
 
-**Q: The Pair 需要联网吗？**
+</details>
 
-A: The Pair 完全在本地运行。只有 AI 模型 API 调用需要网络（或通过 Ollama 使用本地模型）。
+<details>
+<summary><b>需要联网吗？</b></summary>
 
-**Q: 支持哪些 AI Provider？**
+应用在本地运行，只有模型调用需要联网；用 Ollama 的话连这个也不需要。
 
-A: The Pair 通过 HTTPS 直连任意模型端点——无需安装 CLI。可通过导入其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）发现端点，手动添加，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录。你可以自由混用端点——例如 Claude 作为 Mentor，GPT 作为 Executor。
+</details>
 
-**Q: 可以使用自己的 AI 模型吗？**
+<details>
+<summary><b>可以控制 Agent「思考」的力度吗？</b></summary>
 
-A: 可以，The Pair 与模型无关。添加任意兼容 OpenAI、Anthropic 或 Gemini 的端点及其 API 密钥，从其他 Agent 的配置导入，或使用 [Ollama](https://ollama.com) 的本地模型。
+可以。对于支持的模型，可以在创建 Pair 时或之后在其设置里，分别为 Mentor 和 Executor 设置推理强度。
 
-**Q: 能控制 Agent 的"思考深度"吗？**
+</details>
 
-A: 可以。The Pair 支持**推理强度控制**，适用于提供该功能的模型（Claude、Codex、Gemini、Grok 等）。你可以为每个角色（Mentor 和 Executor）独立设置低/中/高推理强度，在创建 Pair 或设置中均可调整。
+<details>
+<summary><b>能看到 Agent 到底在做什么吗？</b></summary>
 
-**Q: 如何追踪 Token 用量和费用？**
+能。每一轮都会显示一串认知事件 —— 意图标签、推理步骤，以及每个工具调用及其状态 —— 不用翻原始输出也能跟上 Agent 的思路。
 
-A: Token 用量在每个 Agent 轮次中实时追踪。实时输出的 Token 计数会内联显示在 Agent 控制台中，方便你随时监控消耗。
+</details>
 
-**Q: Agent 陷入死循环怎么办？**
+<details>
+<summary><b>怎么追踪 Token 和费用？</b></summary>
 
-A: The Pair 实现了迭代次数限制。达到配置的迭代次数后，Agent 会暂停并等待人工干预。
+用量按轮次统计，输入和输出分开显示。实时数字会出现在控制台、检查器以及导出的运行报告里。
 
-**Q: 应用崩溃或中途关闭怎么办？**
+</details>
 
-A: 会话快照会自动保存。重新启动时，The Pair 会检测到中断的会话并提供恢复选项，完整保留对话历史，使 Agent 可以从断点继续工作。
+<details>
+<summary><b>Agent 陷入死循环怎么办？</b></summary>
 
-**Q: The Pair 支持自动更新吗？**
+运行默认不限次数。如果设置了迭代上限，达到上限后会暂停并进入 **等待人工审查**，你可以继续、换模型或结束。此外，每轮内的步骤循环保护也会阻止失控的工具调用循环。
 
-A: 支持。The Pair 在启动时检查新版本，并通过一键式更新流程通知你。无需手动下载。
+</details>
+
+<details>
+<summary><b>应用崩溃或中途关掉了怎么办？</b></summary>
+
+会话快照会自动保存。下次启动时，The Pair 会找到被中断的会话，并提供连同完整历史一起恢复的选项。
+
+</details>
+
+<details>
+<summary><b>会自动更新吗？</b></summary>
+
+会。The Pair 在启动时检查新版本，一键即可安装。
+
+</details>
+
+<br />
 
 ---
 
 <div align="center">
 
-[⬇ 下载](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 官网](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 讨论区](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 反馈问题](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ 下载](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [官网](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [讨论区](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [反馈问题](https://github.com/timwuhaotian/the-pair/issues)
 
-由 [timwuhaotian](https://github.com/timwuhaotian) 用 ❤️ 构建
+由 [timwuhaotian](https://github.com/timwuhaotian) 构建。如果 The Pair 对你有用，点一个 [Star](https://github.com/timwuhaotian/the-pair) 能帮更多人发现它。
 
-**[⭐ 点个 Star](https://github.com/timwuhaotian/the-pair)** 如果觉得这个项目对你有帮助！
-
-<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持任意模型端点——OpenAI、Anthropic、Gemini、Grok 等，或通过 Ollama 的本地模型——适配 macOS、Windows、Linux。</sub>
+<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor 与 Copilot 的替代方案 · 支持任意模型端点，或通过 Ollama 使用本地模型 · macOS、Windows 和 Linux。</sub>
 
 </div>

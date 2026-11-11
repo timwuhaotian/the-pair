@@ -45,12 +45,11 @@ Run two AI coding agents against one task so they cross-check each other: a read
 - **Terminal/TTY voice:** mono, terse, ASCII rules (`── checks ──`), glyph markers, compact uppercase tags. This is the product's identity, not decoration to remove.
 - **Light humor stays:** lines such as "Mentor plans. Executor ships." and "grab a coffee" belong to the voice. Humor never appears in errors, destructive confirmations, or blocked work.
 - **Four equal locales:** English, 简体中文, 日本語, and 한국어 are all first-class. Every new user-facing string ships in all four.
-- Name "The Pair", the app icon (`docs/assets/app-icon-light.svg`, `docs/assets/app-icon-dark.svg`), and the logo (`resources/logo-the-pair.png`).
+- Name "The Pair", the app icon (`docs/assets/app-icon.svg`), and the logo (`resources/logo-the-pair.png`).
 
 ## Evidence on Hand
 
-- Screenshots: `docs/assets/hub.png`, `docs/assets/pair-detail.png`, `docs/assets/pair-running.png`, `docs/assets/palette.png`, `docs/assets/social-preview.png`.
-- Launch film: `docs/assets/launch-10s.mp4` (GIF: `docs/assets/launch-10s.gif`).
+- Screenshots: `docs/assets/hub.png`, `docs/assets/pair-detail.png`, `docs/assets/pair-running.png`, `docs/assets/palette.png`, `docs/assets/models.png`, `docs/assets/social-preview.png`. The first five are generated from the renderer by `scripts/readme-shots.mjs`.
 - The Pair was built using The Pair (stated in the README).
 - Comparison table against Cursor, Copilot, and solo Claude Code in `README.md`.
 - None of the following exists, and none may be invented: user testimonials, customer logos, usage or download figures beyond the live GitHub badges, benchmark results, or pricing (the app is free).

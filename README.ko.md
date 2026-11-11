@@ -1,136 +1,165 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/app-icon-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/assets/app-icon-light.svg" />
-  <img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
-</picture>
+<img src="./docs/assets/app-icon.svg" alt="The Pair" width="128" />
 
 # The Pair
 
-**자동화된 AI 페어 프로그래밍 — 두 AI 에이전트가 서로의 코드를 교차 검증합니다. 커피 한 잔 하는 사이에 검토·검증을 마친 코드를 받아보세요. _(맞습니다, The Pair는 The Pair가 직접 만들었습니다.)_**
+**하나의 작업에 두 개의 AI 에이전트. 하나는 코드를 쓰고, 다른 하나는 검토합니다.**
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
-[![Build Status](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react&logoColor=black)](https://react.dev/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
+데스크톱에서 실행되는 오픈소스 AI 페어 프로그래밍. 읽기 전용 **Mentor**가 계획과 검토를 맡고,
+**Executor**가 코드를 작성하고 명령을 실행하며, 서로의 작업을 확인한 뒤에야
+코드베이스에 반영합니다. _(네, The Pair는 The Pair로 만들었습니다.)_
 
-🌐 [English](README.md) • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md)
+[![Release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github&label=release)](https://github.com/timwuhaotian/the-pair/releases)
+[![Downloads](https://img.shields.io/github/downloads/timwuhaotian/the-pair/total?label=downloads)](https://github.com/timwuhaotian/the-pair/releases)
+[![Build](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/timwuhaotian/the-pair?style=social)](https://github.com/timwuhaotian/the-pair/stargazers)
 
-**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ 다운로드**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;•&nbsp; [**🌐 웹사이트**](https://apps.timwuhaotian.dev/)
+[English](README.md) · [简体中文](README.zh.md) · [日本語](README.ja.md) · **한국어**
 
-![The Pair 데스크톱 앱 — 세션 콘솔에서 협업하는 Mentor와 Executor, 옆에는 모델·실행 상태·Git 인스펙터](./docs/assets/pair-detail.png)
+[**⬇ 다운로드**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**빠른 시작**](#빠른-시작) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**웹사이트**](https://apps.timwuhaotian.dev/)
 
-_Mentor와 Executor 에이전트의 실시간 협업 과정을 지켜보세요_
+<sub>macOS · Windows · Linux</sub>
 
-[![The Pair 10초 런치 필름 — 두 에이전트, 한 번의 리뷰](./docs/assets/launch-10s.gif)](docs/assets/launch-10s.mp4)
+<br />
 
-🎬 **10초 런치 필름 · 음소거 자동 재생** — [4K60 원본(소리 포함) 보기](docs/assets/launch-10s.mp4)
+<img src="./docs/assets/pair-detail.png" alt="The Pair 데스크톱 앱: Mentor의 계획, Executor의 결과, Mentor의 검토가 하나의 세션 콘솔에 있고, 인스펙터에는 모델, 실행 상태, 사용량, 변경된 파일이 표시된다" width="100%" />
+
+<sub>완료된 실행: Mentor가 계획하고, Executor가 구현하고, Mentor가 diff를 읽고 승인했습니다.</sub>
 
 </div>
 
----
+<br />
 
-<details>
-<summary><b>목차</b></summary>
+## 왜 에이전트가 둘인가
 
-- [개요](#개요) — The Pair란 무엇이며 두 에이전트가 AI 환각을 줄이는 이유
-- [기능](#기능)
-- [스크린샷](#스크린샷)
-- [설치](#설치) — macOS, Windows, Linux
-- [빠른 시작](#빠른-시작) — 모델 엔드포인트를 연결하고 첫 Pair 만들기
-- [구성](#구성)
-- [아키텍처](#아키텍처)
-- [개발](#개발)
-- [FAQ](#faq)
+코드를 작성한 모델에게 자기 코드를 검토하게 하면 대개 스스로에게 동의합니다. The Pair는 이 일을 둘로 나누어 서로 다른 에이전트에게 — 원한다면 서로 다른 모델에게 — 맡깁니다.
 
-</details>
+| 역할         | 하는 일                                                 | 손댈 수 있는 범위       |
+| ------------ | ------------------------------------------------------- | ----------------------- |
+| **Mentor**   | 코드를 읽고, 계획을 쓰고, 모든 결과를 검토합니다        | 읽기 전용               |
+| **Executor** | 코드를 쓰고, 명령을 실행하고, 검증한 뒤 결과를 넘깁니다 | 해당 Pair의 작업 공간뿐 |
 
-## 개요
+```mermaid
+flowchart LR
+    T([당신의 작업]) --> M[Mentor가 계획]
+    M --> E[Executor가 작성·실행]
+    E --> R[Mentor가 검토]
+    R -- 보완 필요 --> M
+    R -- 완료 --> F([완료])
+    R -. 반복 한도 .-> H([사람 검토 대기 중])
+```
 
-**The Pair는 두 개의 AI 코딩 에이전트 — 계획과 검토를 담당하는 읽기 전용 _Mentor_ 와 코드를 작성하고 명령을 실행하는 _Executor_ — 를 실행하는 무료 오픈소스 데스크톱 앱으로, 두 에이전트가 서로의 작업을 교차 검증하여 AI 환각이 코드베이스에 도달하기 전에 잡아냅니다.** 로컬에서 실행되며 macOS, Windows, Linux를 지원하고 모델에 구애받지 않습니다: HTTPS로 모델 엔드포인트에 직접 연결하며 Agent CLI는 전혀 실행하지 않습니다. 엔드포인트는 다른 에이전트가 이미 가진 설정(kimi, pi, omp, opencode, codex, claude, gemini, killi)이나 환경 변수에서 가져와 발견하거나, 수동으로 추가하거나, ChatGPT·Command Code·OpenCode Go·Muse Code 구독으로 앱 내에서 로그인할 수 있으며, 모두 왼쪽 레일의 「모델」 섹션에서 관리합니다. 임의의 두 모델을 자유롭게 조합할 수 있습니다(Ollama를 통한 로컬 모델도 가능).
+실행은 Mentor가 완료를 알리거나 당신이 멈출 때까지 계속됩니다. Pair에 반복 한도를 설정해 두면 한도에 도달했을 때 일시 중지되어 검토를 기다리므로, 계속하거나 모델을 바꾸거나 끝낼 수 있습니다. 일하는 동안 커피 한 잔 하러 다녀오세요 — 물론 자리를 지키며 방향을 잡아도 됩니다. 턴을 멈추고, 피드백을 보내고, 코드가 한 줄도 쓰이기 전에 계획을 승인할 수 있습니다.
 
-**AI 코드 환각이 걱정되시나요?** The Pair는 서로를 교차 검증하는 두 AI 에이전트를 실행하여 이 문제를 해결합니다:
+### 비교
 
-- **Mentor 에이전트** — 계획, 검토 및 검증 (읽기 전용)
-- **Executor 에이전트** — 코드 작성 및 명령 실행
+| 기능                  | The Pair                | Cursor / Copilot | Claude Code(단독) |
+| --------------------- | ----------------------- | ---------------- | ----------------- |
+| 에이전트 간 교차 검증 | ✅ 독립된 두 에이전트   | ❌ 단일 에이전트 | ❌ 단일 에이전트  |
+| 전담 검토 역할        | ✅ Mentor(읽기 전용)    | ❌ 자기 검토뿐   | ❌ 자기 검토뿐    |
+| 멀티 프로바이더       | ✅ 모든 모델 엔드포인트 | ❌ 한 곳에 고정  | ❌ Claude 전용    |
+| 로컬 오케스트레이션   | ✅ 완전 로컬            | ❌ 클라우드 의존 | ❌ 클라우드 의존  |
+| 세션 복구             | ✅ 스냅샷으로 전체 복원 | ❌               | ❌                |
+| 오픈소스              | ✅ Apache 2.0           | ❌ 독점          | ❌ 독점           |
 
-에이전트가 작업하는 동안 커피 한 잔 하세요. 돌아오면 교차 검증된 코드가 준비되어 있습니다.
+## 둘러보기
 
-### 핵심 장점
-
-- **듀얼 모델 교차 검증** — 두 모델이 서로의 작업을 확인하여 코드 환각을 대폭 감소
-- **자동화된 협업** — 에이전트가 빈번한 인간 개입 없이 협업
-- **실시간 사용량 추적** — 턴별·실행별 토큰, 예상 비용, 요청 수, 마지막 출력을 정체 감지와 함께 표시
-- **Git 통합** — 세션 중 모든 파일 변경 사항 자동 추적
-- **인간 감독** — 언제든지 개입하여 일시정지, 조정 또는 작업 재할당 가능
-- **세션 복구** — 중단된 세션을 전체 대화 기록과 함께 복원
-- **온보딩 마법사** — 모델 구성 및 디렉토리 선택을 위한 첫 실행 가이드
-- **다크/라이트 테마** — 자동 시스템 테마 감지 및 수동 전환 지원
-- **명령 팔레트** — ⌘K로 모든 동작을 퍼지 검색하고 페어로 바로 이동
-- **네이티브 메뉴 바** — 앱 / 파일 / 편집 / 보기 / 창 / 도움말 전체 메뉴와 단축키
-- **페어 허브** — 상태·빠른 동작·복구 배너가 있는 워크스페이스별 페어 카드
-- **인스펙터 패널** — 모델·실행 상태·사용량·파일·기록·타임라인 접이식 섹션
-
-### 사용 사례
-
-- 자율 코딩 세션 — AI 에이전트가 기능을 반복하는 동안 당신은 검토에 집중
-- 코드 리팩토링 — 개선 사항 자동 분석 및 구현
-- 버그 수정 — 에이전트가 협업하여 문제 진단 및 해결
-- 학습 도구 — AI 에이전트가 문제를 분해하고 해결하는 과정 관찰
-- 중단 작업 복구 — 앱 재시작 또는 충돌 후 세션 상태 복원
-
----
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/pair-running.png" alt="진행 중인 Executor 턴: 지금까지의 도구 호출, 실행 중인 명령, 턴 중지 버튼" />
+      <br />
+      <b>턴이 진행되는 모습을 실시간으로</b><br />
+      <sub>Executor의 모든 읽기, 편집, 명령이 실시간으로 보이고, 중지 버튼도 바로 옆에 있습니다.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/hub.png" alt="Pairs 허브: 모든 Pair의 상태, 반복 횟수, 브랜치, 작업" />
+      <br />
+      <b>모든 Pair를 한 허브에서</b><br />
+      <sub>상태, 반복, 브랜치를 한눈에 보고, 중단된 세션은 복구를 제안받습니다.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/models.png" alt="모델 섹션: 엔드포인트별 프로토콜, 계정, 자격 증명 상태, 모델" />
+      <br />
+      <b>내 모델을 그대로</b><br />
+      <sub>엔드포인트, 계정, 자격 증명을 한곳에서 관리합니다. 에이전트 CLI를 설치할 필요가 없습니다.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/palette.png" alt="pair로 좁힌 명령 팔레트. 동작과 각 Pair로의 이동 항목이 나열된다" />
+      <br />
+      <b>⌘K 하나로 전부</b><br />
+      <sub>모든 동작을 퍼지 검색하는 팔레트. 어느 Pair로든 바로 이동합니다.</sub>
+    </td>
+  </tr>
+</table>
 
 ## 기능
 
-- **듀얼 에이전트 아키텍처** — 계획(Mentor)과 실행(Executor) 분리
-- **전체 자동화 모드** — 에이전트가 작업 공간 범위 권한 내에서 자율 작업
-- **실시간 활동 추적** — 에이전트 활동 상태 실시간 표시 (사고 중, 실행 중, 대기 중)
-- **사용량 추적** — 인스펙터에 턴별·실행별 토큰, 예상 비용, 요청 수, 마지막 출력을 표시
-- **Git 변경 추적** — 수정, 추가 또는 삭제된 파일 자동 감지
-- **대화 기록** — 모든 에이전트 상호작용의 전체 기록
-- **로컬 오케스트레이션** — 앱과 에이전트 조정은 모두 로컬에서 실행; 모델 호출은 선택한 엔드포인트 또는 로컬 모델로 직접 전송
-- **자체 엔드포인트** — 임의의 모델 엔드포인트 연결: 다른 에이전트의 설정(opencode, codex, claude, kimi, pi, omp, gemini, killi) 가져오기, 키 수동 추가, 또는 ChatGPT·Command Code·OpenCode Go·Muse Code 구독으로 로그인
-- **추론 제어** — 에이전트 역할별 사고 노력 조정 (낮음/중간/높음)
-- **토큰 추적** — 각 턴당 실시간 토큰 사용량 인라인 표시
-- **스킬 시스템** — 에이전트 행동을 가이드하는 프로젝트별 스킬 파일 첨부
-- **자동 업데이트** — 앱 내 업데이트 확인 및 원클릭 설치
+**루프**
 
----
+- **듀얼 에이전트 아키텍처** — 계획과 검토(Mentor)를 실행(Executor)과 분리
+- **스마트 조율** — 구조화된 핸드오프 프롬프트, 품질 게이트, 스마트 일시 중지로 반복이 흐트러지지 않게
+- **수락 검사** — Mentor가 테스트와 lint를 실행한 뒤 위험도, 근거, 다음 단계를 담은 판정을 반환
+- **계획 게이트와 반복 한도** — 첫 계획을 직접 승인하도록 할 수 있고, Pair별 반복 한도도 설정 가능(기본은 무제한)
+- **정체 감지** — 출력이 120초 없으면 경고, 600초면 정체로 표시
 
-## 스크린샷
+**콘솔**
 
-페어 허브
-<img width="2800" height="2000" alt="워크스페이스별 페어 카드 허브" src="./docs/assets/hub.png" />
+- **하나의 세션 콘솔** — 작업, 계획, 결과, 검토, 실시간 턴을 하나의 스크롤 피드에. 검색과 역할 필터 포함
+- **인지 이벤트 스트림** — 턴마다 인텐트 칩, 추론 단계, 도구 호출 상태
+- **사용량 추적** — 턴별·실행별 토큰, 예상 비용, 요청 수, 마지막 출력
+- **인스펙터** — 모델, 실행 상태, 사용량, 파일, 기록, 타임라인을 접을 수 있는 섹션으로
+- **활동과 인사이트** — 모든 Pair 중 주의가 필요한 것, 그리고 잘 통했던 모델 조합
 
-페어 상세 — 리뷰
-<img width="2800" height="2000" alt="세션 콘솔과 인스펙터가 있는 페어 상세" src="./docs/assets/pair-detail.png" />
+**당신의 저장소**
 
-명령 팔레트
-<img width="2800" height="2000" alt="퍼지 검색과 페어 점프가 있는 명령 팔레트" src="./docs/assets/palette.png" />
+- **Git 변경 추적** — 기준 커밋 대비 추가·수정·삭제된 파일을 파일별 인라인 diff와 함께
+- **워크트리** — 작업마다 전용 git worktree와 `the-pair/…` 브랜치에서 실행하고, 인스펙터에서 바로 커밋과 푸시
+- **스킬과 멘션** — `/skill`로 프로젝트 스킬 파일을, `@path`로 파일을 첨부
+- **세션 복구** — 진행하면서 스냅샷을 저장하고, 중단된 세션은 기록과 턴 상태까지 되돌립니다
 
-실시간 실행
-<img width="2800" height="2000" alt="중지 컨트롤과 대기 입력이 있는 실시간 실행 턴" src="./docs/assets/pair-running.png" />
+**모델**
 
----
+- **엔드포인트는 직접 가져오기** — 다른 에이전트의 설정(opencode, codex, claude, kimi, pi, omp, gemini, killi)을 가져오거나, 키를 직접 추가하거나, ChatGPT·Command Code·OpenCode Go·Muse Code 구독으로 로그인
+- **어떤 모델이든 어느 역할에나** — Mentor와 Executor 각각의 엔드포인트, 모델, 추론 강도를 따로 선택
+- **로컬 오케스트레이션** — 앱과 조율 로직은 내 컴퓨터에서 실행되고, 모델 호출은 선택한 엔드포인트나 로컬 모델로 직접 전송
+
+**앱**
+
+- **명령 팔레트와 단축키** — 모든 동작에 닿는 ⌘K, 전역 단축키, 네이티브 메뉴 바
+- **네 가지 언어** — English, 简体中文, 日本語, 한국어
+- **라이트/다크 테마**, 한 번에 음소거할 수 있는 사운드 알림, 앱 내 업데이트
 
 ## 설치
 
-[GitHub Releases](https://github.com/timwuhaotian/the-pair/releases)에서 최신 릴리스를 다운로드하세요:
+[GitHub Releases](https://github.com/timwuhaotian/the-pair/releases)에서 최신 버전을 다운로드하세요:
 
-| 플랫폼      | 파일                                                                  |
-| ----------- | --------------------------------------------------------------------- |
-| **macOS**   | `the-pair-{version}.zip`                                              |
-| **Windows** | `the-pair-{version}-setup.exe`                                        |
-| **Linux**   | `the-pair-{version}.AppImage.tar.gz` (extract, then run the AppImage) |
+| 플랫폼      | 파일                                                             |
+| ----------- | ---------------------------------------------------------------- |
+| **macOS**   | `the-pair-{version}.zip`                                         |
+| **Windows** | `the-pair-{version}-setup.exe`                                   |
+| **Linux**   | `the-pair-{version}.AppImage.tar.gz` (압축을 풀고 AppImage 실행) |
 
-### 소스에서 빌드
+터미널이 더 편하신가요? **CLI** 사용자는 The Pair의 터미널 에디션인 [Pair Code](https://github.com/timwuhaotian/pair-code)를 [npm](https://www.npmjs.com/package/pair-code)에서 설치할 수 있습니다:
+
+```bash
+npm install -g pair-code
+```
+
+| 인터페이스   | 이런 경우에                                    | 시작하기                                                               |
+| ------------ | ---------------------------------------------- | ---------------------------------------------------------------------- |
+| **데스크톱** | 시각적 모니터링, 설치 프로그램, 오래 도는 Pair | [The Pair 다운로드](https://github.com/timwuhaotian/the-pair/releases) |
+| **CLI**      | 터미널 중심 작업, 스크립트, SSH 세션           | [Pair Code](https://github.com/timwuhaotian/pair-code)                 |
+
+<details>
+<summary><b>소스에서 빌드</b></summary>
+
+<br />
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
@@ -139,268 +168,189 @@ npm install
 npm run build:mac  # 또는 build:win / build:linux
 ```
 
-macOS에서 `build:mac`은 로컬 DMG를 생성하고, `build:mac:release`는 GitHub Releases에 사용되는 ZIP 스타일 릴리스 번들을 생성합니다. 빌드 스크립트는 Tauri를 호출하기 전에 필요한 Rust 타겟이 설치되도록 합니다. 수동으로 설정하려면 다음을 실행하세요:
+macOS에서 `build:mac`은 로컬용 DMG를, `build:mac:release`는 GitHub Releases에 쓰이는 ZIP 번들을 만듭니다. 빌드 스크립트는 Tauri를 호출하기 전에 필요한 Rust 타깃을 설치합니다. 직접 설정하려면:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
----
+</details>
 
 ## 빠른 시작
 
 > [!NOTE]
-> The Pair에는 최소 하나의 자격 증명을 가진 모델 엔드포인트가 필요합니다. HTTPS로 모델에 직접 연결하므로 설치할 Agent CLI가 없습니다. 엔드포인트와 API 키를 추가하거나, 다른 에이전트가 이미 가진 설정을 가져오거나, ChatGPT·Command Code·OpenCode Go·Muse Code 구독으로 로그인할 수 있습니다 — 모두 「모델」 섹션에서.
+> The Pair에는 자격 증명이 있는 모델 엔드포인트가 하나 필요합니다. 모델과는 HTTPS로 직접 통신하며, 설치할 에이전트 CLI는 없습니다.
 
-### 1. 모델 연결
+**1. 모델을 연결합니다.** 왼쪽 레일의 **모델**을 열고 다음 중 하나의 방법으로 엔드포인트를 추가하세요:
 
-왼쪽 레일의 「모델」 섹션을 열고 다음 방법 중 하나로 엔드포인트를 추가하세요:
+- **agent 스캔** — 다른 에이전트가 이미 가진 엔드포인트와 키(kimi, pi, omp, opencode, codex, claude, gemini, killi) 또는 환경 변수의 것을 가져오기
+- **엔드포인트 추가** — 프로토콜, 베이스 URL, API 키, 모델 ID 입력
+- **로그인** — ChatGPT, Command Code, OpenCode Go, Muse Code 구독을 앱 안에서 인증
 
-- **가져오기** — 다른 에이전트가 이미 가진 설정(kimi, pi, omp, opencode, codex, claude, gemini, killi)이나 환경 변수에서 엔드포인트와 키를 가져옴
-- **수동 추가** — 프로토콜, base URL, API 키, 모델 id 입력
-- **로그인** — ChatGPT·Command Code·OpenCode Go·Muse Code 구독을 앱 내에서 인증
+쓸 수 있는 자격 증명이 없는 엔드포인트도, 무엇이 막고 있는지와 함께 목록에 표시됩니다.
 
-사용 가능한 자격 증명이 없는 엔드포인트도 차단 상태와 함께 표시됩니다.
+**2. Pair를 만듭니다.** **새 페어**를 클릭하고, 디렉터리를 고르고, 작업을 설명한 뒤, Mentor와 Executor 각각의 엔드포인트, 모델, 추론 강도를 선택하세요.
 
-### 2. 각 역할에 모델 선택
-
-Pair를 만들 때 Mentor와 Executor 각각에 대해 엔드포인트, 모델, 추론 노력을 선택하세요. Pair는 모델 id와 그 노력만 저장하며, 엔드포인트와 자격 증명은 턴이 시작될 때 resolve됩니다.
+**3. 지켜보세요. 아니면 말고요.** Mentor가 계획하고, Executor가 구현하고, Mentor가 검토합니다. 콘솔에서 따라가다가 원할 때 개입하고, 끝나면 변경된 파일을 확인하세요.
 
 > [!TIP]
-> [Ollama](https://ollama.com)와 로컬 모델을 사용하여 완전 오프라인 세션도 가능합니다.
+> 완전히 오프라인으로 쓰려면 [Ollama](https://ollama.com)를 통한 로컬 모델을 사용하세요.
 
-### 3. The Pair 실행
+## 설정
 
-응용 프로그램 폴더 또는 시작 메뉴에서 실행하세요.
+**자격 증명**은 앱 데이터 디렉터리에 있는 앱 자체 저장소 `credentials.json`(모드 0600)에 보관됩니다. 다른 에이전트의 설정과 환경 변수를 읽는 임포터는 읽기만 하며, 다시 쓰지 않습니다.
 
-### 4. 첫 Pair 만들기
-
-1. **New Pair** 버튼 클릭
-2. 구성: 이름, 디렉토리, 작업 설명 및 AI 모델
-3. 에이전트 작업 관찰 — Mentor 계획, Executor 구현, Mentor 검토
-4. 실시간 활동 추적 및 파일 변경으로 진행 상황 모니터링
-
----
-
-## 구성
-
-### 자격 증명
-
-The Pair는 앱 데이터 디렉토리에 자체 자격 증명 저장소 `credentials.json`(모드 0600)을 유지합니다. 다른 에이전트가 이미 가진 설정(kimi, pi, omp, opencode, codex, claude, gemini, killi)이나 환경 변수를 읽어 엔드포인트를 발견합니다 — 이러한 가져오기는 읽기 전용이며 절대 다시 쓰지 않습니다 — 수동으로 엔드포인트를 추가하거나 「모델」 섹션에서 구독으로 로그인할 수도 있습니다.
-
-### Pair 런타임
-
-각 Pair는 선택한 디렉토리에서 직접 작업하거나 자체 git 워크트리(`the-pair/…` 브랜치)에서 작업합니다. 세션 상태(스냅샷, 실행 보고서, 크로스 런 인텔리전스 저장소)는 앱의 데이터 디렉토리에 저장되며 저장소 안에는 절대 기록되지 않습니다.
+**Pair 런타임.** 각 Pair는 선택한 디렉터리에서 직접 작업하거나, 전용 git worktree와 `the-pair/…` 브랜치에서 작업합니다. 세션 상태 — 스냅샷, 실행 보고서, 실행 간 인텔리전스 저장소 — 는 앱 데이터 디렉터리에 남고, 저장소 안에는 절대 쓰이지 않습니다.
 
 > [!NOTE]
-> The Pair는 자격 증명을 자체 저장소로 복사하며 에이전트 설정에 절대 다시 쓰지 않습니다. 도구는 앱 내에서 실행되어 Pair의 작업 공간으로 범위가 제한되고, Mentor는 항상 읽기 전용입니다.
-
----
+> 에이전트의 도구는 앱 안에서 실행되고 해당 Pair의 작업 공간으로 범위가 제한되며, Mentor는 항상 읽기 전용입니다.
 
 ## 아키텍처
 
-### 기술 스택
+Tauri 2 앱입니다. Rust 백엔드가 HTTPS로 모델 엔드포인트와 통신하며 에이전트의 도구를 실행하고, React 프런트엔드가 대화와 컨트롤을 렌더링합니다.
 
-| 계층           | 기술                  |
-| -------------- | --------------------- |
-| **프레임워크** | Tauri 2.x             |
-| **백엔드**     | Rust                  |
-| **프론트엔드** | React 19 + TypeScript |
-| **스타일링**   | Tailwind CSS v4       |
-| **상태 관리**  | Zustand               |
-| **애니메이션** | Framer Motion         |
-| **아이콘**     | Lucide React          |
-
-### 시스템 아키텍처
+| 레이어         | 들어 있는 것                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| **프런트엔드** | React 19 + TypeScript, Tailwind CSS v4, Zustand, Framer Motion — Pairs 허브, 세션 콘솔, 인스펙터              |
+| **브리지**     | Tauri IPC                                                                                                     |
+| **백엔드**     | Rust — Pair 라이프사이클, 턴 상태 머신, 응답을 스트리밍하고 도구를 실행하는 하네스                            |
+| **모델**       | 와이어 프로토콜별 스트리밍 클라이언트(OpenAI Chat, Anthropic, Responses, Command Code)와 자격 증명 레지스트리 |
+| **Git**        | 기준 커밋 대비 변경 추적, 워크트리, 세션 스냅샷                                                               |
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    The Pair App                         │
-├─────────────────────────────────────────────────────────┤
-│  프론트엔드 (React UI)                                  │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  Pairs Hub   │ PairConsole  │   Inspector      │    │
-│  │  + Activity  │ (Unified)    │  (Collapsible)   │    │
-│  │  + Insights  │              │                  │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│                          ↕ Tauri IPC                    │
-├─────────────────────────────────────────────────────────┤
-│  백엔드 (Rust)                                          │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ Harness          │    │
-│  │ (라이프사이클) │(상태 기계)    │(다이렉트 HTTP)   │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ContextBridge │ QualityGate  │   SmartPause     │    │
-│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ Git Tracker  │ Worktrees    │ 세션 스냅샷       │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │Accounts      │ Acceptance   │ 보고서 생성기     │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-                            ↕
-              ┌─────────────┴─────────────┐
-              ↙                           ↘
-     ┌─────────────────┐          ┌─────────────────┐
-     │  Model Endpoints│          │  Git 저장소     │
-     │OpenAI, Anthropic│          │(작업 공간)      │
-     │Gemini, Grok…    │          └─────────────────┘
-     │(over HTTPS)     │
-     └─────────────────┘
+Idle → Mentoring → Executing → Reviewing → (loop | Finished | Paused | Awaiting Human Review | Error)
 ```
 
-### 에이전트 워크플로우
-
-```
-시작 → 초기화 및 기준선 → 멘토링 단계 → 실행 단계 → 검토 단계
-                                                   ↓
-                                             완료? ──예→ 완료
-                                                │
-                                                아니오
-                                                ↓
-                                        (멘토링 단계로 루프백)
-```
-
----
+전체 모듈 구성은 `AGENTS.md`에 있습니다.
 
 ## 개발
 
-### 사전 요구사항
-
-- **Node.js** 22.22+
-- **npm** 또는 **pnpm**
-- **Git**
-- **Rustup** (데스크톱 빌드용)
-
-> [!NOTE]
-> 릴리스 빌드는 GitHub Actions에서 업데이트 서명 비밀 키 구성이 필요합니다.
-
-빌드 전 환경 확인을 실행하세요:
-
-```bash
-npm run preflight
-```
-
-### 설정
+**Node.js 22.22+**, **Git**, 그리고 데스크톱 빌드에는 **Rustup**이 필요합니다.
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
 cd the-pair
 npm install
-npm run dev
+npm run preflight   # 툴체인 확인
+npm run dev         # 핫 리로드로 앱 실행
+npm run dev:mock    # 같은 방식이지만 준비된 턴을 쓰고 모델은 호출하지 않음
 ```
 
-### 프로젝트 구조
+<details>
+<summary><b>모든 스크립트</b></summary>
 
-```
-the-pair/
-├── src/
-│   └── renderer/          # React 프론트엔드
-│       └── src/
-│           ├── App.tsx
-│           ├── components/
-│           └── store/
-├── src-tauri/             # Rust 백엔드
-│   ├── src/
-│   │   ├── lib.rs
-│   │   ├── pair_manager.rs
-│   │   ├── message_broker.rs
-│   │   └── ...
-│   └── Cargo.toml
-├── build/                 # 빌드 리소스
-└── package.json
-```
+<br />
 
-### 스크립트
+| 명령어                      | 설명                                   |
+| --------------------------- | -------------------------------------- |
+| `npm run dev`               | 핫 리로드로 앱 실행                    |
+| `npm run dev:mock`          | 모의 에이전트로 앱 실행                |
+| `npm run dev:smoke`         | 스모크 테스트 모드로 앱 실행           |
+| `npm run preflight`         | 로컬 빌드 사전 요구 사항 확인          |
+| `npm test`                  | JavaScript·컴포넌트·Rust 테스트 실행   |
+| `npm run test:js`           | Node/TypeScript 단위 테스트 실행       |
+| `npm run test:ui`           | 컴포넌트 테스트 실행                   |
+| `npm run test:rust`         | Rust 테스트 실행                       |
+| `npm run typecheck`         | TypeScript 타입 검사                   |
+| `npm run lint`              | ESLint 실행                            |
+| `npm run format`            | Prettier로 포맷                        |
+| `npm run e2e:web`           | 모의 IPC 대상 헤드리스 E2E 테스트 실행 |
+| `npm run e2e:setup`         | Appium macOS 드라이버 설치             |
+| `npm run e2e`               | macOS에서 모의 E2E 테스트 실행         |
+| `npm run clean`             | 생성된 빌드 산출물 삭제                |
+| `npm run build:mac`         | 로컬용 macOS DMG 빌드                  |
+| `npm run build:mac:release` | macOS 릴리스용 ZIP 번들 빌드           |
+| `npm run build:win`         | Windows용 빌드                         |
+| `npm run build:linux`       | Linux용 빌드                           |
 
-| 명령                        | 설명                            |
-| --------------------------- | ------------------------------- |
-| `npm run dev`               | 핫 리로드 개발 서버 시작        |
-| `npm run preflight`         | 로컬 빌드 사전 요구사항 확인    |
-| `npm run preflight:mac`     | macOS 빌드 사전 요구사항 확인   |
-| `npm run preflight:win`     | Windows 빌드 사전 요구사항 확인 |
-| `npm run preflight:linux`   | Linux 빌드 사전 요구사항 확인   |
-| `npm test`                  | JavaScript 및 Rust 단위 테스트  |
-| `npm run test:js`           | Node/TypeScript 단위 테스트     |
-| `npm run test:rust`         | Rust 단위 테스트                |
-| `npm run typecheck`         | TypeScript 타입 확인            |
-| `npm run lint`              | ESLint 실행                     |
-| `npm run format`            | Prettier로 포맷팅               |
-| `npm run e2e:setup`         | Appium macOS 드라이버 설치      |
-| `npm run e2e`               | 모의 E2E 테스트 실행            |
-| `npm run dev:mock`          | 모의 에이전트로 앱 시작         |
-| `npm run dev:smoke`         | 스모크 테스트 모드로 앱 시작    |
-| `npm run clean`             | 생성된 빌드 아티팩트 제거       |
-| `npm run build:mac`         | 로컬 macOS DMG 빌드             |
-| `npm run build:mac:release` | macOS 릴리스 ZIP 번들 빌드      |
-| `npm run build:win`         | Windows 빌드                    |
-| `npm run build:linux`       | Linux 빌드                      |
+</details>
 
----
+이 페이지의 스크린샷은 앱 자체에서 생성합니다: `node scripts/readme-shots.mjs` (미리 실행해 둘 것은 파일 첫머리에 적혀 있습니다).
+
+기여를 환영합니다 — [CONTRIBUTING.md](CONTRIBUTING.md)와 [변경 기록](CHANGELOG.md)을 참고하세요.
 
 ## FAQ
 
-**Q: The Pair는 무료이며 오픈소스인가요?**
+<details>
+<summary><b>The Pair는 무료이고 오픈소스인가요?</b></summary>
 
-A: 네. The Pair는 Apache 2.0 라이선스로 완전한 오픈소스이며 macOS, Windows, Linux용으로 무료로 다운로드할 수 있습니다. 비용은 본인의 AI 프로바이더 사용분만 발생하며——[Ollama](https://ollama.com)로 로컬 모델을 실행하면 API 비용이 전혀 들지 않습니다.
+네. The Pair는 Apache 2.0 라이선스의 오픈소스이며 macOS, Windows, Linux용으로 무료로 다운로드할 수 있습니다. 비용은 본인의 모델 사용량뿐이고, [Ollama](https://ollama.com)로 로컬 모델을 돌리면 API 비용도 없습니다.
 
-**Q: The Pair는 Cursor, GitHub Copilot 또는 Aider의 대안인가요?**
+</details>
 
-A: 네, 다만 접근 방식이 다릅니다. Cursor, Copilot, Aider는 단일 에이전트로 작동합니다. The Pair는 두 개의 독립 에이전트——Mentor(읽기 전용 리뷰어)와 Executor(코드 작성자)——를 실행하여 서로 교차 검증하므로, 실수가 출시되기 전에 두 번째 모델이 잡아냅니다. 로컬 우선의 오픈소스 대안이며 모델에 구애받지 않습니다: 연결한 엔드포인트를 통해 도달할 수 있는 임의의 두 모델 — 다른 에이전트의 설정에서 가져오기, 수동 추가, 구독으로 로그인 — 을 자유롭게 조합할 수 있습니다.
+<details>
+<summary><b>Cursor, GitHub Copilot, Aider의 대안인가요?</b></summary>
 
-**Q: The Pair는 어떤 운영 체제를 지원하나요?**
+네, 다만 접근 방식이 다릅니다. 그 도구들은 단일 에이전트를 구동합니다. The Pair는 독립된 두 에이전트 — 읽기 전용 Mentor와 Executor — 가 서로를 교차 검증하므로, 실수는 출시되기 전에 두 번째 모델이 잡아냅니다. 로컬 우선이고, 오픈소스이며, 모델에 구애받지 않습니다.
 
-A: The Pair는 **macOS, Windows, Linux**용 네이티브 데스크톱 앱으로, Tauri 2(Rust 백엔드 + React 프론트엔드)로 구축되었습니다.
+</details>
 
-**Q: The Pair는 단일 에이전트 AI 코딩 도구와 어떻게 다른가요?**
+<details>
+<summary><b>어떤 모델을 쓸 수 있나요?</b></summary>
 
-A: 단일 에이전트 도구는 하나의 모델이 코드를 작성하고 자체 검토하는 데 의존하므로 자신의 실수를 놓칠 수 있습니다. The Pair는 두 개의 별도 에이전트를 사용하여 Mentor가 Executor의 작업을 검토하여 코드가 적용되기 전에 오류를 잡아냅니다.
+연결한 엔드포인트로 닿을 수 있는 모델이면 무엇이든 — 다른 에이전트의 설정에서 가져왔든, 직접 추가했든, 구독으로 로그인했든 — GPT, Claude, Gemini, Grok, GLM, Qwen, Kimi, MiniMax, DeepSeek, 그리고 Ollama를 통한 로컬 모델까지 됩니다. Claude를 Mentor로, GPT를 Executor로 쓰는 식으로 자유롭게 섞으세요.
 
-**Q: The Pair에 인터넷 연결이 필요한가요?**
+</details>
 
-A: The Pair는 완전히 로컬에서 실행됩니다. AI 모델 API 호출만 인터넷이 필요합니다 (또는 Ollama를 통한 로컬 모델 설정).
+<details>
+<summary><b>인터넷 연결이 필요한가요?</b></summary>
 
-**Q: 어떤 AI 프로바이더를 지원하나요?**
+앱은 로컬에서 실행됩니다. 연결이 필요한 것은 모델 호출뿐이고, Ollama를 쓰면 그것마저 필요 없습니다.
 
-A: The Pair는 HTTPS로 임의의 모델 엔드포인트에 직접 연결합니다 — 설치할 CLI가 없습니다. 다른 에이전트가 이미 가진 설정(kimi, pi, omp, opencode, codex, claude, gemini, killi)을 가져와 엔드포인트를 발견하거나, 수동으로 추가하거나, ChatGPT·Command Code·OpenCode Go·Muse Code 구독으로 로그인할 수 있습니다. 엔드포인트를 자유롭게 혼합할 수 있습니다 — 예를 들어 Claude를 Mentor로, GPT를 Executor로.
+</details>
 
-**Q: 자체 AI 모델을 사용할 수 있나요?**
+<details>
+<summary><b>에이전트가 얼마나 "생각"할지 조절할 수 있나요?</b></summary>
 
-A: 네, The Pair는 모델에 구애받지 않습니다. OpenAI·Anthropic·Gemini 호환 임의의 엔드포인트를 API 키로 추가하거나, 다른 에이전트의 설정에서 가져오거나, [Ollama](https://ollama.com)의 로컬 모델을 사용할 수 있습니다.
+네. 지원하는 모델이라면 Pair를 만들 때나 나중에 설정에서 Mentor와 Executor의 추론 강도를 따로 정할 수 있습니다.
 
-**Q: 에이전트의 "사고 깊이"를 제어할 수 있나요?**
+</details>
 
-A: 네. The Pair는 이를 제공하는 모델에 대해 **추론 노력 제어**를 지원합니다 (Claude, Codex, Gemini, Grok 등). 각 역할별로 낮음/중간/높음 노력을 설정할 수 있으며, Mentor와 Executor는 독립적으로 설정 가능하며 Pair 생성 또는 설정에서 조정할 수 있습니다.
+<details>
+<summary><b>에이전트가 실제로 무엇을 하는지 볼 수 있나요?</b></summary>
 
-**Q: 토큰 사용량과 비용을 어떻게 추적하나요?**
+네. 각 턴에는 인지 이벤트 스트림 — 인텐트 칩, 추론 단계, 각 도구 호출과 그 상태 — 이 표시되므로, 원시 출력을 읽지 않고도 에이전트의 논리를 따라갈 수 있습니다.
 
-A: 토큰 사용량은 각 에이전트 턴별로 실시간 추적됩니다. 실시간 출력 토큰 수는 에이전트 콘솔에 인라인으로 표시되어 에이전트 작업 중 소비를 모니터링할 수 있습니다.
+</details>
 
-**Q: 에이전트가 무한 루프에 빠지면 어떻게 하나요?**
+<details>
+<summary><b>토큰과 비용은 어떻게 추적하나요?</b></summary>
 
-A: The Pair는 반복 횟수 제한을 구현합니다. 구성된 반복 횟수 후에 에이전트는 인간 개입을 위해 일시정지됩니다.
+사용량은 턴 단위로, 입력과 출력을 나누어 기록됩니다. 실시간 수치는 콘솔, 인스펙터, 내보낸 실행 보고서에 나타납니다.
 
-**Q: 앱이 충돌하거나 세션 중에 닫으면 어떻게 하나요?**
+</details>
 
-A: 세션 스냅샷이 자동으로 저장됩니다. 재실행 시 The Pair는 중단된 세션을 감지하고 전체 대화 기록과 함께 복원 옵션을 제공하여 에이전트가 중단된 지점부터 계속할 수 있습니다.
+<details>
+<summary><b>에이전트가 루프에 빠지면요?</b></summary>
 
-**Q: The Pair는 자동 업데이트를 지원하나요?**
+실행은 기본적으로 무제한입니다. 반복 한도를 설정해 두면 한도에 도달했을 때 **사람 검토 대기 중** 상태로 일시 중지되어, 계속하거나 모델을 바꾸거나 끝낼 수 있습니다. 턴 내 스텝 사이클 가드도 폭주하는 도구 루프를 멈춥니다.
 
-A: 네. The Pair는 실행 시 새 버전을 확인하고 원클릭 업데이트 플로우로 알림을 보냅니다. 수동 다운로드가 필요하지 않습니다.
+</details>
+
+<details>
+<summary><b>앱이 죽거나 세션 중에 닫아 버리면요?</b></summary>
+
+세션 스냅샷은 자동으로 저장됩니다. 다음 실행 때 The Pair가 중단된 세션을 찾아 전체 기록과 함께 복원할지 묻습니다.
+
+</details>
+
+<details>
+<summary><b>자동으로 업데이트되나요?</b></summary>
+
+네. The Pair는 실행할 때 새 버전을 확인하고, 클릭 한 번으로 설치합니다.
+
+</details>
+
+<br />
 
 ---
 
 <div align="center">
 
-[⬇ 다운로드](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 웹사이트](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 토론](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 버그 신고](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ 다운로드](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [웹사이트](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [토론](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [버그 신고](https://github.com/timwuhaotian/the-pair/issues)
 
-[timwuhaotian](https://github.com/timwuhaotian)이 ❤️로 제작
+[timwuhaotian](https://github.com/timwuhaotian)이 만듭니다. The Pair가 도움이 되었다면 [스타](https://github.com/timwuhaotian/the-pair) 하나가 다른 사람들이 찾는 데 힘이 됩니다.
 
-**[⭐ Star 누르기](https://github.com/timwuhaotian/the-pair)** — 도움이 되셨다면 응원해 주세요!
-
-<sub>The Pair — 오픈소스 AI 페어 프로그래밍 · 듀얼 에이전트 AI 코드 리뷰 · 멀티 에이전트 코딩 어시스턴트 · Cursor / Copilot 대안 · 임의의 모델 엔드포인트 — OpenAI, Anthropic, Gemini, Grok 등, 또는 Ollama를 통한 로컬 모델 — 지원, macOS, Windows, Linux에서 작동.</sub>
+<sub>The Pair — 오픈소스 AI 페어 프로그래밍 · 듀얼 에이전트 AI 코드 리뷰 · 멀티 에이전트 코딩 어시스턴트 · Cursor와 Copilot의 대안 · 모든 모델 엔드포인트 또는 Ollama를 통한 로컬 모델 지원 · macOS, Windows, Linux.</sub>
 
 </div>

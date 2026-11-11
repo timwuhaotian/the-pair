@@ -1,87 +1,60 @@
 <!-- prettier-ignore -->
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/app-icon-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/assets/app-icon-light.svg" />
-  <img src="./resources/logo-the-pair.png" alt="The Pair" width="128" />
-</picture>
+<img src="./docs/assets/app-icon.svg" alt="The Pair" width="128" />
 
 # The Pair
 
-**Automated AI pair programming — two AI agents cross-check each other's code, so you can grab a coffee and come back to reviewed, validated work. _(Yes, The Pair was built by The Pair.)_**
+**Two AI agents on one task. One writes the code, the other reviews it.**
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
+Open-source AI pair programming for your desktop: a read-only **Mentor** plans and reviews,
+an **Executor** writes code and runs commands, and they check each other's work
+before it reaches your codebase. _(Yes, The Pair was built by The Pair.)_
+
+[![Release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github&label=release)](https://github.com/timwuhaotian/the-pair/releases)
+[![Downloads](https://img.shields.io/github/downloads/timwuhaotian/the-pair/total?label=downloads)](https://github.com/timwuhaotian/the-pair/releases)
+[![Build](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/timwuhaotian/the-pair?style=social)](https://github.com/timwuhaotian/the-pair/stargazers)
-[![Downloads](https://img.shields.io/github/downloads/timwuhaotian/the-pair/total)](https://github.com/timwuhaotian/the-pair/releases)
-[![Build Status](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react&logoColor=black)](https://react.dev/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
 
-🌐 **English** • [简体中文](README.zh.md) • [한국어](README.ko.md) • [日本語](README.ja.md) &nbsp;|&nbsp; [![Share on X](https://img.shields.io/badge/Share-000000?logo=x&logoColor=white)](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair)
+**English** · [简体中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-**macOS** • **Windows** • **Linux** &nbsp;|&nbsp; [**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;•&nbsp; [**🌐 Website**](https://apps.timwuhaotian.dev/)
+[**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**Quick start**](#quick-start) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**Website**](https://apps.timwuhaotian.dev/)
 
-![The Pair desktop app — Mentor and Executor AI agents collaborating in the session console, with the models, run state, and git inspector alongside](./docs/assets/pair-detail.png)
+<sub>macOS · Windows · Linux</sub>
 
-_Watch Mentor and Executor agents collaborate in real-time_
+<br />
 
-[![The Pair 10-second launch film — two agents, one review](./docs/assets/launch-10s.gif)](docs/assets/launch-10s.mp4)
+<img src="./docs/assets/pair-detail.png" alt="The Pair desktop app: the Mentor's plan, the Executor's result and the Mentor's review in one session console, with models, run state, usage and changed files in the inspector" width="100%" />
 
-🎬 **The 10-second launch film, autoplaying muted** — [watch the 4K60 original with sound](docs/assets/launch-10s.mp4)
+<sub>A finished run: the Mentor planned, the Executor implemented, the Mentor read the diff and signed off.</sub>
 
 </div>
 
----
+<br />
 
-<details>
-<summary><b>Table of Contents</b></summary>
+## Why two agents
 
-- [Overview](#overview) — what The Pair is and why dual agents reduce AI hallucinations
-- [AI Search Summary](#ai-search-summary) — concise product facts for search and AI citation
-- [Why The Pair?](#why-the-pair) — comparison vs. Cursor, Copilot, and single-agent tools
-- [Choose Your Interface](#choose-your-interface) — desktop app or terminal CLI
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Installation](#installation) — macOS, Windows, Linux
-- [Quick Start](#quick-start) — connect a model endpoint and create your first pair
-- [Configuration](#configuration)
-- [Architecture](#architecture)
-- [Development](#development)
-- [FAQ](#faq)
+A model that writes code and then reviews its own code tends to agree with itself. The Pair splits the job in two and gives each half to a different agent — and, if you like, a different model.
 
-</details>
+| Role         | What it does                                                | What it can touch                  |
+| ------------ | ----------------------------------------------------------- | ---------------------------------- |
+| **Mentor**   | Reads the code, writes the plan, reviews every result       | Read-only                          |
+| **Executor** | Writes code, runs commands, verifies, hands the result back | The pair's workspace, nothing else |
 
-## Overview
+```mermaid
+flowchart LR
+    T([Your task]) --> M[Mentor plans]
+    M --> E[Executor writes and runs]
+    E --> R[Mentor reviews]
+    R -- needs work --> M
+    R -- done --> F([Finished])
+    R -. iteration cap .-> H([Awaiting human review])
+```
 
-**The Pair is a free, open-source desktop app that runs two AI coding agents — a read-only _Mentor_ that plans and reviews, and an _Executor_ that writes code and runs commands — which cross-check each other's work to catch AI hallucinations before they reach your codebase.** It runs locally on macOS, Windows, and Linux, and is model-agnostic: it talks straight to model endpoints over HTTPS — no agent CLI is spawned. Endpoints are discovered by importing the configuration another agent already has (kimi, pi, omp, opencode, codex, claude, gemini, killi) or from environment variables, added by hand, or signed in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription — all managed in the Models section of the left rail. Mix and match any two models in any combination (plus local models via Ollama).
+Runs continue until the Mentor signals completion or you stop them. Set an iteration cap on a pair and reaching it pauses the run for your review, so you can continue, reassign models, or finish. While they work, go grab a coffee — or stay and steer: you can stop a turn, send feedback, or approve the plan before a line is written.
 
-**Worried about AI code hallucinations?** The Pair solves this by running two AI agents that cross-check each other:
-
-- **Mentor Agent** — Plans, reviews, and validates (read-only)
-- **Executor Agent** — Writes code and runs commands
-
-While they work, go grab a coffee. Come back to reviewed, cross-validated code.
-
-### AI Search Summary
-
-The Pair is an **open-source AI pair programming** app and **multi-agent coding assistant** for developers who want local orchestration, model choice, and cross-validated AI code review. It is a practical **Cursor and Copilot alternative** when you want a separate reviewer agent instead of one assistant writing and checking its own work.
-
-For AI crawlers and search systems, see [llms.txt](llms.txt), the reusable [SoftwareApplication JSON-LD](docs/seo/software-application.schema.json), and the [FAQPage JSON-LD](docs/seo/faq.schema.json).
-
-> **💡 Common Questions**
->
-> **How is this different from single-agent tools?** — One model writing _and_ reviewing its own code can miss its own mistakes. The Pair's Mentor independently reviews everything the Executor produces.
->
-> **Which models work?** — Any model reachable through an endpoint you connect — imported from another agent's config, added by hand, or signed in with a subscription — including GPT, Claude, Gemini, Grok, GLM, Qwen, Kimi, MiniMax, and DeepSeek, plus local models via Ollama. Mix and match freely (e.g., Claude as Mentor + GPT as Executor).
->
-> **Does it need internet?** — The app runs locally. Only model API calls need connectivity (or use Ollama for fully offline sessions).
-
-### Why The Pair?
+### How it compares
 
 | Capability                      | The Pair                  | Cursor / Copilot    | Claude Code (solo)  |
 | ------------------------------- | ------------------------- | ------------------- | ------------------- |
@@ -92,87 +65,75 @@ For AI crawlers and search systems, see [llms.txt](llms.txt), the reusable [Soft
 | Session recovery                | ✅ Full snapshot restore  | ❌                  | ❌                  |
 | Open source                     | ✅ Apache 2.0             | ❌ Proprietary      | ❌ Proprietary      |
 
-### Key Benefits
+## A look around
 
-- **Dual-Model Cross-Validation** — Two models check each other's work, dramatically reducing code hallucinations
-- **Cognitive Transparency** — Live intent chips and tool call visualization show exactly what each agent is doing
-- **Unified Pair Console** — Single scrollable feed merges conversation, timeline, and activity into one cohesive view
-- **Automated Collaboration** — Agents work together without constant human intervention
-- **Smart Coordination** — Structured handoff prompts, quality gates, and smart pauses keep iterations focused
-- **Live Usage Tracking** — Per-turn and per-run tokens, estimated cost, request count and last output, with stall detection
-- **Activity View** — Attention items, running pairs, and recent events across all pairs at a glance
-- **Git Integration** — Automatic tracking of all file changes plus inline diff viewer for any modified file
-- **Human Oversight** — Step in at any time to pause, adjust, reassign, or resume after the iteration limit
-- **Session Recovery** — Resume interrupted sessions with full conversation history and turn state restored
-- **Guided First Run** — Empty-state setup flow with model configuration and directory selection
-- **i18n Support** — English, 简体中文, 日本語, and 한국어 with persisted language preference
-- **Dark/Light Themes** — Automatic system theme detection with manual toggle
-
-### Use Cases
-
-- Autonomous coding sessions — Let AI agents iterate on features while you focus on review
-- Code refactoring — Automated analysis and implementation of improvements
-- Bug fixing — Agents collaborate to diagnose and resolve issues
-- Learning tool — Observe how AI agents break down and solve problems
-- Interrupted work recovery — Restore session state after app restart or crash
-
----
-
-## Choose Your Interface
-
-The Pair is the desktop app for visual monitoring and hands-on oversight. **CLI** users can install [Pair Code](https://github.com/timwuhaotian/pair-code), the terminal edition of The Pair, from [npm](https://www.npmjs.com/package/pair-code) with `npm install -g pair-code`.
-
-| Interface   | Best for                                          | Start here                                                                                                       |
-| ----------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Desktop** | Visual monitoring, installers, long-running pairs | [Download The Pair](https://github.com/timwuhaotian/the-pair/releases)                                           |
-| **CLI**     | Terminal-native workflows, scripts, SSH sessions  | [Pair Code](https://github.com/timwuhaotian/pair-code) or [npm package](https://www.npmjs.com/package/pair-code) |
-
-Both use the same Mentor + Executor idea: one agent plans and reviews, the other writes and verifies.
-
----
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/pair-running.png" alt="A live Executor turn: the tool calls it has made, the command it is running, and a Stop turn button" />
+      <br />
+      <b>Watch a turn as it happens</b><br />
+      <sub>Every read, edit and command the Executor makes, live, with a stop button.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/hub.png" alt="The Pairs hub: every pair with its status, iteration count, branch and task" />
+      <br />
+      <b>Every pair in one hub</b><br />
+      <sub>Status, iteration and branch at a glance, and interrupted sessions offered back.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/models.png" alt="The Models section: endpoints with their protocol, accounts, credential state and models" />
+      <br />
+      <b>Bring your own models</b><br />
+      <sub>Endpoints, accounts and credentials in one place; no agent CLI to install.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/palette.png" alt="The command palette, filtered to pair, listing actions and a jump to each pair" />
+      <br />
+      <b>⌘K for everything</b><br />
+      <sub>A fuzzy palette over every action, with a direct jump to any pair.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
-- **Dual-Agent Architecture** — Separation of planning (Mentor) and execution (Executor)
-- **Unified Pair Console** — Conversation, timeline, terminal events, and activity in one scrollable feed
-- **Cognitive Event Stream** — Intent chips, reasoning steps, and tool call status surfaced per turn
-- **Smart Coordination** — Structured handoff prompts, quality gates, and smart-pause logic for healthier iterations
-- **Iteration Budgeting** — Optional per-pair iteration cap with human-in-the-loop pause when the budget is reached (runs are unbounded by default)
-- **Full Automation Mode** — Agents work autonomously with workspace-scoped permissions
-- **Real-Time Activity Tracking** — Live status with stall detection (warning after 120s without output, stalled after 600s)
-- **Usage Tracking** — Per-turn and per-run tokens, estimated cost, request count and last output in the inspector
-- **Git Change Tracking** — Detect modified/added/deleted files, with click-through unified diff viewer
-- **Sound Cues** — Contextual finish, pause, and error chimes with global mute toggle
-- **Conversation History** — Full transcript of all agent interactions, exportable as a run report
-- **Local Orchestration** — Runs the app and agent coordination locally; model calls go straight to your selected endpoint or a local model
-- **Bring Your Own Endpoint** — Connect any model endpoint: import another agent's config (opencode, codex, claude, kimi, pi, omp, gemini, killi), add a key by hand, or sign in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription
-- **Reasoning Controls** — Adjust thinking effort per agent role (low/medium/high)
-- **Token Tracking** — Real-time per-turn input/output token usage in timeline, turn cards, and run reports
-- **Skill System** — Attach project-specific skill files to guide agent behavior
-- **Global Shortcuts** — Platform-agnostic shortcuts for new pair, pair settings, focus console, and mute
-- **Command Palette** — Fuzzy finder (⌘K) over every action with direct pair jump
-- **Native Menu Bar** — Full App / File / Edit / View / Window / Help menus with keyboard shortcuts
-- **Pairs Hub** — Workspace-grouped pair cards with status, quick actions, and a recovery banner
-- **Inspector Panel** — Collapsible sections for models, run state, usage, files, history, and timeline
-- **Auto-Update** — In-app update checking with one-click install
+**The loop**
 
----
+- **Dual-agent architecture** — planning and review (Mentor) kept apart from execution (Executor)
+- **Smart coordination** — structured handoff prompts, quality gates and smart pauses keep iterations focused
+- **Acceptance checks** — the Mentor runs tests and lint, then returns a verdict with risk, evidence and a next step
+- **Plan gate and iteration cap** — optionally approve the first plan yourself, and cap iterations per pair (runs are unbounded by default)
+- **Stall detection** — a warning after 120 s without output, stalled after 600 s
 
-## Screenshots
+**The console**
 
-Pairs Hub
-<img width="2800" height="2000" alt="Pairs hub with workspace-grouped pair cards" src="./docs/assets/hub.png" />
+- **One session console** — task, plans, results, reviews and live turns in a single scrollable feed, with search and role filters
+- **Cognitive event stream** — intent chips, reasoning steps and tool-call status for every turn
+- **Usage tracking** — tokens per turn and per run, estimated cost, request count and last output
+- **Inspector** — collapsible sections for models, run state, usage, files, history and timeline
+- **Activity and Insights** — what needs attention across all pairs, and which model combinations have worked
 
-Pair Detail — Review
-<img width="2800" height="2000" alt="Pair detail with session console and inspector" src="./docs/assets/pair-detail.png" />
+**Your repository**
 
-Command Palette
-<img width="2800" height="2000" alt="Command palette with fuzzy search and pair jump" src="./docs/assets/palette.png" />
+- **Git change tracking** — added, modified and deleted files against a baseline commit, with an inline diff for each
+- **Worktrees** — run each task in its own git worktree on a `the-pair/…` branch, then commit and push from the inspector
+- **Skills and mentions** — attach project skill files with `/skill` and files with `@path`
+- **Session recovery** — snapshots are saved as you go; an interrupted session comes back with its history and turn state
 
-Live Execution
-<img width="2800" height="2000" alt="Live executor turn with stop control and queued input" src="./docs/assets/pair-running.png" />
+**Models**
 
----
+- **Bring your own endpoint** — import another agent's configuration (opencode, codex, claude, kimi, pi, omp, gemini, killi), add a key by hand, or sign in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription
+- **Any model in either role** — pick the endpoint, model and reasoning effort for Mentor and Executor independently
+- **Local orchestration** — the app and the coordination run on your machine; model calls go straight to the endpoint you chose, or to a local model
+
+**The app**
+
+- **Command palette and shortcuts** — ⌘K over every action, global shortcuts, and a full native menu bar
+- **Four languages** — English, 简体中文, 日本語 and 한국어
+- **Light and dark themes**, sound cues with a global mute, and in-app updates
 
 ## Installation
 
@@ -184,7 +145,21 @@ Download the latest release from [GitHub Releases](https://github.com/timwuhaoti
 | **Windows** | `the-pair-{version}-setup.exe`                                        |
 | **Linux**   | `the-pair-{version}.AppImage.tar.gz` (extract, then run the AppImage) |
 
-### From Source
+Prefer the terminal? **CLI** users can install [Pair Code](https://github.com/timwuhaotian/pair-code), the terminal edition of The Pair, from [npm](https://www.npmjs.com/package/pair-code):
+
+```bash
+npm install -g pair-code
+```
+
+| Interface   | Best for                                          | Start here                                                             |
+| ----------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Desktop** | Visual monitoring, installers, long-running pairs | [Download The Pair](https://github.com/timwuhaotian/the-pair/releases) |
+| **CLI**     | Terminal-native workflows, scripts, SSH sessions  | [Pair Code](https://github.com/timwuhaotian/pair-code)                 |
+
+<details>
+<summary><b>Build from source</b></summary>
+
+<br />
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
@@ -193,278 +168,189 @@ npm install
 npm run build:mac  # or build:win / build:linux
 ```
 
-On macOS, `build:mac` produces a local DMG, while `build:mac:release` produces the ZIP-style release bundle used in GitHub Releases. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
+On macOS, `build:mac` produces a local DMG and `build:mac:release` the ZIP bundle used in GitHub Releases. The build script installs the Rust targets it needs before invoking Tauri. To set them up yourself:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
----
+</details>
 
-## Quick Start
+## Quick start
 
 > [!NOTE]
-> The Pair needs at least one model endpoint with a credential. It talks to models over HTTPS directly — there is no agent CLI to install. Add an endpoint and its API key, import the configuration another agent already has, or sign in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription — all from the Models section.
+> The Pair needs one model endpoint with a credential. It talks to models over HTTPS directly — there is no agent CLI to install.
 
-### 1. Connect a Model
+**1. Connect a model.** Open **Models** in the left rail and add an endpoint any of these ways:
 
-Open the **Models** section in the left rail and add an endpoint any of these ways:
-
-- **Import** — pull endpoints and keys from the configuration another agent already has (kimi, pi, omp, opencode, codex, claude, gemini, killi) or from environment variables
-- **Add by hand** — enter a protocol, base URL, API key and model id
+- **Scan for agents** — import the endpoints and keys another agent already has (kimi, pi, omp, opencode, codex, claude, gemini, killi), or the ones in your environment variables
+- **Add endpoint** — enter a protocol, base URL, API key and model id
 - **Sign in** — authorize a ChatGPT, Command Code, OpenCode Go or Muse Code subscription inside the app
 
 Endpoints with no usable credential are listed too, with the state that blocks them.
 
-### 2. Pick a Model for Each Role
+**2. Create a pair.** Click **New Pair**, choose a directory, describe the task, and pick an endpoint, a model and a reasoning effort for the Mentor and the Executor.
 
-When you create a pair, choose an endpoint, a model and a reasoning effort for the Mentor and the Executor independently. The pair stores the model id and its effort; the endpoint and credential are resolved when a turn starts.
+**3. Watch, or don't.** The Mentor plans, the Executor implements, the Mentor reviews. Follow along in the console, step in whenever you like, and review the changed files when it finishes.
 
 > [!TIP]
-> You can also use local models with [Ollama](https://ollama.com) for fully offline sessions.
-
-### 3. Launch The Pair
-
-Open from Applications folder or start menu.
-
-### 4. Create Your First Pair
-
-1. Click **New Pair** button
-2. Configure: name, directory, task description, and AI models
-3. Watch the agents work — Mentor plans, Executor implements, Mentor reviews
-4. Monitor progress with real-time activity tracking and file changes
-
----
+> For a fully offline session, use local models through [Ollama](https://ollama.com).
 
 ## Configuration
 
-### Credentials
+**Credentials** live in the app's own store, `credentials.json` (mode 0600), in the app's data directory. The importers that read other agents' configurations and your environment only read — they never write back.
 
-The Pair keeps its own credential store at `credentials.json` (mode 0600) in the app's data directory. It discovers endpoints by reading the configuration other agents already have (kimi, pi, omp, opencode, codex, claude, gemini, killi) or environment variables — those importers only read, they never write back — and you can add endpoints by hand or sign in with a subscription from the Models section.
-
-### Pair Runtime
-
-Each pair works either directly in your chosen directory or in its own git worktree on a `the-pair/…` branch. Session state — snapshots, run reports, and the cross-run intelligence store — lives in the app's data directory, never inside your repository.
+**Pair runtime.** Each pair works either directly in the directory you chose or in its own git worktree on a `the-pair/…` branch. Session state — snapshots, run reports and the cross-run intelligence store — stays in the app's data directory, never inside your repository.
 
 > [!NOTE]
-> The Pair copies credentials into its own store and never writes back to your agent configurations. Its tools run inside the app, scoped to the pair's workspace, and the Mentor stays read-only.
-
----
+> The agents' tools run inside the app, scoped to the pair's workspace, and the Mentor stays read-only.
 
 ## Architecture
 
-### Tech Stack
+A Tauri 2 app: a Rust backend that talks to model endpoints over HTTPS and runs the agents' tools, and a React front end that renders the conversation and the controls.
 
-| Layer          | Technology            |
-| -------------- | --------------------- |
-| **Framework**  | Tauri 2.x             |
-| **Backend**    | Rust                  |
-| **Frontend**   | React 19 + TypeScript |
-| **Styling**    | Tailwind CSS v4       |
-| **State**      | Zustand               |
-| **Animations** | Framer Motion         |
-| **Icons**      | Lucide React          |
-
-### System Architecture
+| Layer        | What lives there                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| **Frontend** | React 19 + TypeScript, Tailwind CSS v4, Zustand, Framer Motion — Pairs hub, session console, inspector       |
+| **Bridge**   | Tauri IPC                                                                                                    |
+| **Backend**  | Rust — pair lifecycle, the turn state machine, the harness that streams each reply and runs the tools        |
+| **Models**   | Streaming clients per wire protocol (OpenAI Chat, Anthropic, Responses, Command Code), a credential registry |
+| **Git**      | Change tracking against a baseline commit, worktrees, session snapshots                                      |
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    The Pair App                         │
-├─────────────────────────────────────────────────────────┤
-│  Frontend (React UI)                                    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │  Pairs Hub   │ PairConsole  │   Inspector    │    │
-│  │  + Activity  │ (Unified)    │  (Collapsible) │    │
-│  │  + Insights  │              │                │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│                          ↕ Tauri IPC                    │
-├─────────────────────────────────────────────────────────┤
-│  Backend (Rust)                                         │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ Harness          │    │
-│  │ (Lifecycle)  │(State Machine)│(Direct HTTP)    │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ContextBridge │ QualityGate  │   SmartPause     │    │
-│  │ (Handoffs)   │ (Verdict)    │ (Coordination)   │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-│  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │Accounts      │ Acceptance   │ Report Generator │    │
-│  └──────────────┴──────────────┴──────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-                            ↕
-              ┌─────────────┴─────────────┐
-              ↙                           ↘
-     ┌─────────────────┐          ┌─────────────────┐
-     │  Model Endpoints│          │   Git Repo      │
-     │OpenAI, Anthropic│          │  (Workspace)    │
-     │Gemini, Grok…    │          └─────────────────┘
-     │(over HTTPS)     │
-     └─────────────────┘
+Idle → Mentoring → Executing → Reviewing → (loop | Finished | Paused | Awaiting Human Review | Error)
 ```
 
-### Agent Workflow
-
-```
-Start → Initialize & Baseline → Mentoring → Executing → Reviewing
-                                                  ↓
-                                        Done? ──Yes→ Finished
-                                           │
-                                           No
-                                           ↓
-                          Iteration limit? ──Yes→ Paused (Awaiting Human Review)
-                                           │
-                                           No
-                                           ↓
-                                  (loop back to Mentoring)
-```
-
-Pairs run until the mentor signals completion or you stop them. If you set an iteration cap for a pair, hitting the budget pauses it into human review — so you can continue, reassign, or finish from the console.
-
----
+`AGENTS.md` has the full module map.
 
 ## Development
 
-### Prerequisites
-
-- **Node.js** 22.22+
-- **npm** or **pnpm**
-- **Git**
-- **Rustup** for desktop builds
-
-> [!NOTE]
-> Release builds require the updater signing secret to be configured in GitHub Actions.
-
-Run a quick environment check before building:
-
-```bash
-npm run preflight
-```
-
-### Setup
+Requires **Node.js 22.22+**, **Git**, and **Rustup** for desktop builds.
 
 ```bash
 git clone https://github.com/timwuhaotian/the-pair.git
 cd the-pair
 npm install
-npm run dev
+npm run preflight   # check the toolchain
+npm run dev         # the app, with hot reload
+npm run dev:mock    # the same, with canned turns and no model calls
 ```
 
-### Project Structure
+<details>
+<summary><b>All scripts</b></summary>
 
-```
-the-pair/
-├── src/
-│   └── renderer/          # React frontend
-│       └── src/
-│           ├── App.tsx
-│           ├── components/
-│           └── store/
-├── src-tauri/             # Rust backend
-│   ├── src/
-│   │   ├── lib.rs
-│   │   ├── pair_manager.rs
-│   │   ├── message_broker.rs
-│   │   └── ...
-│   └── Cargo.toml
-├── build/                 # Build resources
-└── package.json
-```
+<br />
 
-### Scripts
+| Command                     | Description                                            |
+| --------------------------- | ------------------------------------------------------ |
+| `npm run dev`               | Start the app with hot reload                          |
+| `npm run dev:mock`          | Start the app with mocked agents                       |
+| `npm run dev:smoke`         | Start the app in smoke-test mode                       |
+| `npm run preflight`         | Check local build prerequisites                        |
+| `npm test`                  | Run the JavaScript, component and Rust tests           |
+| `npm run test:js`           | Run the Node/TypeScript unit tests                     |
+| `npm run test:ui`           | Run the component tests                                |
+| `npm run test:rust`         | Run the Rust tests                                     |
+| `npm run typecheck`         | Check TypeScript types                                 |
+| `npm run lint`              | Run ESLint                                             |
+| `npm run format`            | Format with Prettier                                   |
+| `npm run e2e:web`           | Run the headless end-to-end tests against a mocked IPC |
+| `npm run e2e:setup`         | Install the Appium macOS driver                        |
+| `npm run e2e`               | Run the mocked end-to-end tests on macOS               |
+| `npm run clean`             | Remove generated build artifacts                       |
+| `npm run build:mac`         | Build a local macOS DMG                                |
+| `npm run build:mac:release` | Build the macOS release ZIP bundle                     |
+| `npm run build:win`         | Build for Windows                                      |
+| `npm run build:linux`       | Build for Linux                                        |
 
-| Command                     | Description                         |
-| --------------------------- | ----------------------------------- |
-| `npm run dev`               | Start hot-reload development server |
-| `npm run preflight`         | Check local build prerequisites     |
-| `npm run preflight:mac`     | Check macOS build prerequisites     |
-| `npm run preflight:win`     | Check Windows build prerequisites   |
-| `npm run preflight:linux`   | Check Linux build prerequisites     |
-| `npm test`                  | Run JavaScript and Rust unit tests  |
-| `npm run test:js`           | Run Node/TypeScript unit tests      |
-| `npm run test:rust`         | Run Rust unit tests                 |
-| `npm run typecheck`         | Check TypeScript types              |
-| `npm run lint`              | Run ESLint                          |
-| `npm run format`            | Format with Prettier                |
-| `npm run e2e:setup`         | Install the Appium macOS driver     |
-| `npm run e2e`               | Run mocked end-to-end tests         |
-| `npm run dev:mock`          | Start the app with mocked agents    |
-| `npm run dev:smoke`         | Start the app in smoke-test mode    |
-| `npm run clean`             | Remove generated build artifacts    |
-| `npm run build:mac`         | Build local macOS DMG               |
-| `npm run build:mac:release` | Build macOS release ZIP bundle      |
-| `npm run build:win`         | Build for Windows                   |
-| `npm run build:linux`       | Build for Linux                     |
+</details>
 
----
+The screenshots on this page are generated from the app itself: `node scripts/readme-shots.mjs` (the file says what it needs running).
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [changelog](CHANGELOG.md).
 
 ## FAQ
 
-**Q: Is The Pair free and open source?**
+<details>
+<summary><b>Is The Pair free and open source?</b></summary>
 
-A: Yes. The Pair is fully open source under the Apache 2.0 license and free to download for macOS, Windows, and Linux. You only pay for your own AI provider usage — or run local models with [Ollama](https://ollama.com) for zero API cost.
+Yes. The Pair is open source under the Apache 2.0 license and free to download for macOS, Windows and Linux. You pay only for your own model usage — or run local models with [Ollama](https://ollama.com) for no API cost.
 
-**Q: Is The Pair an alternative to Cursor, GitHub Copilot, or Aider?**
+</details>
 
-A: Yes, with a different approach. Cursor, Copilot, and Aider drive a single agent. The Pair runs two independent agents — a Mentor (read-only reviewer) and an Executor (code writer) — that cross-check each other, so mistakes get caught by a second model instead of shipped. It's a local-first, open-source alternative, and it's model-agnostic: pair any two models reachable through endpoints you connect — imported from another agent's config, added by hand, or signed in with a subscription.
+<details>
+<summary><b>Is it an alternative to Cursor, GitHub Copilot or Aider?</b></summary>
 
-**Q: Which operating systems does The Pair support?**
+Yes, with a different approach. Those tools drive a single agent. The Pair runs two independent agents — a read-only Mentor and an Executor — that cross-check each other, so a mistake is caught by a second model instead of shipped. It is local-first, open source and model-agnostic.
 
-A: The Pair is a native desktop app for **macOS, Windows, and Linux**, built with Tauri 2 (Rust backend + React frontend).
+</details>
 
-**Q: How does The Pair differ from single-agent AI coding tools?**
+<details>
+<summary><b>Which models work?</b></summary>
 
-A: Single-agent tools rely on one model to write and self-review code, which can miss its own mistakes. The Pair uses two separate agents where the Mentor reviews the Executor's work, catching errors before they land.
+Any model reachable through an endpoint you connect — imported from another agent's configuration, added by hand, or signed in with a subscription — including GPT, Claude, Gemini, Grok, GLM, Qwen, Kimi, MiniMax and DeepSeek, plus local models via Ollama. Mix them freely, for example Claude as Mentor and GPT as Executor.
 
-**Q: Does The Pair require internet connectivity?**
+</details>
 
-A: The Pair runs entirely locally. Only the AI model API calls require internet (or local model setup via Ollama).
+<details>
+<summary><b>Does it need an internet connection?</b></summary>
 
-**Q: Which AI providers are supported?**
+The app runs locally. Only the model calls need connectivity, and with Ollama not even those.
 
-A: The Pair connects straight to any model endpoint over HTTPS — there is no CLI to install. Discover endpoints by importing the configuration another agent already has (kimi, pi, omp, opencode, codex, claude, gemini, killi), add one by hand, or sign in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription. You can mix endpoints freely — e.g., Claude as Mentor and GPT as Executor.
+</details>
 
-**Q: Can I use my own AI models?**
+<details>
+<summary><b>Can I control how much the agents think?</b></summary>
 
-A: Yes, The Pair is model-agnostic. Add any OpenAI-, Anthropic- or Gemini-compatible endpoint with its API key, import one from another agent's config, or use local models with [Ollama](https://ollama.com).
+Yes. For models that offer it, set the reasoning effort for the Mentor and the Executor independently, when you create the pair or later from its settings.
 
-**Q: Can I control how much the agents "think"?**
+</details>
 
-A: Yes. The Pair supports **reasoning effort controls** for models that offer it (Claude, Codex, Gemini, Grok, and more). You can set low/medium/high effort per role — Mentor and Executor independently — from pair creation or settings.
+<details>
+<summary><b>Can I see what an agent is actually doing?</b></summary>
 
-**Q: How do I track token usage and costs?**
+Yes. Each turn shows a stream of cognitive events — intent chips, reasoning steps, and each tool call with its status — so you can follow the agent's logic without reading raw output.
 
-A: Token usage is tracked in real-time per agent turn with full input/output breakdown. Live counts appear inline in the unified Pair Console, the timeline, and the exported run report so you can monitor spend as agents work.
+</details>
 
-**Q: Can I see what the agent is actually doing?**
+<details>
+<summary><b>How do I track tokens and cost?</b></summary>
 
-A: Yes. Each turn renders a stream of **cognitive events** — intent chips (analyzing / writing / verifying / reviewing), reasoning steps, and tool call status (pending / running / completed / error) — so you can follow the agent's logic without parsing raw output.
+Usage is tracked per turn, with input and output broken out. Live counts appear in the console, the inspector and the exported run report.
 
-**Q: What happens if an agent gets stuck in a loop?**
+</details>
 
-A: Runs are unbounded by default; if you set an iteration cap for a pair, reaching it pauses the run into **Awaiting Human Review** so you can continue, reassign, or finish. A per-turn step-cycle guard also stops runaway tool loops to prevent wasted tokens.
+<details>
+<summary><b>What if an agent gets stuck in a loop?</b></summary>
 
-**Q: What if the app crashes or I close it mid-session?**
+Runs are unbounded by default. If you set an iteration cap, reaching it pauses the run into **Awaiting Human Review**, where you can continue, reassign or finish. A per-turn step-cycle guard also stops runaway tool loops.
 
-A: Session snapshots are saved automatically. On relaunch, The Pair detects interrupted sessions and offers to restore them with full conversation history, so agents can continue from where they left off.
+</details>
 
-**Q: Does The Pair auto-update?**
+<details>
+<summary><b>What if the app crashes or I close it mid-session?</b></summary>
 
-A: Yes. The Pair checks for new versions on launch and notifies you with a one-click update flow. No manual download needed.
+Session snapshots are saved automatically. On the next launch The Pair finds interrupted sessions and offers to restore them with their full history.
+
+</details>
+
+<details>
+<summary><b>Does it update itself?</b></summary>
+
+Yes. The Pair checks for a new version on launch and installs it in one click.
+
+</details>
+
+<br />
 
 ---
 
 <div align="center">
 
-[⬇ Download](https://github.com/timwuhaotian/the-pair/releases) &nbsp;•&nbsp; [🌐 Website](https://apps.timwuhaotian.dev/) &nbsp;•&nbsp; [💬 Discussions](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;•&nbsp; [🐛 Report a bug](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ Download](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [Website](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [Discussions](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [Report a bug](https://github.com/timwuhaotian/the-pair/issues)
 
-Built with ❤️ by [timwuhaotian](https://github.com/timwuhaotian)
+Built by [timwuhaotian](https://github.com/timwuhaotian). If The Pair is useful to you, [a star](https://github.com/timwuhaotian/the-pair) helps others find it.
 
-**[⭐ Star this repo](https://github.com/timwuhaotian/the-pair)** if you find it helpful! &nbsp;|&nbsp; [📢 Share on X](https://twitter.com/intent/tweet?text=Check%20out%20The%20Pair%20%E2%80%94%20Two%20AI%20agents%20cross-check%20each%20other%27s%20code&url=https://github.com/timwuhaotian/the-pair) &nbsp;|&nbsp; [💬 Discuss](https://github.com/timwuhaotian/the-pair/discussions)
-
-<sub>The Pair — open-source AI pair programming · dual-agent AI code review · multi-agent coding assistant · Cursor &amp; Copilot alternative · works with any model endpoint — OpenAI, Anthropic, Gemini, Grok, and more, or local models via Ollama — on macOS, Windows, and Linux.</sub>
+<sub>The Pair — open-source AI pair programming · dual-agent AI code review · multi-agent coding assistant · Cursor and Copilot alternative · works with any model endpoint, or local models via Ollama · macOS, Windows and Linux. For AI crawlers: <a href="llms.txt">llms.txt</a>, <a href="docs/seo/software-application.schema.json">SoftwareApplication</a> and <a href="docs/seo/faq.schema.json">FAQPage</a> JSON-LD.</sub>
 
 </div>
