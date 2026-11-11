@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-11-11
+
+A new mark and app icon from the killi family, a boot splash that goes away when it has faded, and search-facing descriptions that match 3.0.
+
+### Changed
+
+- **A new brand mark and app icon.** The mark is two tiles side by side with a check on each, a coral stick and a gold spark, in the palette killi, kil and kiled share. It replaces the robots-and-coffee artwork in the boot splash, the empty hub and the Create Pair header, and the app icon is the same drawing on a navy field — one icon for light and dark.
+- **The launch animation draws the pair.** The Mentor's tile lands and its check draws, then the Executor's, the stick rises and the spark pops, all within the 700 ms the splash is guaranteed to stay up. Reduced motion shows the finished mark.
+- **The READMEs are rewritten in all four languages**, with screenshots taken from the app itself.
+
+### Fixed
+
+- **The boot splash never unmounted.** Starting the fade cancelled the timer that was meant to remove it, so the splash stayed on top of the app as a transparent overlay with its mark still animating underneath. It is removed once it has faded.
+- **Links to Pair Code led nowhere.** The READMEs and `llms.txt` pointed at a repository that no longer exists; they point at the npm package now, and the Website link goes to The Pair's own page instead of the app directory.
+- **`llms.txt` and the JSON-LD files still described 2.x.** They listed ten provider CLIs, two of them removed in 3.0, and a version from months ago. They describe the direct-endpoint app now: any model endpoint, four wire protocols, no agent CLI to install.
+
 ## [3.0.0] - 2026-11-11
 
 Pairs talk to model endpoints directly instead of spawning agent CLIs, and a Models section is where credentials now live.
