@@ -640,21 +640,16 @@
 }
 
 /* ──────────────────────────────────────────────────────────────
- * Brand mark — the logo artwork animations.
- * Robots float, steam rises, code pulses, eyes blink occasionally.
- * All effects respect prefers-reduced-motion.
+ * Brand mark — the launch animation of the logo (BrandMark.tsx).
+ * The mentor's tile lands and its check draws, then the executor's;
+ * the stick rises from behind and the spark pops. After that the tiles
+ * bob and the spark twinkles. Lengths are in the mark's own viewBox
+ * units (720 wide), so the motion scales with the mark. The whole entry
+ * ends at 700 ms, the shortest time the boot splash stays up.
+ *
+ * The entry animations fill backwards only: once they end, the mark is
+ * the plain artwork, which is also what prefers-reduced-motion shows.
  * ────────────────────────────────────────────────────────────── */
-
-.brand-mark__art {
-  filter: drop-shadow(0 1px 0 transparent);
-  transition: filter 200ms ease;
-}
-
-.dark .brand-mark__art {
-  /* warm glow against deep navy bg to echo a "running" / active feel */
-  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--state-running) 28%, transparent))
-    drop-shadow(0 0 1px color-mix(in srgb, var(--state-running) 40%, transparent));
-}
 
 @keyframes hero-rise {
   from {
@@ -667,136 +662,134 @@
   }
 }
 
-@keyframes hero-bot-float-left {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-2px);
-  }
-}
-
-@keyframes hero-bot-float-right {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
-}
-
-@keyframes hero-steam-rise {
-  0% {
+@keyframes brand-tile-in {
+  from {
     opacity: 0;
-    transform: translateY(6px) scaleY(0.85);
+    transform: translateY(32px) scale(0.8);
   }
-  20% {
-    opacity: 0.95;
-  }
-  80% {
-    opacity: 0.75;
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-18px) scaleY(1.05);
-  }
-}
-
-@keyframes hero-code-pulse {
-  0%,
-  100% {
-    opacity: 0.7;
-    transform: scale(1);
-  }
-  50% {
+  55% {
     opacity: 1;
-    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
-@keyframes hero-eye-blink {
+@keyframes brand-tile-bob {
   0%,
-  92%,
   100% {
-    transform: scaleY(1);
+    transform: translateY(0);
   }
-  94%,
-  98% {
-    transform: scaleY(0.08);
+  50% {
+    transform: translateY(-6px);
   }
 }
 
-/* The mark carries both classes, so the art rule is a compound selector —
-   a descendant one would never match the element itself. */
-.brand-mark--animated.brand-mark__art {
-  animation: hero-rise 600ms ease-out both;
+/* The check's pathLength is 1. The opacity step hides the round cap that
+   some engines paint for a fully offset dash. */
+@keyframes brand-check-draw {
+  from {
+    opacity: 0;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  12% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Slides up along the stick's own 18° lean, out from behind the tile. */
+@keyframes brand-stick-in {
+  from {
+    opacity: 0;
+    transform: translate(-28px, 86px);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes brand-spark-in {
+  from {
+    opacity: 0;
+    transform: scale(0) rotate(-90deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+/* A quarter turn brings a four-point spark back onto itself. */
+@keyframes brand-spark-twinkle {
+  from {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(0.7) rotate(45deg);
+  }
+  to {
+    transform: scale(1) rotate(90deg);
+  }
 }
 
 .startup-hero--animated .startup-hero__text {
   animation: hero-rise 700ms 120ms ease-out both;
 }
 
-.brand-mark--animated .brand-mark__bot--left {
-  transform-origin: center;
+.brand-mark--animated .brand-mark__tile,
+.brand-mark--animated .brand-mark__stick,
+.brand-mark--animated .brand-mark__spark {
   transform-box: fill-box;
-  animation: hero-bot-float-left 4.4s ease-in-out infinite;
+  transform-origin: center;
 }
 
-.brand-mark--animated .brand-mark__bot--right {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-bot-float-right 5.2s 0.4s ease-in-out infinite;
+.brand-mark--animated .brand-mark__tile--mentor {
+  animation:
+    brand-tile-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards,
+    brand-tile-bob 4.4s ease-in-out 900ms infinite;
 }
 
-.brand-mark--animated .brand-mark__code {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-code-pulse 2.8s ease-in-out infinite;
+.brand-mark--animated .brand-mark__tile--executor {
+  animation:
+    brand-tile-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms backwards,
+    brand-tile-bob 5.2s ease-in-out 1.3s infinite;
 }
 
-.brand-mark--animated .brand-mark__steam-1 {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-steam-rise 2.6s ease-in-out infinite;
+.brand-mark--animated .brand-mark__check {
+  animation: brand-check-draw 240ms cubic-bezier(0.65, 0, 0.35, 1) 180ms backwards;
 }
 
-.brand-mark--animated .brand-mark__steam-2 {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-steam-rise 2.6s 0.7s ease-in-out infinite;
+.brand-mark--animated .brand-mark__tile--executor .brand-mark__check {
+  animation-delay: 300ms;
 }
 
-.brand-mark--animated .brand-mark__steam-3 {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-steam-rise 2.6s 1.3s ease-in-out infinite;
+.brand-mark--animated .brand-mark__stick {
+  animation: brand-stick-in 280ms cubic-bezier(0.22, 1, 0.36, 1) 340ms backwards;
 }
 
-.brand-mark--animated .brand-mark__eyes--left {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-eye-blink 6.5s 1.2s ease-in-out infinite;
-}
-
-.brand-mark--animated .brand-mark__eyes--right {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: hero-eye-blink 7.3s 3.4s ease-in-out infinite;
+.brand-mark--animated .brand-mark__spark {
+  animation:
+    brand-spark-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1) 420ms backwards,
+    brand-spark-twinkle 3.6s ease-in-out 1.2s infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .brand-mark--animated.brand-mark__art,
   .startup-hero--animated .startup-hero__text,
-  .brand-mark--animated .brand-mark__bot--left,
-  .brand-mark--animated .brand-mark__bot--right,
-  .brand-mark--animated .brand-mark__code,
-  .brand-mark--animated .brand-mark__steam-1,
-  .brand-mark--animated .brand-mark__steam-2,
-  .brand-mark--animated .brand-mark__steam-3,
-  .brand-mark--animated .brand-mark__eyes--left,
-  .brand-mark--animated .brand-mark__eyes--right {
+  .brand-mark--animated .brand-mark__tile,
+  .brand-mark--animated .brand-mark__check,
+  .brand-mark--animated .brand-mark__stick,
+  .brand-mark--animated .brand-mark__spark {
     animation: none;
   }
 }

@@ -77,7 +77,7 @@ Paths are relative to `src/renderer/src/components/` unless noted.
 | `PairsHub.tsx`                                                        | Pairs home: stat cards + workspace-grouped pair cards with quick actions                                                                |
 | `ModelsView.tsx` (+ `ImportWizardModal.tsx`, `SignInModal.tsx`)       | Models hub section: providers, accounts, credentials; import wizard and subscription sign-in                                            |
 | `StartupHero.tsx` / `BootSplash.tsx`                                  | Boot splash + first-run empty-state hero (model config & directory selection happen in the hub)                                         |
-| `BrandMark.tsx`                                                       | The logo artwork (two agents, `</>`, coffee) reused by the splash, hub and dialog headers                                               |
+| `BrandMark.tsx`                                                       | The logo artwork (two killi-family tiles, a check on each) and its launch animation, for the splash, hub and dialog headers             |
 | `ShellViews.tsx`                                                      | `ActivityView` (needs-attention + recent activity) and `InsightsView` (cross-run leaderboard)                                           |
 | `StatCards.tsx`                                                       | Hub stat cards (running/paused/finished/attention counts)                                                                               |
 | `RecentActivityPanel.tsx`                                             | Cross-pair recent activity feed (activity section)                                                                                      |

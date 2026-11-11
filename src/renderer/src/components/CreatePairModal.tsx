@@ -373,7 +373,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   // Brand lockup: the logo mark next to the wordmark and tagline.
   const brandHeader = (
     <div className="flex min-w-0 items-center gap-3">
-      <BrandMark variant="band" size={112} className="shrink-0" />
+      <BrandMark variant="band" size={80} className="shrink-0" />
       <div className="flex min-w-0 flex-col gap-1">
         <h2 className="truncate text-[13px] font-semibold uppercase tracking-[0.16em] text-foreground">
           {t('modals.createTitle')}

@@ -117,7 +117,7 @@ test('CreatePairModal: leads with the brand mark and wordmark', () => {
   const dialog = screen.getByRole('dialog')
   const mark = dialog.querySelector('.brand-mark__art')
   assert.ok(mark, 'the brand mark is missing from the header')
-  assert.equal(mark?.getAttribute('viewBox'), '32 12 256 96')
+  assert.equal(mark?.getAttribute('viewBox'), '51 116 624 332')
   // The header bar is the dialog's first child.
   assert.ok(dialog.firstElementChild?.contains(mark), 'the mark is not in the header bar')
   assert.ok(screen.getByText('The Pair'))

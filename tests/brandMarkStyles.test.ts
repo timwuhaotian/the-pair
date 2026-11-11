@@ -9,9 +9,9 @@ const mark = await readFile(
 )
 
 /**
- * The brand artwork moved out of StartupHero into BrandMark, and its CSS
- * classes with it. A rename that leaves the stylesheet behind would silently
- * drop the float, blink, steam and glow — nothing else would notice.
+ * The brand artwork lives in BrandMark and its launch animation in the
+ * stylesheet, joined only by class and keyframe names. A rename on one side
+ * would silently drop the motion — nothing else would notice.
  */
 
 test('every brand-mark rule in the stylesheet is rendered by the component', () => {
@@ -24,30 +24,48 @@ test('every brand-mark rule in the stylesheet is rendered by the component', () 
 
 test('the animated parts of the mark all have a rule and a class', () => {
   for (const name of [
-    'brand-mark__art',
     'brand-mark--animated',
-    'brand-mark__bot--left',
-    'brand-mark__bot--right',
-    'brand-mark__code',
-    'brand-mark__eyes--left',
-    'brand-mark__eyes--right',
-    'brand-mark__steam-1',
-    'brand-mark__steam-2',
-    'brand-mark__steam-3'
+    'brand-mark__tile',
+    'brand-mark__tile--mentor',
+    'brand-mark__tile--executor',
+    'brand-mark__check',
+    'brand-mark__stick',
+    'brand-mark__spark'
   ]) {
     assert.ok(css.includes(`.${name}`), `main.css has no rule for .${name}`)
     assert.ok(mark.includes(name), `BrandMark.tsx does not use .${name}`)
   }
 })
 
-test('the old startup-hero artwork rules are gone', () => {
-  assert.doesNotMatch(css, /\.startup-hero__art/)
-  assert.doesNotMatch(css, /\.startup-hero--animated \.startup-hero__(bot|code|steam|eyes)/)
+test('every brand keyframe is both defined and played', () => {
+  const defined = new Set([...css.matchAll(/@keyframes (brand-[\w-]+)/g)].map((match) => match[1]))
+  const played = new Set(
+    [...css.matchAll(/animation:[^;]*;/g)].flatMap((match) => match[0].match(/brand-[\w-]+/g) ?? [])
+  )
+  assert.ok(defined.size > 0, 'no brand keyframes found in main.css')
+  assert.deepEqual([...played].sort(), [...defined].sort())
 })
 
-test('the animated art rule matches the element that carries both classes', () => {
-  // The art and the animated flag live on the same <svg>, so the rule has to
-  // be a compound selector — a descendant one would never match.
-  assert.match(css, /\.brand-mark--animated\.brand-mark__art/)
-  assert.match(mark, /'brand-mark__art[^']*'/)
+test('the previous robots-and-coffee artwork left no rules behind', () => {
+  assert.doesNotMatch(css, /\.brand-mark__(bot|eyes|code|steam|cup)/)
+  assert.doesNotMatch(css, /@keyframes hero-(bot|eye|code|steam)/)
+})
+
+test('reduced motion stills every animated part', () => {
+  const reduced = css
+    .split('@media (prefers-reduced-motion: reduce)')
+    .slice(1)
+    .find((block) => block.includes('.brand-mark--animated'))
+  assert.ok(reduced, 'no reduced-motion block covers the brand mark')
+  const block = reduced.slice(0, reduced.indexOf('animation: none'))
+  for (const part of ['tile', 'check', 'stick', 'spark']) {
+    assert.match(block, new RegExp(`\\.brand-mark--animated \\.brand-mark__${part}[,\\s]`))
+  }
+})
+
+test('the check can be drawn: it has the unit path length the keyframes assume', () => {
+  // brand-check-draw runs stroke-dashoffset from 1 to 0, which only spans the
+  // whole stroke while the path declares pathLength 1.
+  assert.match(css, /@keyframes brand-check-draw \{[^}]*stroke-dashoffset: 1;/)
+  assert.match(mark, /className="brand-mark__check"[^>]*pathLength=\{1\}/)
 })
