@@ -175,6 +175,7 @@ Harness notes:
 
 - **Renderer component tests** (`tests/render/`) run React under jsdom via `node:test` + `@testing-library/react`. They use `TSX_TSCONFIG_PATH=tsconfig.web.json` (through `scripts/with-env.mjs`) so tsx applies the automatic JSX transform — component modules rely on it. `tests/render/setup-dom.ts` installs the jsdom globals and the `__APP_VERSION__` vite define; `tests/render/mock-ipc.ts` installs the real `tauri-shim` plus a scripted `mockIPC` handler covering `repo_check_state` and friends.
 - **Headless e2e** (`e2e-web/`) starts the vite dev server (`npm run dev:renderer -- --port 5199 --host 127.0.0.1`) and injects `e2e-web/mock-init.js` before app code, defining `window.__TAURI_INTERNALS__`/`__TAURI_EVENT_PLUGIN_INTERNALS__`. Every IPC call lands on `window.__MOCK_CALLS__` so specs assert exact payloads. Test state is seeded through `openApp(page, state)` in `e2e-web/fixtures/app.ts`.
+- **Local UI inspection:** When eyeballing the running dev server, try **moli first**, Chrome/Chromium only as a fallback. Read the page with `moli fetch --dump markdown http://127.0.0.1:5199`; add `--layout` for a rendered screenshot. Fall back to a Chrome/Chromium browser only when moli cannot cover the check.
 - Keep tauri command bodies thin: extract the testable logic into plain functions (see `prepare_new_run_workspace`, `prepare_run_context`, `validate_assign_task` in `pair_manager.rs`) — command shells cannot be unit-covered without an app runtime.
 
 ## Release Process (Automated)
