@@ -345,7 +345,12 @@ pub fn commit_changes(directory: &str, message: &str) -> Result<CommitOutcome, S
         "git commit failed",
     )?;
 
-    let sha = run_git(directory, &["rev-parse", "--short", "HEAD"], &[], "git rev-parse failed")?;
+    let sha = run_git(
+        directory,
+        &["rev-parse", "--short", "HEAD"],
+        &[],
+        "git rev-parse failed",
+    )?;
     Ok(CommitOutcome {
         sha: sha.trim().to_string(),
         files_committed,
@@ -359,7 +364,12 @@ pub fn push_changes(directory: &str, remote: &str) -> Result<PushOutcome, String
     if remote.is_empty() {
         return Err("Remote name is empty".to_string());
     }
-    let branch = run_git(directory, &["branch", "--show-current"], &[], "git branch failed")?;
+    let branch = run_git(
+        directory,
+        &["branch", "--show-current"],
+        &[],
+        "git branch failed",
+    )?;
     let branch = branch.trim().to_string();
     if branch.is_empty() {
         return Err("Cannot push a detached HEAD — check out a branch first".to_string());
@@ -933,12 +943,11 @@ mod tests {
 
     #[test]
     fn outcome_structs_serialize_camel_case_for_ipc() {
-        let commit =
-            serde_json::to_value(CommitOutcome {
-                sha: "abc1234".into(),
-                files_committed: 2,
-            })
-            .unwrap();
+        let commit = serde_json::to_value(CommitOutcome {
+            sha: "abc1234".into(),
+            files_committed: 2,
+        })
+        .unwrap();
         assert_eq!(commit["sha"], "abc1234");
         assert_eq!(commit["filesCommitted"], 2);
         assert!(commit.get("files_committed").is_none());
@@ -966,11 +975,9 @@ mod tests {
         let outcome = commit_changes(temp.dir(), "the-pair: test commit").expect("commit");
         assert_eq!(outcome.sha.len(), 7);
         assert_eq!(outcome.files_committed, 2);
-        assert!(
-            GitTracker::collect_modified_files(temp.dir())
-                .expect("status runs")
-                .is_empty()
-        );
+        assert!(GitTracker::collect_modified_files(temp.dir())
+            .expect("status runs")
+            .is_empty());
 
         let log = Command::new("git")
             .args(["log", "-1", "--format=%s"])

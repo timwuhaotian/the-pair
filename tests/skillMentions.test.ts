@@ -37,43 +37,32 @@ test('selectReferencedSkills matches /name at start of input or after whitespace
 
 test('composeFinalSpec returns spec unchanged when nothing referenced', () => {
   const spec = 'plain task'
-  const out = composeFinalSpec(spec, new Map(), new Map(), 'claude')
+  const out = composeFinalSpec(spec, new Map(), new Map())
   assert.equal(out, spec)
 })
 
-test('composeFinalSpec injects a reference directive for the claude executor', () => {
+test('composeFinalSpec inlines every referenced skill body', () => {
   const ctx = skills([
-    ['tdd', 'red-green-refactor', 'full body that should NOT appear'],
-    ['polish', 'finishing touches', 'also hidden']
+    ['tdd', 'red-green-refactor', 'full body that SHOULD appear'],
+    ['polish', 'finishing touches', 'also inlined']
   ])
   const spec = 'Use /tdd and then /polish before shipping.'
-  const out = composeFinalSpec(spec, new Map(), ctx, 'claude')
+  const out = composeFinalSpec(spec, new Map(), ctx)
 
-  assert.ok(out.startsWith('--- SKILLS REQUESTED ---'))
-  assert.ok(out.includes('/tdd'))
-  assert.ok(out.includes('/polish'))
-  // Claude provider must NOT inline the body — its Skill tool fetches it.
-  assert.ok(!out.includes('full body'))
+  assert.ok(out.startsWith('--- SKILLS LOADED ---'))
+  assert.ok(out.includes('## /tdd'))
+  assert.ok(out.includes('## /polish'))
+  // The executor runs inside The Pair's harness, which has no Skill tool to
+  // fetch a body by name — so the body always ships with the spec.
+  assert.ok(out.includes('full body that SHOULD appear'))
   assert.ok(out.endsWith('--- TASK ---\n' + spec))
-})
-
-test('composeFinalSpec inlines skill bodies for non-claude executors', () => {
-  const ctx = skills([['tdd', 'red-green', 'BODY_CONTENT_HERE']])
-  const spec = '/tdd build the thing.'
-  for (const provider of ['opencode', 'codex', 'gemini', 'kimi'] as const) {
-    const out = composeFinalSpec(spec, new Map(), ctx, provider)
-    assert.ok(out.startsWith('--- SKILLS LOADED ---'), `${provider} starts with SKILLS LOADED`)
-    assert.ok(out.includes('## /tdd'), `${provider} contains skill heading`)
-    assert.ok(out.includes('BODY_CONTENT_HERE'), `${provider} inlines body`)
-    assert.ok(out.endsWith('--- TASK ---\n' + spec))
-  }
 })
 
 test('composeFinalSpec orders skills before files before the task body', () => {
   const ctx = skills([['tdd', 'd', 'SKILL_BODY']])
   const files = new Map([['src/a.ts', 'FILE_BODY']])
   const spec = '/tdd update @src/a.ts now.'
-  const out = composeFinalSpec(spec, files, ctx, 'opencode')
+  const out = composeFinalSpec(spec, files, ctx)
 
   const skillIdx = out.indexOf('SKILLS LOADED')
   const fileIdx = out.indexOf('REFERENCED FILES')
@@ -87,7 +76,7 @@ test('composeFinalSpec drops skills the user deleted before submitting', () => {
     ['dropped', 'd2', 'DROP_BODY']
   ])
   const spec = 'Only /keep should remain.'
-  const out = composeFinalSpec(spec, new Map(), ctx, 'opencode')
+  const out = composeFinalSpec(spec, new Map(), ctx)
   assert.ok(out.includes('KEEP_BODY'))
   assert.ok(!out.includes('DROP_BODY'))
 })

@@ -7,7 +7,9 @@
 //! are logged to stderr and produce empty results — never a crash, and writes
 //! never block the run-completion path.
 
-use crate::session_snapshot::{ensure_snapshot_dir, read_json, SessionSnapshotRecord, INDEX_FILE_NAME};
+use crate::session_snapshot::{
+    ensure_snapshot_dir, read_json, SessionSnapshotRecord, INDEX_FILE_NAME,
+};
 use crate::types::{
     AcceptanceRecord, AcceptanceRisk, AcceptanceVerdictDecision, Message, TurnTokenUsage,
 };
@@ -171,7 +173,13 @@ impl IntelligenceStore {
             .execute(
                 "INSERT INTO interventions (run_id, pair_id, ts, kind, outcome)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![run_id, pair_id, crate::util::now_millis() as i64, kind, outcome],
+                params![
+                    run_id,
+                    pair_id,
+                    crate::util::now_millis() as i64,
+                    kind,
+                    outcome
+                ],
             )
             .map_err(|e| format!("Failed to record intervention: {}", e))?;
         Ok(())
@@ -302,18 +310,15 @@ impl IntelligenceStore {
                 }
             };
 
+            // The endpoint the mentor was talking to, which is what the
+            // leaderboard groups by. Snapshots from before the registry kept
+            // none, so those runs group under an empty key.
             let provider_kind = snapshot
-                .mentor_provider
-                .map(|kind| format!("{:?}", kind).to_lowercase())
-                .unwrap_or_else(|| {
-                    format!(
-                        "{:?}",
-                        crate::provider_adapter::ProviderAdapter::infer_provider_kind(
-                            &snapshot.mentor_model
-                        )
-                    )
-                    .to_lowercase()
-                });
+                .provider_sessions
+                .mentor_selection
+                .as_ref()
+                .map(|selection| selection.provider_id.clone())
+                .unwrap_or_default();
 
             for run in &snapshot.run_history {
                 let record = run_record_from_summary(&snapshot, run, &provider_kind);
@@ -373,13 +378,15 @@ fn rank_recommendations(
     let mut recommendations: Vec<ConfigRecommendation> = combos
         .into_iter()
         .filter(|(_, acc)| acc.runs >= MIN_RECOMMENDATION_SAMPLE)
-        .map(|((mentor_model, executor_model), acc)| ConfigRecommendation {
-            mentor_model,
-            executor_model,
-            runs: acc.runs,
-            successes: acc.successes,
-            success_rate: rate(acc.successes as i64, acc.runs as i64),
-        })
+        .map(
+            |((mentor_model, executor_model), acc)| ConfigRecommendation {
+                mentor_model,
+                executor_model,
+                runs: acc.runs,
+                successes: acc.successes,
+                success_rate: rate(acc.successes as i64, acc.runs as i64),
+            },
+        )
         .collect();
 
     recommendations.sort_by(|a, b| {
@@ -400,16 +407,38 @@ const TAG_KEYWORDS: &[(&str, &[&str])] = &[
     (
         "fix",
         &[
-            "fix", "bug", "broken", "crash", "error", "regression", "hotfix", "repair",
+            "fix",
+            "bug",
+            "broken",
+            "crash",
+            "error",
+            "regression",
+            "hotfix",
+            "repair",
         ],
     ),
     (
         "feat",
-        &["add", "feature", "implement", "create", "support", "introduce", "build"],
+        &[
+            "add",
+            "feature",
+            "implement",
+            "create",
+            "support",
+            "introduce",
+            "build",
+        ],
     ),
     (
         "refactor",
-        &["refactor", "cleanup", "simplify", "rename", "restructure", "dedupe"],
+        &[
+            "refactor",
+            "cleanup",
+            "simplify",
+            "rename",
+            "restructure",
+            "dedupe",
+        ],
     ),
     ("test", &["test", "coverage", "e2e"]),
     (
@@ -418,7 +447,15 @@ const TAG_KEYWORDS: &[(&str, &[&str])] = &[
     ),
     (
         "chore",
-        &["chore", "bump", "dependency", "dependencies", "upgrade", "lint", "format"],
+        &[
+            "chore",
+            "bump",
+            "dependency",
+            "dependencies",
+            "upgrade",
+            "lint",
+            "format",
+        ],
     ),
 ];
 
@@ -629,11 +666,20 @@ pub fn record_run_safely(app: &AppHandle, run: &RunRecord) {
     }
 }
 
-pub fn record_intervention_safely(app: &AppHandle, pair_id: &str, kind: &str, outcome: Option<&str>) {
-    match open_for_app(app).and_then(|store| store.record_intervention(None, pair_id, kind, outcome))
+pub fn record_intervention_safely(
+    app: &AppHandle,
+    pair_id: &str,
+    kind: &str,
+    outcome: Option<&str>,
+) {
+    match open_for_app(app)
+        .and_then(|store| store.record_intervention(None, pair_id, kind, outcome))
     {
         Ok(()) => {}
-        Err(err) => eprintln!("[intelligence_store] Failed to record intervention: {}", err),
+        Err(err) => eprintln!(
+            "[intelligence_store] Failed to record intervention: {}",
+            err
+        ),
     }
 }
 
@@ -683,12 +729,7 @@ pub fn get_recommendation(app: AppHandle, task_text: String) -> Vec<ConfigRecomm
 }
 
 #[tauri::command]
-pub fn record_intervention(
-    app: AppHandle,
-    pair_id: String,
-    kind: String,
-    outcome: Option<String>,
-) {
+pub fn record_intervention(app: AppHandle, pair_id: String, kind: String, outcome: Option<String>) {
     record_intervention_safely(&app, &pair_id, &kind, outcome.as_deref());
 }
 
@@ -735,8 +776,12 @@ mod tests {
         let path = temp_db_path("idempotent");
         let store = IntelligenceStore::open(&path).unwrap();
 
-        store.record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept"))).unwrap();
-        store.record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept"))).unwrap();
+        store
+            .record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept")))
+            .unwrap();
+        store
+            .record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept")))
+            .unwrap();
 
         assert_eq!(store.run_count().unwrap(), 1);
         let _ = fs::remove_dir_all(path.parent().unwrap());
@@ -747,9 +792,15 @@ mod tests {
         let path = temp_db_path("aggregation");
         let store = IntelligenceStore::open(&path).unwrap();
 
-        store.record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept"))).unwrap();
-        store.record_run(&sample_run("run-2", "claude-a", "codex-b", Some("reject"))).unwrap();
-        store.record_run(&sample_run("run-3", "kimi-x", "codex-b", Some("accept"))).unwrap();
+        store
+            .record_run(&sample_run("run-1", "claude-a", "codex-b", Some("accept")))
+            .unwrap();
+        store
+            .record_run(&sample_run("run-2", "claude-a", "codex-b", Some("reject")))
+            .unwrap();
+        store
+            .record_run(&sample_run("run-3", "kimi-x", "codex-b", Some("accept")))
+            .unwrap();
 
         let summary = store.insights_summary().unwrap();
         assert_eq!(summary.total_runs, 3);
@@ -782,13 +833,21 @@ mod tests {
             ("a2", Some("accept")),
             ("a3", Some("reject")),
         ] {
-            store.record_run(&sample_run(id, "mentor-a", "exec-a", verdict)).unwrap();
+            store
+                .record_run(&sample_run(id, "mentor-a", "exec-a", verdict))
+                .unwrap();
         }
         // Combo B: 2 runs, 2 accepts (tagged fix) — higher success rate, fewer runs
-        store.record_run(&sample_run("b1", "mentor-b", "exec-b", Some("accept"))).unwrap();
-        store.record_run(&sample_run("b2", "mentor-b", "exec-b", Some("accept"))).unwrap();
+        store
+            .record_run(&sample_run("b1", "mentor-b", "exec-b", Some("accept")))
+            .unwrap();
+        store
+            .record_run(&sample_run("b2", "mentor-b", "exec-b", Some("accept")))
+            .unwrap();
         // Combo C: only 1 run — below the minimum sample
-        store.record_run(&sample_run("c1", "mentor-c", "exec-c", Some("accept"))).unwrap();
+        store
+            .record_run(&sample_run("c1", "mentor-c", "exec-c", Some("accept")))
+            .unwrap();
         // Combo D: enough runs but non-overlapping tags
         let mut other = sample_run("d1", "mentor-d", "exec-d", Some("accept"));
         other.task_tags = "docs".to_string();
@@ -832,10 +891,8 @@ mod tests {
 
     #[test]
     fn backfill_imports_snapshot_run_history() {
-        let root = std::env::temp_dir().join(format!(
-            "the-pair-intel-backfill-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("the-pair-intel-backfill-{}", uuid::Uuid::new_v4()));
         let snapshot_dir = root.join("pair-snapshots");
         fs::create_dir_all(&snapshot_dir).unwrap();
 
@@ -949,7 +1006,12 @@ mod tests {
                 "mentorSessionId": null,
                 "executorSessionId": null,
                 "runGeneration": 0,
-                "isSmokeTest": false
+                "isSmokeTest": false,
+                "mentorSelection": {
+                    "providerId": "anthropic-1",
+                    "accountId": "anthropic-1-a",
+                    "model": "claude-sonnet"
+                }
             },
             "branch": null,
             "repoPath": null,
@@ -975,7 +1037,8 @@ mod tests {
         let combo = &summary.combos[0];
         assert_eq!(combo.mentor_model, "claude-sonnet");
         assert_eq!(combo.executor_model, "gpt-5-codex");
-        assert_eq!(combo.provider_kind, "claude");
+        // The endpoint the mentor was talking to, not an agent CLI name.
+        assert_eq!(combo.provider_kind, "anthropic-1");
         assert_eq!(combo.runs, 2);
         assert!((combo.avg_tokens - 500.0).abs() < 1e-9); // (1000 + 0) / 2
 

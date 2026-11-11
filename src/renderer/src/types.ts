@@ -1,15 +1,3 @@
-export type ProviderKind =
-  | 'opencode'
-  | 'codex'
-  | 'claude'
-  | 'gemini'
-  | 'kimi'
-  | 'pi'
-  | 'kiro'
-  | 'aider'
-  | 'grok'
-  | 'muse'
-
 type TokenUsageSource = 'live' | 'final' | 'none'
 
 export type AcceptanceCheckStatus = 'passed' | 'failed' | 'skipped'
@@ -75,47 +63,13 @@ export type PairStatus =
   | 'Error'
   | 'Finished'
 
-export interface ProviderSetupHint {
-  kind: ProviderKind
-  label: string
-  installed: boolean
-  authenticated: boolean
-  readyModelCount: number
-  loginCommand?: string
-  installUrl?: string
-}
-
-export interface AvailableModel {
-  provider: ProviderKind
-  modelId: string
-  displayName: string
-  available: boolean
-  providerLabel: string
-  sourceProvider?: string
-  sourceProviderLabel: string
-  billingKind: 'plan' | 'payg' | 'byok' | 'unknown'
-  billingLabel: string
-  accessLabel: string
-  planLabel?: string
-  availabilityStatus: 'ready' | 'cli-missing' | 'auth-missing' | 'runtime-unsupported'
-  availabilityReason?: string
-  supportsPairExecution: boolean
-  recommendedRoles: ('mentor' | 'executor')[]
-  reasoningEffortLevels?: string[]
-  /** Stable identity used to merge the same model across routes (providers/plans). */
-  canonicalKey?: string
-  /** Display name with any baked-in effort suffix removed (e.g. "Gemini 3.5 Flash"). */
-  canonicalDisplayName?: string
-  /** Reasoning effort baked into this row's name by the provider (Antigravity), if any. */
-  effortTag?: string
-}
-
 export interface CreatePairInput {
   name: string
   directory: string
   spec: string
-  mentor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
-  executor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
+  /** A model id the registry can resolve onto an endpoint and a credential. */
+  mentor: { role: 'mentor' | 'executor'; model: string }
+  executor: { role: 'mentor' | 'executor'; model: string }
   mentorReasoningEffort?: string
   executorReasoningEffort?: string
   branch?: string
@@ -132,6 +86,16 @@ export interface PairModelSelection {
   pendingExecutorModel?: string
   mentorReasoningEffort?: string
   executorReasoningEffort?: string
+}
+
+/** The model one agent talks to directly, and the account it authenticates with.
+ *  Mirrors the Rust `harness::ModelSelection`. */
+export interface HarnessModelSelection {
+  providerId: string
+  accountId: string
+  model: string
+  effort?: string
+  backup?: HarnessModelSelection
 }
 
 interface AgentActivity {
@@ -199,9 +163,7 @@ export interface SessionSnapshotDraft {
   iterations: number
   maxIterations: number
   turn: 'mentor' | 'executor'
-  mentorProvider?: ProviderKind
   mentorModel: string
-  executorProvider?: ProviderKind
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
@@ -220,12 +182,6 @@ export interface SessionSnapshotDraft {
   }>
   mentorActivity: AgentActivity
   executorActivity: AgentActivity
-  mentorCpu: number
-  mentorMemMb: number
-  executorCpu: number
-  executorMemMb: number
-  cpuUsage: number
-  memUsage: number
   modifiedFiles: Array<{ path: string; status: 'A' | 'M' | 'D' | 'R' | '??'; displayPath: string }>
   gitTracking: {
     available: boolean
@@ -255,6 +211,12 @@ export interface SessionSnapshotRecord extends SessionSnapshotDraft {
   providerSessions: {
     mentorSessionId?: string
     executorSessionId?: string
+    /** The harness conversation each agent carries, replayed on every turn. */
+    mentorHistory?: unknown[]
+    executorHistory?: unknown[]
+    /** The model each agent talks to directly. */
+    mentorSelection?: HarnessModelSelection
+    executorSelection?: HarnessModelSelection
   }
 }
 
@@ -286,7 +248,6 @@ export interface PairPreset {
   recommendedMentorModel?: string
   recommendedExecutorModel?: string
   pauseOnIteration?: number
-  autoAttachGitBaseline?: boolean
 }
 
 /** One mentor+executor combo row in the cross-run insights leaderboard. */
@@ -316,4 +277,122 @@ export interface ConfigRecommendation {
   runs: number
   successes: number
   successRate: number
+}
+
+// ---------------------------------------------------------------------------
+// Direct-connection model registry (accounts_* commands)
+// ---------------------------------------------------------------------------
+
+/** The wire protocol a provider speaks. Mirrors `accounts::types::Protocol`. */
+export type ModelProtocol = 'openaiChat' | 'anthropic' | 'responses' | 'commandCode'
+
+/** How an account authenticates. Mirrors `accounts::types::AccountKind`. */
+export type AccountKind = 'apiKey' | 'chatgptOauth' | 'commandCodeOauth' | 'opencodeGo' | 'env'
+
+/** Whether an account can be used right now. */
+export type AccountStatus = 'ready' | 'needsKey' | 'authExpired' | 'rateLimited'
+
+/** Where a model entry came from. */
+export type ModelSource = 'preset' | 'imported' | 'endpoint' | 'manual'
+
+export interface ModelPrice {
+  inputPerMillion: number
+  outputPerMillion: number
+}
+
+export interface ModelRoute {
+  id: string
+  displayName: string
+  contextWindow?: number
+  maxOutput?: number
+  efforts: string[]
+  defaultEffort?: string
+  price?: ModelPrice
+  source: ModelSource
+}
+
+export interface HeaderPair {
+  name: string
+  value: string
+}
+
+export interface AccountView {
+  id: string
+  kind: AccountKind
+  label: string
+  /** Which importer or sign-in flow produced the account. */
+  source: string
+  status: AccountStatus
+  headers: HeaderPair[]
+  toolNames?: Record<string, string>
+  hasSecret: boolean
+  maskedSecret?: string
+}
+
+export interface ProviderView {
+  id: string
+  protocol: ModelProtocol
+  baseUrl: string
+  vendor: string
+  displayName: string
+  accounts: AccountView[]
+  models: ModelRoute[]
+  readyAccountCount: number
+}
+
+export interface CandidateAccountView {
+  kind: AccountKind
+  label: string
+  source: string
+  status: AccountStatus
+  maskedSecret?: string
+  headers: HeaderPair[]
+}
+
+export interface CandidateProviderView {
+  protocol: ModelProtocol
+  baseUrl: string
+  vendor: string
+  displayName: string
+  accounts: CandidateAccountView[]
+  models: ModelRoute[]
+  /** True when this endpoint is already in the registry. */
+  alreadyImported: boolean
+}
+
+/** What a dry-run scan found for one source, before anything is written. */
+export interface CandidateView {
+  sourceId: string
+  sourceName: string
+  configPath?: string
+  providers: CandidateProviderView[]
+  notes: string[]
+  error?: string
+  accountCount: number
+  newProviderCount: number
+}
+
+export interface LoginServiceView {
+  id: string
+  displayName: string
+  needsBrowser: boolean
+  needsKey: boolean
+}
+
+export type OAuthState = 'waiting' | 'done' | 'failed' | 'cancelled' | 'unknown'
+
+export interface OAuthStatusView {
+  state: OAuthState
+  service: string
+  waitingMs: number
+  message?: string
+  providers?: ProviderView[]
+}
+
+export interface AddProviderInput {
+  protocol: ModelProtocol
+  baseUrl: string
+  apiKey: string
+  label?: string
+  models: string[]
 }

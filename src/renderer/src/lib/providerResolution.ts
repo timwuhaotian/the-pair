@@ -1,170 +1,102 @@
-import type { AvailableModel, CreatePairInput, ProviderKind } from '../types'
+import type { ModelRoute, ProviderView } from '../types'
 
-/** Providers that can appear as a `<provider>/` qualifier on a stored model id. */
-const QUALIFIER_PROVIDERS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
-  'codex',
+/**
+ * Qualifier tokens older builds put in front of a model id (`claude/sonnet`,
+ * `codex:gpt-5`). A pair used to store one id per agent CLI, so those prefixes
+ * have to be recognised to read legacy snapshots and localStorage back.
+ *
+ * Gateway path segments (`anthropic/`, `openai/`, `openrouter/`) are deliberately
+ * absent: they are how a gateway names a model in its own catalog, and stripping
+ * one would lose the route the id belongs to.
+ */
+const QUALIFIER_TOKENS: ReadonlySet<string> = new Set([
   'claude',
+  'codex',
   'gemini',
   'kimi',
   'pi',
   'kiro',
   'aider',
   'grok',
-  'muse'
+  'muse',
+  'opencode'
 ])
 
-/**
- * Providers whose stored model id keeps its `<provider>/` qualifier. Their bare ids
- * are not reliably re-inferable: Kimi/Pi/Kiro/Aider aliases are arbitrary names or
- * multi-provider paths ("ark-plan/glm-5", "anthropic/claude-sonnet-4"), Grok aliases
- * (`[model.<alias>]`), the Muse settings model and Codex `codex-*` slugs carry no
- * provider keyword. The backend strips the qualifier at spawn time.
- */
-const QUALIFIED_STORAGE_PROVIDERS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
-  'codex',
-  'kimi',
-  'pi',
-  'kiro',
-  'aider',
-  'grok',
-  'muse'
-])
-
-/**
- * Providers whose ids older builds stored bare (without the qualifier). Lookups
- * still accept those legacy ids so existing pairs and snapshots keep resolving.
- */
-const LEGACY_BARE_PROVIDERS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
-  'claude',
-  'codex',
-  'gemini',
-  'grok',
-  'muse'
-])
-
-function asQualifierProvider(prefix: string): ProviderKind | undefined {
-  const lower = prefix.toLowerCase() as ProviderKind
-  return QUALIFIER_PROVIDERS.has(lower) ? lower : undefined
+/** A bare model id: no path separators, no spaces — just a slug.
+ *  Mirrors Rust `looks_like_id`: any of `[A-Za-z0-9._+-]` may come first. */
+function looksLikeModelId(candidate: string): boolean {
+  return candidate.length > 0 && /^[a-z0-9._+-]+$/i.test(candidate)
 }
 
-/** Split `<provider>/<model>` into its parts; ids without a known provider qualifier stay whole. */
-function splitQualifier(modelId: string): { provider?: ProviderKind; bare: string } {
-  const slash = modelId.indexOf('/')
-  if (slash <= 0 || slash === modelId.length - 1) return { bare: modelId }
-  const provider = asQualifierProvider(modelId.slice(0, slash))
-  return provider ? { provider, bare: modelId.slice(slash + 1) } : { bare: modelId }
+/**
+ * Split `<qualifier>/<model>` (or `<qualifier>:<model>`) into its parts.
+ * Ids whose remainder is not a plain slug stay whole. Both halves come back
+ * lower-cased, the way the Rust resolver normalises an id before matching: it
+ * lower-cases the whole string, so `claude:Opus-4-1` and `claude:opus-4-1`
+ * name one model.
+ */
+function splitQualifier(modelId: string): { qualifier?: string; bare: string } {
+  const trimmed = modelId.trim()
+  const separator = trimmed.search(/[:/]/)
+  if (separator <= 0 || separator === trimmed.length - 1) return { bare: trimmed.toLowerCase() }
+  const qualifier = trimmed.slice(0, separator).toLowerCase()
+  const bare = trimmed.slice(separator + 1)
+  return QUALIFIER_TOKENS.has(qualifier) && looksLikeModelId(bare)
+    ? { qualifier, bare: bare.toLowerCase() }
+    : { bare: trimmed.toLowerCase() }
 }
 
-/** The id a catalog entry is selected by in the UI (`provider/modelId`, raw id for OpenCode). */
-function qualifiedIdOf(model: AvailableModel): string {
-  return model.provider === 'opencode' ? model.modelId : `${model.provider}/${model.modelId}`
+/** Drop a legacy qualifier, leaving the plain, lower-cased model id the registry lists. */
+export function stripModelQualifier(modelId: string): string {
+  return splitQualifier(modelId).bare
 }
 
 /**
  * True when two stored model ids name the same model: identical, or one is the
- * provider-qualified form of the other's legacy bare id (`codex/gpt-5` ≡ `gpt-5`).
+ * qualified spelling of the other's legacy bare id (`codex/gpt-5` ≡ `gpt-5`).
+ * Two differently-qualified ids are never equivalent — the qualifier is part of
+ * what the id says. Comparison is case-insensitive, because the Rust resolver
+ * lower-cases an id before it matches one.
  */
 export function modelIdsEquivalent(a: string, b: string): boolean {
-  if (a === b) return true
   const left = splitQualifier(a)
   const right = splitQualifier(b)
-  if (left.provider && !right.provider) {
-    return LEGACY_BARE_PROVIDERS.has(left.provider) && left.bare === b
-  }
-  if (right.provider && !left.provider) {
-    return LEGACY_BARE_PROVIDERS.has(right.provider) && right.bare === a
-  }
-  return false
+  if (left.qualifier && right.qualifier && left.qualifier !== right.qualifier) return false
+  return left.bare === right.bare
 }
 
-/** True when `storedId` (qualified or legacy bare) refers to this catalog entry. */
-export function modelMatchesId(model: AvailableModel, storedId: string): boolean {
-  if (qualifiedIdOf(model) === storedId) return true
-  return LEGACY_BARE_PROVIDERS.has(model.provider) && model.modelId === storedId
+/** True when `storedId` (qualified or legacy bare) refers to this registry model. */
+export function modelMatchesId(model: ModelRoute, storedId: string): boolean {
+  return model.id === storedId || modelIdsEquivalent(model.id, storedId)
+}
+
+/** Endpoints that can actually run a model come first, so a reachable route wins. */
+function byReadiness(a: ProviderView, b: ProviderView): number {
+  return Number(b.readyAccountCount > 0) - Number(a.readyAccountCount > 0)
+}
+
+function pickModel(
+  providers: ProviderView[],
+  predicate: (model: ModelRoute) => boolean
+): ModelRoute | undefined {
+  for (const provider of [...providers].sort(byReadiness)) {
+    const model = provider.models.find(predicate)
+    if (model) return model
+  }
+  return undefined
 }
 
 /**
- * Find the catalog entry for a stored model id. Accepts the provider-qualified id
- * the UI stores (`codex/gpt-5`) as well as legacy bare ids (`gpt-5`); exact
- * qualified matches win, and an ambiguous bare id prefers the provider it infers to.
+ * Find the registry entry for a stored model id. Accepts the qualified spelling
+ * older builds wrote (`codex/gpt-5`) as well as plain ids (`gpt-5`); exact
+ * matches win, then legacy bare matches, and a ready endpoint breaks ties.
  */
 export function getModelByQualifiedId(
-  models: AvailableModel[],
+  providers: ProviderView[],
   qualifiedModelId: string
-): AvailableModel | undefined {
-  const exact = models.find((model) => qualifiedIdOf(model) === qualifiedModelId)
-  if (exact) return exact
-
-  const legacy = models.filter((model) => modelMatchesId(model, qualifiedModelId))
-  if (legacy.length <= 1) return legacy[0]
-  const inferred = inferProviderFromModel(qualifiedModelId)
-  return legacy.find((model) => model.provider === inferred) ?? legacy[0]
-}
-
-/**
- * Guess the provider from a model id. Kept in lockstep with Rust
- * `ProviderAdapter::infer_provider_kind` (all checks case-insensitive): a known
- * `<provider>/` qualifier wins, other slashed or `opencode*` ids are OpenCode,
- * and bare ids route by keyword, then `gpt` / `o<digit>` / a `codex-` prefix to Codex.
- */
-export function inferProviderFromModel(modelId: string): ProviderKind {
-  const lower = modelId.toLowerCase()
-  if (lower.startsWith('opencode') || lower.includes('/')) {
-    const [prefix, ...rest] = lower.split('/')
-    if (rest.length > 0) {
-      return asQualifierProvider(prefix) ?? 'opencode'
-    }
-    return 'opencode'
-  }
-
-  if (lower.includes('claude')) return 'claude'
-  if (lower.includes('gemini')) return 'gemini'
-  if (lower.includes('kimi')) return 'kimi'
-  if (lower.includes('grok')) return 'grok'
-  if (lower.includes('aider')) return 'aider'
-  if (lower.includes('muse')) return 'muse'
-  if (lower.includes('gpt') || /^o\d/.test(lower) || lower.startsWith('codex-')) {
-    return 'codex'
-  }
-
-  return 'opencode'
-}
-
-/**
- * Provider for a (possibly changed) model id. An unchanged model keeps its known
- * provider — re-guessing from the id can misroute aliases — otherwise the catalog
- * entry decides, falling back to inference when the catalog does not list it.
- */
-export function resolveModelProvider(
-  models: AvailableModel[],
-  modelId: string,
-  previous?: { modelId: string; provider: ProviderKind }
-): ProviderKind {
-  if (previous && modelIdsEquivalent(previous.modelId, modelId)) {
-    return previous.provider
-  }
-  return getModelByQualifiedId(models, modelId)?.provider ?? inferProviderFromModel(modelId)
-}
-
-export function buildAgentConfig(
-  role: 'mentor' | 'executor',
-  modelId: string,
-  models: AvailableModel[]
-): CreatePairInput['mentor'] {
-  const selected = getModelByQualifiedId(models, modelId)
-  if (!selected) {
-    throw new Error(`Selected ${role} model is not available: ${modelId}`)
-  }
-
-  // Codex/Kimi/Pi/Kiro/Aider/Grok/Muse ids keep their qualifier (see
-  // QUALIFIED_STORAGE_PROVIDERS): provider re-inference on model updates and
-  // snapshot recovery depends on it. Claude and Gemini ids self-identify and
-  // OpenCode ids are already provider-qualified by nature.
-  return {
-    role,
-    provider: selected.provider,
-    model: QUALIFIED_STORAGE_PROVIDERS.has(selected.provider)
-      ? `${selected.provider}/${selected.modelId}`
-      : selected.modelId
-  }
+): ModelRoute | undefined {
+  return (
+    pickModel(providers, (model) => model.id === qualifiedModelId) ??
+    pickModel(providers, (model) => modelIdsEquivalent(model.id, qualifiedModelId))
+  )
 }

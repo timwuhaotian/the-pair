@@ -33,6 +33,7 @@ test('palette actions cover pair, navigation, view, and app groups', () => {
     'pair.clearSession',
     'nav.pairs',
     'nav.activity',
+    'nav.models',
     'nav.insights',
     'view.toggleSidebar',
     'view.toggleTheme',
@@ -69,6 +70,7 @@ test('App wires Cmd+K, section jumps, and back navigation', () => {
   assert.match(app, /shortcuts\.goBack/)
   assert.match(app, /shortcuts\.goPairs/)
   assert.match(app, /shortcuts\.goActivity/)
+  assert.match(app, /shortcuts\.goModels/)
   assert.match(app, /shortcuts\.goInsights/)
   assert.match(app, /<CommandPalette/)
   assert.match(app, /onOpenPalette=/)

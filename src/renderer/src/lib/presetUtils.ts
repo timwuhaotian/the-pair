@@ -31,14 +31,13 @@ const HARDCODED_PRESETS: PairPreset[] = [
   {
     id: 'refactor',
     name: 'Refactor',
-    description: 'Safely improve code structure. Creates git baseline for rollback.',
+    description: 'Safely improve code structure. Auto-pauses at iteration 8 for review.',
     icon: 'RefreshCw',
     mentorPromptTemplate:
       'You are a refactoring mentor. Guide safe, incremental improvements:\n1. Understand current structure\n2. Identify improvement opportunities\n3. Propose small, safe changes\n\nTASK:\n{task}\n\nPrioritize clarity and maintainability. Never break existing behavior.',
     executorPromptTemplate: 'Execute refactoring changes as guided. Run tests after each change.',
     recommendedSkills: [],
-    pauseOnIteration: 8,
-    autoAttachGitBaseline: true
+    pauseOnIteration: 8
   },
   {
     id: 'feature',

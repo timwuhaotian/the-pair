@@ -417,7 +417,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     setIsSubmittingTask(true)
     setSubmitError(null)
     try {
-      const finalSpec = composeFinalSpec(spec, fileContexts, skillContexts, pair.executorProvider)
+      const finalSpec = composeFinalSpec(spec, fileContexts, skillContexts)
       await assignTask(pair.id, finalSpec)
       setTaskInput('')
       setFileContexts(new Map())

@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { AvailableModel } from '../src/renderer/src/types.ts'
+import type { ModelRoute, ProviderView } from '../src/renderer/src/types.ts'
 import {
-  getPreferredPairModelSelection,
   getPreferredModelId,
-  getPreferredQualifiedModel,
-  getQualifiedModel,
   isSelectableForPairExecution,
+  resolvePreferredModel,
   savePreferredModelId
 } from '../src/renderer/src/lib/modelPreferences.ts'
 
@@ -49,158 +47,97 @@ function installLocalStorage(initial: Record<string, string> = {}): () => void {
   }
 }
 
-const readyOpenCodeModel: AvailableModel = {
-  provider: 'opencode',
-  modelId: 'gpt-4o-mini',
-  displayName: 'GPT-4o Mini',
-  available: true,
-  providerLabel: 'OpenCode',
-  sourceProvider: 'openai',
-  sourceProviderLabel: 'OpenAI',
-  billingKind: 'byok',
-  billingLabel: 'Pay as you go',
-  accessLabel: 'OpenAI API key',
-  planLabel: 'provider-backed',
-  availabilityStatus: 'ready',
-  supportsPairExecution: true,
-  recommendedRoles: ['mentor', 'executor']
+function route(id: string, overrides: Partial<ModelRoute> = {}): ModelRoute {
+  return { id, displayName: id, efforts: [], source: 'preset', ...overrides }
 }
 
-const unavailableClaudeModel: AvailableModel = {
-  provider: 'claude',
-  modelId: 'sonnet',
-  displayName: 'Claude Sonnet',
-  available: false,
-  providerLabel: 'Claude Code',
-  sourceProvider: 'anthropic',
-  sourceProviderLabel: 'Anthropic',
-  billingKind: 'plan',
-  billingLabel: 'Included with plan',
-  accessLabel: 'Claude Code login',
-  planLabel: 'pro',
-  availabilityStatus: 'runtime-unsupported',
-  availabilityReason: 'Claude Code is detected, but pair execution is not yet supported',
-  supportsPairExecution: false,
-  recommendedRoles: ['mentor', 'executor']
+function provider(id: string, overrides: Partial<ProviderView> = {}): ProviderView {
+  return {
+    id,
+    protocol: 'anthropic',
+    baseUrl: `https://${id}.example.com`,
+    vendor: id,
+    displayName: id,
+    accounts: [],
+    models: [],
+    readyAccountCount: 0,
+    ...overrides
+  }
 }
 
-test('getQualifiedModel keeps OpenCode ids unprefixed and prefixes other providers', () => {
-  assert.equal(getQualifiedModel(readyOpenCodeModel), 'gpt-4o-mini')
-  assert.equal(getQualifiedModel(unavailableClaudeModel), 'claude/sonnet')
+const anthropic = provider('anthropic', {
+  vendor: 'anthropic',
+  displayName: 'Anthropic',
+  readyAccountCount: 1,
+  models: [route('claude-sonnet-4-5', { displayName: 'Claude Sonnet 4.5' })]
+})
+
+const keyless = provider('keyless', {
+  vendor: 'keyless',
+  displayName: 'Keyless',
+  readyAccountCount: 0,
+  models: [route('claude-opus-5')]
 })
 
 test('savePreferredModelId and getPreferredModelId round-trip through localStorage', () => {
   const restore = installLocalStorage()
   try {
-    savePreferredModelId('mentor', 'gpt-4o-mini')
-    assert.equal(getPreferredModelId('mentor'), 'gpt-4o-mini')
+    savePreferredModelId('mentor', 'claude-sonnet-4-5')
+    assert.equal(getPreferredModelId('mentor'), 'claude-sonnet-4-5')
   } finally {
     restore()
   }
 })
 
-test('getPreferredQualifiedModel falls back to the first available model when the saved choice is unavailable', () => {
+test('isSelectableForPairExecution needs a ready account and something to run', () => {
+  assert.equal(isSelectableForPairExecution(anthropic), true)
+  assert.equal(isSelectableForPairExecution(keyless), false)
+  assert.equal(isSelectableForPairExecution(provider('empty', { readyAccountCount: 1 })), false)
+})
+
+test('resolvePreferredModel returns the saved choice when the registry still offers it', () => {
+  const restore = installLocalStorage({ 'the-pair-preferred-mentor-model': 'claude-sonnet-4-5' })
+  try {
+    assert.equal(resolvePreferredModel('mentor', [anthropic]), 'claude-sonnet-4-5')
+  } finally {
+    restore()
+  }
+})
+
+test('resolvePreferredModel falls back to the first default choice when the saved one is gone', () => {
+  const restore = installLocalStorage({ 'the-pair-preferred-executor-model': 'claude-opus-5' })
+  try {
+    assert.equal(resolvePreferredModel('executor', [keyless, anthropic]), 'claude-sonnet-4-5')
+  } finally {
+    restore()
+  }
+})
+
+test('resolvePreferredModel resolves a legacy qualified preference and rewrites it plain', () => {
   const restore = installLocalStorage({
-    'the-pair-preferred-executor-model': 'claude/sonnet'
+    'the-pair-preferred-mentor-model': 'claude/claude-sonnet-4-5'
   })
-
   try {
-    assert.equal(
-      getPreferredQualifiedModel('executor', [unavailableClaudeModel, readyOpenCodeModel]),
-      'gpt-4o-mini'
-    )
+    assert.equal(resolvePreferredModel('mentor', [anthropic]), 'claude-sonnet-4-5')
+    assert.equal(getPreferredModelId('mentor'), 'claude-sonnet-4-5')
   } finally {
     restore()
   }
 })
 
-const viewOnlyGeminiModel: AvailableModel = {
-  provider: 'gemini',
-  modelId: 'gemini-2.5-pro',
-  displayName: 'Gemini 2.5 Pro',
-  available: true,
-  providerLabel: 'Antigravity',
-  sourceProvider: 'google',
-  sourceProviderLabel: 'Google',
-  billingKind: 'plan',
-  billingLabel: 'Included with plan',
-  accessLabel: 'Google account',
-  planLabel: 'Individual',
-  availabilityStatus: 'runtime-unsupported',
-  availabilityReason: 'Antigravity is detected, but pair execution is not yet supported',
-  supportsPairExecution: false,
-  recommendedRoles: ['mentor', 'executor']
-}
-
-test('getPreferredQualifiedModel resolves a legacy bare preference to its qualified id', () => {
-  const readyCodexModel: AvailableModel = {
-    ...readyOpenCodeModel,
-    provider: 'codex',
-    modelId: 'gpt-5.5',
-    providerLabel: 'Codex'
-  }
-  const restore = installLocalStorage({ 'the-pair-preferred-mentor-model': 'gpt-5.5' })
-  try {
-    assert.equal(
-      getPreferredQualifiedModel('mentor', [readyOpenCodeModel, readyCodexModel]),
-      'codex/gpt-5.5'
-    )
-  } finally {
-    restore()
-  }
-})
-
-test('isSelectableForPairExecution returns false for view-only models', () => {
-  assert.equal(isSelectableForPairExecution(readyOpenCodeModel), true)
-  assert.equal(isSelectableForPairExecution(unavailableClaudeModel), false)
-  assert.equal(isSelectableForPairExecution(viewOnlyGeminiModel), false)
-})
-
-test('getPreferredQualifiedModel skips view-only models even when they appear first', () => {
+test('resolvePreferredModel skips keyless endpoints even when they appear first', () => {
   const restore = installLocalStorage()
   try {
-    const models = [viewOnlyGeminiModel, readyOpenCodeModel]
-    assert.equal(getPreferredQualifiedModel('mentor', models), 'gpt-4o-mini')
+    assert.equal(resolvePreferredModel('mentor', [keyless, anthropic]), 'claude-sonnet-4-5')
   } finally {
     restore()
   }
 })
 
-test('getPreferredQualifiedModel ignores saved view-only preference and falls back to selectable', () => {
-  const restore = installLocalStorage({
-    'the-pair-preferred-mentor-model': 'gemini/gemini-2.5-pro'
-  })
-
-  try {
-    const models = [viewOnlyGeminiModel, readyOpenCodeModel]
-    assert.equal(getPreferredQualifiedModel('mentor', models), 'gpt-4o-mini')
-  } finally {
-    restore()
-  }
-})
-
-test('getPreferredQualifiedModel returns empty string when no selectable models exist', () => {
+test('resolvePreferredModel returns empty string when no endpoint can run a model', () => {
   const restore = installLocalStorage()
   try {
-    const models = [viewOnlyGeminiModel, unavailableClaudeModel]
-    assert.equal(getPreferredQualifiedModel('executor', models), '')
-  } finally {
-    restore()
-  }
-})
-
-test('getPreferredPairModelSelection returns the saved mentor and executor defaults', () => {
-  const restore = installLocalStorage({
-    'the-pair-preferred-mentor-model': 'gpt-4o-mini',
-    'the-pair-preferred-executor-model': 'claude/sonnet'
-  })
-
-  try {
-    const selection = getPreferredPairModelSelection([readyOpenCodeModel, unavailableClaudeModel])
-    assert.deepEqual(selection, {
-      mentorModel: 'gpt-4o-mini',
-      executorModel: 'gpt-4o-mini'
-    })
+    assert.equal(resolvePreferredModel('executor', [keyless]), '')
   } finally {
     restore()
   }

@@ -17,6 +17,8 @@ export interface PaletteAction {
   run: () => void
 }
 
+import type { ShellSection } from '../components/AppShell'
+
 export interface PaletteContext {
   pairs: Pair[]
   selectedPair: Pair | null
@@ -27,7 +29,7 @@ export interface PaletteContext {
   resumeSelectedPair: () => void
   clearSelectedSession: () => void
   selectPair: (pairId: string | null) => void
-  selectSection: (section: 'pairs' | 'activity' | 'insights') => void
+  selectSection: (section: ShellSection) => void
   toggleSidebar: () => void
   toggleTheme: () => void
   openShortcuts: () => void
@@ -96,6 +98,12 @@ export function buildPaletteActions(ctx: PaletteContext): PaletteAction[] {
       labelKey: 'palette.goActivity',
       groupKey: 'palette.groups.go',
       run: () => ctx.selectSection('activity')
+    },
+    {
+      id: 'nav.models',
+      labelKey: 'palette.goModels',
+      groupKey: 'palette.groups.go',
+      run: () => ctx.selectSection('models')
     },
     {
       id: 'nav.insights',

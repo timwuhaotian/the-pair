@@ -1,4 +1,3 @@
-use crate::provider_registry::ProviderKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -294,21 +293,6 @@ pub struct AgentActivity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceInfo {
-    pub cpu: f64,
-    #[serde(rename = "memMb")]
-    pub mem_mb: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairResources {
-    pub mentor: ResourceInfo,
-    pub executor: ResourceInfo,
-    #[serde(rename = "pairTotal")]
-    pub pair_total: ResourceInfo,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileStatus {
     A,
     M,
@@ -339,7 +323,6 @@ pub struct GitTracking {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     pub role: AgentRole,
-    pub provider: ProviderKind,
     pub model: String,
     pub reasoning_effort: Option<String>,
 }
@@ -426,7 +409,6 @@ pub struct PairState {
     pub mentor_activity: AgentActivity,
     #[serde(rename = "executorActivity")]
     pub executor_activity: AgentActivity,
-    pub resources: PairResources,
     #[serde(rename = "modifiedFiles")]
     pub modified_files: Vec<ModifiedFile>,
     #[serde(rename = "gitTracking")]
@@ -470,12 +452,8 @@ pub struct Pair {
     pub name: String,
     pub directory: String,
     pub status: PairStatus,
-    #[serde(rename = "mentorProvider")]
-    pub mentor_provider: ProviderKind,
     #[serde(rename = "mentorModel")]
     pub mentor_model: String,
-    #[serde(rename = "executorProvider")]
-    pub executor_provider: ProviderKind,
     #[serde(rename = "executorModel")]
     pub executor_model: String,
     #[serde(rename = "pendingMentorModel")]

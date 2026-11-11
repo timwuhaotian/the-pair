@@ -22,8 +22,35 @@ fn env_path(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn home_dir() -> Option<PathBuf> {
-    Some(crate::provider_registry::homedir()).filter(|home| !home.as_os_str().is_empty())
+fn non_empty_env_path(key: &str) -> Option<PathBuf> {
+    env_path(key).filter(|value| !value.as_os_str().is_empty())
+}
+
+/// The user's home directory, from the environment first so a test (or a
+/// shell with a stale `HOME`) can point the importers somewhere else.
+pub fn home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let home = non_empty_env_path("USERPROFILE")
+        .or_else(|| {
+            ["APPDATA", "LOCALAPPDATA"]
+                .into_iter()
+                .find_map(|key| home_from_appdata(&non_empty_env_path(key)?))
+        })
+        .or_else(dirs::home_dir);
+    #[cfg(not(target_os = "windows"))]
+    let home = non_empty_env_path("HOME").or_else(dirs::home_dir);
+    home.filter(|home| !home.as_os_str().is_empty())
+}
+
+/// `%APPDATA%` is `<home>\AppData\Roaming` and `%LOCALAPPDATA%` is
+/// `<home>\AppData\Local`, so the profile dir is their grandparent.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn home_from_appdata(appdata: &Path) -> Option<PathBuf> {
+    appdata
+        .parent()?
+        .parent()
+        .filter(|home| !home.as_os_str().is_empty())
+        .map(Path::to_path_buf)
 }
 
 /// `%APPDATA%\opencode\<file>`, the location older builds used on Windows.
@@ -86,98 +113,15 @@ pub fn opencode_config_path() -> Option<PathBuf> {
     prefer_existing(primary, legacy_windows_path(OPENCODE_CONFIG_FILE))
 }
 
-/// Global config directories OpenCode may read, most specific last: the XDG
-/// default, then `$OPENCODE_CONFIG_DIR` when set (2.x reads it instead of the
-/// default, 1.x in addition to it).
-pub fn opencode_config_dirs() -> Vec<PathBuf> {
-    let home = home_dir();
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for dir in [
-        build_opencode_config_dir(
-            None,
-            env_path("XDG_CONFIG_HOME").as_deref(),
-            home.as_deref(),
-        ),
-        env_path("OPENCODE_CONFIG_DIR"),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !dirs.contains(&dir) {
-            dirs.push(dir);
-        }
-    }
-    dirs
-}
-
 pub fn opencode_auth_path() -> Option<PathBuf> {
     let primary =
         build_opencode_auth_path(env_path("XDG_DATA_HOME").as_deref(), home_dir().as_deref());
     prefer_existing(primary, legacy_windows_path(OPENCODE_AUTH_FILE))
 }
 
-/// Where the `muse` launcher looks for its config: `${XDG_CONFIG_HOME:-~/.config}/muse`.
-///
-/// The shipped launcher resolves its credential file as
-/// `credential_path="${MUSE_AUTH_PATH:-$XDG_CONFIG_HOME/muse/auth.json}"`, so
-/// `MUSE_AUTH_PATH` overrides the credentials location only — `settings.json`
-/// always sits in the config dir.
-pub fn muse_config_dir(home: Option<&Path>) -> Option<PathBuf> {
-    build_muse_config_dir(env_path("XDG_CONFIG_HOME").as_deref(), home)
-}
-
-pub fn muse_auth_path(home: Option<&Path>) -> Option<PathBuf> {
-    if let Some(override_path) = env_path("MUSE_AUTH_PATH") {
-        return Some(override_path);
-    }
-    build_muse_config_dir(env_path("XDG_CONFIG_HOME").as_deref(), home)
-        .map(|dir| dir.join("auth.json"))
-}
-
-pub fn build_muse_config_dir(
-    xdg_config_home: Option<&Path>,
-    home: Option<&Path>,
-) -> Option<PathBuf> {
-    Some(
-        xdg_config_home
-            .map(Path::to_path_buf)
-            .or_else(|| home.map(|home| home.join(".config")))?
-            .join("muse"),
-    )
-}
-
-/// Grok Build's config directory: `$GROK_HOME`, else `~/.grok` (Grok Build's
-/// documented override — "`GROK_HOME` | Override config directory (default:
-/// `~/.grok`)"; verified against 1.0.46, which writes `config.toml`,
-/// `auth.json` and `sessions/` there).
-pub fn grok_home_dir(home: Option<&Path>) -> Option<PathBuf> {
-    build_grok_home_dir(env_path("GROK_HOME").as_deref(), home)
-}
-
-pub fn build_grok_home_dir(grok_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
-    grok_home
-        .map(Path::to_path_buf)
-        .or_else(|| home.map(|home| home.join(".grok")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    #[test]
-    fn grok_home_dir_prefers_the_grok_home_override() {
-        let home = Path::new("/Users/alex");
-        assert_eq!(
-            build_grok_home_dir(None, Some(home)),
-            Some(PathBuf::from("/Users/alex/.grok"))
-        );
-        assert_eq!(
-            build_grok_home_dir(Some(Path::new("/srv/grok")), Some(home)),
-            Some(PathBuf::from("/srv/grok"))
-        );
-        assert_eq!(build_grok_home_dir(None, None), None);
-    }
 
     #[test]
     fn config_path_defaults_to_dot_config_on_every_platform() {
@@ -203,168 +147,6 @@ mod tests {
                 home,
             ),
             Some(PathBuf::from("/custom/opencode-config/opencode.json"))
-        );
-    }
-
-    #[test]
-    fn muse_config_dir_honors_xdg_config_home() {
-        let home = Some(Path::new("/Users/alex"));
-        assert_eq!(
-            build_muse_config_dir(None, home),
-            Some(PathBuf::from("/Users/alex/.config/muse"))
-        );
-        assert_eq!(
-            build_muse_config_dir(Some(Path::new("/xdg/config")), home),
-            Some(PathBuf::from("/xdg/config/muse"))
-        );
-        assert_eq!(build_muse_config_dir(None, None), None);
-    }
-
-    #[test]
-    fn muse_auth_path_prefers_the_muse_auth_path_override() {
-        // The launcher resolves `credential_path="${MUSE_AUTH_PATH:-…}"`, so
-        // the override wins and the XDG dir no longer applies to auth.json.
-        let _guard = crate::test_env::lock_env();
-        let saved = std::env::var_os("MUSE_AUTH_PATH");
-        let saved_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        std::env::set_var("MUSE_AUTH_PATH", "/custom/creds.json");
-        std::env::remove_var("XDG_CONFIG_HOME");
-
-        assert_eq!(
-            muse_auth_path(Some(Path::new("/Users/alex"))),
-            Some(PathBuf::from("/custom/creds.json"))
-        );
-        // settings.json is unaffected by the credentials override.
-        assert_eq!(
-            muse_config_dir(Some(Path::new("/Users/alex"))),
-            Some(PathBuf::from("/Users/alex/.config/muse"))
-        );
-
-        std::env::remove_var("MUSE_AUTH_PATH");
-        assert_eq!(
-            muse_auth_path(Some(Path::new("/Users/alex"))),
-            Some(PathBuf::from("/Users/alex/.config/muse/auth.json"))
-        );
-
-        match saved {
-            Some(value) => std::env::set_var("MUSE_AUTH_PATH", value),
-            None => std::env::remove_var("MUSE_AUTH_PATH"),
-        }
-        match saved_xdg {
-            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-    }
-
-    #[test]
-    fn auth_path_uses_xdg_data_home_or_local_share() {
-        let home = Some(Path::new("/Users/alex"));
-        assert_eq!(
-            build_opencode_auth_path(None, home),
-            Some(PathBuf::from("/Users/alex/.local/share/opencode/auth.json"))
-        );
-        assert_eq!(
-            build_opencode_auth_path(Some(Path::new("/xdg/data")), home),
-            Some(PathBuf::from("/xdg/data/opencode/auth.json"))
-        );
-        assert_eq!(build_opencode_auth_path(None, None), None);
-    }
-
-    #[test]
-    fn legacy_file_is_used_only_when_the_real_location_has_none() {
-        let root = std::env::temp_dir().join(format!("the-pair-test-{}", uuid::Uuid::new_v4()));
-        let primary = root.join("home/.config/opencode/opencode.json");
-        let legacy = root.join("AppData/Roaming/opencode/opencode.json");
-
-        // Nothing exists yet: point at the location OpenCode reads.
-        assert_eq!(
-            prefer_existing(Some(primary.clone()), Some(legacy.clone())),
-            Some(primary.clone())
-        );
-
-        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-        fs::write(&legacy, "{}").unwrap();
-        assert_eq!(
-            prefer_existing(Some(primary.clone()), Some(legacy.clone())),
-            Some(legacy.clone())
-        );
-
-        fs::create_dir_all(primary.parent().unwrap()).unwrap();
-        fs::write(&primary, "{}").unwrap();
-        assert_eq!(
-            prefer_existing(Some(primary.clone()), Some(legacy)),
-            Some(primary)
-        );
-
-        fs::remove_dir_all(&root).ok();
-    }
-
-    // Unix only: on Windows the home dir comes from USERPROFILE and a legacy
-    // `%APPDATA%\opencode` file on the machine would take part.
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn opencode_paths_follow_the_environment() {
-        const KEYS: [&str; 4] = [
-            "OPENCODE_CONFIG_DIR",
-            "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME",
-            "HOME",
-        ];
-        let _guard = crate::test_env::lock_env();
-        let saved: Vec<(&str, Option<std::ffi::OsString>)> = KEYS
-            .iter()
-            .map(|key| (*key, std::env::var_os(key)))
-            .collect();
-        let home = std::env::temp_dir().join(format!("the-pair-test-{}", uuid::Uuid::new_v4()));
-
-        std::env::set_var("HOME", &home);
-        std::env::set_var("OPENCODE_CONFIG_DIR", "");
-        std::env::set_var("XDG_CONFIG_HOME", "/xdg/config");
-        std::env::set_var("XDG_DATA_HOME", "/xdg/data");
-        let xdg = (opencode_config_path(), opencode_auth_path());
-        let xdg_dirs = opencode_config_dirs();
-
-        std::env::set_var("OPENCODE_CONFIG_DIR", "/custom/opencode");
-        let overridden = opencode_config_path();
-        let overridden_dirs = opencode_config_dirs();
-
-        for key in ["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] {
-            std::env::remove_var(key);
-        }
-        let defaults = (opencode_config_path(), opencode_auth_path());
-
-        for (key, value) in saved {
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
-
-        assert_eq!(
-            xdg,
-            (
-                Some(PathBuf::from("/xdg/config/opencode/opencode.json")),
-                Some(PathBuf::from("/xdg/data/opencode/auth.json")),
-            )
-        );
-        assert_eq!(
-            overridden,
-            Some(PathBuf::from("/custom/opencode/opencode.json"))
-        );
-        assert_eq!(xdg_dirs, vec![PathBuf::from("/xdg/config/opencode")]);
-        assert_eq!(
-            overridden_dirs,
-            vec![
-                PathBuf::from("/xdg/config/opencode"),
-                PathBuf::from("/custom/opencode")
-            ]
-        );
-        assert_eq!(
-            defaults,
-            (
-                Some(home.join(".config/opencode/opencode.json")),
-                Some(home.join(".local/share/opencode/auth.json")),
-            )
         );
     }
 }

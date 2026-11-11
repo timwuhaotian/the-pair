@@ -2,10 +2,8 @@ use crate::acceptance::{
     build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
     build_mentor_acceptance_repair_prompt,
 };
+use crate::harness::driver::TurnDriver;
 use crate::message_broker::MessageBroker;
-use crate::process_spawner::ProcessSpawner;
-use crate::provider_adapter::ProviderAdapter;
-use crate::provider_registry::ProviderKind;
 use crate::session_snapshot::delete_pair_snapshot;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
@@ -17,6 +15,9 @@ use crate::worktree_manager::{
     ensure_gitignore_worktrees, ensure_local_tracking_branch, BranchInfo, RepoState,
 };
 use std::collections::HashMap;
+use std::path::Path;
+use std::time::{Duration, Instant};
+use tauri::Manager;
 
 pub struct PairManager {
     pairs: HashMap<String, Pair>,
@@ -46,6 +47,12 @@ fn in_place_workspace(input: &CreatePairInput) -> PairWorkspace {
         worktree_branch: None,
     }
 }
+
+/// How long a delete or a worktree rotation waits for an in-flight turn to
+/// unwind before it goes ahead without it.
+const TURN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Poll interval while waiting for a turn to stop.
+const TURN_STOP_POLL: Duration = Duration::from_millis(50);
 
 /// Resolve (and, for a worktree pair, create) the pair's workspace. Runs all
 /// the git work — including a possible fetch and checkout — without any app
@@ -203,9 +210,7 @@ pub fn rotate_workspace(pair: &Pair) -> Result<PairWorkspace, String> {
 
     let repo_state = check_repo_state(&repo_path);
     if !repo_state.is_git_repo {
-        return Err(
-            "Directory is not a git repository. Cannot create a worktree.".to_string(),
-        );
+        return Err("Directory is not a git repository. Cannot create a worktree.".to_string());
     }
 
     // A held base branch stays the base; a worktree created from the current
@@ -288,9 +293,7 @@ impl PairManager {
             name: input.name.clone(),
             directory: workspace.directory,
             status: PairStatus::Idle,
-            mentor_provider: input.mentor.provider,
             mentor_model: input.mentor.model.clone(),
-            executor_provider: input.executor.provider,
             executor_model: input.executor.model.clone(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -359,16 +362,70 @@ fn persist_snapshot_in_background(app: &tauri::AppHandle, pair_id: &str) {
     });
 }
 
+/// The model a role will actually talk to: the pending one when the human has
+/// just changed it, otherwise the pair's own.
+fn effective_model(pair: &Pair, role: &str) -> String {
+    if role == "mentor" {
+        pair.pending_mentor_model
+            .clone()
+            .unwrap_or_else(|| pair.mentor_model.clone())
+    } else {
+        pair.pending_executor_model
+            .clone()
+            .unwrap_or_else(|| pair.executor_model.clone())
+    }
+}
+
+/// Whether either role still has a turn registered for this pair.
+///
+/// A turn registers a cancel flag when it starts and clears it when it ends, so
+/// this is the harness's own answer to "is a turn running".
+fn turn_in_flight(spawner: &TurnDriver, pair_id: &str) -> bool {
+    let cancels = spawner
+        .turn_cancels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    ["mentor", "executor"]
+        .iter()
+        .any(|role| cancels.contains_key(&format!("{}-{}", pair_id, role)))
+}
+
+/// Wait for the pair's in-flight turns to finish, up to `timeout`.
+///
+/// A raised cancel flag stops a turn where it is — a model call is dropped and
+/// a running `bash` command is killed with its process tree — but that still
+/// takes a moment. Waiting a bounded one before a worktree is stashed and
+/// removed gives the turn the chance to unwind first; past the timeout the
+/// caller goes ahead, because a delete must not hang on it.
+async fn wait_for_turns_to_stop(spawner: &TurnDriver, pair_id: &str, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !turn_in_flight(spawner, pair_id) {
+            return true;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        tokio::time::sleep(TURN_STOP_POLL.min(deadline - now)).await;
+    }
+}
+
 /// Start a turn; if it cannot start (spawn failure, missing binary, prompt
 /// too large …) mark the pair as errored instead of leaving it looking busy.
-async fn start_turn(
+pub(crate) async fn start_turn(
     app: &tauri::AppHandle,
     broker: &std::sync::Mutex<MessageBroker>,
-    spawner: &ProcessSpawner,
+    spawner: &TurnDriver,
     pair_id: &str,
     role: &str,
     prompt: String,
 ) -> Result<(), String> {
+    // A pair whose model did not resolve when it was created — no credential on
+    // the machine yet, say — gets another chance now: resume and retry must not
+    // be blocked forever by a registry that has since gained the endpoint.
+    refresh_unresolved_selection(app, spawner, pair_id, role);
+
     match spawner
         .trigger_turn(app.clone(), pair_id.to_string(), role.to_string(), prompt)
         .await
@@ -393,6 +450,79 @@ async fn start_turn(
     }
 }
 
+/// Resolves the selection for a role that still has none, from the pair's own
+/// stored model. A pair whose selection is already set is left alone: the model
+/// the human chose wins over what the registry would infer today.
+fn refresh_unresolved_selection(
+    app: &tauri::AppHandle,
+    spawner: &TurnDriver,
+    pair_id: &str,
+    role: &str,
+) {
+    let needs_refresh = {
+        let contexts = spawner
+            .pair_contexts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        contexts
+            .get(pair_id)
+            .map(|context| {
+                if role == "mentor" {
+                    context.mentor_selection.is_none()
+                } else {
+                    context.executor_selection.is_none()
+                }
+            })
+            .unwrap_or(false)
+    };
+    if !needs_refresh {
+        return;
+    }
+
+    let Some(pair) = app
+        .try_state::<std::sync::Mutex<PairManager>>()
+        .and_then(|manager| {
+            manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_pair(pair_id)
+        })
+    else {
+        return;
+    };
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let model = if role == "mentor" {
+        pair.pending_mentor_model
+            .clone()
+            .unwrap_or_else(|| pair.mentor_model.clone())
+    } else {
+        pair.pending_executor_model
+            .clone()
+            .unwrap_or_else(|| pair.executor_model.clone())
+    };
+    let Some(selection) = crate::harness::selection_for_role(&app_dir, role, &model) else {
+        return;
+    };
+
+    let mut contexts = spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(context) = contexts.get_mut(pair_id) {
+        println!(
+            "[pair_manager] {} model {} now resolves onto {}",
+            role, model, selection.provider_id
+        );
+        if role == "mentor" {
+            context.mentor_selection = Some(selection);
+        } else {
+            context.executor_selection = Some(selection);
+        }
+    }
+}
+
 /// Contract C3: a role handoff for a pair that was stopped (paused, finished,
 /// errored) is stale and must not restart it. Plan approval/rejection comes
 /// from `AwaitingHumanReview` through the same path, so that stays allowed.
@@ -404,23 +534,12 @@ fn handoff_rejection(status: &PairStatus) -> Option<String> {
     .then(|| format!("HANDOFF_IGNORED: pair is {}", status.as_wire_str()))
 }
 
-/// Contract C6: keep the provider already known for a model id and only infer
-/// one for a model that changed (bare ids such as grok aliases or `codex-*`
-/// slugs don't infer back to their provider).
-fn resolve_provider_for_model(model: &str, known: &[(&str, ProviderKind)]) -> ProviderKind {
-    known
-        .iter()
-        .find(|(known_model, _)| *known_model == model)
-        .map(|(_, provider)| *provider)
-        .unwrap_or_else(|| ProviderAdapter::infer_provider_kind(model))
-}
-
 #[tauri::command]
 pub async fn pair_create(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     input: CreatePairInput,
 ) -> Result<Pair, String> {
     println!(
@@ -433,6 +552,22 @@ pub async fn pair_create(
     );
 
     let pair_id = uuid::Uuid::new_v4().to_string();
+
+    // Resolved before anything is registered or created: a failure here must
+    // leave no pair, no worktree and no branch behind.
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    // A pair whose model resolves onto an endpoint with a credential runs on the
+    // direct connection from its very first turn; one that resolves to nothing
+    // fails its first turn with a readable error.
+    // The endpoint each model was picked under decides, not just the id: two
+    // endpoints can list the same model.
+    let mentor_selection =
+        crate::harness::selection_for_role(&app_dir, "mentor", &input.mentor.model);
+    let executor_selection =
+        crate::harness::selection_for_role(&app_dir, "executor", &input.executor.model);
 
     // All git/worktree work (fetch, checkout) runs with no lock held and off
     // the async runtime's worker threads.
@@ -477,13 +612,11 @@ pub async fn pair_create(
             .unwrap_or_else(|e| e.into_inner());
         ctx_guard.insert(
             pair_id.clone(),
-            crate::process_spawner::ProcessContext {
+            crate::harness::driver::ProcessContext {
                 directory: pair
                     .worktree_path
                     .clone()
                     .unwrap_or_else(|| pair.directory.clone()),
-                mentor_provider: pair.mentor_provider,
-                executor_provider: pair.executor_provider,
                 mentor_model: pair.mentor_model.clone(),
                 executor_model: pair.executor_model.clone(),
                 mentor_session_id: None,
@@ -492,6 +625,10 @@ pub async fn pair_create(
                 executor_reasoning_effort: input.executor_reasoning_effort.clone(),
                 run_generation: 0,
                 is_smoke_test: false,
+                mentor_selection,
+                executor_selection,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
             },
         );
     }
@@ -503,7 +640,7 @@ pub async fn pair_create(
         broker
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .prepare_run(&pair_id, "mentor", spawner.active_processes.clone());
+            .prepare_run(&pair_id, "mentor");
 
         if let Err(error) = spawner
             .trigger_turn(
@@ -618,23 +755,29 @@ fn validate_assign_task(
 async fn prepare_new_run_workspace(
     pair_manager: &std::sync::Mutex<PairManager>,
     broker: &std::sync::Mutex<MessageBroker>,
-    spawner: &ProcessSpawner,
+    spawner: &TurnDriver,
     pair_id: &str,
     pair: Pair,
     fresh_worktree: bool,
 ) -> Result<Pair, String> {
     if fresh_worktree {
         spawner.bump_run_generation(pair_id);
-        let stopped = spawner.stop_pair_processes(pair_id);
-        for mut child in stopped {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
-        }
     } else {
         spawner.stop_pair_processes(pair_id);
     }
 
     if !fresh_worktree {
         return Ok(pair);
+    }
+
+    // The rotation preserves the old worktree's work and removes it, so the turn
+    // that was writing into it has to be gone first. The wait is bounded: a tool
+    // call in flight takes no cancel token, and an assignment must not hang.
+    if !wait_for_turns_to_stop(spawner, pair_id, TURN_STOP_TIMEOUT).await {
+        println!(
+            "[pair_manager] Pair {} still has a turn in flight; rotating anyway",
+            pair_id
+        );
     }
 
     let rotated = {
@@ -655,83 +798,81 @@ async fn prepare_new_run_workspace(
     Ok(pair)
 }
 
-/// (Re)build the pair's process context for the turn about to start: resolve
-/// effective providers for each role (contract C6), keep provider sessions
+/// (Re)build the pair's process context for the turn about to start: install
+/// the endpoints resolved for each role (contract C6), keep provider sessions
 /// where possible, and bump the run generation for a new run.
+///
+/// The selections are resolved by the caller, before anything about the run
+/// changes — see [`RoleSelections`].
 fn prepare_run_context(
-    spawner: &ProcessSpawner,
+    spawner: &TurnDriver,
     pair: &Pair,
     pair_id: &str,
     is_new_run: bool,
+    selections: RoleSelections,
 ) {
+    let existing = spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(pair_id)
+        .cloned();
+
+    let effective_mentor_model = effective_model(pair, "mentor");
+    let effective_executor_model = effective_model(pair, "executor");
+    let mentor_selection = selections.mentor;
+    let executor_selection = selections.executor;
+
+    if mentor_selection.is_some() || executor_selection.is_some() {
+        println!(
+            "[pair_assign_task] Direct connection: mentor={:?} executor={:?}",
+            mentor_selection.as_ref().map(|s| &s.model),
+            executor_selection.as_ref().map(|s| &s.model),
+        );
+    }
+
+    // A conversation belongs to the endpoint it was had with: moving a role to
+    // another account or another model starts a fresh one, the way a provider
+    // change does.
+    let mentor_target_changed = selection_changed(
+        existing
+            .as_ref()
+            .and_then(|ctx| ctx.mentor_selection.as_ref()),
+        mentor_selection.as_ref(),
+    );
+    let executor_target_changed = selection_changed(
+        existing
+            .as_ref()
+            .and_then(|ctx| ctx.executor_selection.as_ref()),
+        executor_selection.as_ref(),
+    );
+
+    // Re-read under the lock: the credential store read above released it, and
+    // two assignments racing on one pair must still leave a strictly increasing
+    // generation, or neither turn supersedes the other.
     let mut ctx_guard = spawner
         .pair_contexts
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let existing = ctx_guard.get(pair_id).cloned();
-
-    let effective_mentor_model = pair
-        .pending_mentor_model
-        .clone()
-        .unwrap_or_else(|| pair.mentor_model.clone());
-    let effective_executor_model = pair
-        .pending_executor_model
-        .clone()
-        .unwrap_or_else(|| pair.executor_model.clone());
-
-    let mut known_mentor = vec![(pair.mentor_model.as_str(), pair.mentor_provider)];
-    let mut known_executor = vec![(pair.executor_model.as_str(), pair.executor_provider)];
-    if let Some(ctx) = existing.as_ref() {
-        known_mentor.insert(0, (ctx.mentor_model.as_str(), ctx.mentor_provider));
-        known_executor.insert(0, (ctx.executor_model.as_str(), ctx.executor_provider));
-    }
-    let mentor_provider = resolve_provider_for_model(&effective_mentor_model, &known_mentor);
-    let executor_provider = resolve_provider_for_model(&effective_executor_model, &known_executor);
-
-    let (existing_mentor_provider, existing_executor_provider) = existing
-        .as_ref()
-        .map(|ctx| (ctx.mentor_provider, ctx.executor_provider))
-        .unwrap_or((pair.mentor_provider, pair.executor_provider));
-    let mentor_provider_changed = mentor_provider != existing_mentor_provider;
-    let executor_provider_changed = executor_provider != existing_executor_provider;
-
-    println!(
-        "[pair_assign_task] Resolved providers: mentor={:?} (model {}), executor={:?} (model {})",
-        mentor_provider, effective_mentor_model, executor_provider, effective_executor_model
-    );
-    if mentor_provider_changed {
-        println!(
-            "[pair_assign_task] Mentor provider changed from {:?} → {:?}, clearing session",
-            existing_mentor_provider, mentor_provider
-        );
-    }
-    if executor_provider_changed {
-        println!(
-            "[pair_assign_task] Executor provider changed from {:?} → {:?}, clearing session",
-            existing_executor_provider, executor_provider
-        );
-    }
-
     let existing_run_generation = existing.as_ref().map(|ctx| ctx.run_generation).unwrap_or(0);
     ctx_guard.insert(
         pair_id.to_string(),
-        crate::process_spawner::ProcessContext {
+        crate::harness::driver::ProcessContext {
             directory: pair
                 .worktree_path
                 .clone()
                 .unwrap_or_else(|| pair.directory.clone()),
-            mentor_provider,
-            executor_provider,
             mentor_model: effective_mentor_model,
             executor_model: effective_executor_model,
-            mentor_session_id: if is_new_run || mentor_provider_changed {
+            mentor_session_id: if is_new_run || mentor_target_changed {
                 None
             } else {
                 existing
                     .as_ref()
                     .and_then(|ctx| ctx.mentor_session_id.clone())
             },
-            executor_session_id: if is_new_run || executor_provider_changed {
+            executor_session_id: if is_new_run || executor_target_changed {
                 None
             } else {
                 existing
@@ -746,8 +887,184 @@ fn prepare_run_context(
                 existing_run_generation
             },
             is_smoke_test: false,
+            // A pair whose endpoint and credential are both in the registry
+            // runs on the direct connection.
+            mentor_selection,
+            executor_selection,
+            // A new run is a new conversation; a resumed one keeps what its
+            // agents already said, so the next turn replays it. A role that
+            // moved to another endpoint starts fresh, the way its session does.
+            mentor_history: carried_history(
+                is_new_run || mentor_target_changed,
+                existing.as_ref(),
+                true,
+            ),
+            executor_history: carried_history(
+                is_new_run || executor_target_changed,
+                existing.as_ref(),
+                false,
+            ),
         },
     );
+}
+
+/// The conversation a role carries into the turn about to start: the one it
+/// already had, unless something about the run or the target changed.
+fn carried_history(
+    start_fresh: bool,
+    existing: Option<&crate::harness::driver::ProcessContext>,
+    mentor: bool,
+) -> Vec<serde_json::Value> {
+    match start_fresh {
+        true => Vec::new(),
+        false => existing
+            .map(|ctx| {
+                if mentor {
+                    ctx.mentor_history.clone()
+                } else {
+                    ctx.executor_history.clone()
+                }
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// Whether a role is about to talk to a different endpoint, account or model
+/// than the conversation it still holds was had with.
+fn selection_changed(
+    before: Option<&crate::harness::ModelSelection>,
+    after: Option<&crate::harness::ModelSelection>,
+) -> bool {
+    match (before, after) {
+        (None, None) => false,
+        (Some(before), Some(after)) => before != after,
+        // Moving onto the direct connection (or off it) is a change of target.
+        _ => true,
+    }
+}
+
+/// The endpoint each of a pair's roles talks to for its effective model.
+///
+/// Resolved before anything about a run changes — see [`prepare_assignment`].
+/// A role that is already talking to an endpoint keeps it while that endpoint
+/// can still run the model: this runs on every handoff, and re-deriving the
+/// endpoint from the model id each time would move a role — and start its
+/// conversation over — whenever a re-scan reordered the registry. A role with
+/// nothing to keep gets the endpoint its model was picked under, and failing
+/// that the one the id resolves onto.
+#[derive(Debug, Clone, Default)]
+struct RoleSelections {
+    mentor: Option<crate::harness::ModelSelection>,
+    executor: Option<crate::harness::ModelSelection>,
+}
+
+impl RoleSelections {
+    fn resolve(
+        app_dir: &Path,
+        pair: &Pair,
+        current: Option<&crate::harness::driver::ProcessContext>,
+    ) -> Self {
+        // The credential store is read on disk, so it is read before the
+        // contexts lock is taken: every pair's turn bookkeeping waits on it.
+        Self {
+            mentor: crate::harness::keep_or_resolve(
+                app_dir,
+                "mentor",
+                &effective_model(pair, "mentor"),
+                current.and_then(|context| context.mentor_selection.as_ref()),
+            ),
+            executor: crate::harness::keep_or_resolve(
+                app_dir,
+                "executor",
+                &effective_model(pair, "executor"),
+                current.and_then(|context| context.executor_selection.as_ref()),
+            ),
+        }
+    }
+
+    fn for_role(&self, role: &str) -> Option<&crate::harness::ModelSelection> {
+        if role == "mentor" {
+            self.mentor.as_ref()
+        } else {
+            self.executor.as_ref()
+        }
+    }
+}
+
+/// Refuse an assignment whose starting role has no endpoint to talk to.
+///
+/// Checked before `begin_new_run` clears the transcript and before the old
+/// worktree is rotated away: the frontend archives the previous run only once
+/// the assignment succeeded, so a turn that cannot start would otherwise leave
+/// the pair with no run at all — no history, no worktree.
+fn ensure_role_resolvable(role: &str, selections: &RoleSelections) -> Result<(), String> {
+    match selections.for_role(role) {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "The {} has no model it can talk to. Pick one in the pair's settings.",
+            role
+        )),
+    }
+}
+
+/// Everything between a validated assignment and the turn itself: resolve the
+/// endpoints, stop the previous run (and rotate the workspace when asked),
+/// rebuild the turn context, and reset the broker for the new run.
+///
+/// Ordered so nothing is destroyed before the turn is known to be able to
+/// start. `start_turn` failing used to land after `begin_new_run` had cleared
+/// the transcript and after the old worktree had been rotated away, and the
+/// frontend archives the previous run only after a successful assignment — so
+/// the pair was left with neither run.
+async fn prepare_assignment(
+    pair_manager: &std::sync::Mutex<PairManager>,
+    broker: &std::sync::Mutex<MessageBroker>,
+    spawner: &TurnDriver,
+    pair_id: &str,
+    pair: Pair,
+    role: &str,
+    is_new_run: bool,
+    fresh_worktree: bool,
+    spec: &str,
+    app_dir: &Path,
+) -> Result<Pair, String> {
+    let current = spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(pair_id)
+        .cloned();
+    let selections = RoleSelections::resolve(app_dir, &pair, current.as_ref());
+    ensure_role_resolvable(role, &selections)?;
+
+    // Stop the previous run and, when requested, rotate the pair into a fresh
+    // worktree before the new run starts. A failed rotation aborts the
+    // assignment with the pair left on its old workspace.
+    let pair =
+        prepare_new_run_workspace(pair_manager, broker, spawner, pair_id, pair, fresh_worktree)
+            .await?;
+
+    prepare_run_context(spawner, &pair, pair_id, is_new_run, selections);
+
+    {
+        let broker_guard = broker.lock().unwrap_or_else(|e| e.into_inner());
+        // Re-check under the same lock as prepare_run: a pause may have landed
+        // since the first check.
+        if !is_new_run {
+            if let Some(rejection) = broker_guard
+                .status_and_turn(pair_id)
+                .and_then(|(status, _)| handoff_rejection(&status))
+            {
+                println!("[pair_assign_task] {}", rejection);
+                return Err(rejection);
+            }
+        } else {
+            broker_guard.begin_new_run(pair_id, spec);
+        }
+        broker_guard.prepare_run(pair_id, role);
+    }
+
+    Ok(pair)
 }
 
 #[tauri::command]
@@ -755,7 +1072,7 @@ pub async fn pair_assign_task(
     app: tauri::AppHandle,
     pair_manager: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
     input: AssignTaskInput,
 ) -> Result<Pair, String> {
@@ -769,54 +1086,34 @@ pub async fn pair_assign_task(
         pair.name, pair.directory
     );
 
-    let pair = if is_new_run {
-        // Stop the previous run and, when requested, rotate the pair into a
-        // fresh worktree before the new run starts. A failed rotation aborts
-        // the assignment with the pair left on its old workspace.
-        prepare_new_run_workspace(
-            &pair_manager,
-            &broker,
-            &spawner,
-            &pair_id,
-            pair,
-            fresh_worktree,
-        )
-        .await?
-    } else {
-        pair
-    };
-
-    prepare_run_context(&spawner, &pair, &pair_id, is_new_run);
-
-    let turn_prompt = if is_new_run {
-        build_mentor_planning_prompt(&input.spec)
-    } else {
-        input.spec.clone()
-    };
-
-    {
-        let broker_guard = broker.lock().unwrap_or_else(|e| e.into_inner());
-        // Re-check under the same lock as prepare_run: a pause may have landed
-        // since the first check.
-        if !is_new_run {
-            if let Some(rejection) = broker_guard
-                .status_and_turn(&pair_id)
-                .and_then(|(status, _)| handoff_rejection(&status))
-            {
-                println!("[pair_assign_task] {}", rejection);
-                return Err(rejection);
-            }
-        } else {
-            broker_guard.begin_new_run(&pair_id, &input.spec);
-        }
-        broker_guard.prepare_run(&pair_id, &role, spawner.active_processes.clone());
-    }
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    let pair = prepare_assignment(
+        &pair_manager,
+        &broker,
+        &spawner,
+        &pair_id,
+        pair,
+        &role,
+        is_new_run,
+        fresh_worktree,
+        &input.spec,
+        &app_dir,
+    )
+    .await?;
 
     if is_new_run {
         persist_snapshot_in_background(&app, &pair_id);
     }
 
     println!("[pair_assign_task] About to trigger {} turn...", role);
+    let turn_prompt = if is_new_run {
+        build_mentor_planning_prompt(&input.spec)
+    } else {
+        input.spec.clone()
+    };
     start_turn(&app, &broker, &spawner, &pair_id, &role, turn_prompt).await?;
     println!("[pair_assign_task] {} turn triggered successfully", role);
 
@@ -827,36 +1124,117 @@ pub async fn pair_assign_task(
 
 #[tauri::command]
 pub fn pair_update_models(
+    app: tauri::AppHandle,
     state: tauri::State<std::sync::Mutex<PairManager>>,
+    spawner: tauri::State<TurnDriver>,
     pair_id: String,
     input: crate::types::UpdatePairModelsInput,
 ) -> Result<crate::types::UpdatePairModelsInput, String> {
-    let mut manager = state.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut change, pair) = {
+        let mut manager = state.lock().unwrap_or_else(|e| e.into_inner());
+        let pair = manager
+            .pairs
+            .get_mut(&pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+        let change = apply_model_update(pair, &input);
+        (change, pair.clone())
+    };
 
-    let pair = manager
-        .pairs
-        .get_mut(&pair_id)
-        .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+    // The same model picked again under another endpoint changes no id, but it
+    // is still a move the human asked for.
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        let moved = endpoint_moves(&app_dir, &spawner, &pair);
+        change.mentor |= moved.mentor;
+        change.executor |= moved.executor;
+    }
 
-    apply_model_update(pair, &input);
+    // The model the human just picked has to reach the run in flight: a turn
+    // talks to the selection stored on the pair's context, and
+    // `refresh_unresolved_selection` leaves a pair that already has one alone.
+    // Dropping it makes the next turn resolve the new model — otherwise the
+    // stale selection is persisted with the snapshot and survives restarts.
+    invalidate_selections(&spawner, &pair_id, &change);
 
     Ok(input)
 }
 
-/// Apply a model update, keeping each role's stored provider unless its
-/// model actually changed (contract C6).
-fn apply_model_update(pair: &mut Pair, input: &crate::types::UpdatePairModelsInput) {
-    let old_mentor_provider = pair.mentor_provider;
-    let old_executor_provider = pair.executor_provider;
+/// Which roles the human moved to another endpoint without changing the model:
+/// the endpoint picked for the role's model is not the one the role is talking
+/// to.
+///
+/// Only an explicit pick moves a role this way. A role with no pick on record
+/// stays where it is, however the registry would resolve its id today.
+fn endpoint_moves(app_dir: &Path, spawner: &TurnDriver, pair: &Pair) -> ModelChange {
+    let current = spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&pair.pair_id)
+        .cloned();
+    let Some(current) = current else {
+        return ModelChange::default();
+    };
+    let moved = |role: &str, talking_to: Option<&crate::harness::ModelSelection>| {
+        let Some(talking_to) = talking_to else {
+            return false;
+        };
+        crate::harness::preferred_selection(app_dir, role, &effective_model(pair, role))
+            .is_some_and(|picked| {
+                picked.provider_id != talking_to.provider_id
+                    || picked.account_id != talking_to.account_id
+            })
+    };
+    ModelChange {
+        mentor: moved("mentor", current.mentor_selection.as_ref()),
+        executor: moved("executor", current.executor_selection.as_ref()),
+    }
+}
 
-    pair.mentor_provider = resolve_provider_for_model(
-        &input.mentor_model,
-        &[(pair.mentor_model.as_str(), pair.mentor_provider)],
-    );
-    pair.executor_provider = resolve_provider_for_model(
-        &input.executor_model,
-        &[(pair.executor_model.as_str(), pair.executor_provider)],
-    );
+/// Which of a pair's roles had their model changed by an update.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ModelChange {
+    mentor: bool,
+    executor: bool,
+}
+
+impl ModelChange {
+    fn any(&self) -> bool {
+        self.mentor || self.executor
+    }
+}
+
+/// Drop the stored selection for every role whose model changed, so the next
+/// turn resolves the new one instead of talking to the old endpoint.
+fn invalidate_selections(spawner: &TurnDriver, pair_id: &str, change: &ModelChange) {
+    if !change.any() {
+        return;
+    }
+    let mut contexts = spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(context) = contexts.get_mut(pair_id) {
+        if change.mentor {
+            context.mentor_selection = None;
+        }
+        if change.executor {
+            context.executor_selection = None;
+        }
+        println!(
+            "[pair_update_models] Pair {} re-resolves its models (mentor={} executor={})",
+            pair_id, change.mentor, change.executor
+        );
+    }
+}
+
+/// Apply a model update, reporting which roles actually moved. The endpoint a
+/// role talks to is resolved from the model id when the next turn starts, so
+/// the only thing to keep in step here is the stored selection — which the
+/// caller invalidates for the roles that moved.
+fn apply_model_update(pair: &mut Pair, input: &crate::types::UpdatePairModelsInput) -> ModelChange {
+    let mentor_before = effective_model(pair, "mentor");
+    let executor_before = effective_model(pair, "executor");
+
     pair.mentor_model = input.mentor_model.clone();
     pair.executor_model = input.executor_model.clone();
     pair.pending_mentor_model = input.pending_mentor_model.clone();
@@ -865,15 +1243,14 @@ fn apply_model_update(pair: &mut Pair, input: &crate::types::UpdatePairModelsInp
     pair.executor_reasoning_effort = input.executor_reasoning_effort.clone();
 
     println!(
-        "[pair_update_models] Updated pair {}: mentor={} (provider {:?}→{:?}), executor={} (provider {:?}→{:?})",
-        pair.pair_id,
-        pair.mentor_model,
-        old_mentor_provider,
-        pair.mentor_provider,
-        pair.executor_model,
-        old_executor_provider,
-        pair.executor_provider
+        "[pair_update_models] Updated pair {}: mentor={}, executor={}",
+        pair.pair_id, pair.mentor_model, pair.executor_model
     );
+
+    ModelChange {
+        mentor: mentor_before != effective_model(pair, "mentor"),
+        executor: executor_before != effective_model(pair, "executor"),
+    }
 }
 
 #[tauri::command]
@@ -887,7 +1264,7 @@ pub async fn pair_delete(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
 ) -> Result<(), String> {
     let existing = state
@@ -895,18 +1272,26 @@ pub async fn pair_delete(
         .unwrap_or_else(|e| e.into_inner())
         .get_pair(&pair_id);
 
-    // Invalidate the running turn and take its whole process tree down, then
-    // give it a moment to exit so it stops writing into the worktree before
+    // Invalidate the running turn so it stops writing into the worktree before
     // the worktree's changes are preserved and it is removed.
     spawner.bump_run_generation(&pair_id);
-    for mut child in spawner.stop_pair_processes(&pair_id) {
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
-    }
+    spawner.stop_pair_processes(&pair_id);
 
     if let Some(worktree_path) = existing
         .as_ref()
         .and_then(|pair| pair.worktree_path.clone())
     {
+        // The cancelled turn stops where it is — its model call is dropped,
+        // its `bash` command killed — but not instantly, so wait a bounded
+        // moment for it to unwind before the worktree is stashed and removed
+        // under it.
+        if !wait_for_turns_to_stop(&spawner, &pair_id, TURN_STOP_TIMEOUT).await {
+            println!(
+                "[pair_delete] Pair {} still has a turn in flight; deleting anyway",
+                pair_id
+            );
+        }
+
         println!("[pair_delete] Deleting worktree at {}", worktree_path);
         let path = worktree_path.clone();
         let result = tauri::async_runtime::spawn_blocking(move || delete_worktree(&path))
@@ -977,7 +1362,7 @@ pub fn pair_pause(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
 ) -> Result<(), String> {
     {
@@ -1100,7 +1485,7 @@ EXECUTOR OUTPUT\n{}\n",
 async fn resume_pair_core(
     manager: &std::sync::Mutex<PairManager>,
     broker: &std::sync::Mutex<MessageBroker>,
-    spawner: &ProcessSpawner,
+    spawner: &TurnDriver,
     pair_id: &str,
     allowed: &[PairStatus],
 ) -> Result<(String, String), String> {
@@ -1133,7 +1518,7 @@ async fn resume_pair_core(
             crate::types::AgentRole::Executor => "executor",
         };
 
-        let resolved = broker_guard.resume_run(pair_id, role_str, spawner.active_processes.clone());
+        let resolved = broker_guard.resume_run(pair_id, role_str);
 
         let last_mentor_msg =
             find_last_message_by_role(&state.messages, MessageSender::Mentor).or(state
@@ -1177,7 +1562,7 @@ pub async fn pair_resume(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
 ) -> Result<(), String> {
     // Resume is scoped to Paused / AwaitingHumanReview.
@@ -1204,7 +1589,7 @@ pub async fn pair_retry_turn(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
 ) -> Result<(), String> {
     let (role_str, prompt) = resume_pair_core(
@@ -1256,7 +1641,7 @@ pub async fn kill_process(
     app: tauri::AppHandle,
     state: tauri::State<'_, std::sync::Mutex<PairManager>>,
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: tauri::State<'_, ProcessSpawner>,
+    spawner: tauri::State<'_, TurnDriver>,
     pair_id: String,
     role: String,
 ) -> Result<(), String> {
@@ -1271,12 +1656,11 @@ pub async fn kill_process(
         }
     }
 
-    if spawner.stop_process(&pair_id, &role).is_none() {
-        return Err(format!(
-            "No active {} process found for pair {}",
-            role, pair_id
-        ));
-    }
+    // A turn on the direct connection has no child process to kill: its
+    // cancel flag is raised by `bump_run_generation` below, which is what stops
+    // the stream. Without this the kill would report "no active process" and
+    // leave the pair Mentoring until the stall detector gave up on it.
+    spawner.stop_process(&pair_id, &role);
     // The killed turn must not finish, run checks or hand off afterwards.
     spawner.bump_run_generation(&pair_id);
 
@@ -1304,9 +1688,8 @@ pub async fn kill_process(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::driver::TurnDriver;
     use crate::message_broker::MessageBroker;
-    use crate::process_spawner::ProcessSpawner;
-    use crate::provider_registry::ProviderKind;
     use crate::types::{AgentConfig, AgentRole, CreatePairInput, PairStatus};
     use std::sync::{Arc, Mutex};
 
@@ -1319,11 +1702,11 @@ mod tests {
     fn make_test_pair_manager() -> (
         Arc<Mutex<PairManager>>,
         Arc<Mutex<MessageBroker>>,
-        ProcessSpawner,
+        TurnDriver,
     ) {
         let manager = Arc::new(Mutex::new(PairManager::new()));
         let broker = Arc::new(Mutex::new(MessageBroker::new()));
-        let spawner = ProcessSpawner::new();
+        let spawner = TurnDriver::new();
         (manager, broker, spawner)
     }
 
@@ -1340,13 +1723,11 @@ mod tests {
             spec: "Test task".to_string(),
             mentor: AgentConfig {
                 role: AgentRole::Mentor,
-                provider: ProviderKind::Opencode,
                 model: "test-mentor".to_string(),
                 reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
-                provider: ProviderKind::Codex,
                 model: "test-executor".to_string(),
                 reasoning_effort: None,
             },
@@ -1371,9 +1752,7 @@ mod tests {
             name: "Test Pair".to_string(),
             directory: "/tmp/test".to_string(),
             status: PairStatus::Paused,
-            mentor_provider: ProviderKind::Opencode,
             mentor_model: "test-mentor".to_string(),
-            executor_provider: ProviderKind::Codex,
             executor_model: "test-executor".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -1641,13 +2020,11 @@ mod tests {
             spec: "Build the feature".to_string(),
             mentor: AgentConfig {
                 role: AgentRole::Mentor,
-                provider: ProviderKind::Opencode,
                 model: "openai/gpt-4o-mini".to_string(),
                 reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
-                provider: ProviderKind::Codex,
                 model: "gpt-4o-mini".to_string(),
                 reasoning_effort: None,
             },
@@ -1661,7 +2038,7 @@ mod tests {
     }
 
     #[test]
-    fn create_pair_keeps_explicit_provider_kinds_on_the_returned_pair() {
+    fn create_pair_keeps_the_models_it_was_given() {
         let mut manager = PairManager::new();
         let broker = MessageBroker::new();
 
@@ -1669,99 +2046,8 @@ mod tests {
             .create_pair(&sample_input(), &broker)
             .expect("pair should be created");
 
-        assert_eq!(pair.mentor_provider, ProviderKind::Opencode);
         assert_eq!(pair.mentor_model, "openai/gpt-4o-mini");
-        assert_eq!(pair.executor_provider, ProviderKind::Codex);
         assert_eq!(pair.executor_model, "gpt-4o-mini");
-    }
-
-    #[test]
-    fn provider_infer_kind_maps_claude_and_gemini_models() {
-        assert_eq!(
-            ProviderAdapter::infer_provider_kind("claude-3-5-sonnet"),
-            ProviderKind::Claude
-        );
-        assert_eq!(
-            ProviderAdapter::infer_provider_kind("gemini-2.5-pro"),
-            ProviderKind::Gemini
-        );
-        assert_eq!(
-            ProviderAdapter::infer_provider_kind("claude/claude-3-5-sonnet"),
-            ProviderKind::Claude
-        );
-        assert_eq!(
-            ProviderAdapter::infer_provider_kind("gemini/gemini-2.5-pro"),
-            ProviderKind::Gemini
-        );
-    }
-
-    #[test]
-    fn pair_update_models_propagates_provider_inference() {
-        let mut manager = PairManager::new();
-        let broker = MessageBroker::new();
-
-        let pair = manager.create_pair(&sample_input(), &broker).unwrap();
-        let pair_id = pair.pair_id.clone();
-
-        let input = crate::types::UpdatePairModelsInput {
-            mentor_model: "claude-3-5-sonnet".to_string(),
-            executor_model: "gemini-2.5-pro".to_string(),
-            pending_mentor_model: None,
-            pending_executor_model: None,
-            mentor_reasoning_effort: None,
-            executor_reasoning_effort: None,
-        };
-
-        let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();
-        pair_updated.mentor_model = input.mentor_model.clone();
-        pair_updated.executor_model = input.executor_model.clone();
-        pair_updated.pending_mentor_model = input.pending_mentor_model.clone();
-        pair_updated.pending_executor_model = input.pending_executor_model.clone();
-        pair_updated.mentor_provider =
-            ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
-        pair_updated.executor_provider =
-            ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
-
-        let pair = manager.get_pair(&pair_id).unwrap();
-        assert_eq!(
-            pair.mentor_provider,
-            ProviderKind::Claude,
-            "mentor provider should be inferred from claude model"
-        );
-        assert_eq!(
-            pair.executor_provider,
-            ProviderKind::Gemini,
-            "executor provider should be inferred from gemini model"
-        );
-    }
-
-    #[test]
-    fn pair_update_models_stores_provider_for_cross_provider_switch() {
-        let mut manager = PairManager::new();
-        let broker = MessageBroker::new();
-
-        let pair = manager.create_pair(&sample_input(), &broker).unwrap();
-        let pair_id = pair.pair_id.clone();
-
-        let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();
-        pair_updated.mentor_model = "gemini-2.5-pro".to_string();
-        pair_updated.executor_model = "claude-3-5-sonnet".to_string();
-        pair_updated.mentor_provider =
-            ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
-        pair_updated.executor_provider =
-            ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
-
-        let pair = manager.get_pair(&pair_id).unwrap();
-        assert_eq!(
-            pair.mentor_provider,
-            ProviderKind::Gemini,
-            "mentor provider should switch to Gemini"
-        );
-        assert_eq!(
-            pair.executor_provider,
-            ProviderKind::Claude,
-            "executor provider should switch to Claude"
-        );
     }
 
     fn message(from: MessageSender, msg_type: MessageType, content: &str) -> Message {
@@ -1809,7 +2095,7 @@ mod tests {
 
     #[test]
     fn plan_gate_approval_hands_the_gated_plan_to_the_executor() {
-        let (manager, broker, spawner) = make_test_pair_manager();
+        let (manager, broker, _spawner) = make_test_pair_manager();
         let pair_id = "test-plan-gate";
         insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 1);
         {
@@ -1828,10 +2114,7 @@ mod tests {
         assert!(handoff_rejection(&status).is_none());
 
         // Approve: the executor starts on the same iteration.
-        broker
-            .lock()
-            .unwrap()
-            .prepare_run(pair_id, "executor", spawner.active_processes.clone());
+        broker.lock().unwrap().prepare_run(pair_id, "executor");
         let state = broker.lock().unwrap().get_state(pair_id).unwrap();
         assert_eq!(state.status, PairStatus::Executing);
         assert_eq!(state.turn, AgentRole::Executor);
@@ -1840,7 +2123,7 @@ mod tests {
 
     #[test]
     fn plan_gate_rejection_replans_instead_of_reviewing() {
-        let (manager, broker, spawner) = make_test_pair_manager();
+        let (manager, broker, _spawner) = make_test_pair_manager();
         let pair_id = "test-plan-reject";
         insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 1);
         broker
@@ -1848,10 +2131,7 @@ mod tests {
             .unwrap()
             .set_pair_status(pair_id, PairStatus::AwaitingHumanReview, None);
 
-        broker
-            .lock()
-            .unwrap()
-            .prepare_run(pair_id, "mentor", spawner.active_processes.clone());
+        broker.lock().unwrap().prepare_run(pair_id, "mentor");
         let state = broker.lock().unwrap().get_state(pair_id).unwrap();
         assert_eq!(state.status, PairStatus::Mentoring);
         assert_eq!(state.iteration, 1);
@@ -1938,10 +2218,8 @@ mod tests {
         insert_paused_pair(&manager, &broker, pair_id, AgentRole::Executor, 2);
         spawner.pair_contexts.lock().unwrap().insert(
             pair_id.to_string(),
-            crate::process_spawner::ProcessContext {
+            crate::harness::driver::ProcessContext {
                 directory: "/tmp/test".to_string(),
-                mentor_provider: ProviderKind::Opencode,
-                executor_provider: ProviderKind::Codex,
                 mentor_model: "test-mentor".to_string(),
                 executor_model: "test-executor".to_string(),
                 mentor_session_id: None,
@@ -1950,6 +2228,10 @@ mod tests {
                 executor_reasoning_effort: None,
                 run_generation: 7,
                 is_smoke_test: false,
+                mentor_selection: None,
+                executor_selection: None,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
             },
         );
 
@@ -1961,58 +2243,6 @@ mod tests {
             spawner.pair_contexts.lock().unwrap()[pair_id].run_generation,
             8
         );
-    }
-
-    #[test]
-    fn provider_is_kept_for_an_unchanged_model_and_inferred_for_a_new_one() {
-        // A grok alias doesn't infer back to grok; the stored provider wins.
-        assert_eq!(
-            resolve_provider_for_model("my-model", &[("my-model", ProviderKind::Grok)]),
-            ProviderKind::Grok
-        );
-        assert_eq!(
-            resolve_provider_for_model("claude-sonnet-4-5", &[("my-model", ProviderKind::Grok)]),
-            ProviderKind::Claude
-        );
-        // The first matching entry (the live context) wins over the pair.
-        assert_eq!(
-            resolve_provider_for_model(
-                "codex-mini-latest",
-                &[
-                    ("codex-mini-latest", ProviderKind::Codex),
-                    ("codex-mini-latest", ProviderKind::Opencode)
-                ]
-            ),
-            ProviderKind::Codex
-        );
-    }
-
-    #[test]
-    fn apply_model_update_keeps_the_provider_of_unchanged_models() {
-        let mut manager = PairManager::new();
-        let broker = MessageBroker::new();
-        let mut input = sample_input();
-        input.mentor.provider = ProviderKind::Grok;
-        input.mentor.model = "my-model".to_string();
-        let pair = manager.create_pair(&input, &broker).unwrap();
-        let pair_id = pair.pair_id.clone();
-
-        let pair = manager.pairs.get_mut(&pair_id).unwrap();
-        apply_model_update(
-            pair,
-            &crate::types::UpdatePairModelsInput {
-                mentor_model: "my-model".to_string(),
-                executor_model: "claude-3-5-sonnet".to_string(),
-                pending_mentor_model: None,
-                pending_executor_model: None,
-                mentor_reasoning_effort: None,
-                executor_reasoning_effort: None,
-            },
-        );
-
-        let pair = manager.get_pair(&pair_id).unwrap();
-        assert_eq!(pair.mentor_provider, ProviderKind::Grok);
-        assert_eq!(pair.executor_provider, ProviderKind::Claude);
     }
 
     #[test]
@@ -2116,13 +2346,11 @@ mod tests {
             spec: "Isolated task".to_string(),
             mentor: AgentConfig {
                 role: AgentRole::Mentor,
-                provider: ProviderKind::Opencode,
                 model: "mentor-model".to_string(),
                 reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
-                provider: ProviderKind::Codex,
                 model: "executor-model".to_string(),
                 reasoning_effort: None,
             },
@@ -2141,9 +2369,7 @@ mod tests {
             name: "Worktree Pair".to_string(),
             directory: directory.to_string(),
             status: PairStatus::Idle,
-            mentor_provider: ProviderKind::Opencode,
             mentor_model: "mentor-model".to_string(),
-            executor_provider: ProviderKind::Codex,
             executor_model: "executor-model".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -2165,16 +2391,11 @@ mod tests {
         // never touches it.
         std::fs::write(temp.repo.join("dirty.txt"), "uncommitted\n").unwrap();
 
-        let workspace = prepare_workspace(
-            &worktree_input(temp.repo_str()),
-            "pair-wt1",
-            &[],
-        )
-        .expect("worktree workspace");
+        let workspace = prepare_workspace(&worktree_input(temp.repo_str()), "pair-wt1", &[])
+            .expect("worktree workspace");
 
-        let worktree_path = std::path::PathBuf::from(
-            workspace.worktree_path.clone().expect("worktree path"),
-        );
+        let worktree_path =
+            std::path::PathBuf::from(workspace.worktree_path.clone().expect("worktree path"));
         assert!(worktree_path.join("README.md").exists());
         assert!(!worktree_path.join("dirty.txt").exists());
         // The pair starts from the current branch but does not hold it.
@@ -2246,12 +2467,8 @@ mod tests {
         let plain = temp.root.join("plain");
         std::fs::create_dir_all(&plain).unwrap();
 
-        let error = prepare_workspace(
-            &worktree_input(plain.to_str().unwrap()),
-            "pair-wt5",
-            &[],
-        )
-        .unwrap_err();
+        let error = prepare_workspace(&worktree_input(plain.to_str().unwrap()), "pair-wt5", &[])
+            .unwrap_err();
         assert!(error.contains("not a git repository"));
     }
 
@@ -2285,8 +2502,8 @@ mod tests {
     #[test]
     fn rotate_workspace_preserves_old_work_and_starts_fresh() {
         let temp = TempRepo::new("rotate-preserve");
-        let old = create_worktree(temp.repo_str(), "main", ".worktrees/pair-old")
-            .expect("old worktree");
+        let old =
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree");
         let old = std::path::PathBuf::from(old);
         std::fs::write(old.join("work.txt"), "committed work\n").unwrap();
         temp.git(&old, &["add", "work.txt"]);
@@ -2397,7 +2614,10 @@ mod tests {
         assert_eq!(pair.directory, "/repo/.worktrees/pair-new");
         assert_eq!(pair.branch.as_deref(), Some("main"));
         assert_eq!(pair.repo_path.as_deref(), Some("/repo"));
-        assert_eq!(pair.worktree_path.as_deref(), Some("/repo/.worktrees/pair-new"));
+        assert_eq!(
+            pair.worktree_path.as_deref(),
+            Some("/repo/.worktrees/pair-new")
+        );
         assert_eq!(pair.worktree_branch.as_deref(), Some("the-pair/pair-new"));
     }
 
@@ -2415,15 +2635,13 @@ mod tests {
 
     #[test]
     fn prepare_run_context_uses_the_worktree_directory_and_keeps_sessions_for_handoffs() {
-        let spawner = ProcessSpawner::new();
+        let spawner = TurnDriver::new();
         let mut pair = git_pair("pair-ctx", "/repo", Some("main"));
         pair.worktree_path = Some("/repo/.worktrees/pair-abc".to_string());
         spawner.pair_contexts.lock().unwrap().insert(
             "pair-ctx".to_string(),
-            crate::process_spawner::ProcessContext {
+            crate::harness::driver::ProcessContext {
                 directory: "/repo".to_string(),
-                mentor_provider: ProviderKind::Opencode,
-                executor_provider: ProviderKind::Codex,
                 mentor_model: "test-mentor".to_string(),
                 executor_model: "test-executor".to_string(),
                 mentor_session_id: Some("mentor-session".to_string()),
@@ -2432,12 +2650,22 @@ mod tests {
                 executor_reasoning_effort: None,
                 run_generation: 7,
                 is_smoke_test: false,
+                mentor_selection: None,
+                executor_selection: None,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
             },
         );
 
         // A handoff keeps provider sessions and the run generation, and runs in
         // the pair's worktree.
-        prepare_run_context(&spawner, &pair, "pair-ctx", false);
+        prepare_run_context(
+            &spawner,
+            &pair,
+            "pair-ctx",
+            false,
+            RoleSelections::default(),
+        );
         let ctx = spawner
             .pair_contexts
             .lock()
@@ -2450,7 +2678,7 @@ mod tests {
         assert_eq!(ctx.run_generation, 7);
 
         // A new run clears sessions and bumps the generation.
-        prepare_run_context(&spawner, &pair, "pair-ctx", true);
+        prepare_run_context(&spawner, &pair, "pair-ctx", true, RoleSelections::default());
         let ctx = spawner
             .pair_contexts
             .lock()
@@ -2464,16 +2692,136 @@ mod tests {
     }
 
     #[test]
-    fn prepare_run_context_clears_sessions_when_the_provider_changed() {
-        let spawner = ProcessSpawner::new();
-        let mut pair = git_pair("pair-ctx-swap", "/repo", Some("main"));
-        pair.mentor_provider = ProviderKind::Claude;
+    fn killing_a_turn_with_no_process_still_supersedes_it() {
+        // A turn on the direct connection has no child process, so a kill that
+        // demanded one would report an error and leave the pair Mentoring until
+        // the stall detector gave up on it.
+        let spawner = TurnDriver::new();
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-killed".to_string(),
+            crate::harness::driver::ProcessContext {
+                directory: "/repo".to_string(),
+                mentor_model: "test-mentor".to_string(),
+                executor_model: "test-executor".to_string(),
+                mentor_session_id: None,
+                executor_session_id: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
+                run_generation: 4,
+                is_smoke_test: false,
+                mentor_selection: None,
+                executor_selection: None,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
+            },
+        );
+
+        // The turn registered its own flag when it started.
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawner.turn_cancels.lock().unwrap().insert(
+            "pair-killed-mentor".to_string(),
+            std::sync::Arc::clone(&flag),
+        );
+
+        // There is no process to kill: stopping a turn only raises its cancel
+        // flag, and the generation bump is what stops a streamed turn.
+        spawner.stop_process("pair-killed", "mentor");
+        spawner.bump_run_generation("pair-killed");
+        let ctx = spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .get("pair-killed")
+            .cloned()
+            .unwrap();
+        assert_eq!(ctx.run_generation, 5);
+        assert!(
+            flag.load(std::sync::atomic::Ordering::SeqCst),
+            "the in-flight turn's cancel flag is raised"
+        );
+    }
+
+    #[test]
+    fn prepare_run_context_keeps_the_harness_history_only_for_the_same_run() {
+        let spawner = TurnDriver::new();
+        let pair = git_pair("pair-ctx-history", "/repo", Some("main"));
+        let said = vec![serde_json::json!({"role": "user", "content": "earlier turn"})];
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-ctx-history".to_string(),
+            crate::harness::driver::ProcessContext {
+                directory: "/repo".to_string(),
+                mentor_model: "test-mentor".to_string(),
+                executor_model: "test-executor".to_string(),
+                mentor_session_id: None,
+                executor_session_id: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
+                run_generation: 3,
+                is_smoke_test: false,
+                mentor_selection: None,
+                executor_selection: None,
+                mentor_history: said.clone(),
+                executor_history: said.clone(),
+            },
+        );
+        let nowhere = RoleSelections::default();
+
+        // A handoff inside the same run replays what the agents already said.
+        prepare_run_context(&spawner, &pair, "pair-ctx-history", false, nowhere.clone());
+        let ctx = spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .get("pair-ctx-history")
+            .cloned()
+            .unwrap();
+        assert_eq!(ctx.mentor_history, said);
+        assert_eq!(ctx.executor_history, said);
+        assert_eq!(ctx.run_generation, 3);
+
+        // A new run is a new conversation.
+        prepare_run_context(&spawner, &pair, "pair-ctx-history", true, nowhere);
+        let ctx = spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .get("pair-ctx-history")
+            .cloned()
+            .unwrap();
+        assert!(ctx.mentor_history.is_empty());
+        assert!(ctx.executor_history.is_empty());
+    }
+
+    /// The selection `test-mentor` resolves to in `app_dir_with_selection`.
+    fn resolved_selection() -> crate::harness::ModelSelection {
+        crate::harness::ModelSelection {
+            provider_id: "moved-1".into(),
+            account_id: "moved-1-a".into(),
+            model: "test-mentor".into(),
+            effort: None,
+            backup: None,
+        }
+    }
+
+    /// The same model on another endpoint, so the target has moved.
+    fn elsewhere_selection() -> crate::harness::ModelSelection {
+        crate::harness::ModelSelection {
+            provider_id: "stayed-1".into(),
+            account_id: "stayed-1-a".into(),
+            model: "test-mentor".into(),
+            effort: None,
+            backup: None,
+        }
+    }
+
+    #[test]
+    fn prepare_run_context_clears_the_session_when_the_target_moved() {
+        let spawner = TurnDriver::new();
+        let pair = git_pair("pair-ctx-swap", "/repo", Some("main"));
         spawner.pair_contexts.lock().unwrap().insert(
             "pair-ctx-swap".to_string(),
-            crate::process_spawner::ProcessContext {
+            crate::harness::driver::ProcessContext {
                 directory: "/repo".to_string(),
-                mentor_provider: ProviderKind::Codex,
-                executor_provider: ProviderKind::Codex,
                 mentor_model: "test-mentor".to_string(),
                 executor_model: "test-executor".to_string(),
                 mentor_session_id: Some("mentor-session".to_string()),
@@ -2482,12 +2830,21 @@ mod tests {
                 executor_reasoning_effort: None,
                 run_generation: 1,
                 is_smoke_test: false,
+                // The pair was talking somewhere else last turn.
+                mentor_selection: Some(elsewhere_selection()),
+                executor_selection: None,
+                mentor_history: vec![serde_json::json!({"role": "user", "content": "earlier"})],
+                executor_history: Vec::new(),
             },
         );
 
-        // Handoff, but the mentor's stored provider differs from the pair's:
-        // the resolved provider changed, so the session must not carry over.
-        prepare_run_context(&spawner, &pair, "pair-ctx-swap", false);
+        // The model id resolves onto a different endpoint, so neither the
+        // session nor the conversation may carry over.
+        let moved = RoleSelections {
+            mentor: Some(resolved_selection()),
+            executor: None,
+        };
+        prepare_run_context(&spawner, &pair, "pair-ctx-swap", false, moved);
         let ctx = spawner
             .pair_contexts
             .lock()
@@ -2496,17 +2853,25 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(ctx.mentor_session_id, None);
+        assert!(ctx.mentor_history.is_empty());
     }
 
     #[test]
     fn validate_assign_task_accepts_a_new_run_for_an_existing_pair() {
         let manager = Mutex::new(PairManager::new());
-        manager.lock().unwrap().upsert_pair(git_pair("pair-ok", "/tmp/repo", None));
+        manager
+            .lock()
+            .unwrap()
+            .upsert_pair(git_pair("pair-ok", "/tmp/repo", None));
         let broker = assign_broker();
 
-        let (pair, role, is_new_run, fresh_worktree) =
-            validate_assign_task(&manager, &broker, "pair-ok", &base_assign("go the extra mile"))
-                .expect("a valid new-run assignment");
+        let (pair, role, is_new_run, fresh_worktree) = validate_assign_task(
+            &manager,
+            &broker,
+            "pair-ok",
+            &base_assign("go the extra mile"),
+        )
+        .expect("a valid new-run assignment");
 
         assert_eq!(pair.pair_id, "pair-ok");
         assert_eq!(role, "mentor", "a new run starts with the mentor");
@@ -2515,16 +2880,13 @@ mod tests {
     }
 
     #[test]
-    fn prepare_run_context_clears_sessions_when_either_provider_changed() {
-        let spawner = ProcessSpawner::new();
-        let mut pair = git_pair("pair-ctx-exec", "/repo", Some("main"));
-        pair.executor_provider = ProviderKind::Claude;
+    fn prepare_run_context_clears_a_session_when_the_role_moved_endpoints() {
+        let spawner = TurnDriver::new();
+        let pair = git_pair("pair-ctx-exec", "/repo", Some("main"));
         spawner.pair_contexts.lock().unwrap().insert(
             "pair-ctx-exec".to_string(),
-            crate::process_spawner::ProcessContext {
+            crate::harness::driver::ProcessContext {
                 directory: "/repo".to_string(),
-                mentor_provider: ProviderKind::Opencode,
-                executor_provider: ProviderKind::Codex,
                 mentor_model: "test-mentor".to_string(),
                 executor_model: "test-executor".to_string(),
                 mentor_session_id: None,
@@ -2533,12 +2895,20 @@ mod tests {
                 executor_reasoning_effort: None,
                 run_generation: 1,
                 is_smoke_test: false,
+                // The executor was talking to another endpoint last turn, so
+                // neither its session nor its conversation may carry over.
+                mentor_selection: None,
+                executor_selection: Some(elsewhere_selection()),
+                mentor_history: Vec::new(),
+                executor_history: vec![serde_json::json!({"role": "user", "content": "earlier"})],
             },
         );
 
-        // Handoff, but the executor's stored provider differs: its session is
-        // dropped while the mentor's (unchanged) context is left alone.
-        prepare_run_context(&spawner, &pair, "pair-ctx-exec", false);
+        let moved = RoleSelections {
+            mentor: None,
+            executor: Some(resolved_selection()),
+        };
+        prepare_run_context(&spawner, &pair, "pair-ctx-exec", false, moved);
         let ctx = spawner
             .pair_contexts
             .lock()
@@ -2547,6 +2917,114 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(ctx.executor_session_id, None);
+        assert!(ctx.executor_history.is_empty());
+    }
+
+    #[test]
+    fn prepare_run_context_keeps_a_session_when_the_target_did_not_move() {
+        let spawner = TurnDriver::new();
+        let mut pair = git_pair("pair-ctx-same", "/repo", Some("main"));
+        pair.mentor_model = "test-mentor".to_string();
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-ctx-same".to_string(),
+            crate::harness::driver::ProcessContext {
+                directory: "/repo".to_string(),
+                mentor_model: "test-mentor".to_string(),
+                executor_model: "test-executor".to_string(),
+                mentor_session_id: Some("mentor-session".to_string()),
+                executor_session_id: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
+                run_generation: 1,
+                is_smoke_test: false,
+                mentor_selection: Some(resolved_selection()),
+                executor_selection: None,
+                mentor_history: vec![serde_json::json!({"role": "user", "content": "earlier"})],
+                executor_history: Vec::new(),
+            },
+        );
+
+        // The same endpoint, so the handoff keeps both the session and the
+        // conversation the mentor already had.
+        let stayed = RoleSelections {
+            mentor: Some(resolved_selection()),
+            executor: None,
+        };
+        prepare_run_context(&spawner, &pair, "pair-ctx-same", false, stayed);
+        let ctx = spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .get("pair-ctx-same")
+            .cloned()
+            .unwrap();
+        assert_eq!(ctx.mentor_session_id.as_deref(), Some("mentor-session"));
+        assert_eq!(ctx.mentor_history.len(), 1);
+    }
+
+    /// An app data dir whose registry resolves `test-mentor` onto `moved-1`, with
+    /// a second endpoint listing the same model so a target change is observable.
+    fn app_dir_with_selection() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("the-pair-target-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::accounts::store::save(
+            &dir,
+            &[
+                crate::accounts::types::Provider {
+                    id: "moved-1".into(),
+                    protocol: crate::accounts::types::Protocol::Anthropic,
+                    base_url: "https://moved.example".into(),
+                    vendor: "moved".into(),
+                    display_name: "Moved".into(),
+                    accounts: vec![crate::accounts::types::Account {
+                        id: "moved-1-a".into(),
+                        kind: crate::accounts::types::AccountKind::ApiKey,
+                        label: "moved".into(),
+                        source: "manual".into(),
+                        status: crate::accounts::types::AccountStatus::Ready,
+                        headers: vec![],
+                        tool_names: None,
+                        secret: crate::accounts::types::Secret::ApiKey("k".into()),
+                    }],
+                    models: vec![model_route("test-mentor")],
+                },
+                // A second endpoint listing the same model, so a selection can be
+                // told apart from the one resolution picks.
+                crate::accounts::types::Provider {
+                    id: "stayed-1".into(),
+                    protocol: crate::accounts::types::Protocol::Anthropic,
+                    base_url: "https://stayed.example".into(),
+                    vendor: "stayed".into(),
+                    display_name: "Stayed".into(),
+                    accounts: vec![crate::accounts::types::Account {
+                        id: "stayed-1-a".into(),
+                        kind: crate::accounts::types::AccountKind::ApiKey,
+                        label: "stayed".into(),
+                        source: "manual".into(),
+                        status: crate::accounts::types::AccountStatus::Ready,
+                        headers: vec![],
+                        tool_names: None,
+                        secret: crate::accounts::types::Secret::ApiKey("k".into()),
+                    }],
+                    models: vec![model_route("test-mentor")],
+                },
+            ],
+        )
+        .unwrap();
+        dir
+    }
+
+    fn model_route(id: &str) -> crate::accounts::types::ModelRoute {
+        crate::accounts::types::ModelRoute {
+            id: id.into(),
+            display_name: id.into(),
+            context_window: None,
+            max_output: None,
+            efforts: vec![],
+            default_effort: None,
+            price: None,
+            source: crate::accounts::types::ModelSource::Manual,
+        }
     }
 
     #[test]
@@ -2623,7 +3101,7 @@ mod tests {
         let rotated = prepare_new_run_workspace(
             &manager,
             &broker,
-            &ProcessSpawner::new(),
+            &TurnDriver::new(),
             "pair-rot-cmd",
             pair,
             true,
@@ -2635,7 +3113,9 @@ mod tests {
         assert!(!old.exists());
         let new_path = rotated.worktree_path.clone().expect("new worktree");
         assert_ne!(new_path, old.to_str().unwrap());
-        assert!(std::path::PathBuf::from(&new_path).join("README.md").exists());
+        assert!(std::path::PathBuf::from(&new_path)
+            .join("README.md")
+            .exists());
         assert!(rotated.worktree_branch.is_some());
         assert_eq!(rotated.branch.as_deref(), Some("main"));
 
@@ -2649,8 +3129,8 @@ mod tests {
     #[tokio::test]
     async fn prepare_new_run_workspace_keeps_the_pair_put_when_rotation_fails() {
         let temp = TempRepo::new("rotate-command-fail");
-        let old = create_worktree(temp.repo_str(), "main", ".worktrees/pair-old")
-            .expect("old worktree");
+        let old =
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree");
         // A held base other than the current branch requires a clean repo; a
         // dirty tree makes the rotation refuse before touching the old work.
         temp.git(&temp.repo, &["branch", "feature"]);
@@ -2667,17 +3147,13 @@ mod tests {
         broker
             .lock()
             .unwrap()
-            .initialize_pair(
-                "pair-rot-fail",
-                worktree_input(temp.repo_str()),
-                Some(&old),
-            )
+            .initialize_pair("pair-rot-fail", worktree_input(temp.repo_str()), Some(&old))
             .unwrap();
 
         let error = prepare_new_run_workspace(
             &manager,
             &broker,
-            &ProcessSpawner::new(),
+            &TurnDriver::new(),
             "pair-rot-fail",
             pair,
             true,
@@ -2697,8 +3173,8 @@ mod tests {
     #[tokio::test]
     async fn prepare_new_run_workspace_without_the_flag_keeps_the_workspace() {
         let temp = TempRepo::new("rotate-command-off");
-        let old = create_worktree(temp.repo_str(), "main", ".worktrees/pair-old")
-            .expect("old worktree");
+        let old =
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree");
 
         let mut pair = git_pair("pair-rot-off", &old, Some("main"));
         pair.repo_path = Some(temp.repo_str().to_string());
@@ -2711,7 +3187,7 @@ mod tests {
         let unchanged = prepare_new_run_workspace(
             &manager,
             &assign_broker(),
-            &ProcessSpawner::new(),
+            &TurnDriver::new(),
             "pair-rot-off",
             pair,
             false,
@@ -2728,12 +3204,8 @@ mod tests {
         let temp = TempRepo::new("use-worktree-detached");
         temp.git(&temp.repo, &["checkout", "-q", "--detach", "HEAD"]);
 
-        let error = prepare_workspace(
-            &worktree_input(temp.repo_str()),
-            "pair-wt-detached",
-            &[],
-        )
-        .unwrap_err();
+        let error = prepare_workspace(&worktree_input(temp.repo_str()), "pair-wt-detached", &[])
+            .unwrap_err();
         assert!(error.contains("no current branch"));
     }
 
@@ -2745,12 +3217,8 @@ mod tests {
         let mut input = worktree_input(temp.repo_str());
         input.branch = Some("feature".to_string());
 
-        let error = prepare_workspace(
-            &input,
-            "pair-wt-conflict",
-            &["feature".to_string()],
-        )
-        .unwrap_err();
+        let error =
+            prepare_workspace(&input, "pair-wt-conflict", &["feature".to_string()]).unwrap_err();
         assert!(error.contains("already using branch"));
     }
 
@@ -2760,7 +3228,12 @@ mod tests {
         let sha = temp.git(&temp.repo, &["rev-parse", "HEAD"]);
         temp.git(
             &temp.repo,
-            &["remote", "add", "origin", "https://example.invalid/repo.git"],
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://example.invalid/repo.git",
+            ],
         );
         temp.git(
             &temp.repo,
@@ -2775,5 +3248,449 @@ mod tests {
         assert_eq!(temp.git(&worktree_path, &["rev-parse", "HEAD"]), sha);
         // The remote base is materialized into a local tracking branch the pair holds.
         assert_eq!(workspace.branch.as_deref(), Some("feature"));
+    }
+    fn models_input(
+        mentor_model: &str,
+        executor_model: &str,
+        pending_mentor: Option<&str>,
+    ) -> crate::types::UpdatePairModelsInput {
+        crate::types::UpdatePairModelsInput {
+            mentor_model: mentor_model.to_string(),
+            executor_model: executor_model.to_string(),
+            pending_mentor_model: pending_mentor.map(str::to_string),
+            pending_executor_model: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
+        }
+    }
+
+    #[test]
+    fn role_selections_resolve_each_roles_effective_model() {
+        let dir = app_dir_with_selection();
+        let mut pair = git_pair("pair-resolve", "/repo", None);
+        pair.mentor_model = "test-mentor".to_string();
+
+        // The executor's model is on no endpoint, so only the mentor resolves.
+        let selections = RoleSelections::resolve(&dir, &pair, None);
+        assert_eq!(
+            selections.mentor.as_ref().map(|s| s.provider_id.as_str()),
+            Some("moved-1")
+        );
+        assert!(selections.executor.is_none());
+
+        // The pending model wins, so the executor resolves once one is picked.
+        pair.pending_executor_model = Some("test-mentor".to_string());
+        assert!(RoleSelections::resolve(&dir, &pair, None)
+            .executor
+            .is_some());
+    }
+
+    /// A context whose mentor talks to `selection`.
+    fn context_on(
+        selection: Option<crate::harness::ModelSelection>,
+    ) -> crate::harness::driver::ProcessContext {
+        crate::harness::driver::ProcessContext {
+            directory: "/repo".to_string(),
+            mentor_model: "test-mentor".to_string(),
+            executor_model: "test-executor".to_string(),
+            mentor_session_id: None,
+            executor_session_id: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
+            run_generation: 1,
+            is_smoke_test: false,
+            mentor_selection: selection,
+            executor_selection: None,
+            mentor_history: Vec::new(),
+            executor_history: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_handoff_keeps_a_role_on_the_endpoint_it_is_talking_to() {
+        let dir = app_dir_with_selection();
+        let mut pair = git_pair("pair-sticky", "/repo", None);
+        pair.mentor_model = "test-mentor".to_string();
+
+        // The id alone resolves onto `moved-1`, the first endpoint listing it —
+        // but the mentor's conversation is with `stayed-1`.
+        let current = context_on(Some(elsewhere_selection()));
+        let selections = RoleSelections::resolve(&dir, &pair, Some(&current));
+        assert_eq!(selections.mentor, Some(elsewhere_selection()));
+
+        // A role with nothing to keep takes the endpoint its model was picked
+        // under, ahead of the first one that lists the id.
+        crate::harness::prefer_route(&dir, "mentor", "test-mentor", "stayed-1").unwrap();
+        let fresh = RoleSelections::resolve(&dir, &pair, Some(&context_on(None)));
+        assert_eq!(fresh.mentor, Some(elsewhere_selection()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn picking_the_same_model_under_another_endpoint_moves_the_role() {
+        let dir = app_dir_with_selection();
+        let mut pair = git_pair("pair-repick", "/repo", None);
+        pair.mentor_model = "test-mentor".to_string();
+        let spawner = TurnDriver::new();
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-repick".to_string(),
+            context_on(Some(resolved_selection())),
+        );
+
+        // No pick on record: the role stays where it is, whatever the registry
+        // would resolve today.
+        assert_eq!(
+            endpoint_moves(&dir, &spawner, &pair),
+            ModelChange::default()
+        );
+
+        // The human picks the same model under the other endpoint.
+        crate::harness::prefer_route(&dir, "mentor", "test-mentor", "stayed-1").unwrap();
+        let moved = endpoint_moves(&dir, &spawner, &pair);
+        assert_eq!(
+            moved,
+            ModelChange {
+                mentor: true,
+                executor: false
+            }
+        );
+
+        // Invalidated, the next turn resolves onto the picked endpoint.
+        invalidate_selections(&spawner, "pair-repick", &moved);
+        let current = spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .get("pair-repick")
+            .cloned();
+        let selections = RoleSelections::resolve(&dir, &pair, current.as_ref());
+        assert_eq!(selections.mentor, Some(elsewhere_selection()));
+
+        // A pick that matches where the role already is moves nothing.
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-repick".to_string(),
+            context_on(Some(elsewhere_selection())),
+        );
+        assert_eq!(
+            endpoint_moves(&dir, &spawner, &pair),
+            ModelChange::default()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ensure_role_resolvable_names_the_role_that_has_no_endpoint() {
+        let error = ensure_role_resolvable("mentor", &RoleSelections::default())
+            .expect_err("no endpoint anywhere");
+        assert!(error.contains("mentor"), "{}", error);
+        assert!(error.contains("no model it can talk to"), "{}", error);
+
+        let only_executor = RoleSelections {
+            mentor: None,
+            executor: Some(resolved_selection()),
+        };
+        assert!(ensure_role_resolvable("executor", &only_executor).is_ok());
+        assert!(ensure_role_resolvable("mentor", &only_executor).is_err());
+    }
+
+    #[tokio::test]
+    async fn an_assignment_that_cannot_start_keeps_the_previous_run_intact() {
+        // A new run whose mentor model resolves to nothing used to clear the
+        // transcript and rotate the old worktree away before `start_turn`
+        // failed — and the frontend only archives the previous run after a
+        // successful assignment, so the pair was left with no run at all.
+        let temp = TempRepo::new("assign-abort");
+        let old = std::path::PathBuf::from(
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree"),
+        );
+        std::fs::write(old.join("work.txt"), "in flight\n").unwrap();
+
+        let mut pair = git_pair("pair-abort", old.to_str().unwrap(), Some("main"));
+        pair.repo_path = Some(temp.repo_str().to_string());
+        pair.worktree_path = Some(old.to_str().unwrap().to_string());
+        pair.worktree_branch = Some("the-pair/pair-old".to_string());
+
+        let manager = Mutex::new(PairManager::new());
+        manager.lock().unwrap().upsert_pair(pair.clone());
+        let broker = assign_broker();
+        broker
+            .lock()
+            .unwrap()
+            .initialize_pair(
+                "pair-abort",
+                worktree_input(temp.repo_str()),
+                Some(old.to_str().unwrap()),
+            )
+            .unwrap();
+        {
+            let broker = broker.lock().unwrap();
+            let mut state = broker.get_state("pair-abort").unwrap();
+            state.messages = vec![message(
+                MessageSender::Mentor,
+                MessageType::Plan,
+                "the previous plan",
+            )];
+            broker.restore_state(state).unwrap();
+        }
+        let spawner = TurnDriver::new();
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-abort".to_string(),
+            crate::harness::driver::ProcessContext {
+                directory: old.to_str().unwrap().to_string(),
+                mentor_model: "mentor-model".to_string(),
+                executor_model: "executor-model".to_string(),
+                mentor_session_id: None,
+                executor_session_id: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
+                run_generation: 5,
+                is_smoke_test: false,
+                mentor_selection: None,
+                executor_selection: None,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
+            },
+        );
+
+        // No endpoint on the machine: the mentor's model resolves to nothing.
+        let error = prepare_assignment(
+            &manager,
+            &broker,
+            &spawner,
+            "pair-abort",
+            pair,
+            "mentor",
+            true,
+            true,
+            "New task",
+            std::path::Path::new("/nonexistent-app-dir"),
+        )
+        .await
+        .expect_err("the turn cannot start");
+        assert!(error.contains("no model it can talk to"), "{}", error);
+
+        // Nothing was destroyed: the old worktree still holds the work in flight.
+        assert!(old.join("work.txt").exists());
+        assert_eq!(
+            manager
+                .lock()
+                .unwrap()
+                .get_pair("pair-abort")
+                .unwrap()
+                .worktree_path
+                .as_deref(),
+            Some(old.to_str().unwrap()),
+            "the pair keeps its workspace"
+        );
+        // The transcript is still there to read, and to archive by hand.
+        let state = broker.lock().unwrap().get_state("pair-abort").unwrap();
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(state.messages[0].content, "the previous plan");
+        // The turn context was never rebuilt.
+        assert_eq!(
+            spawner.pair_contexts.lock().unwrap()["pair-abort"].run_generation,
+            5
+        );
+    }
+
+    #[tokio::test]
+    async fn an_assignment_whose_model_resolves_runs_in_the_fresh_worktree() {
+        let temp = TempRepo::new("assign-proceeds");
+        let old = std::path::PathBuf::from(
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree"),
+        );
+        std::fs::write(old.join("work.txt"), "previous run\n").unwrap();
+
+        let mut pair = git_pair("pair-go", old.to_str().unwrap(), Some("main"));
+        pair.repo_path = Some(temp.repo_str().to_string());
+        pair.worktree_path = Some(old.to_str().unwrap().to_string());
+        pair.worktree_branch = Some("the-pair/pair-old".to_string());
+        pair.mentor_model = "test-mentor".to_string();
+
+        let manager = Mutex::new(PairManager::new());
+        manager.lock().unwrap().upsert_pair(pair.clone());
+        let broker = assign_broker();
+        broker
+            .lock()
+            .unwrap()
+            .initialize_pair(
+                "pair-go",
+                worktree_input(temp.repo_str()),
+                Some(old.to_str().unwrap()),
+            )
+            .unwrap();
+        let spawner = TurnDriver::new();
+
+        let rotated = prepare_assignment(
+            &manager,
+            &broker,
+            &spawner,
+            "pair-go",
+            pair,
+            "mentor",
+            true,
+            true,
+            "New task",
+            &app_dir_with_selection(),
+        )
+        .await
+        .expect("the mentor has an endpoint");
+
+        // The pair moved into a fresh worktree, its old work preserved.
+        assert!(!old.exists());
+        let new_path = rotated.worktree_path.clone().expect("new worktree");
+        assert!(std::path::PathBuf::from(&new_path)
+            .join("README.md")
+            .exists());
+        assert_eq!(
+            broker
+                .lock()
+                .unwrap()
+                .get_state("pair-go")
+                .unwrap()
+                .directory,
+            new_path
+        );
+        // The new run started, with the resolved selection installed.
+        let state = broker.lock().unwrap().get_state("pair-go").unwrap();
+        assert_eq!(state.status, PairStatus::Mentoring);
+        assert_eq!(state.task_spec, "New task");
+        assert_eq!(state.iteration, 1);
+        let contexts = spawner.pair_contexts.lock().unwrap();
+        assert_eq!(contexts["pair-go"].directory, new_path);
+        assert_eq!(
+            contexts["pair-go"]
+                .mentor_selection
+                .as_ref()
+                .map(|s| s.provider_id.as_str()),
+            Some("moved-1")
+        );
+    }
+
+    #[test]
+    fn a_turn_in_flight_is_visible_until_it_unwinds() {
+        let spawner = TurnDriver::new();
+        assert!(
+            !turn_in_flight(&spawner, "pair-1"),
+            "no turn registered yet"
+        );
+
+        // A turn registers its cancel flag when it starts.
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawner
+            .turn_cancels
+            .lock()
+            .unwrap()
+            .insert("pair-1-mentor".to_string(), std::sync::Arc::clone(&flag));
+        assert!(turn_in_flight(&spawner, "pair-1"));
+
+        // Stopping the pair raises that turn's flag.
+        spawner.stop_pair_processes("pair-1");
+        assert!(flag.load(std::sync::atomic::Ordering::SeqCst));
+
+        // The other role has none, so the pair as a whole is still in flight.
+        assert!(turn_in_flight(&spawner, "pair-1"));
+        spawner.turn_cancels.lock().unwrap().remove("pair-1-mentor");
+        assert!(!turn_in_flight(&spawner, "pair-1"));
+    }
+
+    #[tokio::test]
+    async fn waiting_for_a_turn_to_stop_gives_up_after_the_bound() {
+        let spawner = TurnDriver::new();
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawner
+            .turn_cancels
+            .lock()
+            .unwrap()
+            .insert("pair-1-mentor".to_string(), std::sync::Arc::clone(&flag));
+
+        // A turn that has not unwound yet must not hang the delete, so the
+        // wait is bounded: it reports the turn is still there.
+        assert!(!wait_for_turns_to_stop(&spawner, "pair-1", Duration::from_millis(150)).await);
+
+        // Once the turn clears its flag, the wait returns at once.
+        spawner.turn_cancels.lock().unwrap().remove("pair-1-mentor");
+        assert!(wait_for_turns_to_stop(&spawner, "pair-1", Duration::from_secs(5)).await);
+        // A pair with no turn at all is stopped from the start.
+        assert!(wait_for_turns_to_stop(&spawner, "pair-other", Duration::from_secs(5)).await);
+    }
+
+    #[test]
+    fn changing_a_model_invalidates_the_stale_selection_for_that_role() {
+        // The selection on the pair's context is what a turn talks to, and
+        // `refresh_unresolved_selection` leaves a pair that already has one
+        // alone — so a model change has to drop it, or the stale endpoint is
+        // persisted with the snapshot and survives restarts.
+        let spawner = TurnDriver::new();
+        spawner.pair_contexts.lock().unwrap().insert(
+            "pair-models".to_string(),
+            crate::harness::driver::ProcessContext {
+                directory: "/repo".to_string(),
+                mentor_model: "test-mentor".to_string(),
+                executor_model: "test-executor".to_string(),
+                mentor_session_id: None,
+                executor_session_id: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
+                run_generation: 1,
+                is_smoke_test: false,
+                mentor_selection: Some(resolved_selection()),
+                executor_selection: Some(resolved_selection()),
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
+            },
+        );
+        let mut pair = git_pair("pair-models", "/repo", None);
+
+        // The mentor moves to another model; the executor stays put.
+        let change = apply_model_update(
+            &mut pair,
+            &models_input("new-mentor", "executor-model", None),
+        );
+        assert_eq!(
+            change,
+            ModelChange {
+                mentor: true,
+                executor: false
+            }
+        );
+
+        invalidate_selections(&spawner, "pair-models", &change);
+        let contexts = spawner.pair_contexts.lock().unwrap();
+        assert!(
+            contexts["pair-models"].mentor_selection.is_none(),
+            "the next turn must re-resolve the new model"
+        );
+        assert!(
+            contexts["pair-models"].executor_selection.is_some(),
+            "the role that did not move keeps its endpoint"
+        );
+
+        // The same models again change nothing.
+        let change = apply_model_update(
+            &mut pair,
+            &models_input("new-mentor", "executor-model", None),
+        );
+        assert!(!change.any());
+        drop(contexts);
+        invalidate_selections(&spawner, "pair-models", &change);
+        assert!(spawner.pair_contexts.lock().unwrap()["pair-models"]
+            .executor_selection
+            .is_some());
+    }
+
+    #[test]
+    fn a_pending_model_counts_as_the_role_that_moved() {
+        let mut pair = git_pair("pair-pending", "/repo", None);
+        pair.mentor_model = "test-mentor".to_string();
+
+        // The human picked another model: it is pending, not yet the pair's own.
+        let change = apply_model_update(
+            &mut pair,
+            &models_input("test-mentor", "executor-model", Some("swapped-mentor")),
+        );
+        assert!(change.mentor);
+        assert!(!change.executor);
+        assert_eq!(effective_model(&pair, "mentor"), "swapped-mentor");
     }
 }

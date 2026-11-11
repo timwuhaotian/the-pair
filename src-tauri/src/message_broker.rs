@@ -1,9 +1,7 @@
 use crate::context_bridge::PlanItem;
-use crate::process_spawner::ActiveProcessMap;
 use crate::types::{
     AcceptanceRecord, ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput,
-    GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
-    ResourceInfo, TurnTokenUsage,
+    GitTracking, Message, MessageSender, MessageType, PairState, PairStatus, TurnTokenUsage,
 };
 use crate::util::now_millis;
 use std::collections::HashMap;
@@ -12,12 +10,11 @@ use tauri::{AppHandle, Emitter};
 
 /// Lightweight signature of the state fields the UI reacts to. Used by the
 /// monitor loop to skip redundant `pair:state` emits when nothing meaningful
-/// changed between ticks. Resource numbers (rounded so sampling jitter doesn't
-/// defeat the dedupe) and the modified-file count are part of it so resource
-/// and git updates actually reach the UI during quiet periods.
+/// changed between ticks. The modified-file count is part of it so a git update
+/// actually reaches the UI during a quiet period.
 fn pair_state_signature(state: &PairState) -> String {
     format!(
-        "{:?}|{}|{}|{:?}|{:?}|{}|{}|{:?}|{}|{}|{:.1}|{:.0}|{:.1}|{:.0}|{}|{}",
+        "{:?}|{}|{}|{:?}|{:?}|{}|{}|{:?}|{}|{}|{}|{}",
         state.status,
         state.iteration,
         state.messages.len(),
@@ -28,18 +25,14 @@ fn pair_state_signature(state: &PairState) -> String {
         state.executor_activity.phase,
         state.executor_activity.label,
         state.executor_activity.output_line_count,
-        state.resources.mentor.cpu,
-        state.resources.mentor.mem_mb,
-        state.resources.executor.cpu,
-        state.resources.executor.mem_mb,
         state.modified_files.len(),
         state.git_tracking.available,
     )
 }
 
-/// Copy of the fields the monitor's git/resource sampling needs, without the
-/// (potentially large) message history, so the sampling can run with the
-/// global state lock released.
+/// Copy of the fields the monitor's git sampling needs, without the (potentially
+/// large) message history, so the sampling can run with the global state lock
+/// released.
 fn monitor_scratch_state(state: &PairState) -> PairState {
     let agent = |agent: &AgentState| AgentState {
         status: agent.status.clone(),
@@ -60,7 +53,6 @@ fn monitor_scratch_state(state: &PairState) -> PairState {
         messages: Vec::new(),
         mentor_activity: state.mentor_activity.clone(),
         executor_activity: state.executor_activity.clone(),
-        resources: state.resources.clone(),
         modified_files: state.modified_files.clone(),
         git_tracking: state.git_tracking.clone(),
         automation_mode: state.automation_mode.clone(),
@@ -99,6 +91,10 @@ pub struct MessageBroker {
     /// whose token is no longer current exits, so at most one monitor per pair
     /// does work at any time (pause/resume used to pile them up).
     monitor_tokens: Arc<Mutex<HashMap<String, u64>>>,
+    /// Per-(pair, role) cognitive-event sequence. A millisecond timestamp alone
+    /// collides for two events in the same tick (a tool's Started/Finished pair
+    /// easily lands inside one), and the id is the timeline's React key.
+    cognitive_sequences: Arc<Mutex<HashMap<String, u64>>>,
     app_handle: Option<AppHandle>,
 }
 
@@ -123,6 +119,7 @@ impl MessageBroker {
         Self {
             pair_states: Arc::new(Mutex::new(HashMap::new())),
             monitor_tokens: Arc::new(Mutex::new(HashMap::new())),
+            cognitive_sequences: Arc::new(Mutex::new(HashMap::new())),
             app_handle: None,
         }
     }
@@ -186,21 +183,6 @@ impl MessageBroker {
             .map(|s| s.to_string())
             .unwrap_or(input.directory.clone());
 
-        let empty_resources = PairResources {
-            mentor: ResourceInfo {
-                cpu: 0.0,
-                mem_mb: 0.0,
-            },
-            executor: ResourceInfo {
-                cpu: 0.0,
-                mem_mb: 0.0,
-            },
-            pair_total: ResourceInfo {
-                cpu: 0.0,
-                mem_mb: 0.0,
-            },
-        };
-
         let state = PairState {
             pair_id: pair_id.to_string(),
             directory,
@@ -227,7 +209,6 @@ impl MessageBroker {
             messages: Vec::new(),
             mentor_activity: Self::create_idle_activity("Mentor idle"),
             executor_activity: Self::create_idle_activity("Executor idle"),
-            resources: empty_resources,
             modified_files: Vec::new(),
             git_tracking: GitTracking {
                 available: false,
@@ -455,12 +436,7 @@ impl MessageBroker {
     /// Point a pair's broker state at a new workspace (worktree rotation).
     /// Git/resource sampling reads `state.directory` every tick, so this is
     /// all the monitor needs to follow the pair into its new worktree.
-    pub fn update_workspace(
-        &self,
-        pair_id: &str,
-        directory: &str,
-        worktree_path: Option<&str>,
-    ) {
+    pub fn update_workspace(&self, pair_id: &str, directory: &str, worktree_path: Option<&str>) {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.directory = directory.to_string();
@@ -484,6 +460,12 @@ impl MessageBroker {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         tokens.remove(pair_id);
+        let mut sequences = self
+            .cognitive_sequences
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        sequences.remove(&format!("{}-mentor", pair_id));
+        sequences.remove(&format!("{}-executor", pair_id));
     }
 
     /// Set whose turn it is without touching the status (used when a budget
@@ -503,7 +485,7 @@ impl MessageBroker {
         }
     }
 
-    pub fn prepare_run(&self, pair_id: &str, role: &str, active_processes: ActiveProcessMap) {
+    pub fn prepare_run(&self, pair_id: &str, role: &str) {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         let mut should_spawn_monitor = false;
 
@@ -608,11 +590,14 @@ impl MessageBroker {
         drop(pair_states);
 
         if should_spawn_monitor {
-            self.spawn_monitor(pair_id, active_processes);
+            self.spawn_monitor(pair_id);
         }
     }
 
-    fn spawn_monitor(&self, pair_id: &str, active_processes: ActiveProcessMap) {
+    /// The per-turn watcher: refreshes git tracking and flags a turn that has
+    /// gone quiet. There is no process to sample any more — a turn is an HTTP
+    /// stream, so its own progress markers are the signal.
+    fn spawn_monitor(&self, pair_id: &str) {
         const STALL_WARNING_SECS: u64 = 120;
         const STALL_CRITICAL_SECS: u64 = 600;
 
@@ -636,9 +621,6 @@ impl MessageBroker {
         };
 
         tauri::async_runtime::spawn(async move {
-            // Only the tracked PIDs are refreshed each tick, so an empty
-            // System is enough (new_all() enumerates every process).
-            let mut sys = Some(sysinfo::System::new());
             // Tracks the last state signature we emitted so we can skip
             // redundant `pair:state` broadcasts when nothing changed.
             let mut last_state_signature: Option<String> = None;
@@ -648,9 +630,9 @@ impl MessageBroker {
                     break;
                 }
 
-                // Snapshot what the sampling needs, then release the global
-                // lock: `git status` and sysinfo must not block every other
-                // broker call (including main-thread commands) while they run.
+                // Snapshot what the refresh needs, then release the global
+                // lock: `git status` must not block every other broker call
+                // (including main-thread commands) while it runs.
                 let scratch = {
                     let guard = pair_states.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.get(&pair_id_string) {
@@ -659,26 +641,15 @@ impl MessageBroker {
                     }
                 };
 
-                let Some(mut sys_for_sample) = sys.take() else {
-                    break;
-                };
-                let active = active_processes.clone();
-                let sample_pair_id = pair_id_string.clone();
                 let sampled = tauri::async_runtime::spawn_blocking(move || {
                     let mut scratch = scratch;
                     crate::git_tracker::GitTracker::update_state(&mut scratch);
-                    let resources = crate::resource_monitor::ResourceMonitor::sample(
-                        &sample_pair_id,
-                        &mut sys_for_sample,
-                        &active,
-                    );
-                    (scratch, resources, sys_for_sample)
+                    scratch
                 })
                 .await;
-                let Ok((scratch, resources, sys_back)) = sampled else {
+                let Ok(scratch) = sampled else {
                     break;
                 };
-                sys = Some(sys_back);
 
                 if !is_current(&monitor_tokens, &pair_id_string) {
                     break;
@@ -695,7 +666,6 @@ impl MessageBroker {
                 state.git_tracking = scratch.git_tracking;
                 state.git_review_available = scratch.git_review_available;
                 state.modified_files = scratch.modified_files;
-                state.resources = resources;
 
                 let now = now_millis();
                 let activity = if state.turn == AgentRole::Mentor {
@@ -766,12 +736,7 @@ impl MessageBroker {
         });
     }
 
-    pub fn resume_run(
-        &self,
-        pair_id: &str,
-        role: &str,
-        active_processes: ActiveProcessMap,
-    ) -> PairStatus {
+    pub fn resume_run(&self, pair_id: &str, role: &str) -> PairStatus {
         let resolved_status = {
             let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -870,7 +835,7 @@ impl MessageBroker {
             }
         };
 
-        self.spawn_monitor(pair_id, active_processes);
+        self.spawn_monitor(pair_id);
 
         resolved_status
     }
@@ -1006,12 +971,12 @@ impl MessageBroker {
         status: crate::types::CognitiveEventStatus,
     ) {
         let now = crate::util::now_millis();
-        let event_id = format!("ce-{}-{}", role, now);
         let agent_role = if role == "mentor" {
             crate::types::AgentRole::Mentor
         } else {
             crate::types::AgentRole::Executor
         };
+        let event_id = self.next_cognitive_event_id(pair_id, role);
         let event = crate::types::CognitiveEvent {
             id: event_id,
             timestamp: now,
@@ -1030,6 +995,61 @@ impl MessageBroker {
                 state
                     .cognitive_events
                     .drain(0..state.cognitive_events.len() - 50);
+            }
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
+    /// The next cognitive-event id for a (pair, role).
+    ///
+    /// A timestamp alone is not unique: a tool's Started/Finished pair lands
+    /// inside the same millisecond, and the id is the timeline's React key —
+    /// duplicates make React drop one of the two rows.
+    fn next_cognitive_event_id(&self, pair_id: &str, role: &str) -> String {
+        let mut sequences = self
+            .cognitive_sequences
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let sequence = sequences
+            .entry(format!("{}-{}", pair_id, role))
+            .or_insert(0);
+        *sequence = sequence.wrapping_add(1);
+        format!("ce-{}-{}", role, *sequence)
+    }
+
+    /// Retract the last `count` cognitive events a role published, and tell the
+    /// UI about it.
+    ///
+    /// A discarded attempt is not part of the turn: the reasoning it already
+    /// streamed into the timeline would otherwise describe work that never
+    /// happened. Only that role's trailing events go, so a tool event the other
+    /// role published in between is left alone.
+    pub fn retract_cognitive_events(&self, pair_id: &str, role: &str, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let target = if role == "mentor" {
+            crate::types::AgentRole::Mentor
+        } else {
+            crate::types::AgentRole::Executor
+        };
+        let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            let mut remaining = count;
+            while remaining > 0 {
+                // Trailing first: the newest of this role's events is the one
+                // the discarded attempt published last.
+                match state
+                    .cognitive_events
+                    .iter()
+                    .rposition(|event| event.role == target)
+                {
+                    Some(index) => {
+                        state.cognitive_events.remove(index);
+                        remaining -= 1;
+                    }
+                    None => break,
+                }
             }
             self.notify_state_update(pair_id, state);
         }
@@ -1168,11 +1188,9 @@ mod tests {
     use super::*;
     use crate::types::{
         AcceptanceRecord, AcceptanceRisk, ActivityPhase, AgentActivity, AgentConfig, AgentRole,
-        AgentState, CreatePairInput, GitTracking, Message, MessageSender, MessageType,
-        PairResources, PairState, PairStatus, ResourceInfo,
+        AgentState, CreatePairInput, GitTracking, Message, MessageSender, MessageType, PairState,
+        PairStatus,
     };
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
 
     fn activity(label: &str, phase: ActivityPhase) -> AgentActivity {
         AgentActivity {
@@ -1211,20 +1229,6 @@ mod tests {
             messages: Vec::new(),
             mentor_activity: activity("Mentor idle", ActivityPhase::Idle),
             executor_activity: activity("Executor idle", ActivityPhase::Idle),
-            resources: PairResources {
-                mentor: ResourceInfo {
-                    cpu: 0.0,
-                    mem_mb: 0.0,
-                },
-                executor: ResourceInfo {
-                    cpu: 0.0,
-                    mem_mb: 0.0,
-                },
-                pair_total: ResourceInfo {
-                    cpu: 0.0,
-                    mem_mb: 0.0,
-                },
-            },
             modified_files: Vec::new(),
             git_tracking: GitTracking {
                 available: false,
@@ -1255,13 +1259,11 @@ mod tests {
             spec: "Build the feature".to_string(),
             mentor: AgentConfig {
                 role: AgentRole::Mentor,
-                provider: crate::provider_registry::ProviderKind::Opencode,
                 model: "mentor-model".to_string(),
                 reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
-                provider: crate::provider_registry::ProviderKind::Codex,
                 model: "executor-model".to_string(),
                 reasoning_effort: None,
             },
@@ -1284,7 +1286,7 @@ mod tests {
             .restore_state(pair_state(PairStatus::Mentoring, 0))
             .unwrap();
 
-        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.prepare_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(state.status, PairStatus::Mentoring);
@@ -1323,7 +1325,7 @@ mod tests {
 
         broker.restore_state(state).unwrap();
 
-        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.prepare_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert!(state.acceptance_history.is_empty());
@@ -1343,7 +1345,7 @@ mod tests {
         state.acceptance_history = vec![acceptance(4, "kept")];
         broker.restore_state(state).unwrap();
 
-        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.prepare_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(state.status, PairStatus::Mentoring);
@@ -1358,7 +1360,11 @@ mod tests {
             .initialize_pair("pair-wt", sample_input(), Some("/repo/.worktrees/pair-old"))
             .unwrap();
 
-        broker.update_workspace("pair-wt", "/repo/.worktrees/pair-new", Some("/repo/.worktrees/pair-new"));
+        broker.update_workspace(
+            "pair-wt",
+            "/repo/.worktrees/pair-new",
+            Some("/repo/.worktrees/pair-new"),
+        );
 
         let state = broker.get_state("pair-wt").unwrap();
         assert_eq!(state.directory, "/repo/.worktrees/pair-new");
@@ -1381,7 +1387,7 @@ mod tests {
             .restore_state(pair_state(PairStatus::Executing, 1))
             .unwrap();
 
-        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.prepare_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(state.status, PairStatus::Reviewing);
@@ -1581,7 +1587,7 @@ mod tests {
             .restore_state(paused_mentor_planning_state())
             .unwrap();
 
-        broker.resume_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.resume_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(
@@ -1630,7 +1636,7 @@ mod tests {
             .unwrap();
         broker.restore_state(paused_mentor_review_state()).unwrap();
 
-        broker.resume_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.resume_run("pair-1", "mentor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(
@@ -1670,7 +1676,7 @@ mod tests {
             .unwrap();
         broker.restore_state(paused_executor_state()).unwrap();
 
-        broker.resume_run("pair-1", "executor", Arc::new(Mutex::new(HashMap::new())));
+        broker.resume_run("pair-1", "executor");
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
         assert_eq!(
@@ -1783,7 +1789,7 @@ mod tests {
         assert_eq!(state.task_spec, "New task");
         assert!(state.run_started_at.unwrap() > 1);
 
-        broker.prepare_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        broker.prepare_run("pair-1", "mentor");
         let state = broker.get_state("pair-1").unwrap();
         assert_eq!(state.status, PairStatus::Mentoring);
         assert_eq!(state.iteration, 1);
@@ -1811,7 +1817,7 @@ mod tests {
         state.status = PairStatus::AwaitingHumanReview;
         broker.restore_state(state).unwrap();
 
-        let status = broker.resume_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        let status = broker.resume_run("pair-1", "mentor");
         assert_eq!(status, PairStatus::Mentoring);
     }
 
@@ -1835,7 +1841,7 @@ mod tests {
         }];
         broker.restore_state(state).unwrap();
 
-        let status = broker.resume_run("pair-1", "mentor", Arc::new(Mutex::new(HashMap::new())));
+        let status = broker.resume_run("pair-1", "mentor");
         assert_eq!(status, PairStatus::Reviewing);
     }
 
@@ -1850,18 +1856,145 @@ mod tests {
     }
 
     #[test]
-    fn state_signature_changes_with_resources_and_modified_files() {
+    fn cognitive_event_ids_are_unique_for_two_events_in_the_same_millisecond() {
+        // A tool's Started/Finished pair lands inside one millisecond; the id is
+        // the timeline's React key, so a collision drops a row.
+        let broker = MessageBroker::new();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
+
+        for _ in 0..3 {
+            broker.add_cognitive_event(
+                "pair-1",
+                "mentor",
+                crate::types::CognitiveEventType::ToolCall,
+                Some("bash".to_string()),
+                "Calling bash...".to_string(),
+                crate::types::CognitiveEventStatus::Running,
+            );
+            broker.add_cognitive_event(
+                "pair-1",
+                "mentor",
+                crate::types::CognitiveEventType::ToolCall,
+                Some("bash".to_string()),
+                "done".to_string(),
+                crate::types::CognitiveEventStatus::Completed,
+            );
+        }
+
+        let state = broker.get_state("pair-1").unwrap();
+        let ids: Vec<&str> = state
+            .cognitive_events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect();
+        let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), unique.len(), "ids must be unique: {:?}", ids);
+
+        // The other role counts on its own, so its ids never collide either.
+        broker.add_cognitive_event(
+            "pair-1",
+            "executor",
+            crate::types::CognitiveEventType::Reasoning,
+            None,
+            "thinking".to_string(),
+            crate::types::CognitiveEventStatus::Running,
+        );
+        let state = broker.get_state("pair-1").unwrap();
+        assert_eq!(state.cognitive_events.len(), 7);
+    }
+
+    #[test]
+    fn retract_cognitive_events_drops_only_that_roles_trailing_events() {
+        let broker = MessageBroker::new();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
+        let reasoning = |text: &str| {
+            broker.add_cognitive_event(
+                "pair-1",
+                "mentor",
+                crate::types::CognitiveEventType::Reasoning,
+                None,
+                text.to_string(),
+                crate::types::CognitiveEventStatus::Running,
+            );
+        };
+        reasoning("first attempt");
+        reasoning("first attempt, more");
+        broker.add_cognitive_event(
+            "pair-1",
+            "executor",
+            crate::types::CognitiveEventType::ToolCall,
+            Some("read".to_string()),
+            "Calling read...".to_string(),
+            crate::types::CognitiveEventStatus::Running,
+        );
+        reasoning("first attempt, last");
+
+        broker.retract_cognitive_events("pair-1", "mentor", 2);
+
+        let state = broker.get_state("pair-1").unwrap();
+        let kept: Vec<&str> = state
+            .cognitive_events
+            .iter()
+            .map(|event| event.description.as_str())
+            .collect();
+        // The two trailing mentor events are gone; the executor's tool event,
+        // published between them, stays where it was.
+        assert_eq!(kept, vec!["first attempt", "Calling read..."]);
+    }
+
+    #[test]
+    fn retract_cognitive_events_stops_at_the_other_roles_events() {
+        let broker = MessageBroker::new();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
+        broker.add_cognitive_event(
+            "pair-1",
+            "mentor",
+            crate::types::CognitiveEventType::Reasoning,
+            None,
+            "only one".to_string(),
+            crate::types::CognitiveEventStatus::Running,
+        );
+        broker.add_cognitive_event(
+            "pair-1",
+            "executor",
+            crate::types::CognitiveEventType::ToolCall,
+            Some("bash".to_string()),
+            "Calling bash...".to_string(),
+            crate::types::CognitiveEventStatus::Running,
+        );
+
+        // More retractions than the role published: the executor's event stays.
+        broker.retract_cognitive_events("pair-1", "mentor", 5);
+        broker.retract_cognitive_events("pair-1", "mentor", 0);
+
+        let state = broker.get_state("pair-1").unwrap();
+        assert_eq!(state.cognitive_events.len(), 1);
+        assert_eq!(state.cognitive_events[0].role, AgentRole::Executor);
+    }
+
+    #[test]
+    fn state_signature_changes_with_the_modified_file_count() {
         let mut state = pair_state(PairStatus::Executing, 1);
         let before = pair_state_signature(&state);
-        state.resources.executor.cpu = 42.0;
-        let after_cpu = pair_state_signature(&state);
-        assert_ne!(before, after_cpu);
         state.modified_files.push(crate::types::ModifiedFile {
             path: "a.rs".to_string(),
             status: crate::types::FileStatus::M,
             display_path: "a.rs".to_string(),
         });
-        assert_ne!(after_cpu, pair_state_signature(&state));
+        let after_files = pair_state_signature(&state);
+        assert_ne!(before, after_files);
+        state.modified_files.push(crate::types::ModifiedFile {
+            path: "b.rs".to_string(),
+            status: crate::types::FileStatus::M,
+            display_path: "b.rs".to_string(),
+        });
+        assert_ne!(after_files, pair_state_signature(&state));
     }
 
     #[test]

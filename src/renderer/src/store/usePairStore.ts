@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import type {
   AcceptanceRecord,
-  AvailableModel,
   CreatePairInput,
   PairModelSelection,
+  ProviderView,
   SessionSnapshotDraft,
   SessionSnapshotRecord,
   TurnTokenUsage
@@ -16,11 +16,6 @@ import {
   type TokenUsageMessage
 } from '../lib/tokenUsage'
 import {
-  buildAgentConfig,
-  inferProviderFromModel,
-  resolveModelProvider
-} from '../lib/providerResolution'
-import {
   buildExecutorAcceptanceFollowupPrompt,
   buildMentorAcceptanceRepairPrompt,
   buildMentorAcceptancePrompt
@@ -30,6 +25,7 @@ import {
   buildUpdateModelsPayload,
   shouldSyncModelsToBackend
 } from '../lib/modelResolution'
+import { stripModelQualifier } from '../lib/providerResolution'
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
 import { isHandoffIgnoredError, shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 import {
@@ -70,17 +66,6 @@ export interface AgentActivity {
   updatedAt: number
   lastOutputAt?: number
   outputLineCount?: number
-}
-
-interface ResourceInfo {
-  cpu: number
-  memMb: number
-}
-
-interface PairResources {
-  mentor: ResourceInfo
-  executor: ResourceInfo
-  pairTotal: ResourceInfo
 }
 
 type FileStatus = 'A' | 'M' | 'D' | 'R' | '??'
@@ -163,12 +148,8 @@ export interface Pair {
   status: PairStatus
   iterations: number
   maxIterations: number
-  cpuUsage: number
-  memUsage: number
   spec: string
-  mentorProvider: AvailableModel['provider']
   mentorModel: string
-  executorProvider: AvailableModel['provider']
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
@@ -177,10 +158,6 @@ export interface Pair {
   messages: Message[]
   mentorActivity: AgentActivity
   executorActivity: AgentActivity
-  mentorCpu: number
-  mentorMemMb: number
-  executorCpu: number
-  executorMemMb: number
   modifiedFiles: ModifiedFile[]
   gitTracking: GitTracking
   automationMode: AutomationMode
@@ -229,7 +206,6 @@ interface PairStateSnapshot {
   executorStatus?: PairStatus
   mentorActivity?: AgentActivity
   executorActivity?: AgentActivity
-  resources?: PairResources
   modifiedFiles?: ModifiedFile[]
   gitTracking?: GitTracking
   automationMode?: AutomationMode
@@ -297,7 +273,8 @@ interface BackendPairState {
 
 interface PairStore {
   pairs: Pair[]
-  availableModels: AvailableModel[]
+  /** Every endpoint in the credential registry, with its accounts and models. */
+  providers: ProviderView[]
   isLoading: boolean
   isLoadingModels: boolean
   modelsLastUpdatedAt: number | null
@@ -317,8 +294,6 @@ interface PairStore {
       executorReasoningEffort?: string
       branch?: string
       maxIterations?: number
-      pauseOnIteration?: number
-      autoAttachGitBaseline?: boolean
       planGate?: boolean
     }
   ) => Promise<void>
@@ -340,7 +315,6 @@ interface PairStore {
   deletePair: (id: string) => Promise<void>
   killProcess: (pairId: string, role: string) => Promise<void>
   updatePairStatus: (id: string, status: PairStatus) => void
-  updatePairUsage: (id: string, cpu: number, mem: number) => void
   addMessage: (pairId: string, message: Message) => void
   setMessages: (pairId: string, messages: Message[]) => void
   syncState: (pairId: string, status: PairStatus, iteration: number) => void
@@ -421,9 +395,7 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     iterations: pair.iterations,
     maxIterations: pair.maxIterations,
     turn: pair.turn,
-    mentorProvider: pair.mentorProvider,
     mentorModel: pair.mentorModel,
-    executorProvider: pair.executorProvider,
     executorModel: pair.executorModel,
     pendingMentorModel: pair.pendingMentorModel,
     pendingExecutorModel: pair.pendingExecutorModel,
@@ -432,12 +404,6 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     messages: pair.messages,
     mentorActivity: pair.mentorActivity,
     executorActivity: pair.executorActivity,
-    mentorCpu: pair.mentorCpu,
-    mentorMemMb: pair.mentorMemMb,
-    executorCpu: pair.executorCpu,
-    executorMemMb: pair.executorMemMb,
-    cpuUsage: pair.cpuUsage,
-    memUsage: pair.memUsage,
     modifiedFiles: pair.modifiedFiles,
     gitTracking: {
       available: pair.gitTracking.available,
@@ -470,12 +436,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     status: normalizePairStatus(snapshot.status) ?? 'Idle',
     iterations: snapshot.iterations,
     maxIterations: snapshot.maxIterations,
-    cpuUsage: snapshot.cpuUsage,
-    memUsage: snapshot.memUsage,
     spec: snapshot.spec,
-    mentorProvider: snapshot.mentorProvider ?? inferProviderFromModel(snapshot.mentorModel),
     mentorModel: snapshot.mentorModel,
-    executorProvider: snapshot.executorProvider ?? inferProviderFromModel(snapshot.executorModel),
     executorModel: snapshot.executorModel,
     pendingMentorModel: snapshot.pendingMentorModel,
     pendingExecutorModel: snapshot.pendingExecutorModel,
@@ -484,10 +446,6 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     messages: snapshot.messages,
     mentorActivity: snapshot.mentorActivity,
     executorActivity: snapshot.executorActivity,
-    mentorCpu: snapshot.mentorCpu,
-    mentorMemMb: snapshot.mentorMemMb,
-    executorCpu: snapshot.executorCpu,
-    executorMemMb: snapshot.executorMemMb,
     modifiedFiles: snapshot.modifiedFiles,
     gitTracking: {
       available: snapshot.gitTracking.available,
@@ -680,7 +638,6 @@ interface NewRunInput {
    * it from inside `pair_assign_task`); its status/turn/activities must then be kept.
    */
   backendSynced: boolean
-  availableModels: AvailableModel[]
 }
 
 /**
@@ -724,29 +681,15 @@ function resetPairForNewRun(pair: Pair, next: NewRunInput): Pair {
     ...pair,
     ...runState,
     maxIterations: maxIterations ?? pair.maxIterations,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: nextSpec,
     mentorModel: selection.mentorModel,
-    mentorProvider: resolveModelProvider(next.availableModels, selection.mentorModel, {
-      modelId: pair.mentorModel,
-      provider: pair.mentorProvider
-    }),
     executorModel: selection.executorModel,
-    executorProvider: resolveModelProvider(next.availableModels, selection.executorModel, {
-      modelId: pair.executorModel,
-      provider: pair.executorProvider
-    }),
     pendingMentorModel: selection.pendingMentorModel,
     pendingExecutorModel: selection.pendingExecutorModel,
     mentorReasoningEffort: selection.mentorReasoningEffort,
     executorReasoningEffort: selection.executorReasoningEffort,
     messages: [userMessage],
     latestAcceptance: undefined,
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     runCount: pair.runCount + 1,
     runHistory: archivedRun ? [...pair.runHistory, archivedRun] : pair.runHistory,
     currentRunStartedAt: now,
@@ -888,12 +831,6 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     currentTurnCard,
     mentorActivity: nextMentorActivity,
     executorActivity: nextExecutorActivity,
-    mentorCpu: state.resources?.mentor?.cpu ?? pair.mentorCpu,
-    mentorMemMb: state.resources?.mentor?.memMb ?? pair.mentorMemMb,
-    executorCpu: state.resources?.executor?.cpu ?? pair.executorCpu,
-    executorMemMb: state.resources?.executor?.memMb ?? pair.executorMemMb,
-    cpuUsage: state.resources?.pairTotal?.cpu ?? pair.cpuUsage,
-    memUsage: state.resources?.pairTotal?.memMb ?? pair.memUsage,
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
@@ -1083,7 +1020,7 @@ function parseProgressUpdate(
 
 export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
-  availableModels: [],
+  providers: [],
   isLoading: false,
   isLoadingModels: false,
   modelsLastUpdatedAt: null,
@@ -1485,14 +1422,9 @@ export const usePairStore = create<PairStore>((set) => ({
     _modelsLoading = true
     set({ isLoadingModels: true, modelsError: null })
     try {
-      const cachedModels = (await window.api.config.getCachedModels()) as AvailableModel[]
-      if (Array.isArray(cachedModels) && cachedModels.length > 0) {
-        set({ availableModels: cachedModels })
-      }
-
-      const models = (await window.api.config.refreshModels()) as AvailableModel[]
+      const providers = (await window.api.models.list()) as ProviderView[]
       set({
-        availableModels: models,
+        providers: Array.isArray(providers) ? providers : [],
         modelsLastUpdatedAt: Date.now(),
         modelsError: null
       })
@@ -1526,15 +1458,14 @@ export const usePairStore = create<PairStore>((set) => ({
     set({ isLoading: true, error: null })
 
     try {
-      const availableModels = usePairStore.getState().availableModels
-      const mentorConfig = buildAgentConfig('mentor', input.mentorModel, availableModels)
-      const executorConfig = buildAgentConfig('executor', input.executorModel, availableModels)
+      // The backend resolves each model id onto an endpoint and a credential,
+      // so the pair only has to name the model it wants.
       const pairProcess = (await window.api.pair.create({
         name: input.name,
         directory: input.directory,
         spec: input.spec,
-        mentor: mentorConfig,
-        executor: executorConfig,
+        mentor: { role: 'mentor', model: stripModelQualifier(input.mentorModel) },
+        executor: { role: 'executor', model: stripModelQualifier(input.executorModel) },
         mentorReasoningEffort: input.mentorReasoningEffort,
         executorReasoningEffort: input.executorReasoningEffort,
         branch: input.branch,
@@ -1565,13 +1496,9 @@ export const usePairStore = create<PairStore>((set) => ({
         status: 'Idle',
         iterations: 0,
         maxIterations: input.maxIterations ?? 0,
-        cpuUsage: 0,
-        memUsage: 0,
         spec: input.spec,
         mentorModel: input.mentorModel,
-        mentorProvider: mentorConfig.provider,
         executorModel: input.executorModel,
-        executorProvider: executorConfig.provider,
         // Mirror what the backend stored so later model saves send them back
         // instead of clearing them.
         mentorReasoningEffort: input.mentorReasoningEffort,
@@ -1579,10 +1506,6 @@ export const usePairStore = create<PairStore>((set) => ({
         messages: [initialMessage],
         mentorActivity: createIdleActivity('Mentor idle'),
         executorActivity: createIdleActivity('Executor idle'),
-        mentorCpu: 0,
-        mentorMemMb: 0,
-        executorCpu: 0,
-        executorMemMb: 0,
         modifiedFiles: [],
         gitTracking: { available: false },
         automationMode: 'full-auto',
@@ -1718,8 +1641,7 @@ export const usePairStore = create<PairStore>((set) => ({
                   },
                   maxIterations: options?.maxIterations,
                   archivedRun,
-                  backendSynced,
-                  availableModels: state.availableModels
+                  backendSynced
                 }),
                 assigned
               )
@@ -1762,17 +1684,7 @@ export const usePairStore = create<PairStore>((set) => ({
             ? {
                 ...pair,
                 mentorModel: typedResult.mentorModel,
-                mentorProvider: resolveModelProvider(
-                  state.availableModels,
-                  typedResult.mentorModel,
-                  { modelId: pair.mentorModel, provider: pair.mentorProvider }
-                ),
                 executorModel: typedResult.executorModel,
-                executorProvider: resolveModelProvider(
-                  state.availableModels,
-                  typedResult.executorModel,
-                  { modelId: pair.executorModel, provider: pair.executorProvider }
-                ),
                 pendingMentorModel: typedResult.pendingMentorModel,
                 pendingExecutorModel: typedResult.pendingExecutorModel,
                 mentorReasoningEffort: typedResult.mentorReasoningEffort,
@@ -1985,11 +1897,6 @@ export const usePairStore = create<PairStore>((set) => ({
   updatePairStatus: (id, status) =>
     set((state) => ({
       pairs: state.pairs.map((p) => (p.id === id ? { ...p, status } : p))
-    })),
-
-  updatePairUsage: (id, cpu, mem) =>
-    set((state) => ({
-      pairs: state.pairs.map((p) => (p.id === id ? { ...p, cpuUsage: cpu, memUsage: mem } : p))
     })),
 
   addMessage: (pairId, message) =>

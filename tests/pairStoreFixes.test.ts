@@ -12,7 +12,6 @@ import {
   type Message,
   type Pair
 } from '../src/renderer/src/store/usePairStore.ts'
-import type { AvailableModel } from '../src/renderer/src/types.ts'
 
 type Callback = (payload: unknown) => void
 
@@ -136,8 +135,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     status: 'Finished',
     iterations: 5,
     maxIterations: 10,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: 'first task',
     mentorProvider: 'claude',
     mentorModel: 'claude/sonnet',
@@ -148,10 +145,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     messages: [message('m1', 'mentor', 2_000), message('e1', 'executor', 3_000)],
     mentorActivity: activity('Mentor idle'),
     executorActivity: activity('Executor idle'),
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: [],
     gitTracking: { available: false },
     automationMode: 'full-auto',
@@ -172,19 +165,26 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
   }
 }
 
-const grokAlias: AvailableModel = {
-  provider: 'grok',
-  modelId: 'fast',
-  displayName: 'fast',
-  available: true,
-  providerLabel: 'Grok Build',
-  sourceProviderLabel: 'xAI',
-  billingKind: 'byok',
-  billingLabel: '',
-  accessLabel: '',
-  availabilityStatus: 'ready',
-  supportsPairExecution: true,
-  recommendedRoles: ['mentor', 'executor']
+/** One registry endpoint listing the `fast` alias, so a pair can resolve it. */
+const grokAlias = {
+  id: 'xai-1',
+  protocol: 'openaiChat',
+  baseUrl: 'https://api.x.ai/v1',
+  vendor: 'xai',
+  displayName: 'xAI',
+  readyAccountCount: 1,
+  accounts: [
+    {
+      id: 'xai-1-a',
+      kind: 'apiKey',
+      label: 'xai',
+      source: 'manual',
+      status: 'ready',
+      headers: [],
+      hasSecret: true
+    }
+  ],
+  models: [{ id: 'fast', displayName: 'fast', efforts: [], source: 'manual' }]
 }
 
 function reset(pairs: Pair[], extra: Record<string, unknown> = {}): void {
@@ -199,7 +199,7 @@ function reset(pairs: Pair[], extra: Record<string, unknown> = {}): void {
   api.createCalls = []
   usePairStore.setState({
     pairs,
-    availableModels: [grokAlias],
+    providers: [grokAlias],
     isLoading: false,
     error: null,
     modelsError: null,
@@ -253,17 +253,15 @@ test('a new run archives the run as it was before pair_assign_task, even when it
     ['second task']
   )
 
-  // Provider follows the override (a grok alias with no keyword), mentor untouched.
-  assert.equal(pair.executorModel, 'grok/fast')
-  assert.equal(pair.executorProvider, 'grok')
-  assert.equal(pair.mentorProvider, 'claude')
+  // The override's model lands as a bare id; the backend resolves the endpoint.
+  assert.equal(pair.executorModel, 'fast')
 
   // The unchanged mentor keeps its effort; the executor switched models, so its
   // old effort is dropped (efforts are model-specific) — backend and mirror agree.
   assert.equal(api.updateModelsCalls.length, 1)
   assert.equal(api.updateModelsCalls[0].input.mentorReasoningEffort, 'high')
   assert.equal(api.updateModelsCalls[0].input.executorReasoningEffort, undefined)
-  assert.equal(api.updateModelsCalls[0].input.pendingExecutorModel, 'grok/fast')
+  assert.equal(api.updateModelsCalls[0].input.pendingExecutorModel, 'fast')
   assert.equal(pair.mentorReasoningEffort, 'high')
   assert.equal(pair.executorReasoningEffort, undefined)
 })
@@ -473,8 +471,13 @@ test('Clear Session sticks when the backend re-sends the old transcript', () => 
 
 test('createPair keeps the reasoning efforts chosen at creation and stores codex ids qualified', async () => {
   reset([])
-  const codex: AvailableModel = { ...grokAlias, provider: 'codex', modelId: 'codex-mini-latest' }
-  usePairStore.setState({ availableModels: [grokAlias, codex] })
+  const codex = {
+    ...grokAlias,
+    id: 'openai-1',
+    vendor: 'openai',
+    models: [{ id: 'codex-mini-latest', displayName: 'Codex mini', efforts: [], source: 'manual' }]
+  }
+  usePairStore.setState({ providers: [grokAlias, codex] })
   api.createImpl = async () => ({ pairId: 'created' })
 
   await usePairStore.getState().createPair({
@@ -490,10 +493,11 @@ test('createPair keeps the reasoning efforts chosen at creation and stores codex
   const pair = getPair('created')
   assert.equal(pair.mentorReasoningEffort, 'high')
   assert.equal(pair.executorReasoningEffort, 'medium')
-  const mentor = api.createCalls[0].mentor as { model: string; provider: string }
-  const executor = api.createCalls[0].executor as { model: string; provider: string }
-  assert.deepEqual(mentor, { role: 'mentor', provider: 'codex', model: 'codex/codex-mini-latest' })
-  assert.deepEqual(executor, { role: 'executor', provider: 'grok', model: 'grok/fast' })
+  const mentor = api.createCalls[0].mentor as { model: string }
+  const executor = api.createCalls[0].executor as { model: string }
+  // The pair names the model; the backend resolves the endpoint and credential.
+  assert.deepEqual(mentor, { role: 'mentor', model: 'codex-mini-latest' })
+  assert.deepEqual(executor, { role: 'executor', model: 'fast' })
 })
 
 test('a background model refresh failure does not set the global modal error', async () => {

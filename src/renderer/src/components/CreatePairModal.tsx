@@ -8,7 +8,7 @@ import { GlassButton } from './ui/GlassButton'
 import { IconButton } from './ui/IconButton'
 import { ModelPicker } from './ModelPicker'
 import { BrandMark } from './BrandMark'
-import { getPreferredQualifiedModel } from '../lib/modelPreferences'
+import { resolvePreferredModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
 import { derivePairNameFromDirectory } from '../lib/workspace'
@@ -148,7 +148,7 @@ export function PresetHintBar({ preset }: { preset: PairPreset }): React.ReactNo
 
 export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): React.ReactNode {
   const { t } = useTranslation()
-  const availableModels = usePairStore((s) => s.availableModels)
+  const providers = usePairStore((s) => s.providers)
   const loadAvailableModels = usePairStore((s) => s.loadAvailableModels)
   const createPair = usePairStore((s) => s.createPair)
   const isLoading = usePairStore((s) => s.isLoading)
@@ -235,11 +235,13 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     if (isOpen) usePairStore.setState({ error: null })
   }, [isOpen])
 
+  // Reloaded on every open: a credential added in the Models section since the
+  // last visit must be visible here without restarting the app.
   useEffect(() => {
-    if (isOpen && availableModels.length === 0) {
+    if (isOpen) {
       loadAvailableModels()
     }
-  }, [isOpen, availableModels.length, loadAvailableModels])
+  }, [isOpen, loadAvailableModels])
 
   useEffect(() => {
     if (isOpen) {
@@ -248,15 +250,15 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }, [isOpen, loadPresets])
 
   useEffect(() => {
-    if (availableModels.length > 0 && mentorModel === '') {
-      const mentorDefault = getPreferredQualifiedModel('mentor', availableModels)
-      const executorDefault = getPreferredQualifiedModel('executor', availableModels)
+    if (providers.length > 0 && mentorModel === '') {
+      const mentorDefault = resolvePreferredModel('mentor', providers)
+      const executorDefault = resolvePreferredModel('executor', providers)
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMentorModel(mentorDefault)
 
       setExecutorModel(executorDefault)
     }
-  }, [availableModels, mentorModel])
+  }, [providers, mentorModel])
 
   const handlePresetSelect = useCallback(
     (preset: PairPreset | null) => {
@@ -301,10 +303,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         executorReasoningEffort,
         branch,
         useWorktree,
-        maxIterations: undefined,
-        planGate,
-        pauseOnIteration: selectedPreset?.pauseOnIteration,
-        autoAttachGitBaseline: selectedPreset?.autoAttachGitBaseline
+        maxIterations: selectedPreset?.pauseOnIteration,
+        planGate
       })
       setName('')
       setDirectory('')
@@ -325,7 +325,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }
 
   const handleSkillSelect = (skillName: string) => {
-    const insertion = `Load the ${skillName} skill and `
+    const insertion = `${t('modals.loadSkill', { name: skillName })} `
     setSpec((prev) => {
       if (textareaRef.current) {
         const start = textareaRef.current.selectionStart
@@ -564,7 +564,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <ModelPicker
                 value={mentorModel}
-                models={availableModels}
+                providers={providers}
                 onChange={setMentorModel}
                 role="mentor"
                 variant="card"
@@ -573,7 +573,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               />
               <ModelPicker
                 value={executorModel}
-                models={availableModels}
+                providers={providers}
                 onChange={setExecutorModel}
                 role="executor"
                 variant="card"
@@ -638,7 +638,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           <GlassButton
             type="submit"
             variant="primary"
-            disabled={isLoading || presetTaskMissing}
+            disabled={
+              isLoading ||
+              presetTaskMissing ||
+              mentorModel.length === 0 ||
+              executorModel.length === 0
+            }
             data-testid="pair-submit-btn"
           >
             {isLoading ? t('modals.creating') : t('modals.create')}

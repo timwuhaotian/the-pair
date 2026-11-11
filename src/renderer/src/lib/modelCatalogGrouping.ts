@@ -1,260 +1,170 @@
-import type { AvailableModel, ProviderKind } from '../types'
-import { getQualifiedModel, isSelectableForPairExecution } from './modelPreferences'
+import type { ModelRoute, ProviderView } from '../types'
 import { modelIdsEquivalent } from './providerResolution'
 
 export type AgentRole = 'mentor' | 'executor'
 
-/**
- * A single selectable "leaf" of a route — one reasoning effort. For providers that bake
- * effort into the model id (Antigravity) each effort has a distinct `qualifiedId`; for
- * providers that take effort as a runtime flag (Codex) the `qualifiedId` is shared and
- * `reasoningEffort` carries the value.
- */
+/** One reasoning effort a model accepts. */
 export interface EffortOption {
-  /** Canonical effort id: 'low' | 'medium' | 'high'. */
   value: string
-  /** Qualified model id to set as the picker value when this effort is chosen. */
-  qualifiedId: string
-  /** reasoning_effort flag to pass through; undefined when effort is baked into the id. */
-  reasoningEffort?: string
 }
 
-/** One way to reach a canonical model: a provider + plan, with its effort axis (if any). */
-export interface ModelRoute {
+/** One endpoint's way to reach a model. */
+export interface EndpointRoute {
   /** Stable identity for last-used-route persistence. */
   key: string
-  provider: AvailableModel['provider']
-  providerLabel: string
-  /** Minimal plan/access hint ("Claude Code login", "OpenAI API key"). */
-  accessLabel: string
-  planLabel?: string
-  billingKind: AvailableModel['billingKind']
-  available: boolean
-  /** Representative qualified id used when the route exposes no effort axis. */
-  baseQualifiedId: string
-  /** Effort leaves; empty when the route exposes no effort axis. */
-  effortOptions: EffortOption[]
+  providerId: string
+  label: string
+  vendor: string
+  baseUrl: string
+  /** True when the endpoint has at least one ready account. */
+  ready: boolean
+  /** The id this endpoint lists the model under. */
+  modelId: string
+  /** Reasoning efforts the endpoint accepts for this model. */
+  efforts: string[]
+  defaultEffort?: string
 }
 
-/** A model as the user thinks of it, merged across every route that can run it. */
+/** A model as the user thinks of it, merged across every endpoint that lists it. */
 export interface CanonicalModel {
   canonicalKey: string
   displayName: string
-  available: boolean
-  routes: ModelRoute[]
+  /** True when at least one endpoint can run it right now. */
+  ready: boolean
+  routes: EndpointRoute[]
 }
 
 export interface ResolvedSelection {
   model?: CanonicalModel
-  route?: ModelRoute
+  route?: EndpointRoute
   effort?: EffortOption
 }
 
-const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 }
-// Preference order when there is no remembered route: plan-included native routes before
-// pay-as-you-go OpenCode, so the user does not accidentally spend on an API key.
-// Typed over ProviderKind so adding a provider to the union fails to compile here
-// instead of silently sorting the new one last.
-const PROVIDER_PRIORITY: Record<ProviderKind, number> = {
-  claude: 0,
-  codex: 1,
-  gemini: 2,
-  opencode: 3,
-  kimi: 4,
-  pi: 5,
-  kiro: 6,
-  aider: 7,
-  grok: 8,
-  muse: 9
+/** One registry endpoint and the models it lists — step one of the picker. */
+export interface EndpointOption {
+  key: string
+  label: string
+  vendor: string
+  baseUrl: string
+  /** True when the endpoint has at least one ready account. */
+  ready: boolean
+  models: ModelRoute[]
 }
-// Sort key for a provider with no rank. Must exceed every real priority so an
-// unrecognised kind lands after the known ones rather than tying with the last
-// one (which previously put it level with Muse).
-const UNRANKED_PROVIDER_ORDER = Number.MAX_SAFE_INTEGER
+
+/** The endpoints that share a vendor, ready ones first. */
+export interface EndpointGroup {
+  vendor: string
+  label: string
+  endpoints: EndpointOption[]
+}
+
 const LAST_ROUTE_KEY_PREFIX = 'the-pair-last-route-'
 
-/**
- * Canonical merge identity. Trusts the backend-provided key; falls back to a
- * provider+bare-id heuristic for resilience (older cached data or test fixtures).
- */
-function canonicalKeyOf(model: AvailableModel): string {
-  if (model.canonicalKey && model.canonicalKey.length > 0) {
-    return model.canonicalKey
-  }
-  const base = (model.modelId.split('/').pop() ?? model.modelId).toLowerCase()
-  return `${model.provider}::${base}`
+/** A model's identity across endpoints: the vendor that owns it plus its id.
+ *  Lower-cased, the way the Rust resolver matches ids: two endpoints of one
+ *  vendor listing `MiniMax-M3` and `minimax-m3` are the same model, not two rows. */
+function canonicalKeyOf(provider: ProviderView, model: ModelRoute): string {
+  return `${provider.vendor.toLowerCase()}::${model.id.toLowerCase()}`
 }
 
-// The source provider is part of the route: one Pi or OpenCode install can reach the
-// same model through several gateways (Anthropic, GitHub Copilot, OpenRouter), and each
-// is a separate way to run it, not an effort variant of one route.
-function routeKeyOf(model: AvailableModel): string {
-  const plan = model.planLabel ?? model.providerLabel
-  return model.sourceProvider
-    ? `${model.provider}::${plan}::${model.sourceProvider}`
-    : `${model.provider}::${plan}`
+function isReady(provider: ProviderView): boolean {
+  return provider.readyAccountCount > 0
 }
 
-function providerRank(provider: ProviderKind): number {
-  return PROVIDER_PRIORITY[provider] ?? UNRANKED_PROVIDER_ORDER
+function byReadiness(a: ProviderView, b: ProviderView): number {
+  return Number(isReady(b)) - Number(isReady(a))
 }
 
-// Gateways list models under a raw slug ("grok-4.6"), so for naming they rank after
-// every native CLI, whose own catalog carries the vendor's label ("Grok 4.6").
-const GATEWAY_PROVIDERS: ReadonlySet<ProviderKind> = new Set<ProviderKind>(['opencode', 'pi'])
-
-function compareForNaming(a: AvailableModel, b: AvailableModel): number {
-  const ga = GATEWAY_PROVIDERS.has(a.provider)
-  const gb = GATEWAY_PROVIDERS.has(b.provider)
-  if (ga !== gb) return ga ? 1 : -1
-  return providerRank(a.provider) - providerRank(b.provider)
-}
-
-function displayNameOf(model: AvailableModel): string {
-  const canonical = model.canonicalDisplayName?.trim()
-  return canonical && canonical.length > 0 ? canonical : model.displayName
-}
-
-function buildRoute(key: string, rows: AvailableModel[]): ModelRoute {
-  const first = rows[0]
-  const effortOptions: EffortOption[] = []
-
-  const baked = rows.filter((row) => row.effortTag)
-  if (baked.length > 0) {
-    for (const row of baked) {
-      effortOptions.push({
-        value: row.effortTag as string,
-        qualifiedId: getQualifiedModel(row),
-        reasoningEffort: undefined
-      })
-    }
-    effortOptions.sort((a, b) => (EFFORT_ORDER[a.value] ?? 99) - (EFFORT_ORDER[b.value] ?? 99))
-  } else if (first.reasoningEffortLevels && first.reasoningEffortLevels.length > 0) {
-    for (const level of first.reasoningEffortLevels) {
-      effortOptions.push({
-        value: level,
-        qualifiedId: getQualifiedModel(first),
-        reasoningEffort: level
-      })
-    }
-  }
-
-  const readyRow = rows.find((row) => isSelectableForPairExecution(row)) ?? first
-  const baseQualifiedId =
-    effortOptions.length > 0
-      ? (effortOptions.find((option) => option.value === 'medium') ?? effortOptions[0]).qualifiedId
-      : getQualifiedModel(readyRow)
-
+function buildRoute(provider: ProviderView, model: ModelRoute): EndpointRoute {
   return {
-    key,
-    provider: first.provider,
-    providerLabel: first.providerLabel,
-    accessLabel: first.accessLabel,
-    planLabel: first.planLabel,
-    billingKind: first.billingKind,
-    available: rows.some((row) => isSelectableForPairExecution(row)),
-    baseQualifiedId,
-    effortOptions
+    key: `${provider.id}::${model.id}`,
+    providerId: provider.id,
+    label: provider.displayName,
+    vendor: provider.vendor,
+    baseUrl: provider.baseUrl,
+    ready: isReady(provider),
+    modelId: model.id,
+    efforts: model.efforts,
+    defaultEffort: model.defaultEffort
   }
 }
 
-/** Collapse a flat model list into canonical models, each with its routes and effort leaves. */
-export function buildCanonicalModels(models: AvailableModel[]): CanonicalModel[] {
-  const groups = new Map<string, AvailableModel[]>()
-  for (const model of models) {
-    const key = canonicalKeyOf(model)
-    const existing = groups.get(key)
-    if (existing) existing.push(model)
-    else groups.set(key, [model])
+/** Collapse the registry into canonical models, each with one route per endpoint. */
+export function buildCanonicalModels(providers: ProviderView[]): CanonicalModel[] {
+  const groups = new Map<string, { rows: Array<{ provider: ProviderView; model: ModelRoute }> }>()
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      const key = canonicalKeyOf(provider, model)
+      const existing = groups.get(key)
+      if (existing) existing.rows.push({ provider, model })
+      else groups.set(key, { rows: [{ provider, model }] })
+    }
   }
 
   const result: CanonicalModel[] = []
-  for (const [canonicalKey, rows] of groups) {
-    const routeMap = new Map<string, AvailableModel[]>()
-    for (const row of rows) {
-      const rk = routeKeyOf(row)
-      const existing = routeMap.get(rk)
-      if (existing) existing.push(row)
-      else routeMap.set(rk, [row])
-    }
-
-    const routes = Array.from(routeMap.entries()).map(([rk, routeRows]) =>
-      buildRoute(rk, routeRows)
-    )
+  for (const [canonicalKey, { rows }] of groups) {
+    const routes = rows.map(({ provider, model }) => buildRoute(provider, model))
+    // Ready endpoints first, then by label, so the default route is the usable one.
     routes.sort((a, b) => {
-      if (a.available !== b.available) return a.available ? -1 : 1
-      const pa = providerRank(a.provider)
-      const pb = providerRank(b.provider)
-      if (pa !== pb) return pa - pb
-      return a.providerLabel.localeCompare(b.providerLabel)
+      if (a.ready !== b.ready) return a.ready ? -1 : 1
+      return a.label.localeCompare(b.label)
     })
 
-    // Name the model after a native CLI's row before any gateway's, so the vendor's
-    // label ("Claude Sonnet 4.5") wins over a gateway slug whatever order rows arrive in.
-    const ranked = [...rows].sort(compareForNaming)
-    const preferredRow = ranked.find((row) => isSelectableForPairExecution(row)) ?? ranked[0]
-
+    // Name the model after a route that can actually run it.
+    const preferred = rows.find(({ provider }) => isReady(provider)) ?? rows[0]
     result.push({
       canonicalKey,
-      displayName: displayNameOf(preferredRow),
-      available: routes.some((route) => route.available),
+      displayName: preferred.model.displayName,
+      ready: routes.some((route) => route.ready),
       routes
     })
   }
 
   result.sort((a, b) => {
-    if (a.available !== b.available) return a.available ? -1 : 1
+    if (a.ready !== b.ready) return a.ready ? -1 : 1
     return a.displayName.localeCompare(b.displayName)
   })
   return result
 }
 
-/** The default route selection: medium when present, otherwise the provider default. */
-export function defaultLeafForRoute(route: ModelRoute): {
-  qualifiedId: string
+/** The default effort for a route: the model's own default, else `medium` when offered. */
+export function defaultLeafForRoute(route: EndpointRoute): {
+  modelId: string
   reasoningEffort?: string
 } {
-  if (route.effortOptions.length > 0) {
-    const medium = route.effortOptions.find((option) => option.value === 'medium')
-    if (!medium && route.effortOptions.every((option) => option.reasoningEffort !== undefined)) {
-      return { qualifiedId: route.baseQualifiedId, reasoningEffort: undefined }
-    }
-    const chosen = medium ?? route.effortOptions[0]
-    return { qualifiedId: chosen.qualifiedId, reasoningEffort: chosen.reasoningEffort }
-  }
-  return { qualifiedId: route.baseQualifiedId, reasoningEffort: undefined }
+  const effort = route.defaultEffort ?? (route.efforts.includes('medium') ? 'medium' : undefined)
+  return { modelId: route.modelId, reasoningEffort: effort }
 }
 
-function findSelection(
+/** The Rust resolver lower-cases both ids before comparing, so case alone never separates two ids. */
+function sameModelId(modelId: string, value: string): boolean {
+  return modelId.toLowerCase() === value.toLowerCase()
+}
+
+function findRoute(
   models: CanonicalModel[],
-  matches: (qualifiedId: string) => boolean,
+  matches: (modelId: string) => boolean,
   reasoningEffort?: string
 ): ResolvedSelection | undefined {
   for (const model of models) {
     for (const route of model.routes) {
-      if (route.effortOptions.length > 0) {
-        const exact = route.effortOptions.find(
-          (option) =>
-            matches(option.qualifiedId) &&
-            (option.reasoningEffort === undefined || option.reasoningEffort === reasoningEffort)
-        )
-        if (exact) return { model, route, effort: exact }
-        if (route.effortOptions.some((option) => matches(option.qualifiedId))) {
-          // Same model id, effort flag not matched yet (e.g. an unset Codex effort).
-          return { model, route, effort: undefined }
-        }
-      } else if (matches(route.baseQualifiedId)) {
-        return { model, route, effort: undefined }
-      }
+      if (!matches(route.modelId)) continue
+      // An effort the endpoint does not list is not a selection — the caller gets
+      // the route back and can fall back to the model's default.
+      const effort =
+        reasoningEffort !== undefined && route.efforts.includes(reasoningEffort)
+          ? { value: reasoningEffort }
+          : undefined
+      return { model, route, effort }
     }
   }
   return undefined
 }
 
 /**
- * Find which model / route / effort a stored (value, reasoningEffort) pair points at.
- * `value` is normally a qualified id; legacy bare ids stored by older builds
- * (`gpt-5` for `codex/gpt-5`) are matched when no qualified id does.
+ * Find which model / route / effort a stored (model, effort) pair points at.
+ * `value` is normally a plain model id; the qualified spelling older builds wrote
+ * (`codex/gpt-5`) is matched when no exact id does.
  */
 export function resolveSelection(
   models: CanonicalModel[],
@@ -262,12 +172,8 @@ export function resolveSelection(
   reasoningEffort?: string
 ): ResolvedSelection {
   return (
-    findSelection(models, (qualifiedId) => qualifiedId === value, reasoningEffort) ??
-    findSelection(
-      models,
-      (qualifiedId) => modelIdsEquivalent(qualifiedId, value),
-      reasoningEffort
-    ) ??
+    findRoute(models, (modelId) => sameModelId(modelId, value), reasoningEffort) ??
+    findRoute(models, (modelId) => modelIdsEquivalent(modelId, value), reasoningEffort) ??
     {}
   )
 }
@@ -294,16 +200,19 @@ export function saveLastRouteKey(role: AgentRole, canonicalKey: string, routeKey
   }
 }
 
-/** The route to pre-select for a model: last-used for this role, else preference order. */
-export function pickDefaultRoute(model: CanonicalModel, role: AgentRole): ModelRoute | undefined {
-  if (model.routes.length === 0) return undefined
+/** The route to pre-select for a model: last-used for this role, else the first usable one. */
+export function pickDefaultRoute(
+  model: CanonicalModel,
+  role: AgentRole
+): EndpointRoute | undefined {
   const lastKey = getLastRouteKey(role, model.canonicalKey)
   if (lastKey) {
-    const remembered = model.routes.find((route) => route.key === lastKey && route.available)
+    const remembered = model.routes.find((route) => route.key === lastKey && route.ready)
     if (remembered) return remembered
   }
-  // routes are already sorted available-first, then by provider priority.
-  return model.routes.find((route) => route.available) ?? model.routes[0]
+  // routes are already sorted ready-first. Nothing ready means nothing usable:
+  // handing back an unauthenticated route would apply a model the pair cannot run.
+  return model.routes.find((route) => route.ready)
 }
 
 function fuzzyMatch(text: string, normalizedQuery: string): boolean {
@@ -315,45 +224,50 @@ function fuzzyMatch(text: string, normalizedQuery: string): boolean {
   return qi === normalizedQuery.length
 }
 
-/** Subsequence-fuzzy match a query against a model's name and its routes' labels/ids. */
+/** Subsequence-fuzzy match a query against a model's name and its endpoints' labels/ids. */
 export function modelMatchesQuery(model: CanonicalModel, query: string): boolean {
   const normalized = query.toLowerCase().replace(/[\s._-]/g, '')
   if (normalized.length === 0) return true
   if (fuzzyMatch(model.displayName, normalized)) return true
   return model.routes.some(
     (route) =>
-      fuzzyMatch(route.providerLabel, normalized) ||
-      fuzzyMatch(route.accessLabel, normalized) ||
-      fuzzyMatch(route.baseQualifiedId, normalized)
+      fuzzyMatch(route.label, normalized) ||
+      fuzzyMatch(route.vendor, normalized) ||
+      fuzzyMatch(route.modelId, normalized)
   )
 }
 
-/** An agent CLI and the selectable models it can run — step one of the picker. */
-export interface AgentOption {
-  kind: ProviderKind
-  label: string
-  models: AvailableModel[]
-}
-
-/** Group models by the agent CLI that runs them, in route-preference order. */
-export function groupModelsByAgent(models: AvailableModel[]): AgentOption[] {
-  const byKind = new Map<ProviderKind, AgentOption>()
-  for (const model of models) {
-    const existing = byKind.get(model.provider)
-    if (existing) existing.models.push(model)
+/** The registry endpoints, grouped by vendor, ready ones first. */
+export function groupEndpoints(providers: ProviderView[]): EndpointGroup[] {
+  const groups = new Map<string, EndpointGroup>()
+  for (const provider of [...providers].sort(byReadiness)) {
+    const option: EndpointOption = {
+      key: provider.id,
+      label: provider.displayName,
+      vendor: provider.vendor,
+      baseUrl: provider.baseUrl,
+      ready: isReady(provider),
+      models: provider.models
+    }
+    const existing = groups.get(provider.vendor)
+    if (existing) existing.endpoints.push(option)
     else
-      byKind.set(model.provider, {
-        kind: model.provider,
-        label: model.providerLabel,
-        models: [model]
+      groups.set(provider.vendor, {
+        vendor: provider.vendor,
+        label: option.label,
+        endpoints: [option]
       })
   }
-  return Array.from(byKind.values()).sort(
-    (a, b) => providerRank(a.kind) - providerRank(b.kind) || a.label.localeCompare(b.label)
-  )
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const readyA = a.endpoints.some((endpoint) => endpoint.ready)
+    const readyB = b.endpoints.some((endpoint) => endpoint.ready)
+    if (readyA !== readyB) return readyA ? -1 : 1
+    return a.label.localeCompare(b.label)
+  })
 }
 
-/** The vendor brand behind a canonical model ("anthropic" for "anthropic::claude-…"). */
+/** The vendor brand behind a canonical model ("anthropic" for "anthropic::…"). */
 export function modelVendorKey(canonicalKey: string): string {
   return canonicalKey.split('::')[0] ?? ''
 }

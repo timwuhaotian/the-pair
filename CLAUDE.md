@@ -11,18 +11,18 @@ The Pair is a Tauri 2 desktop app (Rust backend, React 19 + TypeScript frontend)
 - **Mentor** — read-only planner/reviewer
 - **Executor** — code writer / command runner
 
-The Rust backend spawns local provider CLIs (`opencode`, `claude`, `codex`, `gemini`, `kimi`, `pi`, `kiro`, `aider`, `grok`, `muse`), parses their JSON event streams, runs a turn-based state machine, monitors process resources, and tracks git changes. The React frontend renders the conversation, status, and controls.
+The Rust backend talks to model endpoints directly over HTTP — no agent CLI is spawned. It streams each reply, runs the tools the model asks for (`read`, `write`, `edit`, `bash`, `grep`, `glob`, `todo_write`) inside the pair's workspace, runs a turn-based state machine, and tracks git changes. The React frontend renders the conversation, status, and controls.
 
 ## Commands
 
 ```bash
 # Setup
 npm install
-npm run preflight              # Verify rust/node/CLI tools are present
+npm run preflight              # Verify the rust/node toolchain is present
 
 # Dev (runs Tauri shell + Vite renderer on :5173)
 npm run dev                    # Uses scripts/run-with-rustup.mjs to inject PATH
-npm run dev:mock               # Same, with THE_PAIR_E2E_MOCK=true (no real CLI spawns)
+npm run dev:mock               # Same, with THE_PAIR_E2E_MOCK=true (canned turns, no real model calls)
 npm run dev:renderer           # Renderer-only (browser at :5173, no Tauri APIs)
 
 # Quality gates (run before committing)
@@ -72,11 +72,15 @@ src-tauri/src/             Rust backend (see AGENTS.md for the full module table
   lib.rs                   Registers every Tauri command in invoke_handler![]
   pair_manager.rs          Pair CRUD + task assignment
   message_broker.rs        Turn-coordination state machine
-  process_spawner.rs       Spawns provider CLIs, parses JSON event streams
-  provider_adapter.rs      Per-provider Input/Output/Session/Permission/Cwd strategies
-  provider_registry.rs     Detect installed CLIs + their model catalogs
+  harness/                 One turn end to end: driver.rs (TurnDriver, cancellation), turn.rs
+                           (model/tool loop), resolve.rs (model id → endpoint), history.rs
+  llm/                     Streaming clients per wire protocol (OpenAI Chat, Anthropic,
+                           Responses, Command Code) with retries
+  tools/                   The agent's tools: files, edit, bash, search (grep/glob), todo
+  accounts/                Credential registry (credentials.json), presets, Tauri commands
+  login/                   In-app sign-in flows (ChatGPT, Command Code, OpenCode Go, Muse)
+  sources/                 Importers that read credentials from other tools' configs and env
   session_snapshot.rs      Persist/restore full pair state
-  resource_monitor.rs      Per-agent CPU/memory polling
   git_tracker.rs           Diff vs baseline commit
   recent_activity.rs       Recent activity feed shown on the dashboard
 
@@ -102,9 +106,9 @@ Always go through `src/renderer/src/lib/tauri-api.ts`, which wraps `invoke()` fr
 
 Pairs hit an `iteration_limit` and pause for human review rather than running unbounded. `src/renderer/src/lib/handoffGuard.ts` prevents duplicate handoff events firing after a pair finishes — keep using it when adding new transition logic.
 
-### Provider support
+### Model endpoints
 
-Ten kinds: `opencode`, `codex` (OpenAI), `claude` (Claude Code), `gemini`, `kimi` (Kimi Code CLI), `pi`, `kiro`, `aider`, `grok` (xAI Grok Build CLI), `muse` (Meta Muse Code CLI). Each has its own transport / session / permission / cwd strategy in `provider_adapter.rs`, implemented as a `Provider` impl under `src-tauri/src/providers/`. Detection logic and model catalogs live in `provider_registry.rs` and `model_catalog.rs`. When adding provider features, update both.
+A pair's mentor and executor each store a model id. `harness/resolve.rs` maps it onto a registry selection — an endpoint, an account and the endpoint's own spelling of the id — preferring the endpoint the model was picked under, and a role keeps its endpoint across handoffs while that endpoint can still run the model. Endpoints and credentials live in the registry (`accounts/`), filled by the importers in `sources/`, the sign-in flows in `login/`, or by hand in the Models section. Each endpoint speaks one of four wire protocols, implemented under `llm/`. When adding a model, update `accounts/presets.rs`; when adding a protocol, add a module under `llm/` and a `Protocol` variant in `accounts/types.rs`.
 
 ## Conventions
 
@@ -117,7 +121,7 @@ Ten kinds: `opencode`, `codex` (OpenAI), `claude` (Claude Code), `gemini`, `kimi
 
 ## Mock mode
 
-Set `THE_PAIR_E2E_MOCK=true` (e.g. via `npm run dev:mock`) to short-circuit real CLI process spawning. `THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke` seeds a richer mock dataset. This is the path used by e2e specs and is useful when iterating on UI without provider CLIs installed.
+Set `THE_PAIR_E2E_MOCK=true` (e.g. via `npm run dev:mock`) to replay canned turns instead of calling a model; the registry also gains two mock endpoints, so a pair can be created with no credential on the machine. `THE_PAIR_E2E_MOCK_SCENARIO=dev-smoke` seeds a richer mock dataset. This is the path used by e2e specs and is useful when iterating on UI without an API key.
 
 ## Releases — DO NOT push tags manually
 

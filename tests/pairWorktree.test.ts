@@ -18,7 +18,6 @@ import {
   type Message,
   type Pair
 } from '../src/renderer/src/store/usePairStore.ts'
-import type { AvailableModel } from '../src/renderer/src/types.ts'
 
 type Callback = (payload: unknown) => void
 
@@ -102,8 +101,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     status: 'Finished',
     iterations: 5,
     maxIterations: 10,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: 'first task',
     mentorProvider: 'claude',
     mentorModel: 'claude/sonnet',
@@ -112,10 +109,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     messages: [message('m1', 'mentor', 2_000)],
     mentorActivity: activity('Mentor idle'),
     executorActivity: activity('Executor idle'),
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: [],
     gitTracking: { available: false },
     automationMode: 'full-auto',
@@ -132,19 +125,26 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
   }
 }
 
-const grokAlias: AvailableModel = {
-  provider: 'grok',
-  modelId: 'fast',
-  displayName: 'fast',
-  available: true,
-  providerLabel: 'Grok Build',
-  sourceProviderLabel: 'xAI',
-  billingKind: 'byok',
-  billingLabel: '',
-  accessLabel: '',
-  availabilityStatus: 'ready',
-  supportsPairExecution: true,
-  recommendedRoles: ['mentor', 'executor']
+/** One registry endpoint listing the `fast` alias, so a pair can resolve it. */
+const grokAlias = {
+  id: 'xai-1',
+  protocol: 'openaiChat',
+  baseUrl: 'https://api.x.ai/v1',
+  vendor: 'xai',
+  displayName: 'xAI',
+  readyAccountCount: 1,
+  accounts: [
+    {
+      id: 'xai-1-a',
+      kind: 'apiKey',
+      label: 'xai',
+      source: 'manual',
+      status: 'ready',
+      headers: [],
+      hasSecret: true
+    }
+  ],
+  models: [{ id: 'fast', displayName: 'fast', efforts: [], source: 'manual' }]
 }
 
 function reset(pairs: Pair[]): void {
@@ -155,7 +155,7 @@ function reset(pairs: Pair[]): void {
   api.createImpl = async () => ({ pairId: 'created' })
   usePairStore.setState({
     pairs,
-    availableModels: [grokAlias],
+    providers: [grokAlias],
     isLoading: false,
     error: null,
     modelsError: null,

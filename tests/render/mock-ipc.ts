@@ -73,6 +73,92 @@ const models = [
   }
 ]
 
+/**
+ * Registry state for the models section. `candidates` is what `accounts_scan`
+ * answers; `providers` is what the registry holds.
+ */
+export const registry = {
+  providers: [
+    {
+      id: 'anthropic-1',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      vendor: 'anthropic',
+      displayName: 'Anthropic',
+      readyAccountCount: 1,
+      accounts: [
+        {
+          id: 'anthropic-1-a',
+          kind: 'apiKey',
+          label: 'ANTHROPIC_API_KEY',
+          source: 'claude',
+          status: 'ready',
+          headers: [],
+          hasSecret: true,
+          maskedSecret: 'sk-ant…mnop'
+        }
+      ],
+      models: [
+        {
+          id: 'claude-sonnet-4-5-20250929',
+          displayName: 'Claude Sonnet 4.5',
+          contextWindow: 200000,
+          maxOutput: 64000,
+          efforts: [],
+          source: 'preset'
+        }
+      ]
+    },
+    {
+      id: 'openai-1',
+      protocol: 'responses',
+      baseUrl: 'https://api.openai.com/v1',
+      vendor: 'openai',
+      displayName: 'OpenAI',
+      readyAccountCount: 0,
+      accounts: [],
+      models: []
+    }
+  ],
+  candidates: [
+    {
+      sourceId: 'kimi',
+      sourceName: 'Kimi Code',
+      configPath: '/home/dev/.kimi-code/config.toml',
+      accountCount: 1,
+      newProviderCount: 1,
+      notes: [],
+      providers: [
+        {
+          protocol: 'openaiChat',
+          baseUrl: 'https://api.moonshot.cn/v1',
+          vendor: 'moonshot',
+          displayName: 'Moonshot (Kimi Code)',
+          alreadyImported: false,
+          models: [],
+          accounts: [
+            {
+              kind: 'apiKey',
+              label: 'moonshot',
+              source: 'kimi',
+              status: 'ready',
+              maskedSecret: 'sk-ki…abcd',
+              headers: []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  loginServices: [
+    { id: 'chatgpt', displayName: 'ChatGPT', needsBrowser: true, needsKey: false },
+    { id: 'commandcode', displayName: 'Command Code', needsBrowser: true, needsKey: true },
+    { id: 'opencode-go', displayName: 'OpenCode Go', needsBrowser: false, needsKey: true },
+    { id: 'muse', displayName: 'Muse Code', needsBrowser: false, needsKey: true }
+  ],
+  calls: [] as Array<{ cmd: string; args: unknown }>
+}
+
 export interface MockState {
   repo: MockRepoState
   /** When true, repo_check_state rejects (unreadable repository). */
@@ -112,6 +198,28 @@ mockIPC((cmd, args) => {
       if ('error' in result) throw new Error(result.error)
       return result
     }
+    case 'accounts_list':
+      return registry.providers
+    case 'accounts_scan':
+      registry.calls.push({ cmd, args })
+      return registry.candidates
+    case 'accounts_commit_import':
+      registry.calls.push({ cmd, args })
+      return registry.providers
+    case 'accounts_login_services':
+      return registry.loginServices
+    case 'accounts_launch_oauth':
+      registry.calls.push({ cmd, args })
+      return 'session-1'
+    case 'accounts_oauth_status':
+      return { state: 'waiting', service: 'chatgpt', waitingMs: 1200 }
+    case 'accounts_cancel_oauth':
+      return undefined
+    case 'accounts_add_provider':
+    case 'accounts_set_account_key':
+    case 'accounts_delete_account':
+      registry.calls.push({ cmd, args })
+      return registry.providers
     case 'config_get_cached_models':
     case 'config_get_models':
       return models

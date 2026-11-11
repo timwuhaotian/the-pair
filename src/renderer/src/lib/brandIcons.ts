@@ -1,9 +1,7 @@
-import type { ProviderKind } from '../types'
-
 /**
- * Brand marks for agent CLIs and model vendors, inlined so the picker needs no
- * network or asset pipeline. Source: lobehub/lobe-icons (MIT). Gradient ids
- * carry `__UID__`, which BrandIcon swaps for a per-instance id.
+ * Brand marks for model vendors and the CLIs they were imported from, inlined so
+ * the picker needs no network or asset pipeline. Source: lobehub/lobe-icons (MIT).
+ * Gradient ids carry `__UID__`, which BrandIcon swaps for a per-instance id.
  */
 export interface BrandIconData {
   fill?: string
@@ -70,18 +68,6 @@ export const BRAND_ICONS = {
     markup:
       '<path d="M18.654 3.87a5.087 5.087 0 110 10.174L23.7 19.09c.64.641.187 1.737-.72 1.737H8.48a8.479 8.479 0 010-16.958h10.175zM8.479 7.26a5.087 5.087 0 100 10.176 5.087 5.087 0 000-10.175z"></path>'
   },
-  claudecode: {
-    markup:
-      '<path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z" fill="#D97757" fill-rule="evenodd"></path>'
-  },
-  codex: {
-    markup:
-      '<path d="M19.503 0H4.496A4.496 4.496 0 000 4.496v15.007A4.496 4.496 0 004.496 24h15.007A4.496 4.496 0 0024 19.503V4.496A4.496 4.496 0 0019.503 0z" fill="#fff"></path><path d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z" fill="url(#lobe-icons-codex-__UID__)"></path><defs><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-codex-__UID__" x1="12" x2="12" y1="3" y2="21"><stop stop-color="#B1A7FF"></stop><stop offset=".5" stop-color="#7A9DFF"></stop><stop offset="1" stop-color="#3941FF"></stop></linearGradient></defs>'
-  },
-  geminicli: {
-    markup:
-      '<path d="M0 4.391A4.391 4.391 0 014.391 0h15.217A4.391 4.391 0 0124 4.391v15.217A4.391 4.391 0 0119.608 24H4.391A4.391 4.391 0 010 19.608V4.391z" fill="url(#lobe-icons-gemini-cli-__UID__)"></path><path clip-rule="evenodd" d="M19.74 1.444a2.816 2.816 0 012.816 2.816v15.48a2.816 2.816 0 01-2.816 2.816H4.26a2.816 2.816 0 01-2.816-2.816V4.26A2.816 2.816 0 014.26 1.444h15.48zM7.236 8.564l7.752 3.728-7.752 3.727v2.802l9.557-4.596v-3.866L7.236 5.763v2.801z" fill="#1E1E2E" fill-rule="evenodd"></path><defs><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-gemini-cli-__UID__" x1="24" x2="0" y1="6.587" y2="16.494"><stop stop-color="#EE4D5D"></stop><stop offset=".328" stop-color="#B381DD"></stop><stop offset=".476" stop-color="#207CFE"></stop></linearGradient></defs>'
-  },
   opencode: {
     fill: 'currentColor',
     fillRule: 'evenodd',
@@ -92,10 +78,6 @@ export const BRAND_ICONS = {
     fillRule: 'evenodd',
     markup:
       '<path clip-rule="evenodd" d="M1 1h16.5v11H12v5.5H6.5V23H1V1zm5.5 5.5V12H12V6.5H6.5z"></path><path d="M17.5 12H23v11h-5.5V12z"></path>'
-  },
-  kiro: {
-    markup:
-      '<path d="M18.8 0H5.2A5.2 5.2 0 000 5.2v13.6A5.2 5.2 0 005.2 24h13.6a5.2 5.2 0 005.2-5.2V5.2A5.2 5.2 0 0018.8 0z" fill="#9046FF"></path><path d="M7.97 16.376c-1.644 3.642 1.86 4.556 4.443 2.424.76 2.39 3.608.607 4.631-1.247 2.251-4.084 1.342-8.249 1.108-9.108-1.6-5.859-9.6-5.869-10.976.03-.323 1.033-.328 2.206-.507 3.423-.09.617-.16 1.009-.393 1.655-.139.373-.323.7-.62 1.257-.458.865-.264 2.53 2.101 1.665l.224-.1h-.01l-.001.001z" fill="#fff"></path><path d="M12.722 10.985c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.218-.97a.61.61 0 01.537-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005zm2.703 0c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.219-.97a.61.61 0 01.536-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005z" fill="#000"></path>'
   },
   grok: {
     fill: 'currentColor',
@@ -111,21 +93,6 @@ export const BRAND_ICONS = {
 } satisfies Record<string, BrandIconData>
 
 export type BrandIconKey = keyof typeof BRAND_ICONS
-
-// Typed over ProviderKind so a new agent fails to compile until it is mapped.
-// `null` = no published mark; BrandIcon draws a monogram instead.
-const AGENT_ICONS: Record<ProviderKind, BrandIconKey | null> = {
-  claude: 'claudecode',
-  codex: 'codex',
-  gemini: 'geminicli',
-  opencode: 'opencode',
-  kimi: 'kimi',
-  pi: 'pi',
-  kiro: 'kiro',
-  aider: null,
-  grok: 'grok',
-  muse: 'muse'
-}
 
 // Vendor keys are the brand half of a model's canonical key ("anthropic::…"),
 // or a gateway's lower-cased source label; non-alphanumerics are stripped first.
@@ -154,12 +121,7 @@ const VENDOR_ICONS: Record<string, BrandIconKey> = {
   openrouter: 'openrouter',
   opencode: 'opencode',
   pi: 'pi',
-  kiro: 'kiro',
   muse: 'muse'
-}
-
-export function agentIconKey(kind: ProviderKind): BrandIconKey | undefined {
-  return AGENT_ICONS[kind] ?? undefined
 }
 
 export function vendorIconKey(vendor: string): BrandIconKey | undefined {

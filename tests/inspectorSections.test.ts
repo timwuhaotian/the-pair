@@ -44,8 +44,8 @@ test('InspectorSection exports a collapsible section primitive', () => {
   assert.match(section, /inspector-section-/)
 })
 
-test('inspector groups models, run state, resources, files, history, timeline', () => {
-  for (const id of ['models', 'run-state', 'resources', 'files', 'history', 'timeline']) {
+test('inspector groups models, run state, usage, files, history, timeline', () => {
+  for (const id of ['models', 'run-state', 'usage', 'files', 'history', 'timeline']) {
     assert.match(panel, new RegExp(`id="${id}"`), `missing section ${id}`)
   }
   assert.match(panel, /<InspectorSection/)

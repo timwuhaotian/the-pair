@@ -1,4 +1,4 @@
-import type { AvailableModel } from '../types'
+import type { ModelRoute, ProviderView } from '../types'
 import { modelMatchesId } from './providerResolution'
 import { ordinaryModelChoices } from './minimaxModelChoices'
 
@@ -7,15 +7,13 @@ const PREFERRED_MODEL_KEYS = {
   executor: 'the-pair-preferred-executor-model'
 } as const
 
-export function isSelectableForPairExecution(model: AvailableModel): boolean {
-  return model.available && model.supportsPairExecution
+/** An endpoint a pair can run models on: at least one ready account, and something to run. */
+export function isSelectableForPairExecution(provider: ProviderView): boolean {
+  return provider.readyAccountCount > 0 && provider.models.length > 0
 }
 
-export function getQualifiedModel(model: AvailableModel): string {
-  if (model.provider === 'opencode') {
-    return model.modelId
-  }
-  return `${model.provider}/${model.modelId}`
+function selectableModels(providers: ProviderView[]): ModelRoute[] {
+  return providers.filter(isSelectableForPairExecution).flatMap((provider) => provider.models)
 }
 
 export function savePreferredModelId(role: 'mentor' | 'executor', modelId: string): void {
@@ -34,30 +32,26 @@ export function getPreferredModelId(role: 'mentor' | 'executor'): string {
   }
 }
 
-export function getPreferredQualifiedModel(
+/**
+ * The model id to pre-select for a role: the remembered choice when the registry
+ * still offers it, else the first default choice. Keys are unchanged from the
+ * agent-CLI builds, so a stored qualified id (`claude/sonnet`) still resolves and
+ * is rewritten to its plain spelling on the way through.
+ */
+export function resolvePreferredModel(
   role: 'mentor' | 'executor',
-  models: AvailableModel[]
+  providers: ProviderView[]
 ): string {
+  const models = selectableModels(providers)
   const preferred = getPreferredModelId(role)
   if (preferred) {
-    // Exact qualified match first; a legacy bare id resolves to its qualified form.
-    const selectable = models.filter((model) => isSelectableForPairExecution(model))
-    const match =
-      selectable.find((model) => getQualifiedModel(model) === preferred) ??
-      selectable.find((model) => modelMatchesId(model, preferred))
-    if (match) return getQualifiedModel(match)
+    const match = models.find((model) => modelMatchesId(model, preferred))
+    if (match) {
+      if (match.id !== preferred) savePreferredModelId(role, match.id)
+      return match.id
+    }
   }
 
-  const [defaultEntry] = ordinaryModelChoices(models.filter(isSelectableForPairExecution))
-  return defaultEntry ? getQualifiedModel(defaultEntry) : ''
-}
-
-export function getPreferredPairModelSelection(models: AvailableModel[]): {
-  mentorModel: string
-  executorModel: string
-} {
-  return {
-    mentorModel: getPreferredQualifiedModel('mentor', models),
-    executorModel: getPreferredQualifiedModel('executor', models)
-  }
+  const [fallback] = ordinaryModelChoices(models)
+  return fallback ? fallback.id : ''
 }

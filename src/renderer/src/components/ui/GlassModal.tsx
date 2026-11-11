@@ -160,7 +160,12 @@ export function GlassModal({
               {title}
             </h2>
           )}
-          <IconButton aria-label="close" onClick={onClose} disabled={!dismissible}>
+          <IconButton
+            aria-label="close"
+            onClick={onClose}
+            disabled={!dismissible}
+            data-testid="modal-close"
+          >
             <X size={14} />
           </IconButton>
         </div>

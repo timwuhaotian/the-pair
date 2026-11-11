@@ -1,12 +1,13 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, Clock3, Layers } from 'lucide-react'
+import { BarChart3, Boxes, Clock3, Layers } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { activeTint, hoverTint } from '../lib/ui'
 import { usePairStore } from '../store/usePairStore'
+import { useModelStore } from '../store/useModelStore'
 import { isPairActive } from '../lib/pairStatus'
 
-export type ShellSection = 'pairs' | 'activity' | 'insights'
+export type ShellSection = 'pairs' | 'activity' | 'models' | 'insights'
 
 interface AppShellProps {
   section: ShellSection
@@ -18,16 +19,18 @@ interface AppShellProps {
 const SECTION_ICONS: Record<ShellSection, React.ReactNode> = {
   pairs: <Layers size={15} />,
   activity: <Clock3 size={15} />,
+  models: <Boxes size={15} />,
   insights: <BarChart3 size={15} />
 }
 
 const SECTION_LABEL_KEYS: Record<ShellSection, string> = {
   pairs: 'shell.pairs',
   activity: 'shell.activity',
+  models: 'shell.models',
   insights: 'shell.insights'
 }
 
-const SECTIONS: ShellSection[] = ['pairs', 'activity', 'insights']
+const SECTIONS: ShellSection[] = ['pairs', 'activity', 'models', 'insights']
 
 export function AppShell({
   section,
@@ -40,6 +43,12 @@ export function AppShell({
   const runningCount = pairs.filter((p) => isPairActive(p.status)).length
   const attentionCount = pairs.filter(
     (p) => p.status === 'Error' || p.status === 'Awaiting Human Review'
+  ).length
+  // Endpoints with no credential a pair could use: the Models section is where
+  // that gets fixed, so its badge counts what is still missing.
+  const providers = useModelStore((state) => state.providers)
+  const credentialGapCount = providers.filter(
+    (provider) => provider.readyAccountCount === 0 && provider.models.length > 0
   ).length
 
   return (
@@ -56,7 +65,8 @@ export function AppShell({
       >
         {SECTIONS.map((key) => {
           const isActive = section === key
-          const badge = key === 'pairs' ? runningCount : key === 'activity' ? null : null
+          const badge =
+            key === 'pairs' ? runningCount : key === 'models' ? credentialGapCount : null
           return (
             <button
               key={key}
@@ -88,7 +98,9 @@ export function AppShell({
               )}
               {!collapsed && badge !== null && badge > 0 && (
                 <span
-                  data-testid="shell-nav-running-badge"
+                  data-testid={
+                    key === 'models' ? 'shell-nav-credential-badge' : 'shell-nav-running-badge'
+                  }
                   className="shrink-0 rounded-full border border-state-running/50 bg-state-running/15 px-1.5 text-[10px] tabular-nums state-running"
                 >
                   {badge}

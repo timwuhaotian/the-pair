@@ -10,7 +10,7 @@ A Tauri 2 desktop app (macOS, Windows, Linux) whose UI is a React web view. The 
 
 ## Users
 
-Developers who already use AI coding CLIs (Claude Code, Codex, opencode, Gemini/Antigravity, Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code). The primary scene is **watching and steering live**: The Pair sits open beside the editor, the developer reads the Mentor and Executor as they work, and steps in by stopping a turn, sending feedback, approving or sending back a plan, or reassigning models.
+Developers who already work with AI coding tools and models, and who may already have endpoints configured inside another agent's install. The primary scene is **watching and steering live**: The Pair sits open beside the editor, the developer reads the Mentor and Executor as they work, and steps in by stopping a turn, sending feedback, approving or sending back a plan, or reassigning models.
 
 Hand-off-and-return ("grab a coffee") is a supported secondary workflow and part of the marketing story, but design decisions favor the live-steering scene first.
 
@@ -21,7 +21,7 @@ Run two AI coding agents against one task so they cross-check each other: a read
 ## Positioning
 
 - Two independent agents with separated roles (read-only reviewer plus writer), not one assistant reviewing itself.
-- Model-agnostic and local: it orchestrates the provider CLIs the user already has installed, and any agent can fill either role (for example Claude as Mentor and Codex as Executor).
+- Model-agnostic and local: it connects straight to model endpoints over HTTPS — importing endpoints and credentials from other agents' configs or adding them by hand — and any model can fill either role (for example Claude as Mentor and GPT as Executor).
 - Open source (Apache 2.0) and free. A terminal companion, Pair Code (`pair-code` on npm), covers terminal, script, and SSH workflows.
 
 ## Operating Context
@@ -29,16 +29,16 @@ Run two AI coding agents against one task so they cross-check each other: a read
 - Lives next to the code editor during a working session, often for long-running pairs.
 - Works in a local git repository: tracks modified files against a baseline commit, shows inline diffs, commits and pushes, and can run each task in a fresh worktree on an auto-named branch.
 - Turn loop: Idle → Mentoring → Executing → Reviewing → (loop | Finished | Paused | Awaiting Human Review | Error). An optional plan gate pauses after the Mentor's first plan for human approval. An optional per-pair iteration cap pauses for human review when reached; runs are unbounded by default.
-- Monitors per-agent CPU and memory, detects stalled turns, and restores full session state after a restart or crash.
+- Tracks per-role token usage, estimated cost and request counts, detects stalled turns, and restores full session state after a restart or crash.
 
 ## Capabilities and Constraints
 
-- Ten provider kinds, each with its own transport, session, permission, and working-directory strategy. Models are detected from installed CLIs; users pick an agent and then one of its models for each role.
+- A model registry of endpoints, each with a protocol (OpenAI Chat, Anthropic Messages, Responses, Gemini-compatible, Command Code), accounts and model routes. Endpoints are discovered by importing other agents' configs or added by hand; users pick an endpoint, then a model and a reasoning effort for each role.
 - Pair console: one transcript of task, plans, results, acceptance checks, human feedback, and live turn cards with tool-call and reasoning steps. Includes search, role filters, task history, and archived runs.
 - Acceptance: the Mentor runs checks (tests, lint, and so on) and returns a structured verdict (pass/fail, risk, evidence, next step).
 - Presets, skills (`/skill`), and file mentions (`@path`) attach context to tasks.
 - Fixed terminology, never renamed or paraphrased in any locale: **Pair**, **Mentor**, **Executor**. A "task" is what the user gives a pair; "acceptance" is the Mentor's check of the Executor's work; "plan review" is the human approval gate.
-- Mock mode (`THE_PAIR_E2E_MOCK=true`) runs the UI without real CLI processes.
+- Mock mode (`THE_PAIR_E2E_MOCK=true`) runs the UI without live model calls.
 
 ## Brand Commitments
 
@@ -60,7 +60,7 @@ Run two AI coding agents against one task so they cross-check each other: a read
 1. **The human steers.** Every automated step leaves a clear point to pause, stop, approve, or redirect, and the current state is always legible at a glance.
 2. **Show the work.** Agent reasoning, tool calls, checks, and verdicts are surfaced plainly so the developer can trust or challenge them.
 3. **Roles stay distinct.** Mentor and Executor are always visually and verbally distinguishable; the separation is the product.
-4. **Bring your own models.** No provider is privileged; any installed agent can fill either role.
+4. **Bring your own models.** No endpoint is privileged; any model you connect can fill either role.
 5. **Local and recoverable.** Work stays on the user's machine and in their git history, and sessions survive interruption.
 
 ## Accessibility & Inclusion

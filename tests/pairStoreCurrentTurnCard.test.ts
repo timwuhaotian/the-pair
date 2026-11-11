@@ -47,8 +47,6 @@ function makePair(messages: Message[]): Pair {
     status: 'Reviewing',
     iterations: 2,
     maxIterations: 10,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: 'test task',
     mentorProvider: 'claude',
     mentorModel: 'claude/sonnet',
@@ -57,10 +55,6 @@ function makePair(messages: Message[]): Pair {
     messages,
     mentorActivity: activity('idle', 'Mentor idle'),
     executorActivity: activity('idle', 'Executor idle'),
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: [],
     gitTracking: { available: false },
     automationMode: 'full-auto',
@@ -79,7 +73,7 @@ test('syncFullState shows a new mentor live card after a prior mentor acceptance
 
   usePairStore.setState({
     pairs: [makePair(messages)],
-    availableModels: [],
+    providers: [],
     isLoading: false,
     error: null,
     viewingRunId: null,
@@ -124,7 +118,7 @@ test('message events do not archive progress-only cards as real console messages
 
   usePairStore.setState({
     pairs: [makePair([])],
-    availableModels: [],
+    providers: [],
     isLoading: false,
     error: null,
     viewingRunId: null,
@@ -176,7 +170,7 @@ test('switching roles clears progress-only cards instead of archiving them', () 
 
   usePairStore.setState({
     pairs: [makePair([])],
-    availableModels: [],
+    providers: [],
     isLoading: false,
     error: null,
     viewingRunId: null,

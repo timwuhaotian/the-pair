@@ -128,9 +128,6 @@ function PresetPopover({
                   · {t('pickers.presetAutoPause', { count: preset.pauseOnIteration })}
                 </div>
               )}
-              {preset.autoAttachGitBaseline && (
-                <div className="text-muted-foreground">· {t('pickers.presetGitBaseline')}</div>
-              )}
             </div>
           </div>,
           document.body

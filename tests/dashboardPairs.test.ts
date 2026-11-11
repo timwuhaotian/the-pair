@@ -16,8 +16,6 @@ function pair(status: Pair['status'], overrides: Partial<Pair> = {}): Pair {
     status,
     iterations: overrides.iterations ?? 0,
     maxIterations: overrides.maxIterations ?? 6,
-    cpuUsage: overrides.cpuUsage ?? 0,
-    memUsage: overrides.memUsage ?? 0,
     spec: '',
     mentorProvider: 'codex',
     mentorModel: 'codex',
@@ -36,10 +34,6 @@ function pair(status: Pair['status'], overrides: Partial<Pair> = {}): Pair {
       startedAt: 1,
       updatedAt: 1
     },
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: overrides.modifiedFiles ?? [],
     gitTracking: { available: false },
     automationMode: 'full-auto',
@@ -105,16 +99,13 @@ test('buildWorkspaceGroups shortens Windows paths to the folder name', () => {
 test('buildPairInsights summarizes useful dashboard context', () => {
   const insights = buildPairInsights([
     pair('Error', {
-      cpuUsage: 11.4,
-      memUsage: 120,
       modifiedFiles: [{ path: 'a', status: 'M', displayPath: 'a' }]
     }),
-    pair('Mentoring', { cpuUsage: 3.1, memUsage: 80 })
+    pair('Mentoring', {})
   ])
 
   assert.equal(insights.needsAttention, 1)
   assert.equal(insights.running, 1)
   assert.equal(insights.modifiedFiles, 1)
-  assert.equal(insights.cpuUsage, 14.5)
-  assert.equal(insights.memUsage, 200)
+  assert.equal(insights.workspaceCount, 1)
 })

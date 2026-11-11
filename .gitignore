@@ -12,3 +12,6 @@ IDEAS.md
 # test coverage output
 coverage/
 test-results/
+
+# TypeScript incremental build state
+*.tsbuildinfo

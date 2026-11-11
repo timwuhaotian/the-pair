@@ -376,7 +376,7 @@ test('transactional: no backend mutation when no overrides (safe on failure)', (
   // No rollback needed because we never mutated backend state
 })
 
-test('payload: buildUpdateModelsPayload strips only self-identifying provider prefixes', () => {
+test('payload: buildUpdateModelsPayload normalises legacy provider prefixes', () => {
   const pair: PairLike = {
     mentorModel: 'default-mentor',
     executorModel: 'default-executor'
@@ -394,14 +394,14 @@ test('payload: buildUpdateModelsPayload strips only self-identifying provider pr
   )
   assert.equal(payload.pendingExecutorModel, 'gemini-2.5-pro', 'gemini prefix should be stripped')
 
-  // Codex/Grok/Muse ids can be keyword-free (`codex-mini-latest`, grok aliases, the Muse
-  // settings model): stripping them made the backend re-infer OpenCode.
+  // Codex/Grok/Muse no longer need their qualifier to survive: the registry
+  // resolves a plain id onto an endpoint, so it is normalised too.
   const kept = buildUpdateModelsPayload(pair, {
     mentorModel: 'codex/codex-mini-latest',
-    executorModel: 'grok/fast'
+    executorModel: 'grok:fast'
   })
-  assert.equal(kept.pendingMentorModel, 'codex/codex-mini-latest')
-  assert.equal(kept.pendingExecutorModel, 'grok/fast')
+  assert.equal(kept.pendingMentorModel, 'codex-mini-latest')
+  assert.equal(kept.pendingExecutorModel, 'fast')
 })
 
 test('payload: buildUpdateModelsPayload carries the current reasoning efforts', () => {

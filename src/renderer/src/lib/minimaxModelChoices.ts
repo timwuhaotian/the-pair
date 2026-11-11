@@ -1,4 +1,4 @@
-import type { AvailableModel } from '../types'
+import type { ModelSource } from '../types'
 
 /** Only classify known text IDs; custom aliases and media models keep their place. */
 function textModelId(modelId: string): string | undefined {
@@ -22,11 +22,24 @@ function textModelId(modelId: string): string | undefined {
     : undefined
 }
 
-export function isOrdinaryModelChoice(model: AvailableModel): boolean {
-  // The registry marks explicitly configured OpenCode models before merging discovery.
-  if (model.planLabel === 'custom-provider' || !['opencode', 'pi'].includes(model.provider))
-    return true
-  const id = textModelId(model.modelId)
+/** The slice of a registry model row the MiniMax heuristics read. */
+export interface ModelChoice {
+  id: string
+  source: ModelSource
+}
+
+/**
+ * Rows imported from an agent config are the only ones whose MiniMax slots need
+ * curating — that is where several generations of the same text model sit side by
+ * side. Presets, endpoint discovery and hand-added providers are left untouched.
+ */
+function isImportedChoice(model: ModelChoice): boolean {
+  return model.source === 'imported'
+}
+
+export function isOrdinaryModelChoice(model: ModelChoice): boolean {
+  if (!isImportedChoice(model)) return true
+  const id = textModelId(model.id)
   return (
     id === undefined ||
     /^minimax-m3(?::[a-z]+)?$/.test(id) ||
@@ -49,16 +62,11 @@ export function preferMiniMaxFlash<T>(models: T[], modelId: (model: T) => string
   return models.map((model) => (isText(model) ? textModels[index++] : model))
 }
 
-export function ordinaryModelChoices(models: AvailableModel[]): AvailableModel[] {
-  const ordered = preferMiniMaxFlash(models, (model) =>
-    model.planLabel === 'custom-provider' || !['opencode', 'pi'].includes(model.provider)
-      ? ''
-      : model.modelId
-  )
+export function ordinaryModelChoices<T extends ModelChoice>(models: T[]): T[] {
+  const ordered = preferMiniMaxFlash(models, (model) => (isImportedChoice(model) ? model.id : ''))
   const hasCurrentTextChoice = models.some((model) => {
-    if (model.planLabel === 'custom-provider' || !['opencode', 'pi'].includes(model.provider))
-      return false
-    const id = textModelId(model.modelId)
+    if (!isImportedChoice(model)) return false
+    const id = textModelId(model.id)
     return (
       id !== undefined &&
       (/^minimax-m3(?::[a-z]+)?$/.test(id) || /^minimax-m3\.1-flash(?:-free|:free)?$/.test(id))

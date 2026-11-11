@@ -15,7 +15,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import i18n from '../../src/renderer/src/i18n.ts'
 import PairOperationsPanel from '../../src/renderer/src/components/PairOperationsPanel.tsx'
 import { InspectorSection } from '../../src/renderer/src/components/inspector/InspectorSection.tsx'
-import type { Pair } from '../../src/renderer/src/store/usePairStore.ts'
+import { usePairStore, type Pair } from '../../src/renderer/src/store/usePairStore.ts'
 import { commitPush } from './mock-ipc.ts'
 import { assertAbsent } from './assert-dom.ts'
 
@@ -32,12 +32,8 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     status: 'Finished',
     iterations: 3,
     maxIterations: 0,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: 'some task',
-    mentorProvider: 'grok',
     mentorModel: 'grok:fast',
-    executorProvider: 'grok',
     executorModel: 'grok:fast',
     messages: [],
     mentorActivity: {
@@ -54,10 +50,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
       updatedAt: 1_000,
       outputLineCount: 0
     },
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: [{ path: 'src/a.ts', displayPath: 'src/a.ts', status: 'M' }],
     gitTracking: { available: true },
     automationMode: 'full-auto',
@@ -255,4 +247,127 @@ test('Inspector: timeline section exposes export actions in its header', async (
   )
   unmount()
   cleanup()
+})
+
+test('Inspector: usage section reports tokens, cost, requests and last output', () => {
+  setLocale()
+  usePairStore.setState({
+    providers: [
+      {
+        id: 'anthropic-1',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        vendor: 'anthropic',
+        displayName: 'Anthropic',
+        readyAccountCount: 1,
+        accounts: [],
+        models: [
+          {
+            id: 'claude-sonnet-4-5-20250929',
+            displayName: 'Claude Sonnet 4.5',
+            efforts: [],
+            source: 'preset',
+            price: { inputPerMillion: 3, outputPerMillion: 15 }
+          }
+        ]
+      },
+      {
+        id: 'openai-1',
+        protocol: 'responses',
+        baseUrl: 'https://api.openai.com/v1',
+        vendor: 'openai',
+        displayName: 'OpenAI',
+        readyAccountCount: 0,
+        accounts: [],
+        models: [{ id: 'gpt-5', displayName: 'GPT-5', efforts: [], source: 'preset' }]
+      }
+    ]
+  })
+
+  const now = Date.now()
+  renderPanel(
+    makePair({
+      mentorModel: 'claude-sonnet-4-5-20250929',
+      executorModel: 'gpt-5',
+      mentorActivity: {
+        phase: 'responding',
+        label: 'Mentor responding',
+        startedAt: now - 5_000,
+        updatedAt: now,
+        lastOutputAt: now - 120_000,
+        outputLineCount: 3
+      },
+      messages: [
+        {
+          id: 'm1',
+          from: 'mentor',
+          to: 'executor',
+          type: 'plan',
+          content: 'plan',
+          timestamp: now - 4_000,
+          iteration: 1,
+          tokenUsage: {
+            outputTokens: 1_000_000,
+            inputTokens: 1_000_000,
+            lastUpdatedAt: now - 4_000,
+            source: 'final'
+          }
+        },
+        {
+          id: 'm2',
+          from: 'mentor',
+          to: 'executor',
+          type: 'feedback',
+          content: 'feedback',
+          timestamp: now - 3_000,
+          iteration: 1,
+          tokenUsage: { outputTokens: 10, lastUpdatedAt: now - 3_000, source: 'final' }
+        },
+        {
+          id: 'm3',
+          from: 'executor',
+          to: 'mentor',
+          type: 'result',
+          content: 'result',
+          timestamp: now - 2_000,
+          iteration: 1,
+          tokenUsage: { outputTokens: 500, lastUpdatedAt: now - 2_000, source: 'final' }
+        }
+      ]
+    })
+  )
+
+  fireEvent.click(screen.getByTestId('inspector-toggle-usage'))
+
+  const mentor = screen.getByTestId('ops-usage-mentor')
+  // Turn tokens come from the role's newest live message, then the run's sums.
+  assert.match(mentor.textContent ?? '', /in 0 · out 10/)
+  assert.match(mentor.textContent ?? '', /in 1,000,000 · out 1,000,010/)
+  // 1M in at $3/M + 1,000,010 out at $15/M.
+  assert.match(mentor.textContent ?? '', /\$18\.00/)
+  // Two turns reported usage; the last stream line was two minutes ago.
+  assert.match(mentor.textContent ?? '', /Requests2/)
+  assert.match(mentor.textContent ?? '', /Last output2m ago/)
+
+  // No price on the registry entry degrades the estimate to a dash, never a guess.
+  const executor = screen.getByTestId('ops-usage-executor')
+  assert.match(executor.textContent ?? '', /in 0 · out 500/)
+  assert.match(executor.textContent ?? '', /—/)
+
+  const total = screen.getByTestId('ops-usage-total')
+  assert.match(total.textContent ?? '', /in 1,000,000 · out 1,000,510/)
+  // One unpriced role makes the whole total unverifiable.
+  assert.match(total.textContent ?? '', /—/)
+
+  // The header badge carries the run's compact token count.
+  assert.match(screen.getByTestId('inspector-section-usage').textContent ?? '', /2\.0M/)
+})
+
+test('Inspector: usage section shows an empty hint before any turn reports usage', () => {
+  setLocale()
+  usePairStore.setState({ providers: [] })
+  renderPanel(makePair())
+  fireEvent.click(screen.getByTestId('inspector-toggle-usage'))
+  assert.match(screen.getByTestId('inspector-section-usage').textContent ?? '', /No token usage/)
+  assertAbsent(screen.queryByTestId('ops-usage-mentor'))
 })

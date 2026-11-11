@@ -31,24 +31,38 @@ function setLocale(): void {
   void i18n.changeLanguage('en')
 }
 
-const modelStub = {
-  provider: 'grok',
-  modelId: 'fast',
-  displayName: 'Fast',
-  providerLabel: 'Grok',
-  sourceProviderLabel: 'xAI',
-  billingKind: 'byok',
-  billingLabel: 'BYOK',
-  accessLabel: 'Ready',
-  availabilityStatus: 'ready',
-  supportsPairExecution: true,
-  recommendedRoles: ['mentor', 'executor']
+const providerStub = {
+  id: 'xai-1',
+  protocol: 'openaiChat',
+  baseUrl: 'https://api.x.ai/v1',
+  vendor: 'xai',
+  displayName: 'xAI',
+  readyAccountCount: 1,
+  accounts: [
+    {
+      id: 'xai-1-a',
+      kind: 'apiKey',
+      label: 'xai',
+      source: 'manual',
+      status: 'ready',
+      headers: [],
+      hasSecret: true
+    }
+  ],
+  models: [
+    {
+      id: 'fast',
+      displayName: 'Fast',
+      efforts: [],
+      source: 'manual'
+    }
+  ]
 }
 
 /** Seeds the store with a ready model list and inert actions. */
 function seedStore(overrides: Record<string, unknown> = {}): void {
   usePairStore.setState({
-    availableModels: [modelStub],
+    providers: [providerStub],
     loadAvailableModels: async () => undefined,
     createPair: async () => undefined,
     error: null,
@@ -198,8 +212,10 @@ test('CreatePairModal: a model list failure explains itself and retries', async 
   // The raw store message stays as the technical detail.
   assert.ok(screen.getByText('Failed to load models'))
 
+  // The modal reloads when it opens, so the retry has to add to that.
+  const before = loads
   fireEvent.click(screen.getByRole('button', { name: /Retry/i }))
-  await waitFor(() => assert.equal(loads, 1))
+  await waitFor(() => assert.equal(loads, before + 1))
 })
 
 test('CreatePairModal: a create failure shows the reason and the next step', async () => {

@@ -27,6 +27,17 @@ const SCRIPT_CHECK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const OUTPUT_DRAIN_GRACE: Duration = Duration::from_secs(5);
 /// Tail of stdout/stderr kept per check while it runs.
 const MAX_CAPTURED_BYTES: usize = 64 * 1024;
+/// How many `{` of a reply are tried as the start of a verdict. A verdict is one
+/// JSON object; the rest of the reply is prose, and a mentor that quotes
+/// brace-heavy code must not turn into thousands of candidates.
+const MAX_JSON_CANDIDATES: usize = 256;
+/// Of those, how many are taken from the start of the reply. The verdict is the
+/// last thing a review says, so most of the budget goes to the end; these few
+/// still find one that was written first with a long excerpt after it.
+const LEADING_JSON_CANDIDATES: usize = 32;
+/// A verdict JSON is a few hundred bytes. Anything larger is a file the mentor
+/// quoted, not the verdict.
+const MAX_CANDIDATE_CHARS: usize = 32 * 1024;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -34,9 +45,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Parses and validates a mentor review verdict through the quality gate.
 ///
 /// The structured evidence format (`FILES_REVIEWED:` / `CHECKS:` / `CODE:`
-/// lines) is optional — no prompt asks for it — so it is only enforced when
-/// the mentor deliberately used all three markers at the start of a line.
-/// Incidental text such as "EXIT CODE: 1" or "AUTOMATED CHECKS: 3 passed"
+/// lines) is part of the mentor's system prompt on the direct connection, so it
+/// is enforced whenever the mentor used all three markers at the start of a
+/// line. Incidental text such as "EXIT CODE: 1" or "AUTOMATED CHECKS: 3 passed"
 /// never causes a valid JSON verdict to be rejected.
 pub fn parse_review_verdict_with_quality(raw: &str) -> Result<AcceptanceVerdict, String> {
     if let Some(evidence) = crate::quality_gate::extract_evidence(raw) {
@@ -569,51 +580,87 @@ fn extract_json_candidates(raw: &str) -> Vec<String> {
     }
 
     let chars: Vec<char> = trimmed.chars().collect();
-    for i in 0..chars.len() {
-        if chars[i] != '{' {
-            continue;
-        }
-
-        let mut depth = 0;
-        let mut in_string = false;
-        let mut escaped = false;
-
-        for j in i..chars.len() {
-            let ch = chars[j];
-
-            if in_string {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == '"' {
-                    in_string = false;
-                }
-                continue;
-            }
-
-            if ch == '"' {
-                in_string = true;
-                continue;
-            }
-
-            if ch == '{' {
-                depth += 1;
-            } else if ch == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    candidates.push(chars[i..=j].iter().collect());
-                    break;
-                }
-            }
-        }
+    for (start, end) in balanced_object_ranges(&chars) {
+        candidates.push(chars[start..=end].iter().collect());
     }
 
     candidates
+}
+
+/// The `[start, end]` char ranges of the balanced `{…}` spans a verdict may be
+/// in, the one that closes last first.
+///
+/// Each `{` is matched on its own, with string state that starts fresh at that
+/// brace. One state carried across the whole reply would be simpler, but a
+/// review is prose: a quoted snippet with an odd number of double quotes
+/// (`if ch == '"' {`) leaves that state inverted for the rest of the text, and
+/// the verdict's own opening brace is then read as the inside of a string.
+///
+/// Matching every `{` that way costs a pass per brace, which hung the review
+/// turn on brace-heavy replies, so only [`MAX_JSON_CANDIDATES`] of them are
+/// tried and each match gives up after [`MAX_CANDIDATE_CHARS`]. The verdict is
+/// by contract the last thing in the reply, so the braces nearest the end are
+/// the ones kept, and the span that closes last is offered first: it is the
+/// outermost object at the end of the reply, ahead of the objects nested in it
+/// and of anything quoted earlier.
+fn balanced_object_ranges(chars: &[char]) -> Vec<(usize, usize)> {
+    let opens: Vec<usize> = chars
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ch)| (*ch == '{').then_some(index))
+        .collect();
+    let trailing = MAX_JSON_CANDIDATES - LEADING_JSON_CANDIDATES;
+    let starts: Vec<usize> = if opens.len() <= MAX_JSON_CANDIDATES {
+        opens
+    } else {
+        opens[..LEADING_JSON_CANDIDATES]
+            .iter()
+            .chain(&opens[opens.len() - trailing..])
+            .copied()
+            .collect()
+    };
+
+    let mut ranges: Vec<(usize, usize)> = starts
+        .into_iter()
+        .filter_map(|start| object_end(chars, start).map(|end| (start, end)))
+        .collect();
+    ranges.sort_unstable_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(&right.0)));
+    ranges
+}
+
+/// Where the object opening at `start` closes, when it does so within
+/// [`MAX_CANDIDATE_CHARS`]. Braces inside its strings do not count.
+fn object_end(chars: &[char], start: usize) -> Option<usize> {
+    let limit = chars.len().min(start.saturating_add(MAX_CANDIDATE_CHARS));
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (index, ch) in chars.iter().enumerate().take(limit).skip(start) {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if *ch == '\\' {
+                escaped = true;
+            } else if *ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 pub fn parse_acceptance_verdict(raw: &str) -> Result<AcceptanceVerdict, String> {
@@ -1277,6 +1324,107 @@ mod tests {
         "summary": "Done",
         "nextStep": { "action": "finish", "instructions": [] }
     }"#;
+
+    #[test]
+    fn parse_acceptance_verdict_survives_a_brace_heavy_reply_quickly() {
+        // A review that quotes brace-heavy code before its verdict. The old
+        // candidate scan restarted a full pass at every `{` that had not closed
+        // yet, so this reply took minutes and hung the review turn.
+        let mut raw = String::from("I read the handler. Relevant excerpt:\n");
+        raw.push_str(&"{".repeat(20_000));
+        raw.push('\n');
+        raw.push_str(PASS_FINISH_JSON);
+
+        let started = std::time::Instant::now();
+        let verdict = super::parse_acceptance_verdict(&raw)
+            .expect("the verdict after a wall of braces must still parse");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_skips_a_quoted_object_that_is_not_the_verdict() {
+        // Prose braces first, then the verdict: the scan must keep looking
+        // instead of settling for the first balanced object it saw.
+        let raw = format!(
+            "The state shape is useState({{ count: 0 }}) and the plan is {{ step: 1 }}.\n{}",
+            PASS_FINISH_JSON
+        );
+
+        let verdict = super::parse_acceptance_verdict(&raw).expect("verdict should parse");
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_survives_an_unbalanced_quote_in_quoted_code() {
+        // The mentor's own `CODE:` line, quoting a char literal: one double
+        // quote with no partner. String state carried across the whole reply
+        // would read everything after it inside out and miss the verdict.
+        for excerpt in [
+            "CODE: if ch == '\"' {",
+            "CODE: fn scan() { if ch == '\"' {",
+            "The message says \"unterminated and the block is { open",
+        ] {
+            let raw = format!("FILES_REVIEWED: a.rs\n{}\n\n{}", excerpt, PASS_FINISH_JSON);
+            let verdict = super::parse_acceptance_verdict(&raw)
+                .unwrap_or_else(|error| panic!("{:?} hid the verdict: {}", excerpt, error));
+            assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+        }
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_finds_the_verdict_after_many_balanced_spans() {
+        // A review quoting code full of format placeholders and small blocks:
+        // far more balanced spans than the scan tries, all before the verdict.
+        let mut raw = String::from("I read the formatter:\n");
+        for index in 0..2_000 {
+            raw.push_str(&format!(
+                "println!(\"{{}} {{}}\", a{0}, b{0}); if ok {{ run(); }}\n",
+                index
+            ));
+        }
+        raw.push_str(PASS_FINISH_JSON);
+
+        let started = std::time::Instant::now();
+        let verdict = super::parse_acceptance_verdict(&raw)
+            .expect("the verdict at the end must not be crowded out");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
+
+    #[test]
+    fn parse_acceptance_verdict_prefers_the_verdict_at_the_end() {
+        // An earlier object that happens to be a verdict — the format quoted
+        // back, a previous round's — is not the one the review ends on.
+        let earlier = PASS_FINISH_JSON
+            .replace("\"finish\"", "\"continue\"")
+            .replace("\"instructions\": []", "\"instructions\": [\"redo it\"]");
+        let raw = format!(
+            "Last round I said:\n{}\n\nNow:\n{}",
+            earlier, PASS_FINISH_JSON
+        );
+        let verdict = super::parse_acceptance_verdict(&raw).expect("verdict should parse");
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
+
+    #[test]
+    fn a_verdict_written_before_a_long_excerpt_is_still_found() {
+        let mut raw = String::from(PASS_FINISH_JSON);
+        raw.push_str("\n\nFor reference, the code I read:\n");
+        for index in 0..2_000 {
+            raw.push_str(&format!("fn f{}() {{ g(); }}\n", index));
+        }
+        let verdict = super::parse_acceptance_verdict(&raw).expect("verdict should parse");
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
 
     #[test]
     fn quality_gate_ignores_incidental_marker_text() {

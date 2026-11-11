@@ -18,7 +18,7 @@ The main value is cross-validated AI code review. Instead of asking one model to
 - Category: open-source AI pair programming, multi-agent coding assistant, AI code review tool, Cursor and Copilot alternative
 - Architecture: Mentor + Executor dual-agent workflow
 - Platforms: macOS, Windows, Linux
-- Providers: opencode, Claude Code, OpenAI Codex CLI, Antigravity (Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, Muse Code, and local models through Ollama-compatible opencode routes
+- Model endpoints: any model reachable over HTTPS — imported from other agents' configs (kimi, pi, omp, opencode, codex, claude, gemini, killi), added by hand, or signed in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription; plus local models via Ollama
 - License: Apache 2.0
 
 ## Key Facts

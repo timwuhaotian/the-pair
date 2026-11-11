@@ -23,8 +23,6 @@ export interface DashboardPairInsights {
   needsAttention: number
   running: number
   modifiedFiles: number
-  cpuUsage: number
-  memUsage: number
   workspaceCount: number
 }
 
@@ -90,8 +88,6 @@ export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {
 }
 
 export function buildPairInsights(pairs: Pair[]): DashboardPairInsights {
-  const cpuUsage = pairs.reduce((total, pair) => total + pair.cpuUsage, 0)
-  const memUsage = pairs.reduce((total, pair) => total + pair.memUsage, 0)
   const workspaceCount = new Set(pairs.map((pair) => pair.directory)).size
 
   return {
@@ -100,8 +96,6 @@ export function buildPairInsights(pairs: Pair[]): DashboardPairInsights {
     ).length,
     running: pairs.filter((pair) => isPairActive(pair.status)).length,
     modifiedFiles: pairs.reduce((total, pair) => total + pair.modifiedFiles.length, 0),
-    cpuUsage: Number(cpuUsage.toFixed(1)),
-    memUsage: Math.round(memUsage),
     workspaceCount
   }
 }

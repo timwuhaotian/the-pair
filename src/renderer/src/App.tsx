@@ -10,6 +10,7 @@ import { AppChrome } from './components/AppChrome'
 import { AppShell, type ShellSection } from './components/AppShell'
 import { PairsHub } from './components/PairsHub'
 import { ActivityView, InsightsView } from './components/ShellViews'
+import { ModelsView } from './components/ModelsView'
 import { BootSplash } from './components/BootSplash'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
@@ -130,7 +131,7 @@ function App(): React.ReactNode {
   const splashHoldDuration = SPLASH_OVERRIDE.minMs
 
   const pairs = usePairStore((state) => state.pairs)
-  const availableModels = usePairStore((state) => state.availableModels)
+  const providers = usePairStore((state) => state.providers)
   const modelsLoading = usePairStore((state) => state.isLoadingModels)
   const loadAvailableModels = usePairStore((state) => state.loadAvailableModels)
   const loadAllPairs = usePairStore((state) => state.loadAllPairs)
@@ -311,9 +312,12 @@ function App(): React.ReactNode {
   }, [flushSnapshots])
 
   const selectedPair = pairs.find((p) => p.id === selectedPairId) ?? null
-  const readyModelCount = availableModels.filter((model) =>
-    isSelectableForPairExecution(model)
-  ).length
+  // The chrome subtitle reports models, not endpoints: an endpoint with a ready
+  // account counts its whole catalog, an unauthenticated one counts none.
+  const readyModelCount = providers
+    .filter(isSelectableForPairExecution)
+    .reduce((count, provider) => count + provider.models.length, 0)
+  const totalModelCount = providers.reduce((count, provider) => count + provider.models.length, 0)
   const shouldRenderCreatePairModal = hasCreatePairModalLoaded || isCreatePairOpen
   const shouldRenderAssignTaskModal = hasAssignTaskModalLoaded || isAssignTaskOpen
   const shouldRenderPairSettingsModal = hasPairSettingsModalLoaded || isPairSettingsOpen
@@ -504,6 +508,14 @@ function App(): React.ReactNode {
         key: '3',
         modifiers: [cmdKey],
         handler: () => {
+          selectSection('models')
+        },
+        description: t('shortcuts.goModels')
+      },
+      {
+        key: '4',
+        modifiers: [cmdKey],
+        handler: () => {
           selectSection('insights')
         },
         description: t('shortcuts.goInsights')
@@ -553,6 +565,7 @@ function App(): React.ReactNode {
       ['app:menu:back', () => goHub()],
       ['app:menu:go-pairs', () => selectSection('pairs')],
       ['app:menu:go-activity', () => selectSection('activity')],
+      ['app:menu:go-models', () => selectSection('models')],
       ['app:menu:go-insights', () => selectSection('insights')],
       ['app:menu:toggle-sidebar', () => toggleSidebar()],
       ['app:menu:toggle-theme', () => toggleTheme()],
@@ -693,7 +706,7 @@ function App(): React.ReactNode {
         <AppChrome
           selectedPair={selectedPair}
           readyModelCount={readyModelCount}
-          totalModelCount={availableModels.length}
+          totalModelCount={totalModelCount}
           modelsLoading={modelsLoading}
           theme={theme}
           onToggleTheme={toggleTheme}
@@ -721,6 +734,8 @@ function App(): React.ReactNode {
                 />
               ) : shellSection === 'activity' ? (
                 <ActivityView pairs={pairs} onSelectPair={(pair) => selectPair(pair.id)} />
+              ) : shellSection === 'models' ? (
+                <ModelsView />
               ) : shellSection === 'insights' ? (
                 <InsightsView />
               ) : (

@@ -25,15 +25,14 @@ const preset: PairPreset = {
   mentorPromptTemplate: 'TASK:\n{task}',
   executorPromptTemplate: 'execute',
   recommendedSkills: ['repro', 'regression'],
-  pauseOnIteration: 5,
-  autoAttachGitBaseline: true
+  pauseOnIteration: 5
 }
 
 function wrap(node: React.ReactNode): React.ReactNode {
   return <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
 }
 
-test('the preset info popover lists the skills, the pause point and the baseline', async () => {
+test('the preset info popover lists the skills and the pause point', async () => {
   const { container } = render(
     wrap(<PresetPicker presets={[preset]} selectedPresetId={null} onSelect={() => undefined} />)
   )
@@ -47,7 +46,6 @@ test('the preset info popover lists the skills, the pause point and the baseline
   assert.ok(screen.getByText('repro'))
   assert.ok(screen.getByText('regression'))
   assert.ok(screen.getByText(/Auto-pause at iteration 5/))
-  assert.ok(screen.getByText(/Git baseline created when the pair starts/))
 })
 
 test('a preset can be selected and deselected', () => {

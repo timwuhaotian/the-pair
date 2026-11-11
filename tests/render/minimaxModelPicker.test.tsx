@@ -6,29 +6,39 @@ import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ModelPicker } from '../../src/renderer/src/components/ModelPicker.tsx'
-import type { AvailableModel } from '../../src/renderer/src/types.ts'
+import type { ModelRoute, ProviderView } from '../../src/renderer/src/types.ts'
 
-function model(modelId: string, displayName: string): AvailableModel {
+function model(modelId: string, displayName: string): ModelRoute {
+  return { id: modelId, displayName, efforts: [], source: 'imported' }
+}
+
+/** One MiniMax endpoint carrying three generations of the same text model. */
+function minimaxProvider(models: ModelRoute[]): ProviderView {
   return {
-    provider: 'opencode',
-    modelId,
-    displayName,
-    available: true,
-    providerLabel: 'OpenCode',
-    sourceProviderLabel: 'MiniMax',
-    billingKind: 'byok',
-    billingLabel: 'Pay as you go',
-    accessLabel: 'API key',
-    planLabel: 'provider-backed',
-    availabilityStatus: 'ready',
-    supportsPairExecution: true,
-    recommendedRoles: ['mentor', 'executor']
+    id: 'minimax-main',
+    protocol: 'anthropic',
+    baseUrl: 'https://api.minimax.example',
+    vendor: 'minimax',
+    displayName: 'MiniMax',
+    accounts: [
+      {
+        id: 'minimax-key',
+        kind: 'apiKey',
+        label: 'Personal',
+        source: 'manual',
+        status: 'ready',
+        headers: [],
+        hasSecret: true
+      }
+    ],
+    models,
+    readyAccountCount: 1
   }
 }
 
-const legacy = model('minimax/MiniMax-M2.7', 'MiniMax M2.7')
-const m3 = model('minimax/MiniMax-M3', 'MiniMax M3')
-const flash = model('opencode/minimax-m3.1-flash-free', 'MiniMax M3.1 Flash')
+const legacy = model('minimax-m2.7', 'MiniMax M2.7')
+const m3 = model('minimax-m3', 'MiniMax M3')
+const flash = model('minimax-m3.1-flash-free', 'MiniMax M3.1 Flash')
 
 afterEach(() => {
   cleanup()
@@ -39,13 +49,13 @@ test('picker lists Flash before M3 and resolves an active legacy model without r
   const changes: string[] = []
   render(
     <ModelPicker
-      value={legacy.modelId}
-      models={[legacy, m3, flash]}
+      value={legacy.id}
+      providers={[minimaxProvider([legacy, m3, flash])]}
       onChange={(id) => changes.push(id)}
       role="mentor"
     />
   )
-  const trigger = screen.getByRole('button')
+  const trigger = screen.getByRole('button', { name: /MiniMax M2.7/ })
   assert.match(trigger.textContent ?? '', /MiniMax M2.7/)
   fireEvent.click(trigger)
   const flashButton = screen.getByTitle('MiniMax M3.1 Flash')
@@ -55,21 +65,21 @@ test('picker lists Flash before M3 and resolves an active legacy model without r
   assert.equal(screen.getAllByText('MiniMax M2.7').length, 1)
   assert.deepEqual(changes, [])
   fireEvent.click(flashButton)
-  assert.deepEqual(changes, [flash.modelId])
-  assert.equal(localStorage.getItem('the-pair-preferred-mentor-model'), flash.modelId)
+  assert.deepEqual(changes, [flash.id])
+  assert.equal(localStorage.getItem('the-pair-preferred-mentor-model'), flash.id)
 })
 
 test('explicit legacy recent history remains selectable', () => {
-  localStorage.setItem('the-pair-recent-models-executor', JSON.stringify([legacy.modelId]))
+  localStorage.setItem('the-pair-recent-models-executor', JSON.stringify([legacy.id]))
   const changes: string[] = []
   render(
     <ModelPicker
-      value={flash.modelId}
-      models={[legacy, m3, flash]}
+      value={flash.id}
+      providers={[minimaxProvider([legacy, m3, flash])]}
       onChange={(id) => changes.push(id)}
       role="executor"
     />
   )
   fireEvent.click(screen.getByRole('button', { name: /MiniMax M2.7/ }))
-  assert.deepEqual(changes, [legacy.modelId])
+  assert.deepEqual(changes, [legacy.id])
 })

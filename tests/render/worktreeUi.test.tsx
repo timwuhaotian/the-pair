@@ -37,8 +37,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
     status: 'Finished',
     iterations: 3,
     maxIterations: 0,
-    cpuUsage: 0,
-    memUsage: 0,
     spec: 'some task',
     mentorProvider: 'grok',
     mentorModel: 'grok:fast',
@@ -59,10 +57,6 @@ function makePair(overrides: Partial<Pair> = {}): Pair {
       updatedAt: 1_000,
       outputLineCount: 0
     },
-    mentorCpu: 0,
-    mentorMemMb: 0,
-    executorCpu: 0,
-    executorMemMb: 0,
     modifiedFiles: [],
     gitTracking: { available: false },
     automationMode: 'full-auto',
@@ -87,19 +81,26 @@ test('CreatePairModal: worktree toggle defaults on for a committed git repo', as
   state.repo = mockRepoState.committedRepo
   const created: Array<Record<string, unknown>> = []
   usePairStore.setState({
-    availableModels: [
+    providers: [
       {
-        provider: 'grok',
-        modelId: 'fast',
-        displayName: 'Fast',
-        providerLabel: 'Grok',
-        sourceProviderLabel: 'xAI',
-        billingKind: 'byok',
-        billingLabel: 'BYOK',
-        accessLabel: 'Ready',
-        availabilityStatus: 'ready',
-        supportsPairExecution: true,
-        recommendedRoles: ['mentor', 'executor']
+        id: 'xai-1',
+        protocol: 'openaiChat',
+        baseUrl: 'https://api.x.ai/v1',
+        vendor: 'xai',
+        displayName: 'xAI',
+        readyAccountCount: 1,
+        accounts: [
+          {
+            id: 'xai-1-a',
+            kind: 'apiKey',
+            label: 'xai',
+            source: 'manual',
+            status: 'ready',
+            headers: [],
+            hasSecret: true
+          }
+        ],
+        models: [{ id: 'fast', displayName: 'Fast', efforts: [], source: 'manual' }]
       }
     ],
     loadAvailableModels: async () => undefined,
@@ -133,19 +134,26 @@ test('CreatePairModal: toggling the worktree opt-in off hides the preview', asyn
   setLocale()
   state.repo = mockRepoState.committedRepo
   usePairStore.setState({
-    availableModels: [
+    providers: [
       {
-        provider: 'grok',
-        modelId: 'fast',
-        displayName: 'Fast',
-        providerLabel: 'Grok',
-        sourceProviderLabel: 'xAI',
-        billingKind: 'byok',
-        billingLabel: 'BYOK',
-        accessLabel: 'Ready',
-        availabilityStatus: 'ready',
-        supportsPairExecution: true,
-        recommendedRoles: ['mentor', 'executor']
+        id: 'xai-1',
+        protocol: 'openaiChat',
+        baseUrl: 'https://api.x.ai/v1',
+        vendor: 'xai',
+        displayName: 'xAI',
+        readyAccountCount: 1,
+        accounts: [
+          {
+            id: 'xai-1-a',
+            kind: 'apiKey',
+            label: 'xai',
+            source: 'manual',
+            status: 'ready',
+            headers: [],
+            hasSecret: true
+          }
+        ],
+        models: [{ id: 'fast', displayName: 'Fast', efforts: [], source: 'manual' }]
       }
     ],
     loadAvailableModels: async () => undefined,
@@ -177,19 +185,26 @@ test('CreatePairModal: submitting forwards the worktree opt-in', async () => {
   state.repo = mockRepoState.committedRepo
   const created: Array<Record<string, unknown>> = []
   usePairStore.setState({
-    availableModels: [
+    providers: [
       {
-        provider: 'grok',
-        modelId: 'fast',
-        displayName: 'Fast',
-        providerLabel: 'Grok',
-        sourceProviderLabel: 'xAI',
-        billingKind: 'byok',
-        billingLabel: 'BYOK',
-        accessLabel: 'Ready',
-        availabilityStatus: 'ready',
-        supportsPairExecution: true,
-        recommendedRoles: ['mentor', 'executor']
+        id: 'xai-1',
+        protocol: 'openaiChat',
+        baseUrl: 'https://api.x.ai/v1',
+        vendor: 'xai',
+        displayName: 'xAI',
+        readyAccountCount: 1,
+        accounts: [
+          {
+            id: 'xai-1-a',
+            kind: 'apiKey',
+            label: 'xai',
+            source: 'manual',
+            status: 'ready',
+            headers: [],
+            hasSecret: true
+          }
+        ],
+        models: [{ id: 'fast', displayName: 'Fast', efforts: [], source: 'manual' }]
       }
     ],
     loadAvailableModels: async () => undefined,
@@ -251,7 +266,7 @@ test('AssignTaskModal: shows the pair branch and offers the fresh worktree toggl
   state.repo = mockRepoState.committedRepo
   const calls: Array<{ pairId: string; spec: string; role?: string; options?: unknown }> = []
   usePairStore.setState({
-    availableModels: [],
+    providers: [],
     restoringSpec: null,
     assignTask: async (
       pairId: string,

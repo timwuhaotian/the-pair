@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+// NOTE: this file must stay a global script (no top-level import/export), or
+// the `Window` augmentation stops applying. Types are reached with `import()`
+// type queries, which do not turn the file into a module.
 
 interface Window {
   api: {
@@ -32,14 +35,34 @@ interface Window {
       restore: (pairId: string, continueRun?: boolean) => Promise<unknown>
     }
     config: {
-      getModels: () => Promise<unknown>
-      getCachedModels: () => Promise<unknown>
-      refreshModels: () => Promise<unknown>
-      getProviders: () => Promise<unknown>
-      read: () => Promise<unknown>
-      openFile: () => Promise<unknown>
-      launchLogin: (providerKind: string) => Promise<void>
       getVersion: () => Promise<string>
+    }
+    models: {
+      list: () => Promise<import('./types').ProviderView[]>
+      scan: (sourceIds?: string[]) => Promise<import('./types').CandidateView[]>
+      commitImport: (sourceIds: string[]) => Promise<import('./types').ProviderView[]>
+      addProvider: (
+        input: import('./types').AddProviderInput
+      ) => Promise<import('./types').ProviderView[]>
+      setAccountKey: (input: {
+        providerId: string
+        accountId: string
+        apiKey: string
+      }) => Promise<import('./types').ProviderView[]>
+      deleteAccount: (input: {
+        providerId: string
+        accountId: string
+      }) => Promise<import('./types').ProviderView[]>
+      /** Tell the backend which endpoint a model was picked under for a role. */
+      preferRoute: (input: {
+        role: 'mentor' | 'executor'
+        modelId: string
+        providerId: string
+      }) => Promise<void>
+      loginServices: () => Promise<import('./types').LoginServiceView[]>
+      launchOAuth: (service: string, apiKey?: string) => Promise<string>
+      oauthStatus: (sessionId: string) => Promise<import('./types').OAuthStatusView>
+      cancelOAuth: (sessionId: string) => Promise<void>
     }
     file: {
       listFiles: (options: {

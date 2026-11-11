@@ -10,6 +10,7 @@ import { SkillPicker } from './SkillPicker'
 import { PresetPicker } from './PresetPicker'
 import { usePresets } from '../lib/usePresets'
 import { getAssignableTaskModels } from '../lib/modelResolution'
+import { stripModelQualifier } from '../lib/providerResolution'
 import { prependFileContext } from '../lib/fileMentions'
 import { isPairBusy } from '../lib/pairStatus'
 import { tauriApi } from '../lib/tauri-api'
@@ -35,7 +36,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const isLoading = usePairStore((s) => s.isLoading)
   const error = usePairStore((s) => s.error)
   const modelsError = usePairStore((s) => s.modelsError)
-  const availableModels = usePairStore((s) => s.availableModels)
+  const providers = usePairStore((s) => s.providers)
   const restoringSpec = usePairStore((s) => s.restoringSpec)
   const setRestoringSpec = usePairStore((s) => s.setRestoringSpec)
   // "Restore Task" pre-fills the archived run's spec; re-initialise whenever the
@@ -184,16 +185,20 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   )
 
   const effectiveMentorModel = useMemo(
-    () => pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
+    // Same normalisation `getAssignableTaskModels` applies, so a pair restored
+    // from a legacy snapshot (`mentorModel: 'grok:fast'`) doesn't open with the
+    // "this changes the models" note already showing.
+    () => stripModelQualifier(pair?.pendingMentorModel ?? pair?.mentorModel ?? ''),
     [pair]
   )
   const effectiveExecutorModel = useMemo(
-    () => pair?.pendingExecutorModel ?? pair?.executorModel ?? '',
+    () => stripModelQualifier(pair?.pendingExecutorModel ?? pair?.executorModel ?? ''),
     [pair]
   )
 
   const modelsChanged =
-    tempMentorModel !== effectiveMentorModel || tempExecutorModel !== effectiveExecutorModel
+    stripModelQualifier(tempMentorModel) !== effectiveMentorModel ||
+    stripModelQualifier(tempExecutorModel) !== effectiveExecutorModel
 
   if (!pair) return null
 
@@ -202,7 +207,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const presetTaskMissing = isPresetTaskMissing(appliedPreset, spec)
 
   const handleSkillSelect = (skillName: string) => {
-    const insertion = `Load the ${skillName} skill and `
+    const insertion = `${t('modals.loadSkill', { name: skillName })} `
     setSpec((prev) => {
       if (textareaRef.current) {
         const start = textareaRef.current.selectionStart
@@ -224,9 +229,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     try {
       const modelOverrides = modelsChanged
         ? {
-            mentorModel: tempMentorModel !== effectiveMentorModel ? tempMentorModel : undefined,
+            mentorModel:
+              stripModelQualifier(tempMentorModel) !== effectiveMentorModel
+                ? tempMentorModel
+                : undefined,
             executorModel:
-              tempExecutorModel !== effectiveExecutorModel ? tempExecutorModel : undefined
+              stripModelQualifier(tempExecutorModel) !== effectiveExecutorModel
+                ? tempExecutorModel
+                : undefined
           }
         : undefined
       await assignTask(
@@ -310,14 +320,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelPicker
               value={tempMentorModel}
-              models={availableModels}
+              providers={providers}
               onChange={setTempMentorModel}
               role="mentor"
               variant="card"
             />
             <ModelPicker
               value={tempExecutorModel}
-              models={availableModels}
+              providers={providers}
               onChange={setTempExecutorModel}
               role="executor"
               variant="card"
@@ -411,7 +421,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           <GlassButton
             type="submit"
             variant="primary"
-            disabled={isLoading || pairBusy || presetTaskMissing || spec.trim().length === 0}
+            disabled={
+              isLoading ||
+              pairBusy ||
+              presetTaskMissing ||
+              spec.trim().length === 0 ||
+              tempMentorModel.length === 0 ||
+              tempExecutorModel.length === 0
+            }
             icon={isRestoring ? <RotateCcw size={11} /> : <ArrowUpRight size={11} />}
             data-testid="assign-submit-btn"
           >

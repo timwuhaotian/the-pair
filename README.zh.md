@@ -43,7 +43,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 - [功能特性](#功能特性)
 - [截图](#截图)
 - [安装](#安装) — macOS、Windows、Linux
-- [快速开始](#快速开始) — 安装 Provider CLI 并创建你的第一个 Pair
+- [快速开始](#快速开始) — 连接一个模型端点并创建你的第一个 Pair
 - [配置](#配置)
 - [架构](#架构)
 - [开发](#开发)
@@ -53,7 +53,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 
 ## 概述
 
-**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：可任意组合十种 Provider CLI —— opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build 和 Muse Code（也支持通过 Ollama 使用本地模型）。
+**The Pair 是一款免费、开源的桌面应用，它运行两个 AI 编码 Agent —— 只读的 _Mentor_ 负责规划与审查，_Executor_ 负责编写代码与执行命令 —— 两者互相交叉校验，在 AI 幻觉进入你的代码库之前就将其拦截。** 应用完全在本地运行，支持 macOS、Windows 和 Linux，并且与模型无关：它通过 HTTPS 直连模型端点——不会启动任何 Agent CLI。端点可通过导入其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量发现，也可手动添加，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅在应用内登录——全部在左侧栏的「模型」分区中管理。可任意组合任意两个模型（也支持通过 Ollama 使用本地模型）。
 
 **担心 AI 代码幻觉？** The Pair 通过运行两个互相校验的 AI Agent 来解决这个问题：
 
@@ -66,7 +66,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 
 - **双模型交叉验证** — 两个模型互相检查对方的工作，大幅减少代码幻觉
 - **自动化协作** — Agent 无需人工频繁干预即可协同工作
-- **实时监控** — 实时查看每个 Agent 的 CPU/内存使用情况和活动状态
+- **实时用量追踪** — 每次轮次和每次运行的 Token 用量、估算费用、请求数与最近输出，并带停滞检测
 - **Git 集成** — 自动跟踪会话期间的所有文件变更
 - **人工监督** — 随时介入暂停、调整或重新分配任务
 - **会话恢复** — 中断的会话可完整恢复对话历史
@@ -75,7 +75,7 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 - **命令面板** — ⌘K 模糊搜索所有操作，可直达任意 Pair
 - **原生菜单栏** — 完整的应用 / 文件 / 编辑 / 视图 / 窗口 / 帮助菜单与快捷键
 - **Pairs 主页** — 按工作区分组的 Pair 卡片，含状态、快捷操作与恢复横幅
-- **检查器面板** — 模型、运行状态、资源、文件、历史与时间线的可折叠分区
+- **检查器面板** — 模型、运行状态、用量、文件、历史与时间线的可折叠分区
 
 ### 使用场景
 
@@ -92,11 +92,11 @@ _实时观察 Mentor 和 Executor Agent 的协作过程_
 - **双 Agent 架构** — 规划（Mentor）与执行（Executor）分离
 - **全自动模式** — Agent 在工作区权限范围内自主工作
 - **实时活动追踪** — 实时显示 Agent 状态（思考中、执行中、等待中）
-- **资源监控** — 每秒更新每个 Agent 的 CPU 和内存使用情况
+- **用量追踪** — 在检查器中显示每次轮次和每次运行的 Token 用量、估算费用、请求数与最近输出
 - **Git 变更追踪** — 自动检测修改、新增或删除的文件
 - **对话历史** — 完整的 Agent 交互记录
-- **本地编排** — 应用和 Agent 协调均在本地运行；模型调用取决于所选 Provider 或本地模型
-- **多 Provider 支持** — 兼容十种 Provider CLI：opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build 和 Muse Code
+- **本地编排** — 应用和 Agent 协调均在本地运行；模型调用直连你所选的端点或本地模型
+- **自建端点** — 连接任意模型端点：导入其他 Agent 的配置（opencode、codex、claude、kimi、pi、omp、gemini、killi）、手动添加密钥，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录
 - **推理控制** — 按 Agent 角色调整推理强度（低/中/高）
 - **Token 统计** — 实时显示每次交互的 Token 用量
 - **技能系统** — 附加项目特定的技能文件来引导 Agent 行为
@@ -150,38 +150,24 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## 快速开始
 
 > [!NOTE]
-> The Pair 至少需要一个 AI Provider CLI：[opencode](https://opencode.ai)、[Claude Code](https://claude.ai/download)、[Codex](https://github.com/openai/codex)、[Antigravity](https://github.com/google-antigravity/antigravity-cli)、[Kimi Code](https://github.com/MoonshotAI/kimi-code)、[Pi](https://pi.dev)、[Kiro](https://kiro.dev/downloads)、[Aider](https://aider.chat)、[Grok Build](https://github.com/xai-org/grok-build) 或 [Muse Code](https://dev.meta.ai/docs/muse-code)。
+> The Pair 至少需要一个带凭据的模型端点。它通过 HTTPS 直连模型——无需安装任何 Agent CLI。添加端点及其 API 密钥、导入其他 Agent 已有的配置，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录——全部在「模型」分区中完成。
 
-### 1. 安装 AI Provider
+### 1. 连接模型
 
-安装一个或多个受支持的 CLI：
+打开左侧栏的「模型」分区，通过以下任一方式添加端点：
 
-- **opencode** — `curl -fsSL https://opencode.ai/install | bash` 或 `npm install -g opencode-ai`
-- **Claude Code** — 参见 [Claude Code 配置指南](https://docs.anthropic.com/en/docs/claude-code/getting-started)，或运行 `npm install -g @anthropic-ai/claude-code`
-- **Codex** — `npm install -g @openai/codex`
-- **Antigravity** — `agy install`（参见 [Antigravity](https://github.com/google-antigravity/antigravity-cli) 安装说明）
-- **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash`（参见 [Kimi Code](https://github.com/MoonshotAI/kimi-code) 安装说明）
-- **Pi** — 参见 [pi.dev](https://pi.dev) 安装并登录
-- **Kiro** — 从 [kiro.dev/downloads](https://kiro.dev/downloads) 下载，然后运行 `kiro-cli login`
-- **Aider** — `python -m pip install -U aider-chat`（参见 [aider.chat](https://aider.chat) 安装说明）
-- **Grok Build** — 参见 [xai-org/grok-build](https://github.com/xai-org/grok-build)，然后运行 `grok login`
-- **Muse Code** — 参见 [Muse Code 文档](https://dev.meta.ai/docs/muse-code)，然后运行 `muse login`
+- **导入** — 从其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量中拉取端点和密钥
+- **手动添加** — 输入协议、base URL、API 密钥和模型 id
+- **登录** — 在应用内授权 ChatGPT、Command Code、OpenCode Go 或 Muse Code 订阅
 
-### 2. 配置 AI 模型（可选）
+没有可用凭据的端点也会列出，并显示阻碍它们的状态。
 
-对于 opencode 支持的模型，在 `~/.config/opencode/opencode.json` 中配置你的 AI Provider：
+### 2. 为每个角色选择模型
 
-```json
-{
-  "provider": {
-    "openai": { "options": { "apiKey": "your-api-key" } },
-    "anthropic": { "options": { "apiKey": "your-api-key" } }
-  }
-}
-```
+创建 Pair 时，为 Mentor 和 Executor 分别选择端点、模型和推理强度。Pair 只保存模型 id 及其推理强度；端点和凭据在轮次开始时解析。
 
 > [!TIP]
-> Codex、Claude Code、Antigravity (`agy`)、Kimi Code (`kimi`)、Pi、Kiro、Aider、Grok Build 和 Muse Code 会通过已安装的 CLI 自动检测登录状态。你也可以使用 [Ollama](https://ollama.com) 搭配本地模型进行离线开发。
+> 你也可以使用 [Ollama](https://ollama.com) 搭配本地模型进行完全离线的会话。
 
 ### 3. 启动 The Pair
 
@@ -198,21 +184,16 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 ## 配置
 
-### Provider 配置
+### 凭据
 
-基于 opencode 的模型使用你现有的 opencode 配置：
-
-- **macOS/Linux**：`~/.config/opencode/opencode.json`
-- **Windows**：`%APPDATA%/opencode/opencode.json`
-
-Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build 和 Muse Code 会从本地 CLI 安装和账户状态自动检测。
+The Pair 在应用数据目录中保留自己的凭据存储 `credentials.json`（权限 0600）。它通过读取其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）或环境变量来发现端点——这些导入器只读，绝不回写——你也可以手动添加端点，或在「模型」分区中用订阅登录。
 
 ### Pair 运行时
 
 每个 Pair 要么直接在你选择的目录中工作，要么在自己的 git worktree（`the-pair/…` 分支）中工作。会话状态——快照、运行报告与跨运行智能存储——保存在应用数据目录中，绝不会写入你的仓库。
 
 > [!NOTE]
-> The Pair 不会修改你的全局 opencode 权限。所有权限都与会话绑定。
+> The Pair 将凭据复制进自己的存储，绝不回写你的 Agent 配置。它的工具在应用内运行，范围限定于 Pair 的工作区，Mentor 始终保持只读。
 
 ---
 
@@ -246,8 +227,8 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build �
 ├─────────────────────────────────────────────────────────┤
 │  Backend (Rust)                                         │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
-│  │ (Lifecycle)  │(State Machine)│(Multi-Provider) │    │
+│  │ PairManager  │MessageBroker │ Harness          │    │
+│  │ (Lifecycle)  │(State Machine)│(Direct HTTP)    │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ContextBridge │ QualityGate  │   SmartPause     │    │
@@ -257,17 +238,17 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build �
 │  │ Git Tracker  │ Worktrees    │ Session Snapshot │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │Resource Mon. │ Acceptance   │ Report Generator │    │
+│  │Accounts      │ Acceptance   │ Report Generator │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 └─────────────────────────────────────────────────────────┘
                             ↕
               ┌─────────────┴─────────────┐
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
-     │  AI Provider CLIs│          │   Git Repo      │
-     │ Claude, Codex,   │          │  (Workspace)    │
-     │ Gemini, Kimi…    │          └─────────────────┘
-     │ (10 providers)   │
+     │  Model Endpoints│          │   Git Repo      │
+     │OpenAI, Anthropic│          │  (Workspace)    │
+     │Gemini, Grok…    │          └─────────────────┘
+     │(over HTTPS)     │
      └─────────────────┘
 ```
 
@@ -368,7 +349,7 @@ A: 是的。The Pair 在 Apache 2.0 许可证下完全开源，并且可免费�
 
 **Q: The Pair 是 Cursor、GitHub Copilot 或 Aider 的替代品吗？**
 
-A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可从十种 Provider CLI 中任选两种组合——opencode、Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build 或 Muse Code。
+A: 是的，但思路不同。Cursor、Copilot 和 Aider 都由单个 Agent 驱动。The Pair 运行两个独立 Agent——Mentor（只读审查者）和 Executor（代码编写者）——互相交叉校验，让错误被第二个模型拦截，而不是直接交付。它是本地优先、开源的替代方案，且与模型无关：可任意组合两个通过你所连接端点可达的模型——导入其他 Agent 的配置、手动添加，或用订阅登录。
 
 **Q: The Pair 支持哪些操作系统？**
 
@@ -384,11 +365,11 @@ A: The Pair 完全在本地运行。只有 AI 模型 API 调用需要网络（�
 
 **Q: 支持哪些 AI Provider？**
 
-A: The Pair 开箱支持十种 Provider CLI：**opencode**（任意兼容模型）、**Claude Code**、**OpenAI Codex**、**Antigravity**（Gemini）、**Kimi Code**、**Pi**、**Kiro**、**Aider**、**Grok Build** 和 **Muse Code**。全部会从已安装的 CLI 自动检测。你可以混合使用 Provider——例如 Claude 作为 Mentor，Codex 作为 Executor。
+A: The Pair 通过 HTTPS 直连任意模型端点——无需安装 CLI。可通过导入其他 Agent 已有的配置（kimi、pi、omp、opencode、codex、claude、gemini、killi）发现端点，手动添加，或用 ChatGPT、Command Code、OpenCode Go、Muse Code 订阅登录。你可以自由混用端点——例如 Claude 作为 Mentor，GPT 作为 Executor。
 
 **Q: 可以使用自己的 AI 模型吗？**
 
-A: 可以，The Pair 与模型无关。opencode 支持的模型可与任意兼容的 Provider（OpenAI、Anthropic、Ollama 等）配合使用。对于其他 Provider CLI，只需安装对应 CLI 并登录。
+A: 可以，The Pair 与模型无关。添加任意兼容 OpenAI、Anthropic 或 Gemini 的端点及其 API 密钥，从其他 Agent 的配置导入，或使用 [Ollama](https://ollama.com) 的本地模型。
 
 **Q: 能控制 Agent 的"思考深度"吗？**
 
@@ -420,6 +401,6 @@ A: 支持。The Pair 在启动时检查新版本，并通过一键式更新流�
 
 **[⭐ 点个 Star](https://github.com/timwuhaotian/the-pair)** 如果觉得这个项目对你有帮助！
 
-<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持 Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code、opencode，适配 macOS、Windows、Linux。</sub>
+<sub>The Pair — 开源 AI 结对编程 · 双 Agent AI 代码审查 · 多 Agent 编码助手 · Cursor / Copilot 替代方案 · 支持任意模型端点——OpenAI、Anthropic、Gemini、Grok 等，或通过 Ollama 的本地模型——适配 macOS、Windows、Linux。</sub>
 
 </div>

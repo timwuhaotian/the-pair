@@ -20,5 +20,7 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 /// set, and restore the originals before asserting so a failure never leaks
 /// state into the next test.
 pub(crate) fn lock_env() -> MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

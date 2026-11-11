@@ -26,8 +26,20 @@ test.describe('Worktree isolation (headless)', () => {
     const calls = await mockCalls(page)
     const created = calls.find((c) => c.cmd === 'pair_create')
     expect(created, 'pair_create was called').toBeTruthy()
-    const input = (created?.args as { input: { useWorktree?: boolean } }).input
+    const input = (
+      created?.args as {
+        input: {
+          useWorktree?: boolean
+          mentor?: { role: string; model: string }
+          executor?: { role: string; model: string }
+        }
+      }
+    ).input
     expect(input.useWorktree).toBe(true)
+    // A pair names the model it wants per role; the backend resolves the
+    // endpoint and credential behind that id at turn time.
+    expect(input.mentor).toEqual({ role: 'mentor', model: 'claude-sonnet-4-5-20250929' })
+    expect(input.executor).toEqual({ role: 'executor', model: 'claude-sonnet-4-5-20250929' })
 
     await expect(page.getByText('Isolated Pair')).toBeVisible()
   })

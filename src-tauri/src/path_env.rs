@@ -50,10 +50,17 @@ pub fn refresh_path_from_login_shell() {
     let Some(shell_path) = capture_login_shell_path() else {
         return;
     };
+    apply_login_shell_path(&shell_path);
+}
+
+/// Puts a PATH the login shell reported in front of the process's own. Split
+/// out so a caller that already asked the shell for its whole environment does
+/// not have to ask it again for this.
+pub fn apply_login_shell_path(shell_path: &str) {
     let current = std::env::var_os("PATH").unwrap_or_default();
 
     if let Ok(merged) =
-        login_shell_first_path(OsStr::new(&shell_path), &current, &current_fallback_dirs())
+        login_shell_first_path(OsStr::new(shell_path), &current, &current_fallback_dirs())
     {
         std::env::set_var("PATH", merged);
     }
@@ -284,10 +291,13 @@ fn hide_console_window(command: &mut Command) {
 }
 
 /// What a child printed before it exited or was killed.
-pub(crate) struct BoundedOutput {
+struct BoundedOutput {
     /// `None` when the child was still running at the deadline and got killed.
-    pub status: Option<ExitStatus>,
-    pub stdout: Vec<u8>,
+    /// Only the Windows login-shell path reads it; the POSIX one stops at the
+    /// end marker.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    status: Option<ExitStatus>,
+    stdout: Vec<u8>,
 }
 
 /// Run `command` with stdin closed, stdout captured and stderr discarded, for at
@@ -298,7 +308,8 @@ pub(crate) struct BoundedOutput {
 /// macOS): it blocks on write, never exits, and runs into the timeout. The
 /// helper stops at EOF, and waiting for it is capped by the same deadline, so
 /// a daemon that inherited the pipe can't hold the caller either.
-pub(crate) fn run_with_timeout(command: Command, timeout: Duration) -> Option<BoundedOutput> {
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn run_with_timeout(command: Command, timeout: Duration) -> Option<BoundedOutput> {
     run_bounded(command, timeout, false, &|_| false)
 }
 

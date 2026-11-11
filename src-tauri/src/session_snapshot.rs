@@ -2,14 +2,12 @@ use crate::acceptance::{
     build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
     build_mentor_acceptance_repair_prompt,
 };
+use crate::harness::driver::{ProcessContext, ProcessContextMap, TurnDriver};
 use crate::message_broker::MessageBroker;
 use crate::pair_manager::PairManager;
-use crate::process_spawner::{ProcessContext, ProcessSpawner};
-use crate::provider_adapter::ProviderAdapter;
-use crate::provider_registry::ProviderKind;
 use crate::types::{
     AcceptanceRecord, AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType,
-    ModifiedFile, Pair, PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
+    ModifiedFile, Pair, PairState, PairStatus, TurnTokenUsage,
 };
 use crate::util::{build_mentor_planning_prompt, now_millis};
 use serde::{Deserialize, Serialize};
@@ -68,6 +66,18 @@ pub struct SnapshotRunSummary {
 pub struct SnapshotProcessContext {
     pub mentor_session_id: Option<String>,
     pub executor_session_id: Option<String>,
+    /// The harness conversation each agent carries, in OpenAI chat form.
+    /// Absent in snapshots written before the direct connection kept one.
+    #[serde(default)]
+    pub mentor_history: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub executor_history: Vec<serde_json::Value>,
+    /// The model each agent talks to directly. Without these a restored pair
+    /// falls back to its provider CLI and never replays the history above.
+    #[serde(default)]
+    pub mentor_selection: Option<crate::harness::ModelSelection>,
+    #[serde(default)]
+    pub executor_selection: Option<crate::harness::ModelSelection>,
     /// Absent in snapshots written before v1.3.5.
     #[serde(default)]
     pub run_generation: u32,
@@ -88,9 +98,7 @@ pub struct SessionSnapshotRecord {
     pub iterations: u32,
     pub max_iterations: u32,
     pub turn: AgentRole,
-    pub mentor_provider: Option<ProviderKind>,
     pub mentor_model: String,
-    pub executor_provider: Option<ProviderKind>,
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
@@ -101,12 +109,6 @@ pub struct SessionSnapshotRecord {
     pub messages: Vec<Message>,
     pub mentor_activity: AgentActivity,
     pub executor_activity: AgentActivity,
-    pub mentor_cpu: f64,
-    pub mentor_mem_mb: f64,
-    pub executor_cpu: f64,
-    pub executor_mem_mb: f64,
-    pub cpu_usage: f64,
-    pub mem_usage: f64,
     pub modified_files: Vec<ModifiedFile>,
     pub git_tracking: GitTracking,
     pub automation_mode: String,
@@ -141,9 +143,7 @@ pub struct SessionSnapshotDraft {
     pub iterations: u32,
     pub max_iterations: u32,
     pub turn: AgentRole,
-    pub mentor_provider: Option<ProviderKind>,
     pub mentor_model: String,
-    pub executor_provider: Option<ProviderKind>,
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
@@ -154,12 +154,6 @@ pub struct SessionSnapshotDraft {
     pub messages: Vec<Message>,
     pub mentor_activity: AgentActivity,
     pub executor_activity: AgentActivity,
-    pub mentor_cpu: f64,
-    pub mentor_mem_mb: f64,
-    pub executor_cpu: f64,
-    pub executor_mem_mb: f64,
-    pub cpu_usage: f64,
-    pub mem_usage: f64,
     pub modified_files: Vec<ModifiedFile>,
     pub git_tracking: GitTracking,
     pub automation_mode: String,
@@ -221,10 +215,6 @@ fn to_role_string(role: &AgentRole) -> &'static str {
         AgentRole::Mentor => "mentor",
         AgentRole::Executor => "executor",
     }
-}
-
-fn resolve_provider_kind(provider: Option<ProviderKind>, model: &str) -> ProviderKind {
-    provider.unwrap_or_else(|| ProviderAdapter::infer_provider_kind(model))
 }
 
 fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
@@ -669,11 +659,6 @@ fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
         .unwrap_or_else(|| snapshot.directory.clone());
     ProcessContext {
         directory,
-        mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
-        executor_provider: resolve_provider_kind(
-            snapshot.executor_provider,
-            &snapshot.executor_model,
-        ),
         mentor_model: snapshot.mentor_model.clone(),
         executor_model: snapshot.executor_model.clone(),
         mentor_session_id: snapshot.provider_sessions.mentor_session_id.clone(),
@@ -682,6 +667,10 @@ fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
         executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
         run_generation: snapshot.provider_sessions.run_generation,
         is_smoke_test: snapshot.provider_sessions.is_smoke_test,
+        mentor_history: snapshot.provider_sessions.mentor_history.clone(),
+        executor_history: snapshot.provider_sessions.executor_history.clone(),
+        mentor_selection: snapshot.provider_sessions.mentor_selection.clone(),
+        executor_selection: snapshot.provider_sessions.executor_selection.clone(),
     }
 }
 
@@ -691,12 +680,7 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         name: snapshot.name.clone(),
         directory: snapshot.directory.clone(),
         status: snapshot.status.clone(),
-        mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
         mentor_model: snapshot.mentor_model.clone(),
-        executor_provider: resolve_provider_kind(
-            snapshot.executor_provider,
-            &snapshot.executor_model,
-        ),
         executor_model: snapshot.executor_model.clone(),
         pending_mentor_model: snapshot.pending_mentor_model.clone(),
         pending_executor_model: snapshot.pending_executor_model.clone(),
@@ -708,33 +692,13 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         worktree_path: snapshot.worktree_path.clone(),
         // Snapshots from before the field existed didn't record the branch;
         // it is derived from the worktree directory, which names it.
-        worktree_branch: snapshot
-            .worktree_branch
-            .clone()
-            .or_else(|| {
-                snapshot
-                    .worktree_path
-                    .as_deref()
-                    .and_then(crate::worktree_manager::branch_for_worktree)
-            }),
+        worktree_branch: snapshot.worktree_branch.clone().or_else(|| {
+            snapshot
+                .worktree_path
+                .as_deref()
+                .and_then(crate::worktree_manager::branch_for_worktree)
+        }),
         plan_gate: snapshot.plan_gate,
-    }
-}
-
-fn build_pair_resources(snapshot: &SessionSnapshotRecord) -> PairResources {
-    PairResources {
-        mentor: ResourceInfo {
-            cpu: snapshot.mentor_cpu,
-            mem_mb: snapshot.mentor_mem_mb,
-        },
-        executor: ResourceInfo {
-            cpu: snapshot.executor_cpu,
-            mem_mb: snapshot.executor_mem_mb,
-        },
-        pair_total: ResourceInfo {
-            cpu: snapshot.cpu_usage,
-            mem_mb: snapshot.mem_usage,
-        },
     }
 }
 
@@ -763,7 +727,6 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         messages: snapshot.messages.clone(),
         mentor_activity: current_turn_activity(&snapshot.mentor_activity),
         executor_activity: current_turn_activity(&snapshot.executor_activity),
-        resources: build_pair_resources(snapshot),
         modified_files: snapshot.modified_files.clone(),
         git_tracking: snapshot.git_tracking.clone(),
         automation_mode: snapshot.automation_mode.clone(),
@@ -793,8 +756,6 @@ fn build_snapshot_from_state(
 ) -> SessionSnapshotRecord {
     let context = context.cloned().unwrap_or(ProcessContext {
         directory: pair.directory.clone(),
-        mentor_provider: pair.mentor_provider,
-        executor_provider: pair.executor_provider,
         mentor_model: pair.mentor_model.clone(),
         executor_model: pair.executor_model.clone(),
         mentor_session_id: None,
@@ -803,6 +764,10 @@ fn build_snapshot_from_state(
         executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
         run_generation: 0,
         is_smoke_test: false,
+        mentor_history: Vec::new(),
+        executor_history: Vec::new(),
+        mentor_selection: None,
+        executor_selection: None,
     });
 
     let current_turn_card = state
@@ -864,9 +829,7 @@ fn build_snapshot_from_state(
         iterations: state.iteration,
         max_iterations: state.max_iterations,
         turn: state.turn.clone(),
-        mentor_provider: Some(pair.mentor_provider),
         mentor_model: pair.mentor_model.clone(),
-        executor_provider: Some(pair.executor_provider),
         executor_model: pair.executor_model.clone(),
         pending_mentor_model: None,
         pending_executor_model: None,
@@ -875,12 +838,6 @@ fn build_snapshot_from_state(
         messages: state.messages.clone(),
         mentor_activity: state.mentor_activity.clone(),
         executor_activity: state.executor_activity.clone(),
-        mentor_cpu: state.resources.mentor.cpu,
-        mentor_mem_mb: state.resources.mentor.mem_mb,
-        executor_cpu: state.resources.executor.cpu,
-        executor_mem_mb: state.resources.executor.mem_mb,
-        cpu_usage: state.resources.pair_total.cpu,
-        mem_usage: state.resources.pair_total.mem_mb,
         modified_files: state.modified_files.clone(),
         git_tracking: state.git_tracking.clone(),
         automation_mode: state.automation_mode.clone(),
@@ -899,6 +856,10 @@ fn build_snapshot_from_state(
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
+            mentor_history: context.mentor_history.clone(),
+            executor_history: context.executor_history.clone(),
+            mentor_selection: context.mentor_selection.clone(),
+            executor_selection: context.executor_selection.clone(),
             run_generation: context.run_generation,
             is_smoke_test: context.is_smoke_test,
         },
@@ -916,8 +877,6 @@ fn build_snapshot_from_draft(
 ) -> SessionSnapshotRecord {
     let context = context.unwrap_or(ProcessContext {
         directory: draft.directory.clone(),
-        mentor_provider: resolve_provider_kind(draft.mentor_provider, &draft.mentor_model),
-        executor_provider: resolve_provider_kind(draft.executor_provider, &draft.executor_model),
         mentor_model: draft.mentor_model.clone(),
         executor_model: draft.executor_model.clone(),
         mentor_session_id: None,
@@ -926,6 +885,10 @@ fn build_snapshot_from_draft(
         executor_reasoning_effort: draft.executor_reasoning_effort.clone(),
         run_generation: 0,
         is_smoke_test: false,
+        mentor_history: Vec::new(),
+        executor_history: Vec::new(),
+        mentor_selection: None,
+        executor_selection: None,
     });
 
     SessionSnapshotRecord {
@@ -939,9 +902,7 @@ fn build_snapshot_from_draft(
         iterations: draft.iterations,
         max_iterations: draft.max_iterations,
         turn: draft.turn,
-        mentor_provider: draft.mentor_provider,
         mentor_model: draft.mentor_model,
-        executor_provider: draft.executor_provider,
         executor_model: draft.executor_model,
         pending_mentor_model: draft.pending_mentor_model,
         pending_executor_model: draft.pending_executor_model,
@@ -950,12 +911,6 @@ fn build_snapshot_from_draft(
         messages: draft.messages,
         mentor_activity: draft.mentor_activity,
         executor_activity: draft.executor_activity,
-        mentor_cpu: draft.mentor_cpu,
-        mentor_mem_mb: draft.mentor_mem_mb,
-        executor_cpu: draft.executor_cpu,
-        executor_mem_mb: draft.executor_mem_mb,
-        cpu_usage: draft.cpu_usage,
-        mem_usage: draft.mem_usage,
         modified_files: draft.modified_files,
         git_tracking: draft.git_tracking,
         automation_mode: draft.automation_mode,
@@ -970,6 +925,10 @@ fn build_snapshot_from_draft(
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id,
             executor_session_id: context.executor_session_id,
+            mentor_history: context.mentor_history,
+            executor_history: context.executor_history,
+            mentor_selection: context.mentor_selection,
+            executor_selection: context.executor_selection,
             run_generation: context.run_generation,
             is_smoke_test: context.is_smoke_test,
         },
@@ -1008,9 +967,7 @@ fn merge_state_into_snapshot(
     snapshot.iterations = state.iteration;
     snapshot.max_iterations = state.max_iterations;
     snapshot.turn = state.turn.clone();
-    snapshot.mentor_provider = Some(pair.mentor_provider);
     snapshot.mentor_model = pair.mentor_model.clone();
-    snapshot.executor_provider = Some(pair.executor_provider);
     snapshot.executor_model = pair.executor_model.clone();
     if pair.pending_mentor_model.is_some() {
         snapshot.pending_mentor_model = pair.pending_mentor_model.clone();
@@ -1038,12 +995,6 @@ fn merge_state_into_snapshot(
 
     snapshot.mentor_activity = state.mentor_activity.clone();
     snapshot.executor_activity = state.executor_activity.clone();
-    snapshot.mentor_cpu = state.resources.mentor.cpu;
-    snapshot.mentor_mem_mb = state.resources.mentor.mem_mb;
-    snapshot.executor_cpu = state.resources.executor.cpu;
-    snapshot.executor_mem_mb = state.resources.executor.mem_mb;
-    snapshot.cpu_usage = state.resources.pair_total.cpu;
-    snapshot.mem_usage = state.resources.pair_total.mem_mb;
     snapshot.modified_files = state.modified_files.clone();
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
@@ -1071,6 +1022,10 @@ fn merge_state_into_snapshot(
         snapshot.provider_sessions = SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
+            mentor_history: context.mentor_history.clone(),
+            executor_history: context.executor_history.clone(),
+            mentor_selection: context.mentor_selection.clone(),
+            executor_selection: context.executor_selection.clone(),
             run_generation: context.run_generation,
             is_smoke_test: context.is_smoke_test,
         };
@@ -1108,7 +1063,7 @@ pub fn persist_current_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(
         return Ok(());
     };
     let context = {
-        let spawner = app.state::<ProcessSpawner>();
+        let spawner = app.state::<TurnDriver>();
         let contexts = spawner
             .pair_contexts
             .lock()
@@ -1167,7 +1122,7 @@ fn save_snapshot_blocking(
     }
 
     let context = {
-        let spawner = app.state::<ProcessSpawner>();
+        let spawner = app.state::<TurnDriver>();
         let contexts = spawner
             .pair_contexts
             .lock()
@@ -1280,6 +1235,212 @@ fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, Sessi
     (state, snapshot_with_idle)
 }
 
+/// The pair state a blocked resume is restored into: paused, with the reason
+/// on it, so the pair never looks busy with no turn behind it.
+fn paused_for_unresolvable_resume(mut state: PairState, role: &str) -> PairState {
+    let mut idle = idle_activity();
+    idle.label = "Paused".to_string();
+    idle.detail = Some(format!(
+        "Could not resume the {} turn: it has no model it can talk to. Pick one in the pair's settings.",
+        role
+    ));
+    state.status = PairStatus::Paused;
+    state.mentor.status = PairStatus::Paused;
+    state.executor.status = PairStatus::Paused;
+    state.mentor_activity = idle.clone();
+    state.executor_activity = idle.clone();
+    state.mentor.activity = idle.clone();
+    state.executor.activity = idle;
+    state
+}
+
+/// What a restore does about the run its snapshot was interrupted in.
+#[derive(Debug)]
+enum Resume {
+    /// Nothing to resume: the human did not ask, or the pair was already
+    /// stopped (a plan waiting for review, an error, a finished run).
+    Skip,
+    /// Resume this role's turn, on the endpoint its model resolves onto right
+    /// now. `None` only in mock mode, which talks to no endpoint at all.
+    Start(String, Option<crate::harness::ModelSelection>),
+    /// A resume was asked for, but the role has no model it can talk to — the
+    /// pair comes back paused instead of restored into a running status with no
+    /// turn behind it.
+    Blocked(String),
+}
+
+/// The endpoint the role's model resolves onto right now.
+///
+/// The snapshot's own stored selection is kept while it still names the role's
+/// model on an endpoint with a ready account — the conversation the snapshot
+/// carries was had with it. It is not enough on its own, though: it can outlive
+/// the credential it pointed at, the pair's model may have changed since the
+/// snapshot was written, and a snapshot from before the harness has none.
+fn resume_selection(
+    app_dir: &Path,
+    snapshot: &SessionSnapshotRecord,
+    role: &str,
+) -> Option<crate::harness::ModelSelection> {
+    let (model, stored) = if role == "mentor" {
+        (
+            snapshot
+                .pending_mentor_model
+                .clone()
+                .unwrap_or_else(|| snapshot.mentor_model.clone()),
+            snapshot.provider_sessions.mentor_selection.as_ref(),
+        )
+    } else {
+        (
+            snapshot
+                .pending_executor_model
+                .clone()
+                .unwrap_or_else(|| snapshot.executor_model.clone()),
+            snapshot.provider_sessions.executor_selection.as_ref(),
+        )
+    };
+    crate::harness::keep_or_resolve(app_dir, role, &model, stored)
+}
+
+/// Put the selection a resume was planned with onto the context its turn will
+/// read, so the turn talks to the endpoint the plan checked.
+///
+/// `plan_resume` decides whether the turn can start from what the model
+/// resolves onto today; starting it from the snapshot's stored selection
+/// instead would fail a snapshot that has none, or talk to an endpoint whose
+/// credential is gone. A role that moved starts its conversation over, the way
+/// it does on a handoff: the stored one was had with another endpoint.
+fn install_resume_selection(
+    context: &mut ProcessContext,
+    role: &str,
+    selection: crate::harness::ModelSelection,
+) {
+    let (slot, history, session_id) = if role == "mentor" {
+        (
+            &mut context.mentor_selection,
+            &mut context.mentor_history,
+            &mut context.mentor_session_id,
+        )
+    } else {
+        (
+            &mut context.executor_selection,
+            &mut context.executor_history,
+            &mut context.executor_session_id,
+        )
+    };
+    if slot.as_ref().is_some_and(|stored| *stored != selection) {
+        history.clear();
+        *session_id = None;
+    }
+    *slot = Some(selection);
+}
+
+/// Decide what the interrupted run does, before anything is restored.
+fn plan_resume(
+    app_dir: Option<&Path>,
+    continue_run: bool,
+    snapshot: &SessionSnapshotRecord,
+) -> Resume {
+    let resumable = continue_run
+        && !matches!(
+            snapshot.status,
+            PairStatus::AwaitingHumanReview | PairStatus::Error | PairStatus::Finished
+        );
+    if !resumable {
+        return Resume::Skip;
+    }
+
+    let role = to_role_string(&snapshot.turn).to_string();
+    // A mock run replays canned output and talks to no endpoint at all, so it
+    // never needs a resolvable model.
+    if crate::util::is_mock_mode() {
+        return Resume::Start(role, None);
+    }
+    match app_dir.and_then(|dir| resume_selection(dir, snapshot, &role)) {
+        Some(selection) => Resume::Start(role, Some(selection)),
+        None => Resume::Blocked(role),
+    }
+}
+
+/// Whether this process already runs `pair_id`: it has both broker state
+/// and a turn context, so whatever is on disk for it is older than what is live.
+fn pair_is_live(broker: &MessageBroker, contexts: &ProcessContextMap, pair_id: &str) -> bool {
+    let has_context = contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(pair_id);
+    has_context && broker.get_state(pair_id).is_some()
+}
+
+/// Install a restored pair's turn context, one generation past the snapshot's.
+///
+/// Restore must supersede any turn still live in this process. The snapshot
+/// carries an old generation: inserting it as-is would leave a live turn that
+/// happens to share that generation looking current — stopped only by its cancel
+/// flag, and only once it next checked. Starting one past it makes that turn
+/// stale the moment the context is in place. The turn itself is cancelled by the
+/// caller.
+fn install_restored_context(spawner: &TurnDriver, pair_id: &str, context: &mut ProcessContext) {
+    context.run_generation = context.run_generation.wrapping_add(1);
+    spawner
+        .pair_contexts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(pair_id.to_string(), context.clone());
+}
+
+/// Register one loaded snapshot's pair, broker state and turn context.
+///
+/// A pair this process already runs keeps its live state: its turn context and
+/// broker state are newer than anything on disk, and adopting the snapshot would
+/// rewind the context to an older run generation — the live turn would cancel
+/// itself and leave the pair Mentoring/Executing/Reviewing with no turn behind
+/// it. `load_all_pairs` runs at startup and again from the frontend's handoff
+/// path, mid-session. The record is returned either way: the frontend builds
+/// its store from it.
+fn register_loaded_snapshot(
+    pair_manager: &std::sync::Mutex<PairManager>,
+    broker: &std::sync::Mutex<MessageBroker>,
+    contexts: &ProcessContextMap,
+    snapshot: SessionSnapshotRecord,
+) -> Result<SessionSnapshotRecord, String> {
+    let pair = build_pair(&snapshot);
+    let (state, snapshot_with_idle) = prepare_loaded_snapshot(snapshot);
+    let context = build_process_context(&snapshot_with_idle);
+
+    let live = {
+        let broker_guard = broker.lock().map_err(|e| e.to_string())?;
+        pair_is_live(&broker_guard, contexts, &pair.pair_id)
+    };
+    if live {
+        println!(
+            "[session_snapshot] Pair {} is live in this session; keeping its state",
+            pair.pair_id
+        );
+        return Ok(snapshot_with_idle);
+    }
+
+    {
+        pair_manager
+            .lock()
+            .map_err(|e| e.to_string())?
+            .upsert_pair(pair.clone());
+    }
+    {
+        broker
+            .lock()
+            .map_err(|e| e.to_string())?
+            .restore_state(state)?;
+    }
+    {
+        contexts
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(pair.pair_id, context);
+    }
+
+    Ok(snapshot_with_idle)
+}
+
 /// Load all persisted pairs into the backend state on startup.
 /// Returns the full snapshot records so the frontend can populate its store.
 #[tauri::command]
@@ -1287,7 +1448,7 @@ pub fn load_all_pairs(
     app: AppHandle,
     pair_manager: State<'_, std::sync::Mutex<PairManager>>,
     broker: State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: State<'_, ProcessSpawner>,
+    spawner: State<'_, TurnDriver>,
 ) -> Result<Vec<SessionSnapshotRecord>, String> {
     let dir = ensure_snapshot_dir(&app)?;
     let entries = match fs::read_dir(&dir) {
@@ -1323,23 +1484,8 @@ pub fn load_all_pairs(
             continue;
         }
 
-        let pair = build_pair(&snapshot);
-        let (state, snapshot_with_idle) = prepare_loaded_snapshot(snapshot);
-        let context = build_process_context(&snapshot_with_idle);
-
-        {
-            let mut manager = pair_manager.lock().map_err(|e| e.to_string())?;
-            manager.upsert_pair(pair.clone());
-        }
-        {
-            let broker_guard = broker.lock().map_err(|e| e.to_string())?;
-            broker_guard.restore_state(state)?;
-        }
-        {
-            let mut contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
-            contexts.insert(pair.pair_id.clone(), context);
-        }
-
+        let snapshot_with_idle =
+            register_loaded_snapshot(&pair_manager, &broker, &spawner.pair_contexts, snapshot)?;
         snapshots.push(snapshot_with_idle);
     }
 
@@ -1352,14 +1498,14 @@ pub async fn restore_session(
     app: AppHandle,
     pair_manager: State<'_, std::sync::Mutex<PairManager>>,
     broker: State<'_, std::sync::Mutex<MessageBroker>>,
-    spawner: State<'_, ProcessSpawner>,
+    spawner: State<'_, TurnDriver>,
     input: RestoreSessionInput,
 ) -> Result<SessionSnapshotRecord, String> {
     validate_pair_id(&input.pair_id)?;
     let snapshot = read_snapshot(&app, &input.pair_id)?;
     let pair = build_pair(&snapshot);
     let mut state = build_pair_state(&snapshot);
-    let context = build_process_context(&snapshot);
+    let mut context = build_process_context(&snapshot);
 
     // Reset activity to Idle if not continuing run
     if !input.continue_run {
@@ -1380,6 +1526,22 @@ pub async fn restore_session(
         }
     }
 
+    // What the interrupted run does next, decided before the pair's status is
+    // restored: a turn that cannot start must not come back as a pair in
+    // Reviewing/Executing with nothing running behind it.
+    let resume = plan_resume(
+        app.path().app_data_dir().ok().as_deref(),
+        input.continue_run,
+        &snapshot,
+    );
+    match &resume {
+        Resume::Blocked(role) => state = paused_for_unresolvable_resume(state, role),
+        Resume::Start(role, Some(selection)) => {
+            install_resume_selection(&mut context, role, selection.clone())
+        }
+        Resume::Start(_, None) | Resume::Skip => {}
+    }
+
     {
         let mut manager = pair_manager.lock().map_err(|e| e.to_string())?;
         manager.upsert_pair(pair.clone());
@@ -1389,22 +1551,30 @@ pub async fn restore_session(
         let broker_guard = broker.lock().map_err(|e| e.to_string())?;
         broker_guard.restore_state(state.clone())?;
     }
-    {
-        let mut contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
-        contexts.insert(pair.pair_id.clone(), context);
-    }
     // Restore must supersede any turn still live in this process: the restored
-    // context carries the snapshot's old generation, so bump it past the live
-    // turn's (and kill that turn's processes) or both could complete.
-    spawner.bump_run_generation(&pair.pair_id);
+    // context starts one generation past the snapshot's, so a live turn sharing
+    // that generation is stale immediately (and is cancelled below).
+    install_restored_context(&spawner, &pair.pair_id, &mut context);
     spawner.stop_pair_processes(&pair.pair_id);
 
     let mut updated_snapshot = snapshot.clone();
+    if matches!(resume, Resume::Blocked(_)) {
+        // The pair is paused, not mid-run: persist that so a restart does not
+        // offer a resume that cannot start.
+        updated_snapshot.status = PairStatus::Paused;
+    }
     updated_snapshot.provider_sessions = SnapshotProcessContext {
         mentor_session_id: updated_snapshot.provider_sessions.mentor_session_id.clone(),
         executor_session_id: updated_snapshot
             .provider_sessions
             .executor_session_id
+            .clone(),
+        mentor_history: updated_snapshot.provider_sessions.mentor_history.clone(),
+        executor_history: updated_snapshot.provider_sessions.executor_history.clone(),
+        mentor_selection: updated_snapshot.provider_sessions.mentor_selection.clone(),
+        executor_selection: updated_snapshot
+            .provider_sessions
+            .executor_selection
             .clone(),
         run_generation: updated_snapshot.provider_sessions.run_generation,
         is_smoke_test: updated_snapshot.provider_sessions.is_smoke_test,
@@ -1415,42 +1585,31 @@ pub async fn restore_session(
         upsert_snapshot_record(&app, &updated_snapshot)?;
     }
 
-    // Seed the session-usage baseline from the snapshot's last recorded
-    // per-role totals so a Session-scope provider's first resumed turn
-    // reports only its own share, not the whole thread total.
-    let mentor_usage = last_token_usage_for_role(&snapshot.messages, MessageSender::Mentor);
-    let executor_usage = last_token_usage_for_role(&snapshot.messages, MessageSender::Executor);
-    crate::process_spawner::seed_session_usage_baselines(
-        snapshot
-            .provider_sessions
-            .mentor_session_id
-            .as_deref()
-            .map(|sid| (sid, mentor_usage.as_ref())),
-        snapshot
-            .provider_sessions
-            .executor_session_id
-            .as_deref()
-            .map(|sid| (sid, executor_usage.as_ref())),
-    );
-
     let should_resume = input.continue_run
         && !matches!(
             snapshot.status,
             PairStatus::AwaitingHumanReview | PairStatus::Error | PairStatus::Finished
         );
 
-    if should_resume {
-        let role = to_role_string(&snapshot.turn).to_string();
+    if let Resume::Start(role, _) = resume {
         let prompt = build_resume_prompt(&snapshot);
         {
             let broker_guard = broker.lock().map_err(|e| e.to_string())?;
             // Use resume_run to preserve iteration count; prepare_run incorrectly
             // increments for non-planning mentor turns.
-            broker_guard.resume_run(&pair.pair_id, &role, spawner.active_processes.clone());
+            broker_guard.resume_run(&pair.pair_id, &role);
         }
-        spawner
-            .trigger_turn(app.clone(), pair.pair_id.clone(), role, prompt)
+        // `resume_run` has just put the pair back into a running status, so a
+        // turn that cannot start must take it out again: `start_turn` marks the
+        // pair errored instead of leaving it Mentoring/Executing with nothing
+        // behind it.
+        crate::pair_manager::start_turn(&app, &broker, &spawner, &pair.pair_id, &role, prompt)
             .await?;
+    } else if should_resume {
+        println!(
+            "[restore_session] Not resuming pair {}: its next turn has no model it can talk to",
+            pair.pair_id
+        );
     }
 
     Ok(snapshot)
@@ -1459,7 +1618,6 @@ pub async fn restore_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider_registry::ProviderKind;
     use std::fs;
 
     fn activity(label: &str) -> AgentActivity {
@@ -1513,9 +1671,7 @@ mod tests {
             iterations: 2,
             max_iterations: 3,
             turn: turn.clone(),
-            mentor_provider: Some(ProviderKind::Opencode),
             mentor_model: "mentor-model".to_string(),
-            executor_provider: Some(ProviderKind::Codex),
             executor_model: "executor-model".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -1524,12 +1680,6 @@ mod tests {
             messages,
             mentor_activity: activity("Mentor reviewing"),
             executor_activity: activity("Executor working"),
-            mentor_cpu: 1.0,
-            mentor_mem_mb: 2.0,
-            executor_cpu: 3.0,
-            executor_mem_mb: 4.0,
-            cpu_usage: 4.0,
-            mem_usage: 6.0,
             modified_files: vec![],
             git_tracking: GitTracking {
                 available: true,
@@ -1559,6 +1709,10 @@ mod tests {
             provider_sessions: SnapshotProcessContext {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
+                mentor_history: Vec::new(),
+                executor_history: Vec::new(),
+                mentor_selection: None,
+                executor_selection: None,
                 run_generation: 0,
                 is_smoke_test: false,
             },
@@ -1572,8 +1726,6 @@ mod tests {
 
     fn legacy_snapshot(turn: AgentRole, status: PairStatus) -> SessionSnapshotRecord {
         let mut snapshot = snapshot(turn, status, vec![]);
-        snapshot.mentor_provider = None;
-        snapshot.executor_provider = None;
         snapshot.mentor_model = "claude-3-5-sonnet".to_string();
         snapshot.executor_model = "gpt-4o-mini".to_string();
         snapshot
@@ -1589,9 +1741,7 @@ mod tests {
             iterations: 0,
             max_iterations: 3,
             turn: AgentRole::Mentor,
-            mentor_provider: Some(ProviderKind::Claude),
             mentor_model: "claude-3-5-sonnet".to_string(),
-            executor_provider: Some(ProviderKind::Codex),
             executor_model: "gpt-4o-mini".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -1600,12 +1750,6 @@ mod tests {
             messages: vec![],
             mentor_activity: activity("Mentor idle"),
             executor_activity: activity("Executor idle"),
-            mentor_cpu: 0.0,
-            mentor_mem_mb: 0.0,
-            executor_cpu: 0.0,
-            executor_mem_mb: 0.0,
-            cpu_usage: 0.0,
-            mem_usage: 0.0,
             modified_files: vec![],
             git_tracking: GitTracking {
                 available: false,
@@ -1696,10 +1840,321 @@ mod tests {
     fn build_snapshot_from_draft_persists_provider_kinds() {
         let record = build_snapshot_from_draft(draft(), None);
 
-        assert_eq!(record.mentor_provider, Some(ProviderKind::Claude));
-        assert_eq!(record.executor_provider, Some(ProviderKind::Codex));
         assert_eq!(record.mentor_model, "claude-3-5-sonnet");
         assert_eq!(record.executor_model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn plan_resume_starts_the_turn_when_the_model_still_resolves() {
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.mentor_model = "test-mentor".to_string();
+        let dir = app_dir_listing("test-mentor");
+
+        match plan_resume(Some(&dir), true, &record) {
+            Resume::Start(role, selection) => {
+                assert_eq!(role, "mentor");
+                assert_eq!(
+                    selection.map(|selection| selection.provider_id),
+                    Some("listed-1".to_string()),
+                    "the plan carries the endpoint the turn will talk to"
+                );
+            }
+            other => panic!("expected a resume, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_resume_starts_on_the_selection_it_was_planned_with() {
+        // A snapshot from before the harness stores no selection at all. The
+        // plan resolves the model today, and that — not the snapshot's empty
+        // slot — is what the turn must read, or it fails with "no model
+        // selected" after the pair was already put back into a running status.
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.mentor_model = "test-mentor".to_string();
+        assert!(record.provider_sessions.mentor_selection.is_none());
+        let dir = app_dir_listing("test-mentor");
+        let Resume::Start(role, Some(selection)) = plan_resume(Some(&dir), true, &record) else {
+            panic!("expected a resume with a selection");
+        };
+
+        let mut context = build_process_context(&record);
+        context.mentor_history = vec![serde_json::json!({"role": "user", "content": "earlier"})];
+        install_resume_selection(&mut context, &role, selection.clone());
+        assert_eq!(context.mentor_selection, Some(selection.clone()));
+        assert_eq!(
+            context.mentor_history.len(),
+            1,
+            "nothing moved, so the conversation carries over"
+        );
+
+        // A stored selection whose endpoint is gone is replaced, and the
+        // conversation that was had with it is not replayed to the new one.
+        let mut gone = selection.clone();
+        gone.provider_id = "gone-1".into();
+        gone.account_id = "gone-1-a".into();
+        record.provider_sessions.mentor_selection = Some(gone.clone());
+        let Resume::Start(_, Some(resolved)) = plan_resume(Some(&dir), true, &record) else {
+            panic!("expected a resume with a selection");
+        };
+        assert_eq!(resolved, selection, "the model resolves where it can run");
+        context.mentor_selection = Some(gone);
+        context.mentor_session_id = Some("session".into());
+        install_resume_selection(&mut context, "mentor", resolved.clone());
+        assert_eq!(context.mentor_selection, Some(resolved));
+        assert!(context.mentor_history.is_empty());
+        assert!(context.mentor_session_id.is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// An app data dir whose registry has one ready endpoint listing `model`.
+    fn app_dir_listing(model: &str) -> std::path::PathBuf {
+        use crate::accounts::store::save;
+        use crate::accounts::types::{
+            Account, AccountKind, AccountStatus, ModelRoute, ModelSource, Protocol, Provider,
+            Secret,
+        };
+
+        let dir = std::env::temp_dir().join(format!("the-pair-restore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        save(
+            &dir,
+            &[Provider {
+                id: "listed-1".into(),
+                protocol: Protocol::Anthropic,
+                base_url: "https://listed.example".into(),
+                vendor: "listed".into(),
+                display_name: "Listed".into(),
+                accounts: vec![Account {
+                    id: "listed-1-a".into(),
+                    kind: AccountKind::ApiKey,
+                    label: "listed".into(),
+                    source: "manual".into(),
+                    status: AccountStatus::Ready,
+                    headers: vec![],
+                    tool_names: None,
+                    secret: Secret::ApiKey("k".into()),
+                }],
+                models: vec![ModelRoute {
+                    id: model.into(),
+                    display_name: model.into(),
+                    context_window: None,
+                    max_output: None,
+                    efforts: vec![],
+                    default_effort: None,
+                    price: None,
+                    source: ModelSource::Manual,
+                }],
+            }],
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn plan_resume_blocks_a_turn_whose_model_resolves_to_nothing() {
+        // Restored into Reviewing/Executing with no turn behind it, the pair
+        // would hang until a human noticed. It comes back paused instead, with
+        // the reason on it.
+        let record = snapshot(AgentRole::Executor, PairStatus::Executing, vec![]);
+        let nowhere = std::path::Path::new("/nonexistent-app-dir");
+
+        match plan_resume(Some(nowhere), true, &record) {
+            Resume::Blocked(role) => assert_eq!(role, "executor"),
+            other => panic!("expected a blocked resume, got {:?}", other),
+        }
+
+        // No resume asked for, or a pair that was already stopped: nothing to
+        // block.
+        assert!(matches!(
+            plan_resume(Some(nowhere), false, &record),
+            Resume::Skip
+        ));
+        for status in [
+            PairStatus::AwaitingHumanReview,
+            PairStatus::Error,
+            PairStatus::Finished,
+        ] {
+            let stopped = snapshot(AgentRole::Mentor, status, vec![]);
+            assert!(matches!(
+                plan_resume(Some(nowhere), true, &stopped),
+                Resume::Skip
+            ));
+        }
+    }
+
+    #[test]
+    fn a_restored_pair_with_no_model_to_talk_to_comes_back_paused() {
+        let record = snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]);
+        let state = build_pair_state(&record);
+
+        // The state the restore installs for a resume that cannot start.
+        let state = paused_for_unresolvable_resume(state, "mentor");
+
+        assert_eq!(state.status, PairStatus::Paused);
+        assert_eq!(state.mentor.status, PairStatus::Paused);
+        assert_eq!(state.executor.status, PairStatus::Paused);
+        assert!(
+            state
+                .mentor_activity
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("no model it can talk to")),
+            "the pair must say why it is not running"
+        );
+        assert_eq!(
+            state.executor_activity.detail, state.mentor_activity.detail,
+            "both agents carry the reason"
+        );
+        // The history is still there for the human to read.
+        assert_eq!(state.iteration, 2);
+    }
+
+    #[test]
+    fn install_restored_context_supersedes_a_live_turn_sharing_the_generation() {
+        let spawner = TurnDriver::new();
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.provider_sessions.run_generation = 4;
+
+        // A live turn at the snapshot's own generation, registered the way a
+        // running turn is.
+        spawner
+            .pair_contexts
+            .lock()
+            .unwrap()
+            .insert("pair-1".to_string(), build_process_context(&record));
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawner
+            .turn_cancels
+            .lock()
+            .unwrap()
+            .insert("pair-1-mentor".to_string(), std::sync::Arc::clone(&flag));
+
+        let mut context = build_process_context(&record);
+        install_restored_context(&spawner, "pair-1", &mut context);
+        spawner.stop_pair_processes("pair-1");
+
+        let stored = spawner.pair_contexts.lock().unwrap();
+        assert_eq!(
+            stored["pair-1"].run_generation, 5,
+            "the restored context must be past any live turn's generation"
+        );
+        assert_ne!(
+            stored["pair-1"].run_generation, 4,
+            "a live turn at the snapshot's generation must not still look current"
+        );
+        assert!(
+            flag.load(std::sync::atomic::Ordering::SeqCst),
+            "the live turn is cancelled too"
+        );
+    }
+
+    #[test]
+    fn loading_a_snapshot_never_rewinds_a_pair_that_is_live_here() {
+        // The frontend reloads the backend mid-session (its handoff path does),
+        // so a pair with a turn in flight must not be rewound to its snapshot.
+        let manager = std::sync::Mutex::new(PairManager::new());
+        let broker = std::sync::Mutex::new(MessageBroker::new());
+        let contexts: ProcessContextMap = Arc::new(Mutex::new(HashMap::new()));
+
+        // The pair on disk: interrupted, at the snapshot's generation 0, with
+        // the model it was created with.
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.mentor_model = "snapshot-mentor".to_string();
+        record.provider_sessions.run_generation = 0;
+
+        // The pair as it lives here: mid-mentoring, with a plan on screen that
+        // no snapshot holds and a context three generations further on.
+        let mut live_state = build_pair_state(&record);
+        live_state.status = PairStatus::Mentoring;
+        live_state.messages = vec![message(
+            "live-1",
+            MessageSender::Mentor,
+            MessageType::Plan,
+            "the plan in flight",
+            1,
+        )];
+        broker.lock().unwrap().restore_state(live_state).unwrap();
+        let mut live_context = build_process_context(&record);
+        live_context.run_generation = 3;
+        live_context.mentor_model = "live-mentor".to_string();
+        contexts
+            .lock()
+            .unwrap()
+            .insert("pair-1".to_string(), live_context);
+        let mut live_pair = build_pair(&record);
+        live_pair.mentor_model = "live-mentor".to_string();
+        manager.lock().unwrap().upsert_pair(live_pair);
+
+        let returned =
+            register_loaded_snapshot(&manager, &broker, &contexts, record).expect("load");
+
+        // The frontend still gets its record, so the pair is never missing from
+        // the store...
+        assert_eq!(returned.pair_id, "pair-1");
+        assert_eq!(returned.mentor_model, "snapshot-mentor");
+        // ...while the backend keeps everything the live turn has done.
+        let contexts = contexts.lock().unwrap();
+        assert_eq!(
+            contexts["pair-1"].run_generation, 3,
+            "the live turn's generation must not be rewound to the snapshot's"
+        );
+        assert_eq!(contexts["pair-1"].mentor_model, "live-mentor");
+        drop(contexts);
+        let state = broker.lock().unwrap().get_state("pair-1").unwrap();
+        assert_eq!(state.status, PairStatus::Mentoring);
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(
+            manager
+                .lock()
+                .unwrap()
+                .get_pair("pair-1")
+                .unwrap()
+                .mentor_model,
+            "live-mentor"
+        );
+    }
+
+    #[test]
+    fn loading_a_snapshot_adopts_a_pair_that_is_not_live_here() {
+        let manager = std::sync::Mutex::new(PairManager::new());
+        let broker = std::sync::Mutex::new(MessageBroker::new());
+        let contexts: ProcessContextMap = Arc::new(Mutex::new(HashMap::new()));
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.provider_sessions.run_generation = 2;
+
+        let returned =
+            register_loaded_snapshot(&manager, &broker, &contexts, record).expect("load");
+
+        // An interrupted run comes back paused, with its context and history.
+        assert_eq!(returned.status, PairStatus::Paused);
+        assert_eq!(contexts.lock().unwrap()["pair-1"].run_generation, 2);
+        assert_eq!(
+            broker.lock().unwrap().get_state("pair-1").unwrap().status,
+            PairStatus::Paused
+        );
+        assert!(manager.lock().unwrap().get_pair("pair-1").is_some());
+    }
+
+    #[test]
+    fn pair_is_live_only_for_a_pair_this_process_runs() {
+        let broker = MessageBroker::new();
+        let contexts: ProcessContextMap =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+
+        // Nothing loaded yet: the snapshot is what there is.
+        assert!(!pair_is_live(&broker, &contexts, "pair-1"));
+
+        // Broker state without a context (a pair that never ran) is not live.
+        broker.restore_state(build_pair_state(&record)).unwrap();
+        assert!(!pair_is_live(&broker, &contexts, "pair-1"));
+
+        contexts
+            .lock()
+            .unwrap()
+            .insert("pair-1".to_string(), build_process_context(&record));
+        assert!(pair_is_live(&broker, &contexts, "pair-1"));
+        assert!(!pair_is_live(&broker, &contexts, "pair-other"));
     }
 
     #[test]
@@ -1709,10 +2164,103 @@ mod tests {
         let pair = build_pair(&snapshot);
         let context = build_process_context(&snapshot);
 
-        assert_eq!(pair.mentor_provider, ProviderKind::Claude);
-        assert_eq!(pair.executor_provider, ProviderKind::Codex);
-        assert_eq!(context.mentor_provider, ProviderKind::Claude);
-        assert_eq!(context.executor_provider, ProviderKind::Codex);
+        // A legacy snapshot names its models the CLI way; the pair keeps them
+        // verbatim and the registry resolves them when a turn starts.
+        assert_eq!(pair.mentor_model, "claude-3-5-sonnet");
+        assert_eq!(context.mentor_model, "claude-3-5-sonnet");
+    }
+
+    #[test]
+    fn a_legacy_snapshot_restores_an_empty_harness_history() {
+        // A snapshot written before the direct connection kept one carries
+        // provider sessions with no history in them; the pair starts fresh.
+        let json =
+            serde_json::to_value(snapshot(AgentRole::Mentor, PairStatus::Idle, vec![])).unwrap();
+        let mut bare = json.as_object().unwrap().clone();
+        let mut sessions = bare["providerSessions"].as_object().unwrap().clone();
+        sessions.remove("mentorHistory");
+        sessions.remove("executorHistory");
+        bare.insert(
+            "providerSessions".to_string(),
+            serde_json::to_value(sessions).unwrap(),
+        );
+        let restored: SessionSnapshotRecord =
+            serde_json::from_value(serde_json::Value::Object(bare)).unwrap();
+
+        let context = build_process_context(&restored);
+        assert!(context.mentor_history.is_empty());
+        assert!(context.executor_history.is_empty());
+    }
+
+    #[test]
+    fn the_harness_history_survives_a_snapshot_round_trip() {
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        record.provider_sessions.mentor_history = vec![
+            serde_json::json!({"role": "user", "content": "plan it"}),
+            serde_json::json!({"role": "assistant", "content": "step one"}),
+        ];
+        record.provider_sessions.executor_history =
+            vec![serde_json::json!({"role": "user", "content": "do it"})];
+
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains("mentorHistory"), "{}", json);
+        let restored: SessionSnapshotRecord = serde_json::from_str(&json).unwrap();
+        let context = build_process_context(&restored);
+
+        assert_eq!(context.mentor_history.len(), 2);
+        assert_eq!(context.mentor_history[1]["content"], "step one");
+        assert_eq!(context.executor_history.len(), 1);
+    }
+
+    #[test]
+    fn a_restored_pair_keeps_the_model_it_was_talking_to() {
+        // Without the selection a restart would drop the pair back onto its
+        // provider CLI and never replay the history it also restored.
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        let selection = crate::harness::ModelSelection {
+            provider_id: "anthropic-1".into(),
+            account_id: "anthropic-1-a".into(),
+            model: "claude-sonnet-4-5".into(),
+            effort: Some("high".into()),
+            backup: None,
+        };
+        record.provider_sessions.mentor_selection = Some(selection.clone());
+        record.provider_sessions.mentor_history =
+            vec![serde_json::json!({"role": "user", "content": "plan it"})];
+
+        let restored: SessionSnapshotRecord =
+            serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        let context = build_process_context(&restored);
+
+        assert_eq!(context.mentor_selection.as_ref(), Some(&selection));
+        assert_eq!(context.mentor_history.len(), 1);
+        assert!(context.executor_selection.is_none());
+    }
+
+    #[test]
+    fn a_pair_from_before_the_registry_has_no_selection_to_restore() {
+        let record = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        let context = build_process_context(&record);
+        assert!(context.mentor_selection.is_none());
+        assert!(context.executor_selection.is_none());
+    }
+
+    #[test]
+    fn merging_live_state_keeps_the_harness_history_the_turn_wrote() {
+        let mut record = snapshot(AgentRole::Executor, PairStatus::Executing, vec![]);
+        let pair = build_pair(&record);
+        let state = build_pair_state(&record);
+        let mut context = build_process_context(&record);
+        context.executor_history = vec![serde_json::json!({"role": "user", "content": "go"})];
+
+        merge_state_into_snapshot(&mut record, &pair, &state, Some(&context));
+
+        assert_eq!(record.provider_sessions.executor_history.len(), 1);
+        assert_eq!(
+            record.provider_sessions.executor_history[0]["content"],
+            "go"
+        );
+        assert!(record.provider_sessions.mentor_history.is_empty());
     }
 
     #[test]
@@ -1973,8 +2521,10 @@ mod tests {
 
     #[test]
     fn legacy_snapshot_without_newer_fields_still_loads() {
-        // Written before runGeneration, acceptanceHistory, planGate, run
-        // history messages and the verdict's confidence/issues/reasoning.
+        // Written before runGeneration, acceptanceHistory, planGate, run history
+        // messages, the verdict's confidence/issues/reasoning, the harness
+        // history and selection, and before Phase 4 dropped the provider kinds
+        // and the CPU/memory fields entirely.
         let json = r#"{
             "snapshotVersion": 1, "savedAt": 1, "pairId": "legacy-pair", "name": "Old",
             "directory": "/tmp/old", "spec": "Old task", "status": "reviewing",
@@ -1998,6 +2548,9 @@ mod tests {
                             "finishedAt": 2, "mentorModel": "m", "executorModel": "e",
                             "iterations": 1}],
             "currentRunStartedAt": 1, "currentRunFinishedAt": null, "createdAt": 1,
+            "mentorProvider": "claude", "executorProvider": "codex",
+            "mentorCpu": 0, "mentorMemMb": 0, "executorCpu": 0, "executorMemMb": 0,
+            "cpuUsage": 0, "memUsage": 0,
             "providerSessions": {"mentorSessionId": null, "executorSessionId": null}
         }"#;
 

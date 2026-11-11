@@ -15,14 +15,15 @@ import {
 import { cn, extractErrorMessage } from '../lib/utils'
 import { fieldInput, hoverTint } from '../lib/ui'
 import { verdictTone } from '../lib/acceptanceTone'
-import { usePairStore, type Pair } from '../store/usePairStore'
+import { getModelByQualifiedId } from '../lib/providerResolution'
+import { usePairStore, type Message, type Pair } from '../store/usePairStore'
+import type { ModelPrice, TurnTokenUsage } from '../types'
 import { TaskHistoryPanel } from './TaskHistoryPanel'
 import { TimelinePanel, TimelineActions } from './TimelinePanel'
 import { ErrorDetailPanel } from './ErrorDetailPanel'
 import { IterationProgress } from './IterationProgress'
 import { GlassButton } from './ui/GlassButton'
 import { Chip } from './ui/Chip'
-import { ResourceMeter } from './ui/ResourceMeter'
 import { buildTimeline } from '../lib/timeline'
 import { isPairActive, isPairBusy } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
@@ -107,6 +108,196 @@ function ModifiedFileRow({
   )
 }
 
+// ── Usage (migration decision #16) ─────────────────────────────────────
+// Per-agent CPU/memory sampling died with the agent-CLI layer: a turn is now an
+// HTTP stream, so what an agent costs is tokens, latency and money.
+
+interface UsageTotals {
+  inputTokens: number
+  outputTokens: number
+}
+
+/** The renderer's own turn card, committed into `messages` when a turn ends. */
+const LOCAL_TURN_CARD_ID = /^turn-(?:mentor|executor)-iter\d+$/
+
+function turnKey(message: { from: string; iteration?: number }): string {
+  return `${message.from}:${message.iteration ?? 'unknown'}`
+}
+
+/**
+ * One turn lands in `messages` twice: the renderer commits its live turn card
+ * (`turn-<role>-iter<N>`) and then appends the backend's own message for that
+ * same turn. `PairConsole` hides the duplicate by collapsing each role to its
+ * last message per iteration; the inspector must not bill it twice, so a local
+ * card whose turn the backend also reported is dropped here. The backend's
+ * message wins — on the direct connection it is the only one of the two that
+ * carries usage.
+ */
+function dropDuplicatedTurns<T extends { id: string; from: string; iteration?: number }>(
+  messages: ReadonlyArray<T>
+): T[] {
+  const reportedTurns = new Set(
+    messages.filter((message) => !LOCAL_TURN_CARD_ID.test(message.id)).map(turnKey)
+  )
+  return messages.filter(
+    (message) => !LOCAL_TURN_CARD_ID.test(message.id) || !reportedTurns.has(turnKey(message))
+  )
+}
+
+/** Tokens one role reported across a run's messages. */
+function sumUsage(
+  messages: ReadonlyArray<Pick<Message, 'from' | 'tokenUsage'>>,
+  role: 'mentor' | 'executor'
+): UsageTotals {
+  return messages.reduce<UsageTotals>(
+    (totals, message) =>
+      message.from === role
+        ? {
+            inputTokens: totals.inputTokens + (message.tokenUsage?.inputTokens ?? 0),
+            outputTokens: totals.outputTokens + (message.tokenUsage?.outputTokens ?? 0)
+          }
+        : totals,
+    { inputTokens: 0, outputTokens: 0 }
+  )
+}
+
+/** One turn reports one usage event (the harness folds its tool loop into it),
+ *  so the turns that reported usage are the requests the run made. */
+function countUsageRequests(
+  messages: ReadonlyArray<Pick<Message, 'from' | 'tokenUsage'>>,
+  role: 'mentor' | 'executor'
+): number {
+  return messages.filter((message) => message.from === role && message.tokenUsage).length
+}
+
+/** USD estimate from the registry's static per-million prices. `null` when the
+ *  model carries no price — the panel shows a dash instead of guessing (#17). */
+function estimateCost(price: ModelPrice | undefined, totals: UsageTotals): number | null {
+  if (!price) return null
+  return (
+    (totals.inputTokens / 1_000_000) * price.inputPerMillion +
+    (totals.outputTokens / 1_000_000) * price.outputPerMillion
+  )
+}
+
+/**
+ * Tokens of the last turn this role completed. The pair's own aggregate
+ * (`mentorTokenUsage`) is not it: the broker only writes `AgentState.tokenUsage`
+ * on the mock path, so on the direct connection that aggregate stays empty and
+ * the row would never show a number. The message the backend published for the
+ * turn carries the usage it reported.
+ */
+function lastTurnUsage(
+  messages: ReadonlyArray<Pick<Message, 'from' | 'tokenUsage'>>,
+  role: 'mentor' | 'executor'
+): TurnTokenUsage | undefined {
+  return [...messages].reverse().find((message) => message.from === role)?.tokenUsage
+}
+
+function formatTokens(count: number): string {
+  return count.toLocaleString()
+}
+
+/** Section-header badge stays short, never a full digit string. */
+function formatCompactTokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
+  return count.toString()
+}
+
+function formatCost(usd: number): string {
+  return `$${usd < 1 ? usd.toFixed(4) : usd.toFixed(2)}`
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  return `${Math.floor(seconds / 3600)}h`
+}
+
+/**
+ * Age of the last streamed line — the only latency/progress signal a turn
+ * leaves behind. Ticks on its own so the clock only runs while the section is
+ * open (it is collapsed by default).
+ */
+function LastOutputAge({ timestamp }: { timestamp?: number }): React.ReactNode {
+  const { t } = useTranslation()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  if (!timestamp) return '—'
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000))
+  return t('pair.usageAgo', { value: formatAge(seconds) })
+}
+
+interface UsageRow {
+  role: 'mentor' | 'executor'
+  /** The model the run actually talked to — a queued model is the next run's. */
+  model: string
+  /** Tokens of the turn that just ended. */
+  turn?: TurnTokenUsage
+  /** Whether this role's turn is streaming right now. */
+  inFlight: boolean
+  totals: UsageTotals
+  requests: number
+  lastOutputAt?: number
+  cost: number | null
+}
+
+function UsageRoleRow({ row }: { row: UsageRow }): React.ReactNode {
+  const { t } = useTranslation()
+  const turn = row.turn
+
+  return (
+    <div className="space-y-1 px-2 py-1.5" data-testid={`ops-usage-${row.role}`}>
+      <div className="flex items-center gap-1.5">
+        <Chip tone={row.role}>{t(`common.${row.role}`)}</Chip>
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground-faint"
+          title={row.model}
+        >
+          {row.model}
+        </span>
+        {row.inFlight && (
+          <Chip tone="running" className="tty-blink">
+            {t('pair.usageLive')}
+          </Chip>
+        )}
+      </div>
+      <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+        <dt className="text-muted-foreground">{t('pair.usageTurn')}</dt>
+        <dd className="tabular-nums text-foreground/85">
+          {turn
+            ? t('pair.usageTokens', {
+                input: formatTokens(turn.inputTokens ?? 0),
+                output: formatTokens(turn.outputTokens)
+              })
+            : '—'}
+        </dd>
+        <dt className="text-muted-foreground">{t('pair.usageRun')}</dt>
+        <dd className="tabular-nums text-foreground/85">
+          {t('pair.usageTokens', {
+            input: formatTokens(row.totals.inputTokens),
+            output: formatTokens(row.totals.outputTokens)
+          })}
+        </dd>
+        <dt className="text-muted-foreground">{t('pair.usageCost')}</dt>
+        <dd className="tabular-nums text-foreground/85">
+          {row.cost === null ? '—' : t('pair.usageCostEstimate', { value: formatCost(row.cost) })}
+        </dd>
+        <dt className="text-muted-foreground">{t('pair.usageRequests')}</dt>
+        <dd className="tabular-nums text-foreground/85">{row.requests}</dd>
+        <dt className="text-muted-foreground">{t('pair.usageLastOutput')}</dt>
+        <dd className="tabular-nums text-foreground/85">
+          <LastOutputAge timestamp={row.lastOutputAt} />
+        </dd>
+      </dl>
+    </div>
+  )
+}
+
 function PairOperationsPanel({
   pair,
   onPause,
@@ -119,7 +310,7 @@ function PairOperationsPanel({
   const isStoreBusy = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
-  const availableModels = usePairStore((s) => s.availableModels)
+  const providers = usePairStore((s) => s.providers)
   const updatePairModels = usePairStore((s) => s.updatePairModels)
 
   // Expanded file with its cached diff. One open at a time keeps the inspector
@@ -229,6 +420,17 @@ function PairOperationsPanel({
   const [panelExecutorEffort, setPanelExecutorEffort] = useState<string | undefined>(
     pair.executorReasoningEffort
   )
+  // Picking the same model under another endpoint changes no id, but it is
+  // still a change to save: the backend moves the role when the update lands.
+  const [endpointRepicked, setEndpointRepicked] = useState(false)
+  const pickMentorModel = (modelId: string): void => {
+    setPanelMentorModel(modelId)
+    setEndpointRepicked(true)
+  }
+  const pickExecutorModel = (modelId: string): void => {
+    setPanelExecutorModel(modelId)
+    setEndpointRepicked(true)
+  }
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const saveStatusRef = useRef(saveStatus)
   saveStatusRef.current = saveStatus
@@ -248,6 +450,7 @@ function PairOperationsPanel({
   ])
 
   const modelsChanged =
+    endpointRepicked ||
     panelMentorModel !== effectiveMentorModel ||
     panelExecutorModel !== effectiveExecutorModel ||
     panelMentorEffort !== pair.mentorReasoningEffort ||
@@ -262,6 +465,7 @@ function PairOperationsPanel({
         mentorReasoningEffort: panelMentorEffort,
         executorReasoningEffort: panelExecutorEffort
       })
+      setEndpointRepicked(false)
       setSaveStatus('success')
     } catch {
       setSaveStatus('error')
@@ -281,6 +485,55 @@ function PairOperationsPanel({
 
   // An id that isn't in this pair's history is treated as "live".
   const viewingRun = resolveViewingRun(pair.runHistory, viewingRunId)
+
+  // Usage follows the run on screen: the live run, or the archived one being
+  // viewed. Turn tokens only exist live, so an archive shows its totals only.
+  const rawUsageMessages = viewingRun?.messages ?? pair.messages
+  // A turn the renderer committed and the backend then reported is one turn,
+  // not two: summing the raw list would bill every turn twice.
+  const usageMessages = dropDuplicatedTurns(rawUsageMessages)
+  const usageRowModels = {
+    mentor: viewingRun?.mentorModel ?? pair.mentorModel,
+    executor: viewingRun?.executorModel ?? pair.executorModel
+  }
+  const usageRows: UsageRow[] = (['mentor', 'executor'] as const).map((role) => {
+    const totals = sumUsage(usageMessages, role)
+    const turn = viewingRun ? undefined : lastTurnUsage(usageMessages, role)
+    const lastOutputAt = viewingRun
+      ? undefined
+      : role === 'mentor'
+        ? pair.mentorActivity.lastOutputAt
+        : pair.executorActivity.lastOutputAt
+    return {
+      role,
+      model: usageRowModels[role],
+      turn,
+      inFlight:
+        !viewingRun &&
+        (role === 'mentor'
+          ? isAgentExecuting(pair.mentorActivity.phase)
+          : isAgentExecuting(pair.executorActivity.phase)),
+      totals,
+      requests: countUsageRequests(usageMessages, role),
+      lastOutputAt,
+      cost: estimateCost(getModelByQualifiedId(providers, usageRowModels[role])?.price, totals)
+    }
+  })
+  const usageTotal = usageRows.reduce<UsageTotals>(
+    (totals, row) => ({
+      inputTokens: totals.inputTokens + row.totals.inputTokens,
+      outputTokens: totals.outputTokens + row.totals.outputTokens
+    }),
+    { inputTokens: 0, outputTokens: 0 }
+  )
+  // One role without a price makes the whole estimate unverifiable, so the
+  // total degrades to a dash rather than under-reporting the spend.
+  const usageTotalCost = usageRows.some((row) => row.cost === null)
+    ? null
+    : usageRows.reduce((sum, row) => sum + (row.cost ?? 0), 0)
+  const hasUsage =
+    usageTotal.inputTokens + usageTotal.outputTokens > 0 ||
+    usageRows.some((row) => row.turn !== undefined)
 
   const timelineData = React.useMemo(() => {
     // Archived runs map their own dates/status explicitly — never the live run's.
@@ -468,8 +721,10 @@ function PairOperationsPanel({
           }
         >
           <div className="flex flex-wrap items-center gap-1.5">
-            <Chip>risk·{pair.latestAcceptance.risk}</Chip>
-            <Chip tone={failedChecks > 0 ? 'error' : 'neutral'}>fail·{failedChecks}</Chip>
+            <Chip>{t('pair.acceptanceRisk', { risk: pair.latestAcceptance.risk })}</Chip>
+            <Chip tone={failedChecks > 0 ? 'error' : 'neutral'}>
+              {t('pair.acceptanceFailedChecks', { count: failedChecks })}
+            </Chip>
             {pair.latestAcceptance.error && <Chip tone="error">{t('pair.verdictError')}</Chip>}
           </div>
           <p className="text-foreground/80 leading-relaxed [overflow-wrap:anywhere]">
@@ -499,8 +754,8 @@ function PairOperationsPanel({
           </div>
           <ModelPicker
             value={panelMentorModel}
-            models={availableModels}
-            onChange={setPanelMentorModel}
+            providers={providers}
+            onChange={pickMentorModel}
             role="mentor"
             variant="inline"
             reasoningEffort={panelMentorEffort}
@@ -525,8 +780,8 @@ function PairOperationsPanel({
           </div>
           <ModelPicker
             value={panelExecutorModel}
-            models={availableModels}
-            onChange={setPanelExecutorModel}
+            providers={providers}
+            onChange={pickExecutorModel}
             role="executor"
             variant="inline"
             reasoningEffort={panelExecutorEffort}
@@ -604,8 +859,46 @@ function PairOperationsPanel({
         />
       </InspectorSection>
 
-      <InspectorSection id="resources" label={t('pair.systemResources')} defaultOpen={false}>
-        <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} compact />
+      <InspectorSection
+        id="usage"
+        label={t('pair.usage')}
+        defaultOpen={false}
+        badge={
+          hasUsage ? (
+            <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+              {formatCompactTokens(usageTotal.inputTokens + usageTotal.outputTokens)}
+            </span>
+          ) : undefined
+        }
+      >
+        {!hasUsage ? (
+          <div className="text-[11px] text-muted-foreground-faint">{t('pair.usageEmpty')}</div>
+        ) : (
+          <div className="shell-card divide-y divide-border/40 overflow-hidden">
+            {usageRows.map((row) => (
+              <UsageRoleRow key={row.role} row={row} />
+            ))}
+            <div
+              className="flex items-baseline gap-2 px-2 py-1.5 text-[11px]"
+              data-testid="ops-usage-total"
+            >
+              <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {t('pair.usageTotal')}
+              </span>
+              <span className="ml-auto tabular-nums text-foreground/85">
+                {t('pair.usageTokens', {
+                  input: formatTokens(usageTotal.inputTokens),
+                  output: formatTokens(usageTotal.outputTokens)
+                })}
+              </span>
+              <span className="tabular-nums text-muted-foreground">
+                {usageTotalCost === null
+                  ? '—'
+                  : t('pair.usageCostEstimate', { value: formatCost(usageTotalCost) })}
+              </span>
+            </div>
+          </div>
+        )}
       </InspectorSection>
 
       <InspectorSection

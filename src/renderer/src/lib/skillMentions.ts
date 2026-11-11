@@ -2,15 +2,12 @@
  * Helpers for `/`-mentioned skills attached to a task spec.
  *
  * Skills come from local SKILL.md folders (Claude Code / opencode / agents)
- * and are injected ahead of the user's spec before assignment. Claude Code
- * executors receive a short reference directive — their built-in Skill tool
- * loads the actual body. Other providers (opencode/codex/gemini/kimi) get the
- * full SKILL.md body inlined as context since they don't expose a Skill tool
- * invocable by name from the prompt.
+ * and are injected ahead of the user's spec before assignment. The executor runs
+ * inside The Pair's own harness, which exposes no Skill tool it could invoke by
+ * name — so the full SKILL.md body is always inlined as context.
  */
 
 import { selectReferencedFiles, type FileContexts } from './fileMentions'
-import type { ProviderKind } from '../types'
 
 export interface SkillContextEntry {
   description: string
@@ -36,18 +33,7 @@ export function selectReferencedSkills(
   return Array.from(skillContexts.entries()).filter(([name]) => tokenMatcher(name).test(spec))
 }
 
-function formatSkillBlock(
-  skills: Array<[string, SkillContextEntry]>,
-  executorProvider: ProviderKind
-): string {
-  if (executorProvider === 'claude') {
-    const names = skills.map(([n]) => `/${n}`).join(', ')
-    return [
-      '--- SKILLS REQUESTED ---',
-      `Use these Skills for this task: ${names}.`,
-      'For each, invoke your Skill tool with the matching name before continuing.'
-    ].join('\n')
-  }
+function formatSkillBlock(skills: Array<[string, SkillContextEntry]>): string {
   const sections = skills.map(([name, { description, body }]) => {
     const trimmed = body.trim()
     return `## /${name}\n${description}\n\n${trimmed}`
@@ -70,8 +56,7 @@ function formatFileBlock(referenced: Array<[string, string]>): string {
 export function composeFinalSpec(
   spec: string,
   fileContexts: FileContexts,
-  skillContexts: SkillContexts,
-  executorProvider: ProviderKind
+  skillContexts: SkillContexts
 ): string {
   const referencedFiles = selectReferencedFiles(spec, fileContexts)
   const referencedSkills = selectReferencedSkills(spec, skillContexts)
@@ -81,7 +66,7 @@ export function composeFinalSpec(
 
   const sections: string[] = []
   if (referencedSkills.length > 0) {
-    sections.push(formatSkillBlock(referencedSkills, executorProvider))
+    sections.push(formatSkillBlock(referencedSkills))
   }
   if (referencedFiles.length > 0) {
     sections.push(formatFileBlock(referencedFiles))

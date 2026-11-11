@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Pairs talk to model endpoints directly instead of spawning agent CLIs, and a Models section is where credentials now live.
+
+### Changed
+
+- **Every turn is made by the app itself.** A pair connects straight to the model endpoint over HTTPS — no agent CLI is spawned, so nothing has to be installed or signed in outside the app. You pick an endpoint, a model and a reasoning effort; the pair keeps the model id and its effort, and the endpoint and credential are resolved when a turn starts.
+- **A Models section in the left rail.** It lists every endpoint the app can reach with its accounts and models, and it is where you add a key, import the configuration another agent already has (kimi, pi, omp, opencode, codex, claude, gemini, killi) or sign in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription. Endpoints with no usable credential are listed too, with the state that blocks them.
+- **The Executor runs its own tools.** read / grep / glob / write / edit / bash (+ todo_write) execute inside the app and are gated per role — the Mentor stays read-only.
+- **The model picker is endpoint-first.** Step one is the endpoint that runs the model, step two the model, step three the reasoning effort. An endpoint you have no credential for is shown with its state instead of hidden.
+- **The inspector reports usage instead of machine load.** Its usage section shows tokens per turn and per run, an estimated cost, the number of requests and the last output.
+
+### Removed
+
+- **Aider and Kiro support.** Neither has a channel any more; they are not part of the registry.
+- **Per-agent CPU and memory monitoring.** The token and cost figures above replace it.
+
+### Fixed
+
+- **A Command Code or Responses endpoint could not answer at all.** The transport refused Command Code's `application/x-ndjson` replies as "not an event stream", so every turn on that gateway failed before it started; its bare-JSON-per-line stream is read now. A Codex `[model_providers.*]` entry is a Responses endpoint whichever way its `wire_api` is spelled, and Kimi's own `type = "kimi"` providers are importable instead of skipped as "account login".
+- **A token that was refreshed once could never be used again.** The rotated refresh token was never written back, so the next sign-in spent the spent one and the flow gave up for good. It is persisted now, and a failed refresh keeps the client registration instead of forcing a new one.
+- **An account that hit a 401 stayed expired forever.** The status was recomputed from the secret it had just been replaced with, so re-signing in never cleared it. Expiry is now honoured, pasting a key onto an OAuth account makes it ready, and a credential that flips between a live variable and a key keeps one account instead of two.
+- **The Models badge was always zero until you opened Models.** The store behind it only loaded when the section mounted; it loads at startup now.
+- **A model change did not reach the run in progress.** `pair_update_models` rewrote the stored id but left the resolved selection in place, so resuming kept talking to the old endpoint. The changed role's selection is dropped and resolved again.
+- **A model id that a gateway lists was refused.** The vendor hint excluded any endpoint that was not named for that vendor, so an `ANTHROPIC_BASE_URL` proxy or OpenRouter could not serve a `claude-*` id even though it listed it. An endpoint that lists the id wins now.
+- **A model could not be picked on a gateway at all.** The same hint made `pair_create` roll back with "The mentor has no model selected" and re-picking never helped.
+- **The reasoning effort you picked was never sent.** The pair's per-role effort was persisted and shown in the picker but never reached the request; the route default was sent instead.
+- **Streaming a reply re-sent the whole pair state once per token.** A 4k-token answer serialized the full state 4,000 times over IPC. Activity and reasoning updates are paced now, and the state a turn ends with is still published.
+- **A torn tool call poisoned every later turn of that run.** Arguments cut mid-stream were stored verbatim and replayed as invalid JSON, which every API rejects permanently. They are repaired before they are stored, and a failed attempt's partial output is discarded rather than counted twice.
+- **A huge repetition count in a search pattern could exhaust memory.** `a{100000000}` compiled to 100M instructions (~4 GB) before any matching ran; the compiler refuses a count it cannot honour now.
+- **A path that is not a regular file could hang a turn forever.** `read`/`edit` blocked on a FIFO with no timeout and no way to cancel. The file work runs off the async worker now, and writes go through a temp file so a failed write leaves the original whole.
+- **The mentor's review could hang on a long reply.** Every balanced `{…}` in it was parsed; the scan is linear now and bounded.
+- **The import wizard reported the wrong endpoint for a Codex gateway and dropped Kimi's own providers.** Codex has one wire protocol (Responses), so its custom gateways no longer post to `/chat/completions`; Kimi's `type = "kimi"` is Moonshot's OpenAI-compatible interface and imports with a key.
+- **API keys exported in a shell profile were invisible.** A GUI launch inherits no profile, so every env-backed account read as unset and its turn failed with "not set in this shell". The login shell's whole environment is captured at startup now.
+- **A key imported from another agent could panic the Models section.** Secrets were masked by byte offsets, which is not a character boundary for a non-ASCII key; and an endpoint whose URL normalises to nothing panicked inside a Tauri command.
+- **The Model picker forgot the model you had just picked.** Switching endpoint and back landed on an older recent model; the recent list is live now.
+- **A sign-in that failed left its state behind.** Closing the dialog and reopening it showed the stale error with the service still selected, so three of four buttons stayed disabled. The flow resets on open.
+- **A base URL you typed with no scheme was accepted.** The add-provider form refuses anything without a host, and an unusable one comes back as a message instead of a panic.
+- **Assigning a task could destroy the transcript.** A failed start cleared the run's messages before it knew the models resolved; both selections are resolved first now, and a pair that cannot be resumed comes back paused with the reason instead of dead.
+- **Reloading the pair list mid-run rewinded a live pair.** Its turn cancelled itself and the pair hung with nothing running. A pair that is live here is never overwritten from disk.
+- **Usage was counted twice for a turn.** The console hides the duplicate turn card but the inspector summed both copies; tokens, cost and request counts now match the transcript.
+- **Two cognitive events in the same millisecond shared an id**, producing duplicate React keys in the timeline; ids carry a per-role sequence now.
+- **A glob whose star components explode no longer hangs**, and a repetition count above what the matcher can honour is refused instead of allocating.
+
 ## [2.14.1] - 2026-11-08
 
 A Create Pair dialog that leads with the new logo, and commit/push moved to the top of the changed-files list.

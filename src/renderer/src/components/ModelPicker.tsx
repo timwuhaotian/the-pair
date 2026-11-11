@@ -1,32 +1,33 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
-import { ChevronDown, Search } from 'lucide-react'
+import { ChevronDown, ExternalLink, Search } from 'lucide-react'
+import { emit } from '@tauri-apps/api/event'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 import {
   Z,
   emptyHint,
   fieldLabel,
-  hoverTint,
   groupHeader,
+  hoverTint,
   menuItem,
   popoverSurface,
-  searchInput
+  searchInput,
+  type Tone
 } from '../lib/ui'
 import { GlassButton } from './ui/GlassButton'
 import { BrandIcon } from './ui/BrandIcon'
-import { agentIconKey, vendorIconKey } from '../lib/brandIcons'
-import type { AvailableModel, ProviderKind } from '../types'
+import { Chip } from './ui/Chip'
+import { vendorIconKey } from '../lib/brandIcons'
+import type { AccountStatus, ProviderView } from '../types'
 import {
-  getQualifiedModel,
+  getPreferredModelId,
   isSelectableForPairExecution,
   savePreferredModelId
 } from '../lib/modelPreferences'
-import { PROVIDER_LOGIN_COMMANDS } from '../lib/providerSetup'
-import { modelMatchesId } from '../lib/providerResolution'
 import {
   buildCanonicalModels,
   defaultLeafForRoute,
-  groupModelsByAgent,
+  groupEndpoints,
   modelMatchesQuery,
   modelVendorKey,
   pickDefaultRoute,
@@ -34,13 +35,29 @@ import {
   saveLastRouteKey,
   type CanonicalModel,
   type EffortOption,
-  type ModelRoute
+  type EndpointGroup,
+  type EndpointOption,
+  type EndpointRoute
 } from '../lib/modelCatalogGrouping'
 import { ordinaryModelChoices, preferMiniMaxFlash } from '../lib/minimaxModelChoices'
 import { isImeKeyEvent } from './keyboard'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
+
+/** One endpoint as the picker lists it, with the registry row it came from. */
+interface EndpointChoice {
+  endpoint: EndpointOption
+  provider: ProviderView
+}
+
+/** A remembered model, resolved against the whole registry. */
+interface RecentChoice {
+  /** The id as it was stored — may be a legacy qualified spelling. */
+  storedId: string
+  model: CanonicalModel
+  route?: EndpointRoute
+}
 
 function effortTranslationKey(
   level: string
@@ -67,12 +84,39 @@ function effortTranslationKey(
   }
 }
 
-/** The listed choices for a model set: current MiniMax text slots only, Flash first. */
-function choiceModelsFor(models: AvailableModel[]): CanonicalModel[] {
-  return preferMiniMaxFlash(
-    buildCanonicalModels(ordinaryModelChoices(models)),
-    (model) =>
-      model.routes.find((route) => route.planLabel !== 'custom-provider')?.baseQualifiedId ?? ''
+/**
+ * The listed choices for one endpoint: current MiniMax text slots only, Flash
+ * first. `buildCanonicalModels` re-sorts by name, so the ordering is laid over
+ * the result rather than before it.
+ */
+function choiceModelsFor(provider: ProviderView): CanonicalModel[] {
+  const canonical = buildCanonicalModels([
+    { ...provider, models: ordinaryModelChoices(provider.models) }
+  ])
+  return preferMiniMaxFlash(canonical, (model) => model.routes[0]?.modelId ?? '')
+}
+
+/** Endpoints grouped by vendor, each carrying the registry row it came from. */
+function endpointGroupsFor(providers: ProviderView[]): Array<{
+  group: EndpointGroup
+  choices: EndpointChoice[]
+}> {
+  const byId = new Map(providers.map((provider) => [provider.id, provider]))
+  return groupEndpoints(providers).flatMap((group) => {
+    const choices = group.endpoints.flatMap((endpoint) => {
+      const provider = byId.get(endpoint.key)
+      return provider ? [{ endpoint, provider }] : []
+    })
+    return choices.length > 0 ? [{ group, choices }] : []
+  })
+}
+
+/** Why an endpoint cannot run anything: the most actionable account state it has. */
+function credentialBlocker(provider: ProviderView): AccountStatus {
+  const order: AccountStatus[] = ['authExpired', 'rateLimited', 'needsKey']
+  return (
+    order.find((status) => provider.accounts.some((account) => account.status === status)) ??
+    'needsKey'
   )
 }
 
@@ -93,22 +137,38 @@ function getRecentModelIds(role: 'mentor' | 'executor'): string[] {
   }
 }
 
-function saveRecentModelId(role: 'mentor' | 'executor', modelId: string): void {
+function saveRecentModelId(role: 'mentor' | 'executor', modelId: string): string[] {
   const key = RECENT_MODELS_KEY_PREFIX + role
   const recent = getRecentModelIds(role).filter((id) => id !== modelId)
   recent.unshift(modelId)
-  localStorage.setItem(key, JSON.stringify(recent.slice(0, MAX_RECENT_MODELS)))
+  const next = recent.slice(0, MAX_RECENT_MODELS)
+  localStorage.setItem(key, JSON.stringify(next))
+  return next
 }
 
 export interface ModelPickerProps {
   value: string
-  models: AvailableModel[]
+  providers: ProviderView[]
   onChange: (value: string) => void
   role: 'mentor' | 'executor'
   variant?: 'card' | 'inline'
   dropUp?: boolean
   reasoningEffort?: string
   onReasoningEffortChange?: (value: string | undefined) => void
+}
+
+/**
+ * Tell the backend which endpoint a model was picked under. Fire-and-forget:
+ * a build with no Tauri host (plain browser, unit tests) has nothing to tell,
+ * and a failure only means the id is resolved the way it was before the pick.
+ */
+function reportPickedRoute(role: 'mentor' | 'executor', modelId: string, providerId: string): void {
+  try {
+    const preferRoute = typeof window === 'undefined' ? undefined : window.api?.models?.preferRoute
+    void preferRoute?.({ role, modelId, providerId })?.catch(() => undefined)
+  } catch {
+    // No IPC bridge to report to.
+  }
 }
 
 function roleClasses(role: 'mentor' | 'executor'): { fg: string; border: string; bg: string } {
@@ -122,24 +182,126 @@ function VendorIcon({ canonicalKey }: { canonicalKey: string }): React.ReactNode
   return <BrandIcon icon={vendorIconKey(vendor)} label={vendor} className="self-center" />
 }
 
+/** Step one: one row per endpoint, whatever number of accounts sit behind it. */
+function EndpointRow({
+  choice,
+  active,
+  role,
+  onSelect
+}: {
+  choice: EndpointChoice
+  active: boolean
+  role: 'mentor' | 'executor'
+  onSelect: (endpoint: EndpointOption) => void
+}): React.ReactNode {
+  const { t } = useTranslation()
+  const c = roleClasses(role)
+  const { provider } = choice
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      aria-label={provider.displayName}
+      title={`${provider.displayName} · ${provider.baseUrl}`}
+      onClick={() => onSelect(choice.endpoint)}
+      className={cn(
+        'flex w-full cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors',
+        active
+          ? cn(c.border, c.bg)
+          : cn('border-border opacity-80 hover:border-foreground/40 hover:opacity-100', hoverTint)
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn('select-none', active ? c.fg : 'text-muted-foreground-faint')}
+      >
+        {active ? '●' : '○'}
+      </span>
+      <BrandIcon
+        icon={vendorIconKey(provider.vendor)}
+        label={provider.vendor}
+        className="size-3.5"
+      />
+      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/90">
+        {provider.displayName}
+      </span>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground-faint">
+        {t('models.accountCount', {
+          ready: provider.readyAccountCount,
+          total: provider.accounts.length
+        })}
+      </span>
+    </button>
+  )
+}
+
+const CREDENTIAL_TONES: Record<AccountStatus, Tone> = {
+  ready: 'done',
+  needsKey: 'running',
+  authExpired: 'error',
+  rateLimited: 'running'
+}
+
+/**
+ * An endpoint no account can reach. It is not selectable — the credential is
+ * added in the Models section — so the row itself is the way there.
+ */
+function BlockedEndpointRow({
+  provider,
+  onOpenModels
+}: {
+  provider: ProviderView
+  onOpenModels: () => void
+}): React.ReactNode {
+  const { t } = useTranslation()
+  const status = credentialBlocker(provider)
+  return (
+    <button
+      type="button"
+      onClick={onOpenModels}
+      aria-label={`${provider.displayName} — ${t(`pickers.status.${status}`)}`}
+      title={`${provider.displayName} · ${provider.baseUrl} · ${t('pickers.openModels')}`}
+      className={cn(
+        'flex w-full cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-1 text-left transition-colors',
+        hoverTint,
+        'hover:border-foreground/40'
+      )}
+    >
+      <BrandIcon
+        icon={vendorIconKey(provider.vendor)}
+        label={provider.vendor}
+        className="size-3.5 opacity-50"
+      />
+      <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+        {provider.displayName}
+      </span>
+      <Chip shape="tag" tone={CREDENTIAL_TONES[status]}>
+        {t(`pickers.status.${status}`)}
+      </Chip>
+      <ExternalLink size={11} className="shrink-0 text-muted-foreground-faint" />
+    </button>
+  )
+}
+
 function QuickPickRow({
-  model,
+  choice,
   selected,
   role,
   onSelect
 }: {
-  model: AvailableModel
+  choice: RecentChoice
   selected: boolean
   role: 'mentor' | 'executor'
-  onSelect: (model: AvailableModel) => void
+  onSelect: (choice: RecentChoice) => void
 }): React.ReactNode {
   const c = roleClasses(role)
   return (
     <button
       type="button"
-      onClick={() => onSelect(model)}
+      onClick={() => onSelect(choice)}
       className={cn(
-        'flex w-full items-baseline gap-2 border px-2 py-1 text-left rounded-md transition-colors cursor-pointer font-mono text-[11px]',
+        'flex w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors cursor-pointer text-[12px]',
         selected
           ? cn(c.border, c.bg, c.fg)
           : cn('border-border hover:border-foreground/40', hoverTint)
@@ -151,25 +313,20 @@ function QuickPickRow({
       >
         {selected ? '●' : '○'}
       </span>
-      <VendorIcon canonicalKey={model.canonicalKey ?? `${model.provider}::`} />
-      <span className="min-w-0 flex-1 truncate text-foreground/90">
-        {model.canonicalDisplayName?.trim() || model.displayName}
-      </span>
-      <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground-faint">
-        <BrandIcon
-          icon={agentIconKey(model.provider)}
-          label={model.providerLabel}
-          className="size-3"
-        />
-        <span className="max-w-[12ch] truncate">{model.providerLabel}</span>
-      </span>
+      <VendorIcon canonicalKey={choice.model.canonicalKey} />
+      <span className="min-w-0 flex-1 truncate text-foreground/90">{choice.model.displayName}</span>
+      {choice.route && (
+        <span className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint">
+          {choice.route.label}
+        </span>
+      )}
     </button>
   )
 }
 
 export function ModelPicker({
   value,
-  models,
+  providers,
   onChange,
   role,
   variant = 'inline',
@@ -185,7 +342,7 @@ export function ModelPicker({
   // modals/panels, so opening downward there hides most of it.
   const effectiveDropUp = dropUp ?? autoDropUp
   const [searchQuery, setSearchQuery] = useState('')
-  const [recentModelIds] = useState<string[]>(() => getRecentModelIds(role))
+  const [recentModelIds, setRecentModelIds] = useState<string[]>(() => getRecentModelIds(role))
   const dropdownRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -207,112 +364,99 @@ export function ModelPicker({
     if (isDropdownOpen && inputRef.current) inputRef.current.focus()
   }, [isDropdownOpen])
 
-  const selectableModels = useMemo(
-    () => models.filter((model) => isSelectableForPairExecution(model)),
-    [models]
+  const runnable = useMemo(() => providers.filter(isSelectableForPairExecution), [providers])
+  // Endpoints with models but no usable account are kept out of the runnable
+  // list, yet still listed: they explain why a remembered model is missing.
+  const blocked = useMemo(
+    () =>
+      providers.filter(
+        (provider) => !isSelectableForPairExecution(provider) && provider.models.length > 0
+      ),
+    [providers]
+  )
+  const runnableGroups = useMemo(() => endpointGroupsFor(runnable), [runnable])
+  const blockedGroups = useMemo(() => endpointGroupsFor(blocked), [blocked])
+
+  // The whole registry resolves the stored value and the recent history, even
+  // when the endpoint that would run them is not signed in.
+  const canonicalModels = useMemo(() => buildCanonicalModels(providers), [providers])
+
+  // A modal opened before the parent resolved a default still shows the model
+  // this role used last, so the trigger never reads as empty.
+  const effectiveValue = value || getPreferredModelId(role)
+  const resolved = useMemo(
+    () => resolveSelection(canonicalModels, effectiveValue, reasoningEffort),
+    [canonicalModels, effectiveValue, reasoningEffort]
+  )
+  const currentModel = resolved.model
+  const currentEffort = resolved.effort
+  // The endpoint that runs the selection: the one this role last used for the
+  // model, so a remembered route survives re-opening the picker.
+  const currentRoute = useMemo(
+    () => (currentModel ? pickDefaultRoute(currentModel, role) : undefined),
+    [currentModel, role]
   )
 
-  // Keep the full catalog for saved selections and recent history.
-  const canonicalModels = useMemo(() => buildCanonicalModels(selectableModels), [selectableModels])
+  const runnableEndpoints = useMemo(
+    () => runnableGroups.flatMap((entry) => entry.choices.map((choice) => choice.endpoint)),
+    [runnableGroups]
+  )
+  const activeEndpoint = useMemo(() => {
+    const remembered = runnableEndpoints.find(
+      (endpoint) => endpoint.key === currentRoute?.providerId
+    )
+    return remembered ?? runnableEndpoints[0]
+  }, [runnableEndpoints, currentRoute])
 
-  const current = useMemo(
-    () => resolveSelection(canonicalModels, value, reasoningEffort),
-    [canonicalModels, value, reasoningEffort]
+  // Step two lists the active endpoint's own catalog: the backend resolves the
+  // stored id onto (endpoint, account, model) at turn time.
+  const activeProvider = useMemo(
+    () => runnable.find((provider) => provider.id === activeEndpoint?.key),
+    [runnable, activeEndpoint]
   )
 
-  // Step one: the agent CLI. It follows the selection, so value and strip never disagree.
-  const agents = useMemo(() => groupModelsByAgent(selectableModels), [selectableModels])
-  const activeAgent = agents.find((agent) => agent.kind === current.route?.provider) ?? agents[0]
+  const choiceModels = useMemo(
+    () => (activeProvider ? choiceModelsFor(activeProvider) : []),
+    [activeProvider]
+  )
 
-  // Step two: that agent's models, with routes narrowed to it.
-  const choiceModels = useMemo(() => choiceModelsFor(activeAgent?.models ?? []), [activeAgent])
-
-  const recentModels = useMemo(() => {
-    return recentModelIds
-      .map((id) => selectableModels.find((model) => getQualifiedModel(model) === id))
-      .filter((model): model is AvailableModel => model !== undefined)
-      .slice(0, MAX_RECENT_MODELS)
-  }, [recentModelIds, selectableModels])
+  const recentChoices = useMemo(() => {
+    const choices: RecentChoice[] = []
+    for (const storedId of recentModelIds) {
+      const selection = resolveSelection(canonicalModels, storedId)
+      // An id the registry no longer lists has nothing to show and picking it
+      // would write an unknown model back into the pair.
+      if (selection.model) {
+        choices.push({ storedId, model: selection.model, route: selection.route })
+      }
+    }
+    return choices.slice(0, MAX_RECENT_MODELS)
+  }, [recentModelIds, canonicalModels])
 
   const filteredModels = useMemo(() => {
     if (!searchQuery.trim()) return choiceModels
     return choiceModels.filter((model) => modelMatchesQuery(model, searchQuery))
   }, [choiceModels, searchQuery])
 
-  // Models that are auth-missing (CLI installed but not signed in). We show a hint
-  // so the user knows there are more models available after authenticating.
-  const authMissingProviders = useMemo((): Array<{
-    kind: ProviderKind
-    label: string
-    loginCommand?: string
-    count: number
-  }> => {
-    const byProvider = new Map<ProviderKind, { label: string; count: number }>()
-    for (const model of models) {
-      if (model.availabilityStatus === 'auth-missing') {
-        const existing = byProvider.get(model.provider)
-        if (existing) {
-          existing.count++
-        } else {
-          byProvider.set(model.provider, { label: model.providerLabel, count: 1 })
-        }
-      }
-    }
-    return Array.from(byProvider.entries()).map(([kind, info]) => ({
-      kind,
-      label: info.label,
-      loginCommand: PROVIDER_LOGIN_COMMANDS[kind],
-      count: info.count
-    }))
-  }, [models])
-
   const applyLeaf = (
-    qualifiedId: string,
+    modelId: string,
     reasoningEffortValue: string | undefined,
     canonicalKey: string,
-    routeKey: string
+    route: EndpointRoute | undefined
   ): void => {
-    saveRecentModelId(role, qualifiedId)
-    savePreferredModelId(role, qualifiedId)
-    saveLastRouteKey(role, canonicalKey, routeKey)
-    onChange(qualifiedId)
+    // The stored list and the rendered one move together: the picker must show
+    // the model just picked, and switching endpoint back must land on it.
+    setRecentModelIds(saveRecentModelId(role, modelId))
+    savePreferredModelId(role, modelId)
+    if (route) {
+      saveLastRouteKey(role, canonicalKey, route.key)
+      // `onChange` only carries the model id, and two endpoints can list the
+      // same one. The backend is told which endpoint this pick was made under
+      // before the id reaches it, so the turn talks to that endpoint.
+      reportPickedRoute(role, modelId, route.providerId)
+    }
+    onChange(modelId)
     onReasoningEffortChange?.(reasoningEffortValue)
-  }
-
-  const handleProviderSignIn = async (providerKind: string): Promise<void> => {
-    try {
-      await window.api?.config?.launchLogin?.(providerKind)
-    } catch {
-      // silent — the onboarding screen handles error display
-    }
-  }
-
-  const selectModel = (model: CanonicalModel): void => {
-    const route = pickDefaultRoute(model, role)
-    if (!route) return
-    const leaf = defaultLeafForRoute(route)
-    applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
-    // Single-route models have nothing left to choose; multi-route models stay open so
-    // the route sub-picker can be refined.
-    if (model.routes.length <= 1) {
-      setIsDropdownOpen(false)
-      setSearchQuery('')
-    }
-  }
-
-  const selectRoute = (model: CanonicalModel, route: ModelRoute): void => {
-    const leaf = defaultLeafForRoute(route)
-    applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
-    setIsDropdownOpen(false)
-    setSearchQuery('')
-  }
-
-  const selectEffort = (model: CanonicalModel, route: ModelRoute, option: EffortOption): void => {
-    applyLeaf(option.qualifiedId, option.reasoningEffort, model.canonicalKey, route.key)
-  }
-
-  const resetReasoning = (model: CanonicalModel, route: ModelRoute): void => {
-    applyLeaf(route.baseQualifiedId, undefined, model.canonicalKey, route.key)
   }
 
   const openDropdown = (): void => {
@@ -322,49 +466,67 @@ export function ModelPicker({
     setIsDropdownOpen(true)
   }
 
-  // Switching agent lands on its most recent model for this role, else its first
-  // choice, then opens the model list so the second step is one click away.
-  const selectAgent = (kind: ProviderKind): void => {
-    if (kind === activeAgent?.kind) {
+  const closeDropdown = (): void => {
+    setIsDropdownOpen(false)
+    setSearchQuery('')
+  }
+
+  /** Credential problems are fixed in the Models section, not from the picker. */
+  const openModelsSection = (): void => {
+    void emit('app:menu:go-models').catch(() => {
+      // No Tauri event bridge (plain browser, unit tests) — nothing to navigate.
+    })
+  }
+
+  const selectModel = (model: CanonicalModel): void => {
+    const route = pickDefaultRoute(model, role)
+    if (!route) return
+    const leaf = defaultLeafForRoute(route)
+    applyLeaf(leaf.modelId, leaf.reasoningEffort, model.canonicalKey, route)
+    closeDropdown()
+  }
+
+  // Switching endpoint lands on its most recent model for this role, else its
+  // first choice, then opens the model list so step two is one click away.
+  const selectEndpoint = (endpoint: EndpointOption): void => {
+    if (endpoint.key === activeEndpoint?.key) {
       if (isDropdownOpen) closeDropdown()
       else openDropdown()
       return
     }
-    const agent = agents.find((candidate) => candidate.kind === kind)
-    if (!agent) return
-    const canonical = buildCanonicalModels(agent.models)
-    const recent = getRecentModelIds(role)
-      .map((id) => resolveSelection(canonical, id))
-      .find((sel) => sel.model && sel.route)
-    if (recent?.model && recent.route) {
-      const leaf = recent.effort
-        ? { qualifiedId: recent.effort.qualifiedId, reasoningEffort: recent.effort.reasoningEffort }
-        : defaultLeafForRoute(recent.route)
-      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, recent.model.canonicalKey, recent.route.key)
-    } else {
-      const choices = choiceModelsFor(agent.models)
-      const model = choices.find((candidate) => candidate.available) ?? choices[0]
-      const route = model && pickDefaultRoute(model, role)
-      if (!model || !route) return
-      const leaf = defaultLeafForRoute(route)
-      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, model.canonicalKey, route.key)
-    }
+    const provider = runnable.find((candidate) => candidate.id === endpoint.key)
+    if (!provider) return
+    const choices = choiceModelsFor(provider)
+    const remembered = recentModelIds
+      .map((id) => resolveSelection(buildCanonicalModels([provider]), id))
+      .find((selection) => selection.model)
+    const model = remembered?.model ?? choices.find((candidate) => candidate.ready) ?? choices[0]
+    const route = model ? pickDefaultRoute(model, role) : undefined
+    if (!model || !route) return
+    const leaf = defaultLeafForRoute(route)
+    applyLeaf(leaf.modelId, leaf.reasoningEffort, model.canonicalKey, route)
     openDropdown()
   }
 
-  const selectRecent = (model: AvailableModel): void => {
-    const qualifiedId = getQualifiedModel(model)
-    const sel = resolveSelection(canonicalModels, qualifiedId)
-    if (sel.model && sel.route) {
-      const leaf = sel.effort
-        ? { qualifiedId: sel.effort.qualifiedId, reasoningEffort: sel.effort.reasoningEffort }
-        : defaultLeafForRoute(sel.route)
-      applyLeaf(leaf.qualifiedId, leaf.reasoningEffort, sel.model.canonicalKey, sel.route.key)
-    } else {
-      applyLeaf(qualifiedId, undefined, model.canonicalKey ?? '', '')
-    }
-    setIsDropdownOpen(false)
-    setSearchQuery('')
+  const selectRecent = (choice: RecentChoice): void => {
+    const route = choice.route ?? pickDefaultRoute(choice.model, role)
+    // A model whose endpoints have all disappeared keeps its stored id: the
+    // picker must not rewrite an id the registry can no longer confirm.
+    const modelId = route ? route.modelId : choice.storedId
+    const effort = route ? defaultLeafForRoute(route).reasoningEffort : undefined
+    applyLeaf(modelId, effort, choice.model.canonicalKey, route)
+    closeDropdown()
+  }
+
+  const selectEffort = (option: EffortOption): void => {
+    if (!currentModel || !currentRoute) return
+    applyLeaf(currentRoute.modelId, option.value, currentModel.canonicalKey, currentRoute)
+  }
+
+  const resetReasoning = (): void => {
+    if (!currentModel || !currentRoute) return
+    const leaf = defaultLeafForRoute(currentRoute)
+    applyLeaf(leaf.modelId, leaf.reasoningEffort, currentModel.canonicalKey, currentRoute)
   }
 
   const effortLabel = (level: string): string => {
@@ -372,13 +534,11 @@ export function ModelPicker({
     return key ? t(key).toLowerCase() : level.toLowerCase()
   }
 
-  const activeRoute = current.route
-  const showEffort = Boolean(activeRoute && activeRoute.effortOptions.length > 0)
-
-  const closeDropdown = (): void => {
-    setIsDropdownOpen(false)
-    setSearchQuery('')
-  }
+  const effortOptions = useMemo<EffortOption[]>(
+    () => (currentRoute?.efforts ?? []).map((value) => ({ value })),
+    [currentRoute]
+  )
+  const showEffort = Boolean(currentModel && currentRoute && effortOptions.length > 0)
 
   // Escape anywhere inside an open dropdown closes just the dropdown — it must
   // not reach an enclosing modal's Escape handler and discard the modal draft.
@@ -401,54 +561,45 @@ export function ModelPicker({
 
   const pickerContent = (
     <>
-      {/* Step 1 — agent CLI */}
-      {agents.length > 0 && (
-        <div className="space-y-1 font-mono">
+      {/* Step 1 — the endpoint that runs the model */}
+      {runnableGroups.length > 0 && (
+        <div className="space-y-1">
           <div className="flex items-baseline gap-2">
-            <span className={fieldLabel}>{t('pickers.agent')}</span>
-            {activeAgent && (
+            <span className={fieldLabel}>{t('pickers.endpoint')}</span>
+            {activeEndpoint && (
               <span className={cn('truncate text-[10px] uppercase tracking-[0.14em]', c.fg)}>
-                · {activeAgent.label}
+                · {activeEndpoint.label}
               </span>
             )}
           </div>
-          <div role="radiogroup" aria-label={t('pickers.agent')} className="flex flex-wrap gap-1">
-            {agents.map((agent) => {
-              const active = agent.kind === activeAgent?.kind
-              return (
-                <button
-                  key={agent.kind}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  aria-label={agent.label}
-                  title={agent.label}
-                  onClick={() => selectAgent(agent.kind)}
-                  className={cn(
-                    'flex size-7 cursor-pointer items-center justify-center rounded-md border transition-colors',
-                    active
-                      ? cn(c.border, c.bg)
-                      : cn(
-                          'border-border opacity-70 hover:border-foreground/40 hover:opacity-100',
-                          hoverTint
-                        )
-                  )}
-                >
-                  <BrandIcon
-                    icon={agentIconKey(agent.kind)}
-                    label={agent.label}
-                    className="size-4"
+          <div
+            role="radiogroup"
+            aria-label={t('pickers.endpoint')}
+            className="max-h-40 space-y-px overflow-y-auto scrollbar-thin"
+          >
+            {runnableGroups.map(({ group, choices }) => (
+              <div key={group.vendor} className="space-y-px">
+                {runnableGroups.length > 1 && (
+                  <div className={groupHeader}>── {group.label} ──</div>
+                )}
+                {choices.map((choice) => (
+                  <EndpointRow
+                    key={choice.endpoint.key}
+                    choice={choice}
+                    active={choice.endpoint.key === activeEndpoint?.key}
+                    role={role}
+                    onSelect={selectEndpoint}
                   />
-                </button>
-              )
-            })}
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Step 2 — a model the active agent can run */}
+      {/* Step 2 — a model the active endpoint lists */}
       <div className="flex flex-col gap-2">
-        <span className={cn(fieldLabel, 'font-mono')}>{t('pickers.model')}</span>
+        <span className={cn(fieldLabel, 'font-sans')}>{t('pickers.model')}</span>
         <div className="relative" ref={dropdownRef} onKeyDown={handleDropdownKeyDown}>
           <button
             ref={triggerRef}
@@ -457,25 +608,25 @@ export function ModelPicker({
             aria-haspopup="listbox"
             aria-expanded={isDropdownOpen}
             className={cn(
-              'flex w-full cursor-pointer items-center gap-2 rounded-sm border bg-background px-2 py-1.5 text-left font-mono text-[12px] transition-colors',
-              current.model ? c.border : 'border-border hover:border-foreground/40'
+              'flex w-full cursor-pointer items-center gap-2 rounded-sm border bg-background px-2 py-1.5 text-left text-[12px] transition-colors',
+              currentModel ? c.border : 'border-border hover:border-foreground/40'
             )}
           >
-            {current.model ? (
-              <div className="flex min-w-0 flex-1 items-baseline gap-2">
-                <VendorIcon canonicalKey={current.model.canonicalKey} />
-                <span className="truncate text-foreground/90">{current.model.displayName}</span>
-                {current.route && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
-                    · {current.route.accessLabel}
+            {currentModel ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <VendorIcon canonicalKey={currentModel.canonicalKey} />
+                <span className="truncate text-foreground/90">{currentModel.displayName}</span>
+                {currentRoute && (
+                  <span className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint">
+                    · {currentRoute.label}
                   </span>
                 )}
               </div>
             ) : (
-              <div className="flex min-w-0 flex-1 items-baseline gap-2 text-muted-foreground">
+              <div className="flex min-w-0 flex-1 items-center gap-2 text-muted-foreground">
                 <Search size={11} className="shrink-0 translate-y-[1px]" />
                 <span>
-                  {recentModels.length > 0 ? t('pickers.allModels') : t('pickers.selectModel')}
+                  {recentChoices.length > 0 ? t('pickers.allModels') : t('pickers.selectModel')}
                 </span>
               </div>
             )}
@@ -497,7 +648,7 @@ export function ModelPicker({
                 effectiveDropUp ? 'bottom-full mb-1' : 'top-full mt-1'
               )}
             >
-              <div className="p-1.5 border-b border-border">
+              <div className="border-b border-border p-1.5">
                 <div className="relative">
                   <Search
                     size={11}
@@ -510,7 +661,7 @@ export function ModelPicker({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder={t('pickers.searchModels')}
-                    className={cn(searchInput, 'font-mono')}
+                    className={searchInput}
                   />
                 </div>
               </div>
@@ -520,163 +671,94 @@ export function ModelPicker({
                 ) : (
                   <div role="listbox" className="space-y-px">
                     {filteredModels.map((model) => {
-                      const isActiveModel = model.canonicalKey === current.model?.canonicalKey
-                      const multiRoute = model.routes.length > 1
+                      const route = model.routes[0]
+                      const isActiveModel = model.canonicalKey === currentModel?.canonicalKey
                       return (
-                        <div key={model.canonicalKey}>
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={isActiveModel}
-                            onClick={() => {
-                              if (isActiveModel && multiRoute) return
-                              selectModel(model)
-                            }}
-                            title={model.displayName}
-                            className={cn(menuItem(isActiveModel), 'font-mono')}
-                          >
-                            <span
-                              aria-hidden
-                              className={cn(
-                                'shrink-0',
-                                isActiveModel ? c.fg : 'text-muted-foreground-faint'
-                              )}
-                            >
-                              {isActiveModel ? '●' : '○'}
-                            </span>
-                            <VendorIcon canonicalKey={model.canonicalKey} />
-                            <span className="min-w-0 flex-1 truncate text-foreground/90">
-                              {model.displayName}
-                            </span>
-                            {multiRoute ? (
-                              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground-faint">
-                                {model.routes.length} {t('pickers.routes')} ›
-                              </span>
-                            ) : (
-                              <span className="shrink-0 text-[10px] text-muted-foreground-faint truncate max-w-[16ch]">
-                                {model.routes[0]?.accessLabel}
-                              </span>
+                        <button
+                          key={model.canonicalKey}
+                          type="button"
+                          role="option"
+                          aria-selected={isActiveModel}
+                          onClick={() => selectModel(model)}
+                          title={model.displayName}
+                          className={menuItem(isActiveModel)}
+                        >
+                          <span
+                            aria-hidden
+                            className={cn(
+                              'shrink-0',
+                              isActiveModel ? c.fg : 'text-muted-foreground-faint'
                             )}
-                          </button>
-
-                          {/* Nested route sub-picker for the active multi-route model */}
-                          {isActiveModel && multiRoute && (
-                            <div
-                              role="group"
-                              className="ml-3 mt-px mb-1 flex flex-col gap-px border-l border-border pl-2"
-                            >
-                              {model.routes.map((route) => {
-                                const selectedRoute = route.key === current.route?.key
-                                return (
-                                  <button
-                                    key={route.key}
-                                    type="button"
-                                    role="option"
-                                    aria-selected={selectedRoute}
-                                    onClick={() => selectRoute(model, route)}
-                                    title={route.accessLabel}
-                                    className={cn(
-                                      menuItem(selectedRoute),
-                                      'items-baseline font-mono text-[11px]'
-                                    )}
-                                  >
-                                    <span
-                                      aria-hidden
-                                      className={cn(
-                                        'shrink-0',
-                                        selectedRoute ? c.fg : 'text-muted-foreground-faint'
-                                      )}
-                                    >
-                                      {selectedRoute ? '●' : '○'}
-                                    </span>
-                                    <span className="min-w-0 flex-1 truncate text-foreground/80">
-                                      {route.accessLabel}
-                                    </span>
-                                  </button>
-                                )
-                              })}
-                            </div>
+                          >
+                            {isActiveModel ? '●' : '○'}
+                          </span>
+                          <VendorIcon canonicalKey={model.canonicalKey} />
+                          <span className="min-w-0 flex-1 truncate text-foreground/90">
+                            {model.displayName}
+                          </span>
+                          {route && (
+                            <span className="max-w-[20ch] shrink-0 truncate font-mono text-[10px] text-muted-foreground-faint">
+                              {route.modelId}
+                            </span>
                           )}
-                        </div>
+                        </button>
                       )
                     })}
                   </div>
                 )}
               </div>
 
-              {/* Auth-missing provider hint */}
-              {!searchQuery.trim() && authMissingProviders.length > 0 && (
-                <div className="border-t border-border/50 p-2 space-y-1">
-                  {authMissingProviders.map((p) => (
-                    <div
-                      key={p.kind}
-                      className="flex items-center gap-2 px-1 py-0.5 text-[10px] text-muted-foreground font-mono"
-                    >
-                      <span aria-hidden className="state-running">
-                        ⚠
-                      </span>
-                      <span>
-                        {p.count === 1
-                          ? t('providers.moreAfterSignIn_one', {
-                              count: p.count,
-                              defaultValue: `${p.count} more model available after signing in`
-                            })
-                          : t('providers.moreAfterSignIn_other', {
-                              count: p.count,
-                              defaultValue: `${p.count} more models available after signing in`
-                            })}{' '}
-                        ({p.label})
-                      </span>
-                      {p.loginCommand && (
-                        <button
-                          type="button"
-                          onClick={() => void handleProviderSignIn(p.kind)}
-                          className="cursor-pointer text-primary underline-offset-2 transition-colors hover:text-primary/80 hover:underline"
-                        >
-                          {t('providers.signIn')}
-                        </button>
-                      )}
-                    </div>
-                  ))}
+              {/* Endpoints whose credential needs attention — the reason a
+                  remembered model is missing from the list above. */}
+              {!searchQuery.trim() && blockedGroups.length > 0 && (
+                <div className="space-y-px border-t border-border/50 p-1.5">
+                  <div className={groupHeader}>── {t('pickers.needsCredential')} ──</div>
+                  {blockedGroups.map(({ choices }) =>
+                    choices.map((choice) => (
+                      <BlockedEndpointRow
+                        key={choice.endpoint.key}
+                        provider={choice.provider}
+                        onOpenModels={openModelsSection}
+                      />
+                    ))
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Reasoning effort — sourced from the selected route, hidden when it has none */}
-        {showEffort && activeRoute && current.model && (
-          <div className="space-y-1 font-mono">
+        {/* Step 3 — reasoning effort, hidden when the endpoint offers none */}
+        {showEffort && currentModel && currentRoute && (
+          <div className="space-y-1">
             <div className="flex items-baseline gap-2">
               <span className={fieldLabel}>{t('pickers.reasoning')}</span>
-              {current.effort && (
+              {currentEffort && (
                 <span className={cn('text-[10px] uppercase tracking-[0.14em]', c.fg)}>
-                  · {effortLabel(current.effort.value)}
+                  · {effortLabel(currentEffort.value)}
                 </span>
               )}
-              {current.effort && (
+              {currentEffort && (
                 <GlassButton
                   variant="ghost"
                   size="xs"
-                  onClick={() => resetReasoning(current.model as CanonicalModel, activeRoute)}
+                  onClick={resetReasoning}
                   className="ml-auto text-muted-foreground"
                 >
                   {t('pickers.resetReasoning')}
                 </GlassButton>
               )}
             </div>
-            <div className="flex flex-1 border border-border rounded-md overflow-hidden">
-              {activeRoute.effortOptions.map((option) => {
-                const isActive = option.value === current.effort?.value
+            <div className="flex flex-1 overflow-hidden rounded-md border border-border">
+              {effortOptions.map((option) => {
+                const isActive = option.value === currentEffort?.value
                 return (
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() =>
-                      selectEffort(current.model as CanonicalModel, activeRoute, option)
-                    }
+                    onClick={() => selectEffort(option)}
                     className={cn(
-                      'flex-1 px-2 py-0.5 text-[11px] transition-colors cursor-pointer border-r border-border last:border-r-0',
+                      'flex-1 border-r border-border px-2 py-0.5 text-[11px] transition-colors cursor-pointer last:border-r-0',
                       isActive
                         ? cn(c.bg, c.fg, c.border)
                         : cn('text-muted-foreground hover:text-foreground', hoverTint)
@@ -692,15 +774,15 @@ export function ModelPicker({
       </div>
 
       {/* Recent quick-picks */}
-      {recentModels.length > 0 && (
+      {recentChoices.length > 0 && (
         <div className="space-y-1">
           <div className={groupHeader}>── {t('pickers.recent')} ──</div>
           <div className="space-y-px">
-            {recentModels.map((model) => (
+            {recentChoices.map((choice) => (
               <QuickPickRow
-                key={getQualifiedModel(model)}
-                model={model}
-                selected={modelMatchesId(model, value)}
+                key={choice.storedId}
+                choice={choice}
+                selected={choice.model.canonicalKey === currentModel?.canonicalKey}
                 role={role}
                 onSelect={selectRecent}
               />
@@ -708,14 +790,17 @@ export function ModelPicker({
           </div>
         </div>
       )}
+
+      {/* Nothing signed in at all — the picker cannot offer a model. */}
+      {runnableGroups.length === 0 && blockedGroups.length === 0 && (
+        <div className={emptyHint}>{t('pickers.noEndpoints')}</div>
+      )}
     </>
   )
 
   if (variant === 'card') {
     return (
-      <div
-        className={cn('flex flex-col border rounded-md p-3 font-mono', c.border, 'bg-background')}
-      >
+      <div className={cn('flex flex-col rounded-md border bg-background p-3 font-sans', c.border)}>
         <div className="mb-2 flex items-baseline gap-2">
           <span aria-hidden className={c.fg}>
             ●

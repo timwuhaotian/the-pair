@@ -1,5 +1,5 @@
 import type { PairModelSelection } from '../types'
-import { modelIdsEquivalent } from './providerResolution'
+import { modelIdsEquivalent, stripModelQualifier } from './providerResolution'
 
 export type PairLike = {
   mentorModel: string
@@ -19,9 +19,16 @@ export function resolveEffectiveModels(
   pair: PairLike,
   overrides?: ModelOverrides
 ): { mentorModel: string; executorModel: string } {
+  // A legacy qualified id (`claude:opus`, `codex/mini`) is normalised here, once,
+  // so every consumer — the pair's own mirror, the update payload and the
+  // backend — sees the same bare model id.
   return {
-    mentorModel: overrides?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel,
-    executorModel: overrides?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
+    mentorModel: stripModelQualifier(
+      overrides?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel
+    ),
+    executorModel: stripModelQualifier(
+      overrides?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
+    )
   }
 }
 
@@ -37,30 +44,6 @@ export function getAssignableTaskModels(
   return resolveEffectiveModels(pair, restoringModels)
 }
 
-/**
- * Strip the provider prefix from a qualified model ID.
- *
- * The frontend uses "qualified" IDs like `claude/claude-haiku-4-5-20251001`
- * for model selection and localStorage. Only providers whose bare ids always
- * self-identify (Claude, Gemini) are sent bare. Every other qualifier must
- * survive: Codex `codex-*` slugs, Grok aliases, the Muse settings model and
- * Kimi/Pi/Kiro/Aider aliases do not reliably self-identify — e.g. Kimi's
- * managed aliases are `kimi-code/<id>`, whose first segment is not a known
- * qualifier, so inference falls back to OpenCode (a bare user alias like
- * `kimi/k3` does self-identify). The Rust providers strip their own
- * qualifier at spawn time. OpenCode IDs already use `provider/model`
- * format internally.
- */
-function stripProviderPrefix(qualifiedId: string): string {
-  if (qualifiedId.includes('/')) {
-    const [prefix, ...rest] = qualifiedId.split('/')
-    if (['claude', 'gemini'].includes(prefix) && rest.length > 0) {
-      return rest.join('/')
-    }
-  }
-  return qualifiedId
-}
-
 export function buildUpdateModelsPayload(
   pair: PairLike,
   effectiveModels: { mentorModel: string; executorModel: string }
@@ -74,8 +57,8 @@ export function buildUpdateModelsPayload(
   return {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
-    pendingMentorModel: stripProviderPrefix(effectiveModels.mentorModel),
-    pendingExecutorModel: stripProviderPrefix(effectiveModels.executorModel),
+    pendingMentorModel: stripModelQualifier(effectiveModels.mentorModel),
+    pendingExecutorModel: stripModelQualifier(effectiveModels.executorModel),
     mentorReasoningEffort: modelIdsEquivalent(current.mentorModel, effectiveModels.mentorModel)
       ? pair.mentorReasoningEffort
       : undefined,

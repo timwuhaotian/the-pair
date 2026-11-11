@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { AvailableModel } from '../src/renderer/src/types.ts'
+import type { ModelRoute, ProviderView } from '../src/renderer/src/types.ts'
 import {
   buildCanonicalModels,
   defaultLeafForRoute,
+  groupEndpoints,
+  modelMatchesQuery,
+  modelVendorKey,
   pickDefaultRoute,
   resolveSelection,
-  saveLastRouteKey,
-  modelMatchesQuery,
-  groupModelsByAgent,
-  modelVendorKey
+  saveLastRouteKey
 } from '../src/renderer/src/lib/modelCatalogGrouping.ts'
-import { agentIconKey, vendorIconKey } from '../src/renderer/src/lib/brandIcons.ts'
+import { vendorIconKey } from '../src/renderer/src/lib/brandIcons.ts'
 
 function installLocalStorage(initial: Record<string, string> = {}): () => void {
   const store = new Map(Object.entries(initial))
@@ -38,400 +38,202 @@ function installLocalStorage(initial: Record<string, string> = {}): () => void {
   }
 }
 
-function makeModel(
-  overrides: Partial<AvailableModel> & {
-    provider: AvailableModel['provider']
-    modelId: string
-  }
-): AvailableModel {
+function route(id: string, overrides: Partial<ModelRoute> = {}): ModelRoute {
+  return { id, displayName: id, efforts: [], source: 'preset', ...overrides }
+}
+
+function provider(id: string, overrides: Partial<ProviderView> = {}): ProviderView {
   return {
-    displayName: overrides.modelId,
-    available: true,
-    providerLabel: overrides.provider,
-    sourceProviderLabel: '',
-    billingKind: 'plan',
-    billingLabel: '',
-    accessLabel: '',
-    availabilityStatus: 'ready',
-    supportsPairExecution: true,
-    recommendedRoles: ['mentor', 'executor'],
+    id,
+    protocol: 'anthropic',
+    baseUrl: `https://${id}.example.com`,
+    vendor: id,
+    displayName: id,
+    accounts: [],
+    models: [],
+    readyAccountCount: 0,
     ...overrides
-  } as AvailableModel
+  }
 }
 
-function antigravityFlash(effort: string): AvailableModel {
-  const cap = effort.charAt(0).toUpperCase() + effort.slice(1)
-  return makeModel({
-    provider: 'gemini',
-    modelId: `Gemini 3.5 Flash (${cap})`,
-    displayName: `Gemini 3.5 Flash (${cap})`,
-    providerLabel: 'Antigravity',
-    accessLabel: 'Google account',
-    planLabel: 'antigravity-backed',
-    canonicalKey: 'google::gemini-3-5-flash',
-    canonicalDisplayName: 'Gemini 3.5 Flash',
-    effortTag: effort
-  })
-}
+const sonnet = route('claude-sonnet-4-5', { displayName: 'Claude Sonnet 4.5' })
 
-test('collapses baked-in effort variants into one model with one route and ordered efforts', () => {
-  const models = buildCanonicalModels([
-    antigravityFlash('high'),
-    antigravityFlash('low'),
-    antigravityFlash('medium')
-  ])
-
-  assert.equal(models.length, 1)
-  assert.equal(models[0].displayName, 'Gemini 3.5 Flash')
-  assert.equal(models[0].routes.length, 1)
-
-  const route = models[0].routes[0]
-  assert.deepEqual(
-    route.effortOptions.map((option) => option.value),
-    ['low', 'medium', 'high']
-  )
-  // every effort maps to its own distinct model id (effort is baked into the id)
-  assert.equal(route.effortOptions[2].qualifiedId, 'gemini/Gemini 3.5 Flash (High)')
-  assert.equal(route.effortOptions[2].reasoningEffort, undefined)
-  // default leaf picks medium
-  assert.equal(defaultLeafForRoute(route).qualifiedId, 'gemini/Gemini 3.5 Flash (Medium)')
-
-  const sel = resolveSelection(models, 'gemini/Gemini 3.5 Flash (High)')
-  assert.equal(sel.effort?.value, 'high')
-  assert.equal(sel.route?.provider, 'gemini')
+const direct = provider('anthropic-direct', {
+  vendor: 'anthropic',
+  displayName: 'Anthropic',
+  readyAccountCount: 1,
+  models: [sonnet]
 })
 
-test('resolveSelection accepts legacy bare ids stored by older builds', () => {
-  const models = buildCanonicalModels([
-    makeModel({ provider: 'codex', modelId: 'codex-mini-latest' }),
-    makeModel({ provider: 'grok', modelId: 'fast' }),
-    antigravityFlash('high'),
-    antigravityFlash('medium')
-  ])
+const keylessGateway = provider('anthropic-gateway', {
+  vendor: 'anthropic',
+  displayName: 'Anthropic Gateway',
+  readyAccountCount: 0,
+  models: [sonnet]
+})
 
-  assert.equal(resolveSelection(models, 'codex/codex-mini-latest').route?.provider, 'codex')
-  assert.equal(resolveSelection(models, 'codex-mini-latest').route?.provider, 'codex')
-  assert.equal(resolveSelection(models, 'fast').route?.provider, 'grok')
-  assert.equal(resolveSelection(models, 'Gemini 3.5 Flash (High)').effort?.value, 'high')
+test('merges one model listed by several endpoints into a single canonical row', () => {
+  const models = buildCanonicalModels([keylessGateway, direct])
+  assert.equal(models.length, 1)
+  assert.equal(models[0].canonicalKey, 'anthropic::claude-sonnet-4-5')
+  assert.equal(models[0].displayName, 'Claude Sonnet 4.5')
+  assert.equal(models[0].ready, true)
+  assert.deepEqual(
+    models[0].routes.map((route) => route.providerId),
+    ['anthropic-direct', 'anthropic-gateway']
+  )
+})
+
+test('a model only reachable through a keyless endpoint is not ready', () => {
+  const models = buildCanonicalModels([keylessGateway])
+  assert.equal(models[0].ready, false)
+  assert.equal(models[0].routes[0].ready, false)
+})
+
+test('different vendors stay separate canonical models', () => {
+  const grok = provider('xai', {
+    vendor: 'xai',
+    displayName: 'xAI',
+    readyAccountCount: 1,
+    models: [route('claude-sonnet-4-5', { displayName: 'Claude Sonnet 4.5' })]
+  })
+  const models = buildCanonicalModels([direct, grok])
+  assert.deepEqual(models.map((model) => model.canonicalKey).sort(), [
+    'anthropic::claude-sonnet-4-5',
+    'xai::claude-sonnet-4-5'
+  ])
+})
+
+test('resolveSelection matches a plain id and the legacy qualified spelling', () => {
+  const models = buildCanonicalModels([direct])
+  assert.equal(resolveSelection(models, 'claude-sonnet-4-5').route?.providerId, 'anthropic-direct')
+  assert.equal(
+    resolveSelection(models, 'claude/claude-sonnet-4-5').route?.providerId,
+    'anthropic-direct'
+  )
   assert.deepEqual(resolveSelection(models, 'unknown-model'), {})
 })
 
-test('resolveSelection prefers an exact qualified match over a legacy bare match', () => {
-  const models = buildCanonicalModels([
-    makeModel({ provider: 'claude', modelId: 'gpt-4o-mini', canonicalKey: 'a' }),
-    makeModel({ provider: 'opencode', modelId: 'gpt-4o-mini', canonicalKey: 'b' })
-  ])
-  // "gpt-4o-mini" is the OpenCode qualified id and only a legacy bare id for claude.
-  assert.equal(resolveSelection(models, 'gpt-4o-mini').route?.provider, 'opencode')
+test('resolveSelection reports the effort only when the endpoint lists it', () => {
+  const codex = provider('openai', {
+    vendor: 'openai',
+    displayName: 'OpenAI',
+    readyAccountCount: 1,
+    models: [route('gpt-5', { efforts: ['low', 'medium', 'high'], defaultEffort: 'medium' })]
+  })
+  const models = buildCanonicalModels([codex])
+
+  assert.deepEqual(resolveSelection(models, 'gpt-5', 'high').effort, { value: 'high' })
+  // Value matches but the effort is unset: the route resolves, the effort does not.
+  assert.equal(resolveSelection(models, 'gpt-5').route?.providerId, 'openai')
+  assert.equal(resolveSelection(models, 'gpt-5').effort, undefined)
+  // An effort the endpoint does not accept is not a selection either.
+  assert.equal(resolveSelection(models, 'gpt-5', 'xhigh').effort, undefined)
 })
 
-test('merges the same model across native + OpenCode routes under one canonical key', () => {
-  const claude = makeModel({
-    provider: 'claude',
-    modelId: 'claude-sonnet-4-5-20250929',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'Claude Code',
-    accessLabel: 'Claude Code login',
-    planLabel: 'subscription-backed',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
-  })
-  const opencode = makeModel({
-    provider: 'opencode',
-    modelId: 'anthropic/claude-sonnet-4-5',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'OpenCode',
-    accessLabel: 'Anthropic API key',
-    planLabel: 'pay-as-you-go',
-    billingKind: 'byok',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
+test('defaultLeafForRoute takes the model default, then medium, then nothing', () => {
+  const withDefault = buildCanonicalModels([
+    provider('openai', {
+      vendor: 'openai',
+      models: [route('gpt-5', { efforts: ['low', 'medium', 'high'], defaultEffort: 'low' })]
+    })
+  ])[0].routes[0]
+  assert.deepEqual(defaultLeafForRoute(withDefault), {
+    modelId: 'gpt-5',
+    reasoningEffort: 'low'
   })
 
-  const models = buildCanonicalModels([opencode, claude])
-  assert.equal(models.length, 1)
-  assert.equal(models[0].routes.length, 2)
+  const noDefault = buildCanonicalModels([
+    provider('openai', {
+      vendor: 'openai',
+      models: [route('gpt-5', { efforts: ['low', 'medium', 'high'] })]
+    })
+  ])[0].routes[0]
+  assert.deepEqual(defaultLeafForRoute(noDefault), {
+    modelId: 'gpt-5',
+    reasoningEffort: 'medium'
+  })
+
+  const noEfforts = buildCanonicalModels([
+    provider('openai', { vendor: 'openai', models: [sonnet] })
+  ])[0].routes[0]
+  assert.deepEqual(defaultLeafForRoute(noEfforts), {
+    modelId: 'claude-sonnet-4-5',
+    reasoningEffort: undefined
+  })
+})
+
+const secondReady = provider('anthropic-secondary', {
+  vendor: 'anthropic',
+  displayName: 'Anthropic (secondary)',
+  readyAccountCount: 1,
+  models: [sonnet]
+})
+
+test('pickDefaultRoute remembers the last route per role and prefers a usable one', () => {
+  const models = buildCanonicalModels([secondReady, direct])
+  // Routes sort by label, so the primary endpoint leads.
+  assert.deepEqual(
+    models[0].routes.map((route) => route.providerId),
+    ['anthropic-direct', 'anthropic-secondary']
+  )
 
   const restore = installLocalStorage()
   try {
-    // with nothing remembered, the native plan route wins over pay-as-you-go OpenCode
-    assert.equal(pickDefaultRoute(models[0], 'mentor')?.provider, 'claude')
+    // With nothing remembered, the first usable endpoint wins.
+    assert.equal(pickDefaultRoute(models[0], 'mentor')?.providerId, 'anthropic-direct')
 
-    // a remembered route for this role overrides the preference order
-    saveLastRouteKey('mentor', 'anthropic::claude-sonnet-4-5', 'opencode::pay-as-you-go')
-    assert.equal(pickDefaultRoute(models[0], 'mentor')?.provider, 'opencode')
-    // a different role is unaffected
-    assert.equal(pickDefaultRoute(models[0], 'executor')?.provider, 'claude')
+    // A remembered route for this role overrides the default order.
+    saveLastRouteKey('mentor', models[0].canonicalKey, 'anthropic-secondary::claude-sonnet-4-5')
+    assert.equal(pickDefaultRoute(models[0], 'mentor')?.providerId, 'anthropic-secondary')
+    // A different role is unaffected.
+    assert.equal(pickDefaultRoute(models[0], 'executor')?.providerId, 'anthropic-direct')
   } finally {
     restore()
   }
 })
 
-test('exposes Codex reasoning levels as a shared-id effort axis and resolves selection', () => {
-  const codex = makeModel({
-    provider: 'codex',
-    modelId: 'o3',
-    displayName: 'o3',
-    providerLabel: 'Codex',
-    accessLabel: 'ChatGPT plan',
-    planLabel: 'subscription-backed',
-    canonicalKey: 'openai::o3',
-    canonicalDisplayName: 'o3',
-    reasoningEffortLevels: ['low', 'medium', 'high']
-  })
+test('pickDefaultRoute ignores a remembered endpoint that has no ready account', () => {
+  const models = buildCanonicalModels([keylessGateway, direct])
 
-  const models = buildCanonicalModels([codex])
-  const route = models[0].routes[0]
-  assert.deepEqual(
-    route.effortOptions.map((option) => option.reasoningEffort),
-    ['low', 'medium', 'high']
-  )
-  assert.ok(route.effortOptions.every((option) => option.qualifiedId === 'codex/o3'))
-
-  assert.equal(resolveSelection(models, 'codex/o3', 'high').effort?.value, 'high')
-  assert.deepEqual(defaultLeafForRoute(route), {
-    qualifiedId: 'codex/o3',
-    reasoningEffort: 'medium'
-  })
-  // value matches but effort flag unset -> route resolves, effort undefined
-  const unset = resolveSelection(models, 'codex/o3', undefined)
-  assert.equal(unset.route?.provider, 'codex')
-  assert.equal(unset.effort, undefined)
+  const restore = installLocalStorage()
+  try {
+    saveLastRouteKey('mentor', models[0].canonicalKey, 'anthropic-gateway::claude-sonnet-4-5')
+    assert.equal(pickDefaultRoute(models[0], 'mentor')?.providerId, 'anthropic-direct')
+  } finally {
+    restore()
+  }
 })
 
-test('exposes OpenCode adaptive reasoning variants and resolves selection', () => {
-  const model = makeModel({
-    provider: 'opencode',
-    modelId: 'minimax/MiniMax-M3',
-    displayName: 'MiniMax-M3',
-    providerLabel: 'OpenCode',
-    accessLabel: 'MiniMax API key',
-    planLabel: 'internal-provider',
-    billingKind: 'byok',
-    canonicalKey: 'minimax::minimax-m3',
-    canonicalDisplayName: 'MiniMax-M3',
-    reasoningEffortLevels: ['adaptive', 'disabled']
-  })
-
-  const models = buildCanonicalModels([model])
-  const route = models[0].routes[0]
-  assert.deepEqual(
-    route.effortOptions.map((option) => option.reasoningEffort),
-    ['adaptive', 'disabled']
-  )
-  assert.deepEqual(defaultLeafForRoute(route), {
-    qualifiedId: 'minimax/MiniMax-M3',
-    reasoningEffort: undefined
-  })
-  assert.equal(resolveSelection(models, 'minimax/MiniMax-M3', 'disabled').effort?.value, 'disabled')
-})
-
-test('fuzzy search matches on model name and route labels', () => {
-  const models = buildCanonicalModels([antigravityFlash('low')])
-  assert.equal(modelMatchesQuery(models[0], 'gem35flash'), true)
-  assert.equal(modelMatchesQuery(models[0], 'google'), true)
+test('fuzzy search matches on model name, vendor and endpoint label', () => {
+  const models = buildCanonicalModels([direct])
+  assert.equal(modelMatchesQuery(models[0], 'sonnet45'), true)
+  assert.equal(modelMatchesQuery(models[0], 'anthropic'), true)
+  assert.equal(modelMatchesQuery(models[0], 'Anthropic'), true)
   assert.equal(modelMatchesQuery(models[0], 'zzz'), false)
 })
 
-test('falls back to a derived canonical key when the backend omits one', () => {
-  const a = makeModel({ provider: 'opencode', modelId: 'deepseek/deepseek-chat' })
-  const models = buildCanonicalModels([a])
-  assert.equal(models.length, 1)
-  assert.equal(models[0].routes.length, 1)
-  assert.equal(models[0].routes[0].baseQualifiedId, 'deepseek/deepseek-chat')
-})
-
-test('aider route sorts after kiro in provider priority', () => {
-  const kiro = makeModel({
-    provider: 'kiro',
-    modelId: 'claude-sonnet-4-5',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'Kiro',
-    accessLabel: 'Kiro login',
-    planLabel: 'kiro',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
+test('groupEndpoints groups by vendor with ready endpoints first', () => {
+  const openRouter = provider('openrouter', {
+    vendor: 'openrouter',
+    displayName: 'OpenRouter',
+    readyAccountCount: 1,
+    models: [route('claude-sonnet-4-5')]
   })
-  const aider = makeModel({
-    provider: 'aider',
-    modelId: 'claude-sonnet-4-5',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'Aider',
-    accessLabel: 'API key',
-    planLabel: 'byok',
-    billingKind: 'byok',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
-  })
+  const groups = groupEndpoints([keylessGateway, openRouter, direct])
 
-  const models = buildCanonicalModels([aider, kiro])
-  assert.equal(models.length, 1)
-  assert.equal(models[0].routes.length, 2)
-
-  // Both available — kiro (priority 6) should sort before aider (priority 7).
-  const restore = installLocalStorage()
-  try {
-    assert.equal(pickDefaultRoute(models[0], 'mentor')?.provider, 'kiro')
-  } finally {
-    restore()
-  }
-})
-
-test('routes for one canonical model follow the provider priority order', () => {
-  // PROVIDER_PRIORITY is typed over ProviderKind, so a new provider fails to
-  // compile until it is ranked. This pins the resulting order through the
-  // public API: every provider sharing a canonical key, ranked as documented.
-  const expected: AvailableModel['provider'][] = [
-    'claude',
-    'codex',
-    'gemini',
-    'opencode',
-    'kimi',
-    'pi',
-    'kiro',
-    'aider',
-    'grok',
-    'muse'
-  ]
-
-  const models = expected.map((provider) =>
-    makeModel({
-      provider,
-      modelId: 'claude-sonnet-4-5',
-      displayName: 'Claude Sonnet 4.5',
-      providerLabel: provider,
-      canonicalKey: 'anthropic::claude-sonnet-4-5',
-      canonicalDisplayName: 'Claude Sonnet 4.5'
-    })
-  )
-
-  const canonical = buildCanonicalModels(models)
-  assert.equal(canonical.length, 1)
   assert.deepEqual(
-    canonical[0].routes.map((route) => route.provider),
-    expected
-  )
-})
-
-test('an unranked provider sorts after every ranked one', () => {
-  // Guards the regression where the fallback equalled muse's priority (9), so
-  // an unknown kind tied with Muse and fell back to alphabetical order.
-  const UNKNOWN = 'brand-new-provider' as AvailableModel['provider']
-  const unknown = makeModel({
-    provider: UNKNOWN,
-    modelId: 'claude-sonnet-4-5',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'Aardvark CLI',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
-  })
-  const muse = makeModel({
-    provider: 'muse',
-    modelId: 'claude-sonnet-4-5',
-    displayName: 'Claude Sonnet 4.5',
-    providerLabel: 'Muse Code',
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
-  })
-
-  const canonical = buildCanonicalModels([unknown, muse])
-  assert.equal(canonical.length, 1)
-  // "Aardvark CLI" sorts alphabetically before "Muse Code", so alphabetical
-  // tie-breaking would put the unranked provider first.
-  assert.deepEqual(
-    canonical[0].routes.map((route) => route.provider),
-    ['muse', UNKNOWN]
-  )
-})
-
-test('one model via several CLIs and gateways is one row with one route per gateway', () => {
-  const sonnet = {
-    canonicalKey: 'anthropic::claude-sonnet-4-5',
-    canonicalDisplayName: 'Claude Sonnet 4.5'
-  }
-  const models = buildCanonicalModels([
-    makeModel({
-      provider: 'pi',
-      modelId: 'anthropic/claude-sonnet-4-5',
-      providerLabel: 'Pi',
-      planLabel: 'pi',
-      sourceProvider: 'anthropic',
-      accessLabel: 'Anthropic',
-      ...sonnet
-    }),
-    makeModel({
-      provider: 'pi',
-      modelId: 'github-copilot/claude-sonnet-4.5',
-      providerLabel: 'Pi',
-      planLabel: 'pi',
-      sourceProvider: 'github-copilot',
-      accessLabel: 'Github-copilot',
-      ...sonnet,
-      canonicalDisplayName: 'claude-sonnet-4.5'
-    }),
-    makeModel({
-      provider: 'claude',
-      modelId: 'claude-sonnet-4-5-20250929',
-      providerLabel: 'Claude Code',
-      planLabel: 'subscription-backed',
-      sourceProvider: 'anthropic',
-      ...sonnet
-    })
-  ])
-
-  assert.equal(models.length, 1)
-  assert.equal(models[0].displayName, 'Claude Sonnet 4.5', 'named after the native route')
-  assert.deepEqual(
-    models[0].routes.map((route) => `${route.providerLabel} ${route.accessLabel}`),
-    ['Claude Code ', 'Pi Anthropic', 'Pi Github-copilot']
-  )
-})
-
-test('a native CLI label names the model over every gateway slug, whatever the rank', () => {
-  const grok = { canonicalKey: 'xai::grok-4-6', canonicalDisplayName: 'Grok 4.6' }
-  const models = buildCanonicalModels([
-    makeModel({
-      provider: 'opencode',
-      modelId: 'xai/grok-4.6',
-      providerLabel: 'OpenCode',
-      sourceProvider: 'xai',
-      ...grok,
-      canonicalDisplayName: 'grok-4.6'
-    }),
-    makeModel({
-      provider: 'pi',
-      modelId: 'openrouter/x-ai/grok-4.6',
-      providerLabel: 'Pi',
-      sourceProvider: 'openrouter',
-      ...grok,
-      canonicalDisplayName: 'x-ai/grok-4.6'
-    }),
-    makeModel({ provider: 'grok', modelId: 'grok-4.6', providerLabel: 'Grok', ...grok })
-  ])
-
-  assert.equal(models.length, 1)
-  assert.equal(models[0].displayName, 'Grok 4.6', 'named after the native Grok route')
-})
-
-test('groups models by agent CLI in route-preference order', () => {
-  const agents = groupModelsByAgent([
-    makeModel({
-      provider: 'opencode',
-      modelId: 'anthropic/claude-sonnet-4-5',
-      providerLabel: 'OpenCode'
-    }),
-    makeModel({ provider: 'codex', modelId: 'gpt-5', providerLabel: 'Codex' }),
-    makeModel({ provider: 'claude', modelId: 'claude-sonnet-4-5', providerLabel: 'Claude Code' }),
-    makeModel({ provider: 'codex', modelId: 'gpt-5-mini', providerLabel: 'Codex' })
-  ])
-  assert.deepEqual(
-    agents.map((agent) => [agent.kind, agent.label, agent.models.length]),
+    groups.map((group) => [group.vendor, group.endpoints.map((e) => e.key)]),
     [
-      ['claude', 'Claude Code', 1],
-      ['codex', 'Codex', 2],
-      ['opencode', 'OpenCode', 1]
+      ['anthropic', ['anthropic-direct', 'anthropic-gateway']],
+      ['openrouter', ['openrouter']]
     ]
   )
+  assert.deepEqual(
+    groups[0].endpoints.map((endpoint) => endpoint.ready),
+    [true, false]
+  )
+  assert.equal(groups[0].endpoints[0].models.length, 1)
 })
 
 test('reads the model vendor from the canonical key and maps it to a brand mark', () => {
@@ -442,7 +244,4 @@ test('reads the model vendor from the canonical key and maps it to a brand mark'
   assert.equal(vendorIconKey('github copilot'), 'githubcopilot')
   assert.equal(vendorIconKey('Z.ai'), 'zai')
   assert.equal(vendorIconKey('unknownvendor'), undefined)
-  assert.equal(agentIconKey('claude'), 'claudecode')
-  // Aider publishes no mark; the picker falls back to a monogram.
-  assert.equal(agentIconKey('aider'), undefined)
 })

@@ -6,44 +6,83 @@ import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ModelPicker } from '../../src/renderer/src/components/ModelPicker.tsx'
-import type { AvailableModel, ProviderKind } from '../../src/renderer/src/types.ts'
+import type { AccountStatus, ModelRoute, ProviderView } from '../../src/renderer/src/types.ts'
 
 function model(
-  provider: ProviderKind,
-  providerLabel: string,
   modelId: string,
   displayName: string,
-  canonicalKey: string
-): AvailableModel {
+  source: ModelRoute['source'] = 'preset'
+): ModelRoute {
+  return { id: modelId, displayName, efforts: [], source }
+}
+
+function provider(
+  id: string,
+  displayName: string,
+  vendor: string,
+  models: ModelRoute[],
+  status: AccountStatus = 'ready'
+): ProviderView {
+  const accounts =
+    status === 'ready'
+      ? [
+          {
+            id: `${id}-key`,
+            kind: 'apiKey' as const,
+            label: 'Personal',
+            source: 'manual',
+            status: 'ready' as const,
+            headers: [],
+            hasSecret: true
+          }
+        ]
+      : [
+          {
+            id: `${id}-key`,
+            kind: 'apiKey' as const,
+            label: 'Personal',
+            source: 'manual',
+            status,
+            headers: [],
+            hasSecret: false
+          }
+        ]
   return {
-    provider,
-    modelId,
+    id,
+    protocol: 'openaiChat',
+    baseUrl: `https://${vendor}.example`,
+    vendor,
     displayName,
-    available: true,
-    providerLabel,
-    sourceProviderLabel: '',
-    billingKind: 'plan',
-    billingLabel: '',
-    accessLabel: `${providerLabel} login`,
-    availabilityStatus: 'ready',
-    supportsPairExecution: true,
-    recommendedRoles: ['mentor', 'executor'],
-    canonicalKey
+    accounts,
+    models,
+    readyAccountCount: status === 'ready' ? accounts.length : 0
   }
 }
 
-const sonnet = model('claude', 'Claude Code', 'sonnet', 'Claude Sonnet', 'anthropic::sonnet')
-const opus = model('claude', 'Claude Code', 'opus', 'Claude Opus', 'anthropic::opus')
-const gpt = model('codex', 'Codex', 'gpt-5', 'GPT-5', 'openai::gpt-5')
-const gptMini = model('codex', 'Codex', 'gpt-5-mini', 'GPT-5 Mini', 'openai::gpt-5-mini')
-const models = [sonnet, opus, gpt, gptMini]
+const claude = provider('claude-main', 'Claude Code', 'anthropic', [
+  model('sonnet', 'Claude Sonnet'),
+  model('opus', 'Claude Opus')
+])
+const codex = provider('codex-main', 'Codex', 'openai', [
+  model('gpt-5', 'GPT-5'),
+  model('gpt-5-mini', 'GPT-5 Mini')
+])
+const providers = [claude, codex]
 
-function Harness({ initial, onChange }: { initial: string; onChange: (id: string) => void }) {
+function Harness({
+  initial,
+  onChange,
+  registry = providers
+}: {
+  initial: string
+  onChange: (id: string) => void
+  registry?: ProviderView[]
+}) {
   const [value, setValue] = useState(initial)
   return (
     <ModelPicker
       value={value}
-      models={models}
+      providers={registry}
       role="mentor"
       onChange={(id) => {
         onChange(id)
@@ -58,11 +97,11 @@ afterEach(() => {
   localStorage.clear()
 })
 
-test('step one follows the selection; step two lists only that agent, with vendor marks', () => {
-  render(<Harness initial="claude/opus" onChange={() => {}} />)
-  const agents = screen.getAllByRole('radio')
+test('step one follows the selection; step two lists only that endpoint, with vendor marks', () => {
+  render(<Harness initial="opus" onChange={() => {}} />)
+  const endpoints = screen.getAllByRole('radio')
   assert.deepEqual(
-    agents.map((radio) => radio.getAttribute('aria-label')),
+    endpoints.map((endpoint) => endpoint.getAttribute('aria-label')),
     ['Claude Code', 'Codex']
   )
   assert.equal(
@@ -82,26 +121,91 @@ test('step one follows the selection; step two lists only that agent, with vendo
   }
 })
 
-test('switching agent applies its first choice and opens its model list', () => {
+test('switching endpoint applies its first choice and opens its model list', () => {
   const changes: string[] = []
-  render(<Harness initial="claude/sonnet" onChange={(id) => changes.push(id)} />)
+  render(<Harness initial="sonnet" onChange={(id) => changes.push(id)} />)
   fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
-  assert.deepEqual(changes, ['codex/gpt-5'])
+  assert.deepEqual(changes, ['gpt-5'])
   assert.equal(screen.getByRole('radio', { name: 'Codex' }).getAttribute('aria-checked'), 'true')
   const names = within(screen.getByRole('listbox'))
     .getAllByRole('option')
     .map((option) => option.title)
   assert.deepEqual(names.sort(), ['GPT-5', 'GPT-5 Mini'])
-  assert.equal(localStorage.getItem('the-pair-preferred-mentor-model'), 'codex/gpt-5')
+  assert.equal(localStorage.getItem('the-pair-preferred-mentor-model'), 'gpt-5')
 })
 
-test('switching agent restores the most recent model used with it for this role', () => {
-  localStorage.setItem(
-    'the-pair-recent-models-mentor',
-    JSON.stringify(['claude/sonnet', 'codex/gpt-5-mini'])
+test('a pick tells the backend which endpoint it was made under', () => {
+  // Two endpoints list the same model id: the id alone cannot say which one
+  // the turn should talk to, so the picked endpoint is reported with it.
+  const plan = provider('chatgpt-plan', 'ChatGPT plan', 'openai', [model('gpt-5', 'GPT-5')])
+  const key = provider('openai-key', 'OpenAI API', 'openai', [model('gpt-5', 'GPT-5')])
+  const reported: Array<{ role: string; modelId: string; providerId: string }> = []
+  const previousApi = window.api
+  window.api = {
+    models: {
+      preferRoute: (input: { role: string; modelId: string; providerId: string }) => {
+        reported.push(input)
+        return Promise.resolve()
+      }
+    }
+  } as unknown as typeof window.api
+  try {
+    const changes: string[] = []
+    render(
+      <Harness
+        initial="sonnet"
+        onChange={(id) => changes.push(id)}
+        registry={[claude, plan, key]}
+      />
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'OpenAI API' }))
+    assert.deepEqual(changes, ['gpt-5'])
+    assert.deepEqual(reported, [{ role: 'mentor', modelId: 'gpt-5', providerId: 'openai-key' }])
+
+    fireEvent.click(screen.getByRole('radio', { name: 'ChatGPT plan' }))
+    assert.deepEqual(reported.at(-1), {
+      role: 'mentor',
+      modelId: 'gpt-5',
+      providerId: 'chatgpt-plan'
+    })
+  } finally {
+    window.api = previousApi
+  }
+})
+
+test('switching endpoint restores the most recent model used with it for this role', () => {
+  localStorage.setItem('the-pair-recent-models-mentor', JSON.stringify(['sonnet', 'gpt-5-mini']))
+  const changes: string[] = []
+  render(<Harness initial="sonnet" onChange={(id) => changes.push(id)} />)
+  fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+  assert.deepEqual(changes, ['gpt-5-mini'])
+})
+
+test('an endpoint with no ready account is listed with its credential state', () => {
+  const expired = provider(
+    'gemini-main',
+    'Antigravity',
+    'google',
+    [model('gemini-3-pro', 'Gemini 3 Pro')],
+    'authExpired'
   )
   const changes: string[] = []
-  render(<Harness initial="claude/sonnet" onChange={(id) => changes.push(id)} />)
-  fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
-  assert.deepEqual(changes, ['codex/gpt-5-mini'])
+  render(
+    <Harness
+      initial="sonnet"
+      onChange={(id) => changes.push(id)}
+      registry={[...providers, expired]}
+    />
+  )
+  // Only the signed-in endpoints are selectable.
+  assert.deepEqual(
+    screen.getAllByRole('radio').map((radio) => radio.getAttribute('aria-label')),
+    ['Claude Code', 'Codex']
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Claude Sonnet/ }))
+  const blocked = screen.getByRole('button', { name: /Antigravity — Sign-in expired/ })
+  assert.match(blocked.textContent ?? '', /Sign-in expired/)
+  fireEvent.click(blocked)
+  // The row is a way into the Models section, never a model selection.
+  assert.deepEqual(changes, [])
 })

@@ -41,21 +41,92 @@
     branches: []
   }
   const repo = state.repo || defaultRepo
-  const models = state.models || [
+
+  // The direct-connection model registry (`accounts_list`): every endpoint the
+  // app can talk to, the accounts behind it and the models it lists. One
+  // endpoint is signed in and one is not — the second is what the Models
+  // section and the picker's "needs credential" rows render.
+  const providers = state.providers || [
     {
-      provider: 'grok',
-      modelId: 'fast',
-      displayName: 'Fast',
-      available: true,
-      providerLabel: 'Grok',
-      sourceProviderLabel: 'xAI',
-      billingKind: 'byok',
-      billingLabel: 'BYOK',
-      accessLabel: 'Ready',
-      availabilityStatus: 'ready',
-      supportsPairExecution: true,
-      recommendedRoles: ['mentor', 'executor'],
-      reasoningEffortLevels: []
+      id: 'anthropic-1',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      vendor: 'anthropic',
+      displayName: 'Anthropic',
+      readyAccountCount: 1,
+      accounts: [
+        {
+          id: 'anthropic-1-a',
+          kind: 'apiKey',
+          label: 'ANTHROPIC_API_KEY',
+          source: 'claude',
+          status: 'ready',
+          headers: [],
+          hasSecret: true,
+          maskedSecret: 'sk-ant…mnop'
+        }
+      ],
+      models: [
+        {
+          id: 'claude-sonnet-4-5-20250929',
+          displayName: 'Claude Sonnet 4.5',
+          contextWindow: 200000,
+          maxOutput: 64000,
+          efforts: [],
+          source: 'preset',
+          price: { inputPerMillion: 3, outputPerMillion: 15 }
+        },
+        {
+          id: 'claude-opus-4-1-20250805',
+          displayName: 'Claude Opus 4.1',
+          contextWindow: 200000,
+          maxOutput: 32000,
+          efforts: [],
+          source: 'preset',
+          price: { inputPerMillion: 15, outputPerMillion: 75 }
+        }
+      ]
+    },
+    {
+      id: 'openai-responses-1',
+      protocol: 'responses',
+      baseUrl: 'https://api.openai.com/v1',
+      vendor: 'openai',
+      displayName: 'OpenAI',
+      readyAccountCount: 0,
+      accounts: [
+        {
+          id: 'openai-responses-1-a',
+          kind: 'apiKey',
+          label: 'OPENAI_API_KEY',
+          source: 'codex',
+          status: 'needsKey',
+          headers: [],
+          hasSecret: false
+        }
+      ],
+      models: [
+        {
+          id: 'gpt-5.1',
+          displayName: 'GPT-5.1',
+          contextWindow: 400000,
+          maxOutput: 128000,
+          efforts: ['low', 'medium', 'high'],
+          defaultEffort: 'medium',
+          source: 'preset',
+          price: { inputPerMillion: 1.25, outputPerMillion: 10 }
+        },
+        {
+          id: 'gpt-5.1-codex-max',
+          displayName: 'GPT-5.1 Codex Max',
+          contextWindow: 400000,
+          maxOutput: 128000,
+          efforts: ['low', 'medium', 'high', 'xhigh'],
+          defaultEffort: 'medium',
+          source: 'preset',
+          price: { inputPerMillion: 1.25, outputPerMillion: 10 }
+        }
+      ]
     }
   ]
 
@@ -68,15 +139,36 @@
     worktreeBranch: 'the-pair/pair-e2e'
   }
 
+  const candidates = state.candidates || []
+  const loginServices = [
+    { id: 'chatgpt', displayName: 'ChatGPT', needsBrowser: true, needsKey: false },
+    { id: 'commandcode', displayName: 'Command Code', needsBrowser: true, needsKey: true },
+    { id: 'opencode-go', displayName: 'OpenCode Go', needsBrowser: false, needsKey: true },
+    { id: 'muse', displayName: 'Muse Code', needsBrowser: false, needsKey: true }
+  ]
+
   const invoke = async (cmd, args) => {
     calls.push({ cmd, args })
     switch (cmd) {
-      case 'config_get_cached_models':
-      case 'config_get_models':
-      case 'config_refresh_models':
-        return models
-      case 'config_get_providers':
-        return []
+      case 'accounts_list':
+        return providers
+      case 'accounts_scan':
+        return candidates
+      case 'accounts_commit_import':
+        return providers
+      case 'accounts_login_services':
+        return loginServices
+      case 'accounts_launch_oauth':
+        return 'session-e2e'
+      case 'accounts_oauth_status':
+        return { state: 'waiting', service: 'chatgpt', waitingMs: 500 }
+      case 'accounts_cancel_oauth':
+      case 'accounts_prefer_route':
+        return undefined
+      case 'accounts_add_provider':
+      case 'accounts_set_account_key':
+      case 'accounts_delete_account':
+        return providers
       case 'repo_check_state': {
         const dir = args && args.directory
         if (dir && state.nonGitDir && String(dir).includes(state.nonGitDir)) return nonGitRepo

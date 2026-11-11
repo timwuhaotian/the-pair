@@ -43,7 +43,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 - [機能](#機能)
 - [スクリーンショット](#スクリーンショット)
 - [インストール](#インストール) — macOS、Windows、Linux
-- [クイックスタート](#クイックスタート) — プロバイダーCLIをインストールして最初のPairを作成
+- [クイックスタート](#クイックスタート) — モデルエンドポイントを接続して最初のPairを作成
 - [設定](#設定)
 - [アーキテクチャ](#アーキテクチャ)
 - [開発](#開発)
@@ -53,7 +53,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 
 ## 概要
 
-**The Pairは、2つのAIコーディングエージェント — 計画とレビューを担う読み取り専用の _Mentor_ と、コードを書きコマンドを実行する _Executor_ — を実行する無料・オープンソースのデスクトップアプリです。両エージェントが互いの作業をクロスチェックし、AIの幻覚がコードベースに入り込む前に検出します。** ローカルで動作し、macOS・Windows・Linuxに対応。モデル非依存で、10種類のプロバイダーCLI — opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code — を自由に組み合わせられます（Ollama経由のローカルモデルも利用可能）。
+**The Pairは、2つのAIコーディングエージェント — 計画とレビューを担う読み取り専用の _Mentor_ と、コードを書きコマンドを実行する _Executor_ — を実行する無料・オープンソースのデスクトップアプリです。両エージェントが互いの作業をクロスチェックし、AIの幻覚がコードベースに入り込む前に検出します。** ローカルで動作し、macOS・Windows・Linuxに対応。モデル非依存で、HTTPS でモデルエンドポイントに直接接続します——Agent CLI は一切起動しません。エンドポイントは他の Agent が既に持つ設定（kimi、pi、omp、opencode、codex、claude、gemini、killi）や環境変数からインポートして発見できるほか、手動追加や、ChatGPT・Command Code・OpenCode Go・Muse Code サブスクリプションでのアプリ内サインインにも対応し、すべて左レールの「モデル」セクションで管理します。任意の2つのモデルを自由に組み合わせられます（Ollama経由のローカルモデルも利用可能）。
 
 **AIコードの幻覚が心配ですか？** The Pairは、互いにクロスチェックする2つのAIエージェントを実行することでこの問題を解決します：
 
@@ -66,7 +66,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 
 - **デュアルモデルクロス検証** — 2つのモデルが互いの作業をチェックし、コードの幻覚を大幅に削減
 - **自動化されたコラボレーション** — エージェントが頻繁な人間の介入なしに連携
-- **リアルタイムモニタリング** — エージェントごとのCPU/メモリ使用量とアクティビティをライブ追跡
+- **リアルタイム用量追跡** — ターンごと・実行ごとのトークン、推定コスト、リクエスト数、最終出力を停滞検出とともに表示
 - **Git統合** — セッション中のすべてのファイル変更を自動追跡
 - **人間の監督** — いつでも介入して一時停止、調整、タスクの再割り当てが可能
 - **セッション復元** — 中断されたセッションを完全な会話履歴付きで再開
@@ -75,7 +75,7 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 - **コマンドパレット** — ⌘Kですべての操作をあいまい検索しペアへ直接ジャンプ
 - **ネイティブメニューバー** — アプリ / ファイル / 編集 / 表示 / ウインドウ / ヘルプのフルメニューとショートカット
 - **ペアハブ** — ステータス・クイックアクション・復元バナー付きワークスペース別ペアカード
-- **インスペクターパネル** — モデル・実行状態・リソース・ファイル・履歴・タイムラインの折りたたみセクション
+- **インスペクターパネル** — モデル・実行状態・用量・ファイル・履歴・タイムラインの折りたたみセクション
 
 ### ユースケース
 
@@ -92,11 +92,11 @@ _MentorとExecutorエージェントのリアルタイムコラボレーショ�
 - **デュアルエージェントアーキテクチャ** — 計画（Mentor）と実行（Executor）の分離
 - **フルオートメーションモード** — エージェントがワークスペーススコープの権限内で自律的に作業
 - **リアルタイムアクティビティ追跡** — エージェントのステータスをライブ表示（考え中、実行中、待機中）
-- **リソースモニタリング** — エージェントごとのCPUとメモリ使用量を毎秒更新
+- **用量追跡** — インスペクターにターンごと・実行ごとのトークン、推定コスト、リクエスト数、最終出力を表示
 - **Git変更追跡** — 変更、追加、削除されたファイルを自動検出
 - **会話履歴** — すべてのエージェントインタラクションの完全なトランスクリプト
-- **ローカルオーケストレーション** — アプリとエージェントの調整はすべてローカルで実行。モデル呼び出しは選択したプロバイダーまたはローカルモデルに依存
-- **マルチプロバイダー** — 10種類のプロバイダーCLIに対応：opencode、Claude Code、Codex、Antigravity（Gemini）、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code
+- **ローカルオーケストレーション** — アプリとエージェントの調整はすべてローカルで実行。モデル呼び出しは選択したエンドポイントまたはローカルモデルへ直接送信
+- **独自エンドポイント** — 任意のモデルエンドポイントに接続：他の Agent の設定（opencode、codex、claude、kimi、pi、omp、gemini、killi）をインポート、鍵を手動追加、または ChatGPT・Command Code・OpenCode Go・Muse Code サブスクリプションでサインイン
 - **推論コントロール** — エージェントロールごとに思考の努力度を調整（低/中/高）
 - **トークントラッキング** — ターンごとのリアルタイムトークン使用量をインライン表示
 - **スキルシステム** — エージェントの行動をガイドするプロジェクト固有のスキルファイルを添付
@@ -150,38 +150,24 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## クイックスタート
 
 > [!NOTE]
-> The PairにはAIプロバイダーCLIが少なくとも1つ必要です：[opencode](https://opencode.ai)、[Claude Code](https://claude.ai/download)、[Codex](https://github.com/openai/codex)、[Antigravity](https://github.com/google-antigravity/antigravity-cli)、[Kimi Code](https://github.com/MoonshotAI/kimi-code)、[Pi](https://pi.dev)、[Kiro](https://kiro.dev/downloads)、[Aider](https://aider.chat)、[Grok Build](https://github.com/xai-org/grok-build)、または [Muse Code](https://dev.meta.ai/docs/muse-code)。
+> The Pairには少なくとも1つの認証情報を持つモデルエンドポイントが必要です。HTTPS でモデルに直接接続するため、Agent CLI のインストールは不要です。エンドポイントと API キーを追加、他の Agent が既に持つ設定をインポート、または ChatGPT・Command Code・OpenCode Go・Muse Code サブスクリプションでサインイン——すべて「モデル」セクションで行えます。
 
-### 1. AIプロバイダーをインストール
+### 1. モデルを接続
 
-サポートされているCLIを1つ以上インストール：
+左レールの「モデル」セクションを開き、次のいずれかの方法でエンドポイントを追加します：
 
-- **opencode** — `curl -fsSL https://opencode.ai/install | bash` または `npm install -g opencode-ai`
-- **Claude Code** — [Claude Codeセットアップ](https://docs.anthropic.com/en/docs/claude-code/getting-started)を参照、または `npm install -g @anthropic-ai/claude-code`
-- **Codex** — `npm install -g @openai/codex`
-- **Antigravity** — `agy install`（[Antigravity](https://github.com/google-antigravity/antigravity-cli)を参照）
-- **Kimi Code** — `curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash`（[Kimi Code](https://github.com/MoonshotAI/kimi-code)を参照）
-- **Pi** — インストールとサインインは [pi.dev](https://pi.dev) を参照
-- **Kiro** — [kiro.dev/downloads](https://kiro.dev/downloads) からダウンロードし、`kiro-cli login`
-- **Aider** — `python -m pip install -U aider-chat`（[aider.chat](https://aider.chat)を参照）
-- **Grok Build** — [xai-org/grok-build](https://github.com/xai-org/grok-build) を参照し、`grok login`
-- **Muse Code** — [Muse Codeドキュメント](https://dev.meta.ai/docs/muse-code)を参照し、`muse login`
+- **インポート** — 他の Agent が既に持つ設定（kimi、pi、omp、opencode、codex、claude、gemini、killi）や環境変数からエンドポイントと鍵を取得
+- **手動追加** — プロトコル、ベース URL、API キー、モデル ID を入力
+- **サインイン** — ChatGPT・Command Code・OpenCode Go・Muse Code サブスクリプションをアプリ内で認証
 
-### 2. AIモデルを設定（オプション）
+使用可能な認証情報のないエンドポイントも、妨げている状態とともに一覧表示されます。
 
-opencodeベースのモデルの場合、`~/.config/opencode/opencode.json`でAIプロバイダーを設定：
+### 2. 各ロールにモデルを選択
 
-```json
-{
-  "provider": {
-    "openai": { "options": { "apiKey": "your-api-key" } },
-    "anthropic": { "options": { "apiKey": "your-api-key" } }
-  }
-}
-```
+Pair を作成する際、Mentor と Executor それぞれにエンドポイント、モデル、推論努力を選びます。Pair が保存するのはモデル ID とその努力のみで、エンドポイントと認証情報はターン開始時に解決されます。
 
 > [!TIP]
-> Codex、Claude Code、Antigravity（`agy`）、Kimi Code（`kimi`）、Pi、Kiro、Aider、Grok Build、Muse Codeはインストール済みCLIからログイン状態を自動検出します。[Ollama](https://ollama.com)でローカルモデルを使用してオフライン開発も可能です。
+> [Ollama](https://ollama.com)でローカルモデルを使用して完全オフラインのセッションも可能です。
 
 ### 3. The Pairを起動
 
@@ -198,21 +184,16 @@ opencodeベースのモデルの場合、`~/.config/opencode/opencode.json`でAI
 
 ## 設定
 
-### プロバイダー設定
+### 認証情報
 
-opencodeベースのモデルは既存のopencode設定を使用：
-
-- **macOS/Linux**: `~/.config/opencode/opencode.json`
-- **Windows**: `%APPDATA%/opencode/opencode.json`
-
-Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse CodeはローカルCLIインストールとアカウント状態から自動検出されます。
+The Pair はアプリのデータディレクトリ内に独自の認証情報ストア `credentials.json`（モード 0600）を保持します。他の Agent が既に持つ設定（kimi、pi、omp、opencode、codex、claude、gemini、killi）や環境変数を読み取ってエンドポイントを発見します——これらのインポーターは読み取り専用で決して書き戻しません——手動追加や、「モデル」セクションからサブスクリプションでサインインもできます。
 
 ### Pairランタイム
 
 各Pairは、選択したディレクトリで直接作業するか、独自のgitワークツリー（`the-pair/…` ブランチ）で作業します。セッション状態（スナップショット、実行レポート、クロスラン知能ストア）はアプリのデータディレクトリに保存され、リポジトリ内には書き込まれません。
 
 > [!NOTE]
-> The Pairはグローバルなopencode権限を変更しません。すべての権限はセッション固有です。
+> The Pair は認証情報を独自のストアにコピーし、あなたの Agent 設定には決して書き戻しません。ツールはアプリ内で実行され Pair のワークスペースにスコープされ、Mentor は常に読み取り専用です。
 
 ---
 
@@ -246,8 +227,8 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build�
 ├─────────────────────────────────────────────────────────┤
 │  バックエンド (Rust)                                    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │ PairManager  │MessageBroker │ ProcessSpawner   │    │
-│  │ (ライフサイクル)│(ステートマシン)│(マルチプロバイダー)│    │
+│  │ PairManager  │MessageBroker │ Harness          │    │
+│  │ (ライフサイクル)│(ステートマシン)│(ダイレクト HTTP)│    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ContextBridge │ QualityGate  │   SmartPause     │    │
@@ -257,17 +238,17 @@ Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build�
 │  │ Git Tracker  │ Worktrees    │ セッションスナップショット│
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
-│  │リソースモニ. │ Acceptance   │ レポートジェネレーター│
+│  │Accounts      │ Acceptance   │ レポートジェネレーター│
 │  └──────────────┴──────────────┴──────────────────┘    │
 └─────────────────────────────────────────────────────────┘
                             ↕
               ┌─────────────┴─────────────┐
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
-     │  AIプロバイダーCLI│          │   Gitリポジトリ  │
-     │ Claude, Codex,   │          │  (ワークスペース)│
-     │ Gemini, Kimi…    │          └─────────────────┘
-     │ (10 providers)   │
+     │  Model Endpoints│          │  Gitリポジトリ  │
+     │OpenAI, Anthropic│          │(ワークスペース) │
+     │Gemini, Grok…    │          └─────────────────┘
+     │(over HTTPS)     │
      └─────────────────┘
 ```
 
@@ -368,7 +349,7 @@ A: はい。The PairはApache 2.0ライセンスの下で完全にオープン�
 
 **Q: The PairはCursor、GitHub Copilot、Aiderの代替になりますか？**
 
-A: はい、ただしアプローチが異なります。Cursor、Copilot、Aiderは単一エージェントで動作します。The Pairは2つの独立したエージェント——Mentor（読み取り専用レビュアー）とExecutor（コード作成者）——を実行し、互いにクロスチェックすることで、ミスが出荷される前に2つ目のモデルが捕捉します。ローカルファーストでオープンソースの代替であり、モデル非依存です：10種類のプロバイダーCLI — opencode、Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code — から任意の2つを組み合わせられます。
+A: はい、ただしアプローチが異なります。Cursor、Copilot、Aiderは単一エージェントで動作します。The Pairは2つの独立したエージェント——Mentor（読み取り専用レビュアー）とExecutor（コード作成者）——を実行し、互いにクロスチェックすることで、ミスが出荷される前に2つ目のモデルが捕捉します。ローカルファーストでオープンソースの代替であり、モデル非依存です：接続したエンドポイント経由で到達できる任意の2つのモデル——他の Agent の設定からインポート、手動追加、サブスクリプションでサインイン——を組み合わせられます。
 
 **Q: The Pairはどのオペレーティングシステムに対応していますか？**
 
@@ -384,11 +365,11 @@ A: The Pairは完全にローカルで実行されます。AIモデルAPI呼び�
 
 **Q: どのAIプロバイダーがサポートされていますか？**
 
-A: The Pairは10種類のプロバイダーCLIをそのままサポートしています：**opencode**（互換性のある任意のモデル）、**Claude Code**、**OpenAI Codex**、**Antigravity**（Gemini）、**Kimi Code**、**Pi**、**Kiro**、**Aider**、**Grok Build**、**Muse Code**。すべてインストール済みCLIから自動検出されます。プロバイダーをミックスできます — 例えばMentorにClaude、ExecutorにCodex。
+A: The PairはHTTPSで任意のモデルエンドポイントに直接接続します——インストールするCLIはありません。他の Agent が既に持つ設定（kimi、pi、omp、opencode、codex、claude、gemini、killi）をインポートしてエンドポイントを発見する、手動で追加する、または ChatGPT・Command Code・OpenCode Go・Muse Code サブスクリプションでサインインできます。エンドポイントは自由にミックスできます — 例えばMentorにClaude、ExecutorにGPT。
 
 **Q: 自分のAIモデルを使えますか？**
 
-A: はい、The Pairはモデルに依存しません。opencodeベースのモデルは互換性のある任意のプロバイダー（OpenAI、Anthropic、Ollamaなど）で動作します。その他のプロバイダーCLIは、CLIをインストールしてサインインするだけです。
+A: はい、The Pairはモデルに依存しません。OpenAI・Anthropic・Gemini 互換の任意のエンドポイントを API キーで追加、他の Agent の設定からインポート、または [Ollama](https://ollama.com) のローカルモデルを使用できます。
 
 **Q: エージェントの「思考の深さ」を制御できますか？**
 
@@ -420,6 +401,6 @@ A: はい。The Pairは起動時に新しいバージョンをチェックし、
 
 **[⭐ スターをつける](https://github.com/timwuhaotian/the-pair)** — 役に立ったら応援してください！
 
-<sub>The Pair — オープンソースのAIペアプログラミング · デュアルエージェントAIコードレビュー · マルチエージェントコーディングアシスタント · Cursor / Copilotの代替 · Claude Code、Codex、Antigravity、Kimi Code、Pi、Kiro、Aider、Grok Build、Muse Code、opencodeに対応、macOS・Windows・Linuxで動作。</sub>
+<sub>The Pair — オープンソースのAIペアプログラミング · デュアルエージェントAIコードレビュー · マルチエージェントコーディングアシスタント · Cursor / Copilotの代替 · 任意のモデルエンドポイント——OpenAI、Anthropic、Gemini、Grok など、または Ollama 経由のローカルモデル——に対応、macOS・Windows・Linuxで動作。</sub>
 
 </div>

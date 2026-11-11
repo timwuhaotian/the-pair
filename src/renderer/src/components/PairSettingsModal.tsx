@@ -21,7 +21,7 @@ export function PairSettingsModal({
   onClose
 }: PairSettingsModalProps): React.ReactNode {
   const { t } = useTranslation()
-  const availableModels = usePairStore((s) => s.availableModels)
+  const providers = usePairStore((s) => s.providers)
   const updatePairModels = usePairStore((s) => s.updatePairModels)
   const isLoading = usePairStore((s) => s.isLoading)
   const error = usePairStore((s) => s.error)
@@ -81,7 +81,7 @@ export function PairSettingsModal({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelPicker
               value={selection.mentorModel}
-              models={availableModels}
+              providers={providers}
               onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
               role="mentor"
               variant="card"
@@ -92,7 +92,7 @@ export function PairSettingsModal({
             />
             <ModelPicker
               value={selection.executorModel}
-              models={availableModels}
+              providers={providers}
               onChange={(executorModel) =>
                 setSelection((current) => ({ ...current, executorModel }))
               }

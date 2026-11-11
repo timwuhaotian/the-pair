@@ -1,34 +1,34 @@
 mod acceptance;
+mod accounts;
 mod config_paths;
 mod context_bridge;
 mod file_cache;
 mod git_tracker;
+mod harness;
 mod intelligence_store;
+mod llm;
+mod login;
 mod message_broker;
-mod model_catalog;
 mod pair_manager;
 mod path_env;
-mod process_spawner;
-mod provider_adapter;
-mod provider_registry;
-mod providers;
 mod quality_gate;
 mod recent_activity;
 mod report_generator;
-mod resource_monitor;
 mod session_snapshot;
 mod skill_discovery;
 mod smart_pause;
+mod sources;
 mod stubs;
 #[cfg(test)]
 mod test_env;
+mod tools;
 mod types;
 mod util;
 mod worktree_manager;
 
+use harness::driver::TurnDriver;
 use message_broker::MessageBroker;
 use pair_manager::PairManager;
-use process_spawner::ProcessSpawner;
 use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, SubmenuBuilder},
@@ -68,11 +68,9 @@ async fn git_commit_changes(
     message: String,
 ) -> Result<git_tracker::CommitOutcome, String> {
     // Off the main thread: add/commit can take a lock and walk the tree.
-    tauri::async_runtime::spawn_blocking(move || {
-        git_tracker::commit_changes(&directory, &message)
-    })
-    .await
-    .map_err(|e| format!("Commit task failed: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || git_tracker::commit_changes(&directory, &message))
+        .await
+        .map_err(|e| format!("Commit task failed: {}", e))?
 }
 
 #[tauri::command]
@@ -124,6 +122,7 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
     let view_menu = SubmenuBuilder::new(app, "View")
         .text("menu:go-pairs", "Go to Pairs")
         .text("menu:go-activity", "Go to Activity")
+        .text("menu:go-models", "Go to Models")
         .text("menu:go-insights", "Go to Insights")
         .separator()
         .text("menu:toggle-sidebar", "Toggle Sidebar")
@@ -195,6 +194,9 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
         "menu:go-activity" => {
             let _ = app_handle.emit("app:menu:go-activity", ());
         }
+        "menu:go-models" => {
+            let _ = app_handle.emit("app:menu:go-models", ());
+        }
         "menu:go-insights" => {
             let _ = app_handle.emit("app:menu:go-insights", ());
         }
@@ -220,7 +222,16 @@ pub fn run() {
     // cached that way), and changing the environment is only sound while this
     // is still the only thread. The login-shell capture is bounded.
     path_env::apply_fallback_path();
-    path_env::refresh_path_from_login_shell();
+    // A launchd-started app inherits no profile, so the API keys a user exports
+    // in `.zshrc` are absent from the process. Env-backed accounts resolve their
+    // key at turn time, so the whole login environment has to be here too. That
+    // capture carries PATH with it, so the shell — and the user's whole profile
+    // — runs once before the window appears, not twice. Only when it brought no
+    // PATH back is the shell asked for PATH alone.
+    match sources::env::load_login_shell_env() {
+        Some(shell_path) => path_env::apply_login_shell_path(&shell_path),
+        None => path_env::refresh_path_from_login_shell(),
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -247,7 +258,7 @@ pub fn run() {
         })
         .manage(Mutex::new(PairManager::new()))
         .manage(Mutex::new(MessageBroker::new()))
-        .manage(ProcessSpawner::new())
+        .manage(TurnDriver::new())
         .invoke_handler(tauri::generate_handler![
             pair_manager::pair_create,
             pair_manager::pair_list,
@@ -260,15 +271,19 @@ pub fn run() {
             pair_manager::repo_list_branches,
             pair_manager::kill_process,
             pair_manager::pair_retry_turn,
+            accounts::commands::accounts_login_services,
+            accounts::commands::accounts_list,
+            accounts::commands::accounts_scan,
+            accounts::commands::accounts_commit_import,
+            accounts::commands::accounts_add_provider,
+            accounts::commands::accounts_set_account_key,
+            accounts::commands::accounts_delete_account,
+            accounts::commands::accounts_prefer_route,
+            accounts::commands::accounts_launch_oauth,
+            accounts::commands::accounts_oauth_status,
+            accounts::commands::accounts_cancel_oauth,
             stubs::pair_get_messages,
             stubs::pair_get_state,
-            stubs::config_get_models,
-            stubs::config_get_cached_models,
-            stubs::config_refresh_models,
-            stubs::config_get_providers,
-            stubs::config_read,
-            stubs::config_open_file,
-            stubs::provider_launch_login,
             file_cache::file_list_files,
             file_cache::file_parse_mentions,
             file_cache::file_read_content,
