@@ -28,19 +28,19 @@ export function BootSplash({ visible, minDurationMs = 700 }: BootSplashProps): R
     if (visible || leaving) return
     const elapsed = Date.now() - mountedAt
     const remaining = Math.max(0, minDurationMs - elapsed)
-
-    let removeTimer: number | undefined
-    const startLeavingTimer = window.setTimeout(() => {
-      setLeaving(true)
-      // total fade animation: 80ms delay + 380ms fade = ~460ms
-      removeTimer = window.setTimeout(() => setMounted(false), 480)
-    }, remaining)
-
-    return () => {
-      window.clearTimeout(startLeavingTimer)
-      if (removeTimer !== undefined) window.clearTimeout(removeTimer)
-    }
+    const timer = window.setTimeout(() => setLeaving(true), remaining)
+    return () => window.clearTimeout(timer)
   }, [visible, leaving, mountedAt, minDurationMs])
+
+  // Its own effect: setting `leaving` re-runs the one above, whose cleanup
+  // would cancel an unmount timer started there and leave the splash mounted
+  // (and its mark animating) under the app for good.
+  useEffect(() => {
+    if (!leaving) return
+    // total fade animation: 80ms delay + 380ms fade = ~460ms
+    const timer = window.setTimeout(() => setMounted(false), 480)
+    return () => window.clearTimeout(timer)
+  }, [leaving])
 
   if (!mounted) return null
 
