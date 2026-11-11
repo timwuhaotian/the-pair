@@ -19,7 +19,7 @@ before it reaches your codebase. _(Yes, The Pair was built by The Pair.)_
 
 **English** · [简体中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**Quick start**](#quick-start) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**Website**](https://apps.timwuhaotian.dev/)
+[**⬇ Download**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**Quick start**](#quick-start) &nbsp;·&nbsp; [**CLI**](https://www.npmjs.com/package/pair-code) &nbsp;·&nbsp; [**Website**](https://apps.timwuhaotian.dev/apps/the-pair)
 
 <sub>macOS · Windows · Linux</sub>
 
@@ -145,7 +145,7 @@ Download the latest release from [GitHub Releases](https://github.com/timwuhaoti
 | **Windows** | `the-pair-{version}-setup.exe`                                        |
 | **Linux**   | `the-pair-{version}.AppImage.tar.gz` (extract, then run the AppImage) |
 
-Prefer the terminal? **CLI** users can install [Pair Code](https://github.com/timwuhaotian/pair-code), the terminal edition of The Pair, from [npm](https://www.npmjs.com/package/pair-code):
+Prefer the terminal? **CLI** users can install [Pair Code](https://www.npmjs.com/package/pair-code), the terminal edition of The Pair, from [npm](https://www.npmjs.com/package/pair-code):
 
 ```bash
 npm install -g pair-code
@@ -154,7 +154,7 @@ npm install -g pair-code
 | Interface   | Best for                                          | Start here                                                             |
 | ----------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
 | **Desktop** | Visual monitoring, installers, long-running pairs | [Download The Pair](https://github.com/timwuhaotian/the-pair/releases) |
-| **CLI**     | Terminal-native workflows, scripts, SSH sessions  | [Pair Code](https://github.com/timwuhaotian/pair-code)                 |
+| **CLI**     | Terminal-native workflows, scripts, SSH sessions  | [Pair Code](https://www.npmjs.com/package/pair-code)                   |
 
 <details>
 <summary><b>Build from source</b></summary>
@@ -347,7 +347,7 @@ Yes. The Pair checks for a new version on launch and installs it in one click.
 
 <div align="center">
 
-[⬇ Download](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [Website](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [Discussions](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [Report a bug](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ Download](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [Website](https://apps.timwuhaotian.dev/apps/the-pair) &nbsp;·&nbsp; [Discussions](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [Report a bug](https://github.com/timwuhaotian/the-pair/issues)
 
 Built by [timwuhaotian](https://github.com/timwuhaotian). If The Pair is useful to you, [a star](https://github.com/timwuhaotian/the-pair) helps others find it.
 

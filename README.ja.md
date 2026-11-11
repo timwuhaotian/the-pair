@@ -19,7 +19,7 @@
 
 [English](README.md) · [简体中文](README.zh.md) · **日本語** · [한국어](README.ko.md)
 
-[**⬇ ダウンロード**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**クイックスタート**](#クイックスタート) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**ウェブサイト**](https://apps.timwuhaotian.dev/)
+[**⬇ ダウンロード**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**クイックスタート**](#クイックスタート) &nbsp;·&nbsp; [**CLI**](https://www.npmjs.com/package/pair-code) &nbsp;·&nbsp; [**ウェブサイト**](https://apps.timwuhaotian.dev/apps/the-pair)
 
 <sub>macOS · Windows · Linux</sub>
 
@@ -145,7 +145,7 @@ flowchart LR
 | **Windows**      | `the-pair-{version}-setup.exe`                                   |
 | **Linux**        | `the-pair-{version}.AppImage.tar.gz`（展開して AppImage を実行） |
 
-ターミナル派ですか？ **CLI** ユーザーは、The Pair のターミナル版 [Pair Code](https://github.com/timwuhaotian/pair-code) を [npm](https://www.npmjs.com/package/pair-code) からインストールできます：
+ターミナル派ですか？ **CLI** ユーザーは、The Pair のターミナル版 [Pair Code](https://www.npmjs.com/package/pair-code) を [npm](https://www.npmjs.com/package/pair-code) からインストールできます：
 
 ```bash
 npm install -g pair-code
@@ -154,7 +154,7 @@ npm install -g pair-code
 | インターフェース | 向いている用途                                | ここから                                                                     |
 | ---------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
 | **デスクトップ** | 視覚的な監視、インストーラー、長時間動く Pair | [The Pair をダウンロード](https://github.com/timwuhaotian/the-pair/releases) |
-| **CLI**          | ターミナル中心の作業、スクリプト、SSH         | [Pair Code](https://github.com/timwuhaotian/pair-code)                       |
+| **CLI**          | ターミナル中心の作業、スクリプト、SSH         | [Pair Code](https://www.npmjs.com/package/pair-code)                         |
 
 <details>
 <summary><b>ソースからビルド</b></summary>
@@ -347,7 +347,7 @@ npm run dev:mock    # 同じく起動。ただし定型のターンを使い、�
 
 <div align="center">
 
-[⬇ ダウンロード](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [ウェブサイト](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [ディスカッション](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [バグを報告](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ ダウンロード](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [ウェブサイト](https://apps.timwuhaotian.dev/apps/the-pair) &nbsp;·&nbsp; [ディスカッション](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [バグを報告](https://github.com/timwuhaotian/the-pair/issues)
 
 [timwuhaotian](https://github.com/timwuhaotian) が作っています。The Pair が役に立ったら、[スター](https://github.com/timwuhaotian/the-pair)がほかの人に届く助けになります。
 

@@ -7,7 +7,7 @@
       "name": "What is The Pair?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "The Pair is a free, open-source AI pair programming desktop app for macOS, Windows, and Linux. It runs two AI coding agents, a read-only Mentor and an Executor, so coding work is planned, implemented, tested, and reviewed by separate roles."
+        "text": "The Pair is a free, open-source AI pair programming desktop app for macOS, Windows, and Linux. It runs two AI coding agents on one task, a read-only Mentor and an Executor, so the work is planned, implemented, tested, and reviewed by separate roles instead of one model checking itself."
       }
     },
     {
@@ -15,15 +15,31 @@
       "name": "How is The Pair different from Cursor, GitHub Copilot, or Aider?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Cursor, GitHub Copilot, and Aider usually rely on one assistant to write code and self-review. The Pair is a Cursor and Copilot alternative that separates responsibilities: the Mentor reviews while the Executor changes code and runs verification."
+        "text": "Cursor, GitHub Copilot, and Aider drive a single assistant that writes code and reviews its own output. The Pair is a Cursor and Copilot alternative that separates the two jobs: the Executor changes code and runs commands, and a read-only Mentor, which can be a different model, plans the work and reviews every result before it is accepted."
       }
     },
     {
       "@type": "Question",
-      "name": "Which AI providers does The Pair support?",
+      "name": "Which AI models does The Pair support?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "The Pair supports ten provider CLIs: opencode, Claude Code, OpenAI Codex, Antigravity (Gemini), Kimi Code, Pi, Kiro, Aider, Grok Build, and Muse Code. Developers can mix providers between Mentor and Executor, including local models through Ollama-compatible opencode routes."
+        "text": "Any model reachable through an endpoint you connect, including GPT, Claude, Gemini, Grok, GLM, Qwen, Kimi, MiniMax and DeepSeek, plus local models via Ollama. The Pair speaks four wire protocols (OpenAI Chat, Anthropic, Responses and Command Code). Endpoints can be imported from the configuration of opencode, codex, claude, kimi, pi, omp, gemini or killi, added by hand with a base URL and API key, or signed in with a ChatGPT, Command Code, OpenCode Go or Muse Code subscription. Mentor and Executor can use different models."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need Claude Code, Codex or another agent CLI installed?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Since version 3.0 The Pair talks to model endpoints directly over HTTPS and runs the agents' tools (read, write, edit, bash, grep, glob) itself, scoped to the pair's workspace. It needs one model endpoint with a credential and nothing else."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is The Pair free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The Pair is open source under the Apache 2.0 license and free to download. You pay only for your own model usage, or nothing at all when you run local models with Ollama."
       }
     },
     {
@@ -31,7 +47,7 @@
       "name": "Does The Pair run locally?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. The Pair orchestrates agents locally in a native Tauri desktop app. Only selected model providers need network access unless the developer uses a local model provider."
+        "text": "Yes. The Pair is a native Tauri desktop app, and the orchestration, the tools and the session state all stay on your machine. Model calls go straight to the endpoint you chose, with no relay server in between, and with a local model through Ollama a session needs no network at all."
       }
     },
     {
@@ -39,7 +55,15 @@
       "name": "How does The Pair reduce AI coding hallucinations?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "The Pair reduces AI coding hallucinations by splitting the workflow into two roles. The Executor writes and verifies code, while the read-only Mentor reviews the result, requests fixes, and prevents unreviewed changes from being accepted too early."
+        "text": "The Pair reduces AI coding hallucinations by splitting the workflow into two roles. The Executor writes and verifies code, while the read-only Mentor reads the diff, runs acceptance checks such as tests and lint, and returns a verdict with risk, evidence and a next step. Work that fails the review goes back for another iteration instead of being accepted."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens if the agents get stuck or the app closes mid-run?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Pair warns after 120 seconds without agent output and marks the agent stalled after 600 seconds. An optional per-pair iteration cap pauses the run for human review when it is reached. Session snapshots are saved as the run goes, so an interrupted session is offered back on the next launch with its conversation history and turn state."
       }
     }
   ]

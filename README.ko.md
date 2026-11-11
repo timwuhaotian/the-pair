@@ -19,7 +19,7 @@
 
 [English](README.md) · [简体中文](README.zh.md) · [日本語](README.ja.md) · **한국어**
 
-[**⬇ 다운로드**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**빠른 시작**](#빠른-시작) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**웹사이트**](https://apps.timwuhaotian.dev/)
+[**⬇ 다운로드**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**빠른 시작**](#빠른-시작) &nbsp;·&nbsp; [**CLI**](https://www.npmjs.com/package/pair-code) &nbsp;·&nbsp; [**웹사이트**](https://apps.timwuhaotian.dev/apps/the-pair)
 
 <sub>macOS · Windows · Linux</sub>
 
@@ -145,7 +145,7 @@ flowchart LR
 | **Windows** | `the-pair-{version}-setup.exe`                                   |
 | **Linux**   | `the-pair-{version}.AppImage.tar.gz` (압축을 풀고 AppImage 실행) |
 
-터미널이 더 편하신가요? **CLI** 사용자는 The Pair의 터미널 에디션인 [Pair Code](https://github.com/timwuhaotian/pair-code)를 [npm](https://www.npmjs.com/package/pair-code)에서 설치할 수 있습니다:
+터미널이 더 편하신가요? **CLI** 사용자는 The Pair의 터미널 에디션인 [Pair Code](https://www.npmjs.com/package/pair-code)를 [npm](https://www.npmjs.com/package/pair-code)에서 설치할 수 있습니다:
 
 ```bash
 npm install -g pair-code
@@ -154,7 +154,7 @@ npm install -g pair-code
 | 인터페이스   | 이런 경우에                                    | 시작하기                                                               |
 | ------------ | ---------------------------------------------- | ---------------------------------------------------------------------- |
 | **데스크톱** | 시각적 모니터링, 설치 프로그램, 오래 도는 Pair | [The Pair 다운로드](https://github.com/timwuhaotian/the-pair/releases) |
-| **CLI**      | 터미널 중심 작업, 스크립트, SSH 세션           | [Pair Code](https://github.com/timwuhaotian/pair-code)                 |
+| **CLI**      | 터미널 중심 작업, 스크립트, SSH 세션           | [Pair Code](https://www.npmjs.com/package/pair-code)                   |
 
 <details>
 <summary><b>소스에서 빌드</b></summary>
@@ -347,7 +347,7 @@ npm run dev:mock    # 같은 방식이지만 준비된 턴을 쓰고 모델은 �
 
 <div align="center">
 
-[⬇ 다운로드](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [웹사이트](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [토론](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [버그 신고](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ 다운로드](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [웹사이트](https://apps.timwuhaotian.dev/apps/the-pair) &nbsp;·&nbsp; [토론](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [버그 신고](https://github.com/timwuhaotian/the-pair/issues)
 
 [timwuhaotian](https://github.com/timwuhaotian)이 만듭니다. The Pair가 도움이 되었다면 [스타](https://github.com/timwuhaotian/the-pair) 하나가 다른 사람들이 찾는 데 힘이 됩니다.
 

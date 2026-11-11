@@ -19,7 +19,7 @@
 
 [English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**快速开始**](#快速开始) &nbsp;·&nbsp; [**CLI**](https://github.com/timwuhaotian/pair-code) &nbsp;·&nbsp; [**官网**](https://apps.timwuhaotian.dev/)
+[**⬇ 下载**](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [**快速开始**](#快速开始) &nbsp;·&nbsp; [**CLI**](https://www.npmjs.com/package/pair-code) &nbsp;·&nbsp; [**官网**](https://apps.timwuhaotian.dev/apps/the-pair)
 
 <sub>macOS · Windows · Linux</sub>
 
@@ -145,7 +145,7 @@ flowchart LR
 | **Windows** | `the-pair-{version}-setup.exe`                                  |
 | **Linux**   | `the-pair-{version}.AppImage.tar.gz`（解压后直接运行 AppImage） |
 
-更喜欢终端？**CLI** 用户可以从 [npm](https://www.npmjs.com/package/pair-code) 安装 [Pair Code](https://github.com/timwuhaotian/pair-code)，它是 The Pair 的终端版：
+更喜欢终端？**CLI** 用户可以从 [npm](https://www.npmjs.com/package/pair-code) 安装 [Pair Code](https://www.npmjs.com/package/pair-code)，它是 The Pair 的终端版：
 
 ```bash
 npm install -g pair-code
@@ -154,7 +154,7 @@ npm install -g pair-code
 | 形态     | 适合                                  | 从这里开始                                                         |
 | -------- | ------------------------------------- | ------------------------------------------------------------------ |
 | **桌面** | 可视化监控、安装包、长时间运行的 Pair | [下载 The Pair](https://github.com/timwuhaotian/the-pair/releases) |
-| **CLI**  | 终端工作流、脚本、SSH 会话            | [Pair Code](https://github.com/timwuhaotian/pair-code)             |
+| **CLI**  | 终端工作流、脚本、SSH 会话            | [Pair Code](https://www.npmjs.com/package/pair-code)               |
 
 <details>
 <summary><b>从源码构建</b></summary>
@@ -347,7 +347,7 @@ npm run dev:mock    # 同上，但使用预置轮次，不调用模型
 
 <div align="center">
 
-[⬇ 下载](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [官网](https://apps.timwuhaotian.dev/) &nbsp;·&nbsp; [讨论区](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [反馈问题](https://github.com/timwuhaotian/the-pair/issues)
+[⬇ 下载](https://github.com/timwuhaotian/the-pair/releases) &nbsp;·&nbsp; [官网](https://apps.timwuhaotian.dev/apps/the-pair) &nbsp;·&nbsp; [讨论区](https://github.com/timwuhaotian/the-pair/discussions) &nbsp;·&nbsp; [反馈问题](https://github.com/timwuhaotian/the-pair/issues)
 
 由 [timwuhaotian](https://github.com/timwuhaotian) 构建。如果 The Pair 对你有用，点一个 [Star](https://github.com/timwuhaotian/the-pair) 能帮更多人发现它。
 

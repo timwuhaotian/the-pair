@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Pair social preview, 1280x640 (GitHub's repository card size). The icon is app-icon.svg's
+     drawing, copied in; when the icon changes, copy it again. Render with:
+       rsvg-convert -w 1280 -h 640 -o docs/assets/social-preview.png docs/assets/social-preview.svg
+     then upload the PNG under the repository's Settings → Social preview (there is no API for it). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="The Pair — open-source AI pair programming">
+  <title>The Pair — open-source AI pair programming</title>
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101C2E"/>
+      <stop offset="1" stop-color="#070C15"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#field)"/>
+  <svg x="88" y="120" width="400" height="400" viewBox="0 0 512 512">
+    <rect x="16" y="16" width="480" height="480" rx="112" fill="#1E3049"/>
+      <path d="M 92 408 L 99.8 430.2 L 122 438 L 99.8 445.8 L 92 468 L 84.2 445.8 L 62 438 L 84.2 430.2 Z" fill="#E09C26"/>
+      <g transform="translate(256 286) scale(0.7) translate(-363 -282)">
+        <rect x="561" y="16" width="46" height="230" rx="23" fill="#EF6868" transform="rotate(18 584 131)"/>
+        <g transform="translate(-51 -22) rotate(-5 256 292)">
+          <rect x="120" y="176" width="276" height="276" rx="72" fill="#6FA8DC"/>
+          <rect x="120" y="156" width="276" height="276" rx="72" fill="#CFE2F3"/>
+          <rect x="154" y="190" width="70" height="23" rx="11.5" fill="#FFFFFF" transform="rotate(-28 189 201)"/>
+          <circle cx="244" cy="194" r="9" fill="#FFFFFF"/>
+          <ellipse cx="338" cy="358" rx="21" ry="14" fill="#F4CCCC"/>
+          <path d="M 194 302 L 238 346 L 322 240" fill="none" stroke="#223853" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+        <g transform="translate(259 -22) rotate(-5 256 292)">
+          <rect x="120" y="176" width="276" height="276" rx="72" fill="#6FA8DC"/>
+          <rect x="120" y="156" width="276" height="276" rx="72" fill="#CFE2F3"/>
+          <rect x="154" y="190" width="70" height="23" rx="11.5" fill="#FFFFFF" transform="rotate(-28 189 201)"/>
+          <circle cx="244" cy="194" r="9" fill="#FFFFFF"/>
+          <ellipse cx="338" cy="358" rx="21" ry="14" fill="#F4CCCC"/>
+          <path d="M 194 302 L 238 346 L 322 240" fill="none" stroke="#223853" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </g>
+  </svg>
+  <g font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <text x="548" y="236" font-size="120" font-weight="700" fill="#FFFFFF" letter-spacing="-3">The Pair</text>
+    <text x="552" y="302" font-size="33" fill="#CFE2F3">Two AI agents on one task.</text>
+    <text x="552" y="346" font-size="33" fill="#CFE2F3">One writes the code, the other reviews it.</text>
+    <text x="552" y="420" font-size="31" font-weight="700" fill="#E09C26">Open-source AI pair programming</text>
+    <text x="552" y="486" font-size="24" fill="#8FA3BD">Any model endpoint · Claude, GPT, Gemini, Kimi, Ollama</text>
+    <text x="552" y="524" font-size="24" fill="#8FA3BD">macOS · Windows · Linux</text>
+  </g>
+</svg>

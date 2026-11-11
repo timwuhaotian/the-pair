@@ -46,6 +46,7 @@ test('software schema is valid JSON-LD for repo and website reuse', async () => 
     url: string
     sameAs: string[]
     featureList: string[]
+    softwareVersion?: string
   }
 
   assert.equal(schema['@context'], 'https://schema.org')
@@ -56,6 +57,8 @@ test('software schema is valid JSON-LD for repo and website reuse', async () => 
   assert.equal(schema.url, 'https://apps.timwuhaotian.dev/apps/the-pair')
   assert.ok(schema.sameAs.includes('https://github.com/timwuhaotian/the-pair'))
   assert.ok(schema.featureList.length >= 6)
+  // Nothing bumps a version written here, so one would go stale on the next release.
+  assert.equal(schema.softwareVersion, undefined)
 })
 
 test('FAQ schema exposes extractable AI-search answers', async () => {
@@ -77,8 +80,27 @@ test('FAQ schema exposes extractable AI-search answers', async () => {
   assert.ok(schema.mainEntity.length >= 4)
   assert.ok(schema.mainEntity.some((entry) => /Cursor|Copilot/.test(entry.acceptedAnswer.text)))
   assert.ok(
-    schema.mainEntity.some((entry) =>
-      /Claude Code|OpenAI Codex|Antigravity|opencode/.test(entry.acceptedAnswer.text)
-    )
+    schema.mainEntity.some((entry) => /Claude|GPT|Gemini|Ollama/.test(entry.acceptedAnswer.text))
   )
+})
+
+test('search-facing docs describe the direct-endpoint app, with no dead links', async () => {
+  const docs = await Promise.all(
+    [
+      'README.md',
+      'README.zh.md',
+      'README.ja.md',
+      'README.ko.md',
+      'llms.txt',
+      'docs/seo/software-application.schema.json',
+      'docs/seo/faq.schema.json'
+    ].map(async (path) => ({ path, text: await readText(path) }))
+  )
+
+  for (const { path, text } of docs) {
+    // The pair-code repository is gone; the npm page is the CLI's home.
+    assert.doesNotMatch(text, /github\.com\/timwuhaotian\/pair-code/, path)
+    // Wording from before 3.0, when the app drove other agents' CLIs.
+    assert.doesNotMatch(text, /ten (provider )?CLIs|Antigravity|Aider, Grok Build/, path)
+  }
 })

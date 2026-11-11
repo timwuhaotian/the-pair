@@ -23,4 +23,11 @@ cp /tmp/app-icon-master.png resources/logo-the-pair.png
 cp /tmp/app-icon-master.png docs/assets/logo-the-pair.png
 ```
 
-`docs/assets/social-preview.png` still uses an older mark — needs a re-layout, not a swap.
+`social-preview.svg` carries a copy of this drawing beside the product line; it is the repository card (1280×640). After changing the icon, copy the drawing into it again and re-render:
+
+```bash
+rsvg-convert -w 1280 -h 640 -o docs/assets/social-preview.png docs/assets/social-preview.svg
+magick docs/assets/social-preview.png -quality 92 .github/social-preview.jpeg
+```
+
+GitHub has no API for the card: upload the PNG under the repository's Settings → Social preview.
