@@ -125,10 +125,10 @@ jobs:
             pkg-config
 
       - name: Run Rust unit tests
-        run: cargo test -q --manifest-path src-tauri/Cargo.toml
+        run: cargo test -q --features verifier --manifest-path src-tauri/Cargo.toml
 
       - name: Build updater verifier
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin verify-updater
+        run: cargo build --locked --features verifier --manifest-path src-tauri/Cargo.toml --bin verify-updater
 
       - name: Upload updater verifier
         uses: actions/upload-artifact@v4

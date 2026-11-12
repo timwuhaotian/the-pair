@@ -15,6 +15,24 @@ default-run = "app"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# CI-only updater signature checker. Gated behind `required-features` so the
+# macOS universal bundler (tauri-cli runs lipo for the main binary only,
+# tauri-apps/tauri#16460) skips it instead of failing on the missing
+# target/universal-apple-darwin/release/verify-updater.
+[[bin]]
+name = "verify-updater"
+path = "src/bin/verify-updater.rs"
+required-features = ["verifier"]
+
+[features]
+verifier = []
+
+# The CLI test shells out to the verifier binary, so it only builds when the
+# feature is on. This keeps bare `cargo test` green for local runs.
+[[test]]
+name = "updater_verifier_cli"
+required-features = ["verifier"]
+
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
 

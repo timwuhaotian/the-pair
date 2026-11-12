@@ -248,5 +248,12 @@ test('workflow creates an atomic tag and verifies draft before publishing', () =
   for (const asset of ['.app.tar.gz', '-setup.exe', '.AppImage.tar.gz']) {
     assert.ok(workflow.includes(`dist/the-pair-\${VERSION}${asset}.sig`))
   }
+  // The CI-only verifier bin is gated behind required-features (tauri-apps/tauri#16460),
+  // so every cargo invocation that needs it must enable the feature explicitly.
+  assert.match(workflow, /cargo test -q --features verifier --manifest-path src-tauri\/Cargo\.toml/)
+  assert.match(
+    workflow,
+    /cargo build --locked --features verifier --manifest-path src-tauri\/Cargo\.toml --bin verify-updater/
+  )
   assert.doesNotMatch(workflow, /--clobber|gh release delete/)
 })

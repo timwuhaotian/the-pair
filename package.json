@@ -52,7 +52,7 @@
     "validate:changelog": "node scripts/validate-changelog.mjs",
     "test:js": "node --import tsx --test tests/*.test.ts",
     "test:ui": "node scripts/with-env.mjs TSX_TSCONFIG_PATH=tsconfig.web.json node --import tsx --test tests/render/*.test.tsx",
-    "test:rust": "cargo test -q --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "cargo test -q --features verifier --manifest-path src-tauri/Cargo.toml",
     "test": "npm run test:js && npm run test:ui && npm run test:rust",
     "coverage:ts": "node scripts/with-env.mjs TSX_TSCONFIG_PATH=tsconfig.web.json c8 --include 'src/renderer/src/**' --reporter=text --reporter=lcovonly --reports-dir=coverage node --import tsx --test tests/*.test.ts tests/render/*.test.tsx",
     "coverage:rust": "node scripts/coverage-rust.mjs",
@@ -112,7 +112,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.63.0",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "^2.12.4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.19.1",

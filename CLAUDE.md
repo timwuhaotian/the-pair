@@ -37,7 +37,7 @@ npm run test:rust              # cargo test in src-tauri
 node --import tsx --test tests/handoffGuard.test.ts
 
 # Run a single Rust test
-cargo test -q --manifest-path src-tauri/Cargo.toml <test_name>
+cargo test -q --features verifier --manifest-path src-tauri/Cargo.toml <test_name>
 
 # Builds (each runs preflight + ensures rust targets first)
 npm run build:mac              # universal-apple-darwin DMG

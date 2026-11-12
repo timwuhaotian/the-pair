@@ -76,7 +76,7 @@ jobs:
             pkg-config
 
       - name: Run Rust unit tests
-        run: cargo test -q --manifest-path src-tauri/Cargo.toml
+        run: cargo test -q --features verifier --manifest-path src-tauri/Cargo.toml
 
   build:
     needs: [lint-and-typecheck, rust-tests]
