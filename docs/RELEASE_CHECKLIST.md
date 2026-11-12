@@ -44,7 +44,7 @@ npm run build
 - [ ] Release notes mention any breaking changes or migration steps
 - [ ] `TAURI_SIGNING_PRIVATE_KEY` and optional password secrets are configured in GitHub Actions
 - [ ] The updater signing key validates in CI before the build stage
-- [ ] `src-tauri/tauri.conf.json` `plugins.updater.pubkey` matches the current updater private key
+- [ ] The collected updater packages pass signature verification against `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`
 
 ## 4. Binary Checks
 
@@ -68,17 +68,16 @@ The release workflow is fully automated:
 
 **Workflow flow:**
 
-1. `detect-version-bump` reads the version in package.json and checks whether tag `vX.Y.Z` exists
-2. If the tag doesn't exist → validates the changelog section (`scripts/validate-changelog.mjs`), then lints, tests, builds, and publishes
-3. If the tag already exists → skips (prevents duplicate releases)
-4. Release runs share a `concurrency` group and are never cancelled mid-run; a run queued behind a release starts after it, sees the new tag, and skips
-5. `publish-release` builds the notes from the same changelog section (`scripts/release-notes.mjs`), creates the release and tag on the pushed commit (`gh release create --target $GITHUB_SHA`), and **fails** if the release or tag already exists instead of overwriting published assets
+1. `detect-version-bump` checks the version's tag, release and assets. It skips only a complete public release; a draft, orphan tag or incomplete release fails for manual inspection.
+2. For a new version, the workflow validates the changelog, runs frontend checks and Rust tests in parallel, then builds all platforms.
+3. `publish-release` verifies all three updater signatures against the app's configured public key, then rechecks the state and creates the tag and draft. It compares the uploaded assets' GitHub SHA-256 digests with the local files before publishing. Existing releases and assets are never overwritten.
+4. Release runs share a concurrency group and are not cancelled mid-run. GitHub may replace an already pending run with a newer one; intermediate versions are not guaranteed to publish.
 
-Only `publish-release` has `contents: write`; every other job is read-only, and checkouts don't persist the token. The updater key and the macOS certificate are written to `$RUNNER_TEMP` and removed at the end of the build job, even when it fails. Third-party actions (`dtolnay/rust-toolchain`, `Swatinem/rust-cache`) are pinned to commit SHAs — update the SHA and its `# version` comment together when upgrading.
+`detect-version-bump` and `publish-release` have `contents: write` (the former needs draft visibility); other jobs are read-only, and checkouts don't persist the token. The updater key and macOS certificate are removed from `$RUNNER_TEMP` by a cleanup step even on failure, although abrupt runner termination can prevent cleanup. Third-party actions (`dtolnay/rust-toolchain`, `Swatinem/rust-cache`) are pinned to commit SHAs — update the SHA and its `# version` comment together when upgrading.
 
-If a release run fails after the release was created (e.g. a partial upload), delete that release and its tag on GitHub before re-running, or bump to a new patch version.
+If a release fails after tag creation, inspect the tag commit, draft, run artifacts and signatures. For a draft, upload only verified missing assets and publish only after checking the complete set. For an orphan tag, inspect it and choose a new version or resolve it manually. Never overwrite a public release's assets; publish fixes under a new version. The workflow does not delete tags or releases automatically.
 
-**Manual trigger (fallback):**
+**Manual trigger (fallback):** The selected commit must be reachable from `main`.
 
 ```bash
 gh workflow run build-signed-mac.yml

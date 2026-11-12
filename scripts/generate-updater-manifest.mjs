@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
@@ -55,12 +55,22 @@ export function buildManifest({ version, baseUrl, distDir = 'dist', notesPath, p
   const platforms = {}
 
   for (const config of Object.values(platformTargets)) {
-    const assetUrl = `${baseUrl}/${config.assetName(version)}`
+    const assetName = config.assetName(version)
+    const assetPath = join(distDir, assetName)
+    const assetStat = statSync(assetPath, { throwIfNoEntry: false })
+    if (!assetStat?.isFile() || assetStat.size === 0) {
+      throw new Error(`Missing or empty updater asset: ${assetPath}`)
+    }
+    const assetUrl = `${baseUrl}/${assetName}`
     const signaturePath = join(distDir, config.signatureName(version))
-    if (!existsSync(signaturePath)) {
-      throw new Error(`Missing updater signature: ${signaturePath}`)
+    const signatureStat = statSync(signaturePath, { throwIfNoEntry: false })
+    if (!signatureStat?.isFile()) {
+      throw new Error(`Missing or empty updater signature: ${signaturePath}`)
     }
     const signature = readFileSync(signaturePath, 'utf8').trim()
+    if (!signature) {
+      throw new Error(`Missing or empty updater signature: ${signaturePath}`)
+    }
 
     const targets = config.targets ?? [config.target]
     for (const target of targets) {

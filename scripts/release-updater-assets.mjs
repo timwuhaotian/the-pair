@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
@@ -10,10 +10,6 @@ const platformConfigs = {
       {
         patterns: [/\.app\.tar\.gz$/i],
         outputName: (version) => `the-pair-${version}.app.tar.gz`
-      },
-      {
-        patterns: [/\.app\.tar\.gz\.sig$/i],
-        outputName: (version) => `the-pair-${version}.app.tar.gz.sig`
       }
     ]
   },
@@ -23,10 +19,6 @@ const platformConfigs = {
       {
         patterns: [/-setup\.exe$/i],
         outputName: (version) => `the-pair-${version}-setup.exe`
-      },
-      {
-        patterns: [/-setup\.exe\.sig$/i],
-        outputName: (version) => `the-pair-${version}-setup.exe.sig`
       }
     ]
   },
@@ -36,10 +28,6 @@ const platformConfigs = {
       {
         patterns: [/\.AppImage\.tar\.gz$/i],
         outputName: (version) => `the-pair-${version}.AppImage.tar.gz`
-      },
-      {
-        patterns: [/\.AppImage\.tar\.gz\.sig$/i],
-        outputName: (version) => `the-pair-${version}.AppImage.tar.gz.sig`
       }
     ]
   }
@@ -70,8 +58,8 @@ function findMatchingFile(rootDir, patterns) {
     patterns.some((pattern) => pattern.test(filePath))
   )
 
-  if (candidates.length === 0) {
-    return null
+  if (candidates.length !== 1) {
+    throw new Error(`Expected exactly one updater asset in ${rootDir}, found ${candidates.length}`)
   }
 
   return candidates[0]
@@ -88,22 +76,30 @@ export function collectUpdaterAssets({ platform, bundleRoot, outDir, version }) 
     throw new Error(`Expected bundle directory at ${searchRoot}`)
   }
 
-  mkdirSync(outDir, { recursive: true })
-
-  const copied = []
-
-  for (const asset of config.assets) {
+  const files = config.assets.flatMap((asset) => {
     const source = findMatchingFile(searchRoot, asset.patterns)
-    if (!source) {
-      continue
+    if (statSync(source).size === 0) {
+      throw new Error(`Empty updater asset: ${source}`)
+    }
+
+    const signature = `${source}.sig`
+    const signatureStat = statSync(signature, { throwIfNoEntry: false })
+    if (!signatureStat?.isFile() || !readFileSync(signature, 'utf8').trim()) {
+      throw new Error(`Missing or empty updater signature: ${signature}`)
     }
 
     const destination = join(outDir, asset.outputName(version))
-    copyFileSync(source, destination)
-    copied.push({ source, destination })
-  }
+    return [
+      { source, destination },
+      { source: signature, destination: `${destination}.sig` }
+    ]
+  })
 
-  return copied
+  mkdirSync(outDir, { recursive: true })
+  for (const { source, destination } of files) {
+    copyFileSync(source, destination)
+  }
+  return files
 }
 
 function parseArgs(argv) {

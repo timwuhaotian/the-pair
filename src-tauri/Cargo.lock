@@ -63,8 +63,10 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "app"
 version = "3.0.1"
 dependencies = [
+ "base64 0.22.1",
  "dirs 5.0.1",
  "log",
+ "minisign-verify",
  "reqwest",
  "rusqlite",
  "serde",

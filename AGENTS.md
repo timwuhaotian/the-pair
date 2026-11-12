@@ -195,11 +195,11 @@ The release workflow (`build-signed-mac.yml`) is fully automated:
    - **Do NOT run `git tag` or `git push --tags`**
 
 3. **Workflow automation:**
-   - GitHub Actions detects version bump (publishes only when tag `vX.Y.Z` doesn't exist yet)
-   - Release runs are serialized (`concurrency`, never cancelled); a run queued behind a release sees the new tag and skips
-   - Builds macOS, Windows, Linux binaries
-   - Creates the GitHub release and tag `vX.Y.Z` on the pushed commit (`--target $GITHUB_SHA`) with the changelog section as notes
-   - Uploads signed artifacts and `latest.json`; if the release already exists it fails instead of overwriting assets
+   - GitHub Actions inspects the version's tag and release; only a complete public release is skipped, while incomplete states fail for manual inspection
+   - Release runs are serialized and never cancelled mid-run, but GitHub may replace a pending run with a newer one
+   - Builds macOS, Windows, Linux binaries after parallel frontend and Rust checks
+   - Creates tag `vX.Y.Z` on the pushed commit and a draft release with the changelog section as notes
+   - Verifies updater signatures against the configured public key, then compares uploaded asset SHA-256 digests before publishing; never overwrites existing releases or assets
 
 4. **Verify:**
    - Monitor at: https://github.com/timwuhaotian/the-pair/actions

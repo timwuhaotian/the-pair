@@ -6,20 +6,21 @@ on:
       - main
   workflow_dispatch:
 
-# One release run at a time, never cancelled mid-publish. A run queued behind
-# an in-progress release starts after it finishes, sees the tag it created in
-# detect-version-bump, and skips publishing.
+# One release run at a time, never cancelled mid-publish. GitHub may replace
+# an already pending run with a newer one.
 concurrency:
   group: release-${{ github.repository }}
   cancel-in-progress: false
 
-# Read-only by default; only publish-release gets contents: write.
+# Read-only by default; release state inspection needs write access to see drafts.
 permissions:
   contents: read
 
 jobs:
   detect-version-bump:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       should_publish: ${{ steps.version.outputs.should_publish }}
       version: ${{ steps.version.outputs.version }}
@@ -28,35 +29,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history + all tags, so an existing release tag is visible.
+          # Full history is needed to verify manual releases are on main.
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect package version change
-        id: version
+      - name: Verify manual release commit is on main
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          node <<'NODE'
-          const fs = require('fs')
-          const { execFileSync } = require('child_process')
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Manual releases must use a commit reachable from main."
+            exit 1
+          fi
 
-          const currentVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
-          const tag = `v${currentVersion}`
-
-          let tagExists = false
-          try {
-            execFileSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { stdio: 'pipe' })
-            tagExists = true
-          } catch {
-            tagExists = false
-          }
-
-          const shouldPublish = String(!tagExists)
-          console.log(`version=${currentVersion} tag=${tag} tagExists=${tagExists} should_publish=${shouldPublish}`)
-
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentVersion}\n`)
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`)
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
-          NODE
+      - name: Detect release state
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-status.mjs detect
 
       # Same matcher (scripts/changelog.mjs) as the release-notes extraction in
       # publish-release, so a release can't pass this gate and then ship notes
@@ -65,7 +54,7 @@ jobs:
         if: steps.version.outputs.should_publish == 'true'
         run: node scripts/validate-changelog.mjs
 
-  lint-and-test:
+  frontend-checks:
     needs: detect-version-bump
     if: needs.detect-version-bump.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
@@ -80,6 +69,33 @@ jobs:
         with:
           node-version: '22.22.0'
           cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run type checking
+        run: npm run typecheck
+
+      - name: Run frontend unit tests
+        run: npm run test:js && npm run test:ui
+
+  rust-tests:
+    needs: detect-version-bump
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -108,22 +124,25 @@ jobs:
             librsvg2-dev \
             pkg-config
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Run Rust unit tests
+        run: cargo test -q --manifest-path src-tauri/Cargo.toml
 
-      - name: Run linting
-        run: npm run lint
+      - name: Build updater verifier
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin verify-updater
 
-      - name: Run type checking
-        run: npm run typecheck
-
-      - name: Run unit tests
-        run: npm test
+      - name: Upload updater verifier
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-verifier
+          path: src-tauri/target/debug/verify-updater
+          if-no-files-found: error
+          retention-days: 7
 
   build-release:
     needs:
       - detect-version-bump
-      - lint-and-test
+      - frontend-checks
+      - rust-tests
     if: needs.detect-version-bump.outputs.should_publish == 'true'
     strategy:
       fail-fast: false
@@ -253,7 +272,8 @@ jobs:
           CERT_ID=$(security find-identity -v -p codesigning build.keychain | awk -F'"' '/Developer ID Application:/ {print $2; exit}')
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
 
-      - name: Build Tauri app
+      - name: Build macOS Tauri app
+        if: matrix.platform == 'macos'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -263,13 +283,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri:build:mac -- --ci --bundles app --config src-tauri/tauri.updater.conf.json --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
+
+      - name: Build Windows or Linux Tauri app
+        if: matrix.platform != 'macos'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ "${{ matrix.platform }}" = "macos" ]; then
-            npm run tauri:build:mac -- --ci --bundles app --config src-tauri/tauri.updater.conf.json
-          elif [ "${{ matrix.platform }}" = "windows" ]; then
-            npm run tauri:build:win -- --ci --config src-tauri/tauri.updater.conf.json
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            npm run tauri:build:win -- --ci --bundles nsis --config src-tauri/tauri.updater.conf.json --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
           else
-            npm run tauri:build:linux -- --ci --config src-tauri/tauri.updater.conf.json
+            npm run tauri:build:linux -- --ci --bundles appimage --config src-tauri/tauri.updater.conf.json --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
           fi
 
       - name: Remove signing material
@@ -302,6 +328,7 @@ jobs:
         with:
           name: release-assets-${{ matrix.platform }}
           path: dist/
+          compression-level: 0
           retention-days: 7
 
   publish-release:
@@ -329,6 +356,20 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Download updater verifier
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-verifier
+          path: verifier
+
+      - name: Verify updater signatures
+        run: |
+          chmod +x verifier/verify-updater
+          verifier/verify-updater src-tauri/tauri.conf.json \
+            "dist/the-pair-${VERSION}.app.tar.gz" "dist/the-pair-${VERSION}.app.tar.gz.sig" \
+            "dist/the-pair-${VERSION}-setup.exe" "dist/the-pair-${VERSION}-setup.exe.sig" \
+            "dist/the-pair-${VERSION}.AppImage.tar.gz" "dist/the-pair-${VERSION}.AppImage.tar.gz.sig"
+
       # Fails if CHANGELOG.md has no non-empty "## [VERSION]" section. The
       # contributors lookup is best effort and never fails the job.
       - name: Prepare release notes
@@ -351,22 +392,66 @@ jobs:
             --notes-file release-notes.md \
             --output dist/latest.json
 
-      # Never overwrite a published release: its assets (and latest.json
-      # signatures) may already have been downloaded by users.
-      - name: Create GitHub release
+      - name: Check release state again
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-status.mjs assert-new
+
+      # Creating the ref is atomic: an existing tag can never be retargeted.
+      - name: Create tag and draft
+        id: create-draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists; refusing to overwrite its assets. Bump the version to publish a new release."
-            exit 1
-          fi
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG already exists without a release; refusing to publish a build of $GITHUB_SHA under it. Delete the stray tag or bump the version."
-            exit 1
-          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${TAG}" -f "sha=${GITHUB_SHA}" >/dev/null
+          release=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f "tag_name=${TAG}" -f "name=${TAG}" -f "body=$(<release-notes.md)" -F draft=true)
+          echo "release_id=$(jq -er '.id' <<< "$release")" >> "$GITHUB_OUTPUT"
+          upload_url=$(jq -er '.upload_url' <<< "$release")
+          echo "upload_url=${upload_url%%\{*}" >> "$GITHUB_OUTPUT"
 
-          gh release create "$TAG" dist/* \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            --target "$GITHUB_SHA"
+      - name: Upload draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_URL: ${{ steps.create-draft.outputs.upload_url }}
+        run: |
+          set -euo pipefail
+          mapfile -t expected < <(node --input-type=module -e "for (const name of (await import('./scripts/release-status.mjs')).requiredAssets(process.env.VERSION)) console.log(name)" )
+          actual_count=$(find dist -maxdepth 1 -type f | wc -l)
+          if [ "$actual_count" -ne "${#expected[@]}" ]; then
+            echo "::error::dist/ must contain exactly the required release assets (found $actual_count, expected ${#expected[@]})."
+            exit 1
+          fi
+          for name in "${expected[@]}"; do
+            test -f "dist/$name" || { echo "::error::Missing local asset dist/$name"; exit 1; }
+            encoded=$(jq -rn --arg name "$name" '$name | @uri')
+            curl --fail-with-body --silent --show-error --request POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" -H 'Content-Type: application/octet-stream' \
+              --data-binary "@dist/$name" "${UPLOAD_URL}?name=${encoded}" >/dev/null
+          done
+
+      - name: Verify draft assets
+        id: verify-draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_RELEASE_ID: ${{ steps.create-draft.outputs.release_id }}
+        run: node scripts/release-status.mjs verify-draft
+
+      - name: Publish verified draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.verify-draft.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq '{draft,tag: .tag_name}')
+          draft=$(jq -rn --argjson current "$current" '$current.draft')
+          tag=$(jq -rn --argjson current "$current" '$current.tag')
+          test "$draft" = "true" || { echo "::error::Release ${RELEASE_ID} is no longer a draft; refusing to publish."; exit 1; }
+          test "$tag" = "$TAG" || { echo "::error::Release ${RELEASE_ID} tag changed; refusing to publish."; exit 1; }
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false >/dev/null
+
+      - name: Recovery guidance
+        if: failure()
+        run: |
+          echo '::error::Release failed. No release, tag or asset was automatically deleted. Inspect the tag, release and run artifacts in GitHub. For a draft, verify the tag commit and signatures, upload only missing assets, then publish manually after checking all assets. For an orphan tag, inspect it and choose a new version or resolve it manually. For a public release, never overwrite assets; publish fixes under a new version.'

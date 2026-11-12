@@ -32,10 +32,31 @@ jobs:
       - name: Run type checker
         run: npm run typecheck
 
+      - name: Run frontend unit tests
+        run: npm run test:js && npm run test:ui
+
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -54,11 +75,11 @@ jobs:
             librsvg2-dev \
             pkg-config
 
-      - name: Run unit tests
-        run: npm test
+      - name: Run Rust unit tests
+        run: cargo test -q --manifest-path src-tauri/Cargo.toml
 
   build:
-    needs: lint-and-typecheck
+    needs: [lint-and-typecheck, rust-tests]
     strategy:
       matrix:
         include:
@@ -121,11 +142,11 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            npm run tauri:build:mac -- --bundles app
+            npm run tauri:build:mac -- --bundles app --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
           elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            npm run tauri:build:win
+            npm run tauri:build:win -- --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
           else
-            npm run tauri:build:linux
+            npm run tauri:build:linux -- --config '{"build":{"beforeBuildCommand":"npx vite build"}}'
           fi
 
       - name: Upload build artifacts
@@ -133,4 +154,5 @@ jobs:
         with:
           name: the-pair-${{ matrix.os }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/
+          compression-level: 0
           retention-days: 7
