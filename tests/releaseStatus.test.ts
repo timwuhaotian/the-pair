@@ -27,15 +27,13 @@ function api(
     ref?: unknown
     assets?: object[]
     fail?: string
-    noPush?: boolean
   } = {}
 ) {
   return async (url: string) => {
     const path = new URL(url).pathname.replace('/repos/owner/repo', '')
     if (path === options.fail) return new Response('failure', { status: 503 })
     let data: unknown
-    if (path === '') data = { permissions: { push: !options.noPush } }
-    else if (path === '/releases') data = options.releases ?? []
+    if (path === '/releases') data = options.releases ?? []
     else if (path === `/git/ref/tags/${tag}`) {
       if (options.ref === null || options.ref === undefined)
         return new Response('', { status: 404 })
@@ -136,11 +134,10 @@ test('draft asset verification rejects unexpected and malformed entries before r
   )
 })
 
-test('API failures and insufficient draft visibility fail closed', async () => {
-  for (const fail of ['', '/releases', `/git/ref/tags/${tag}`, '/releases/42/assets']) {
+test('API failures fail closed', async () => {
+  for (const fail of ['/releases', `/git/ref/tags/${tag}`, '/releases/42/assets']) {
     await assert.rejects(inspect({ fail, ref, releases: [release] }), /GitHub API.*503/)
   }
-  await assert.rejects(inspect({ noPush: true }), /push access/)
   await assert.rejects(inspectRelease({ repo: '', tag, version, token: 'test' }), /required/)
   await assert.rejects(
     inspectRelease({

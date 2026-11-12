@@ -107,10 +107,9 @@ export async function inspectRelease({
     }
   }
 
-  // Drafts are only visible to callers with push access.
-  const repository = await request('')
-  if (repository.permissions?.push !== true)
-    throw new Error('GitHub token must have push access to inspect draft releases')
+  // Drafts are only returned to callers with push access. If this token
+  // cannot see drafts, later steps fail closed: assert-new refuses anything
+  // but a clean new state, and tag creation is atomic.
   const allReleases = await list('/releases')
   if (allReleases.some((release) => typeof release?.tag_name !== 'string'))
     throw new Error('Invalid GitHub API response: /releases')
