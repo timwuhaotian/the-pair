@@ -252,6 +252,7 @@
     "needsCredential": "認証情報が必要",
     "openModels": "モデルを開く",
     "noEndpoints": "エンドポイントがありません",
+    "noEndpointsGuide": "選択できるモデルはまだありません。モデルページで既存の設定をスキャンしてインポートするか、手動で追加できます。",
     "status": {
       "ready": "利用可能",
       "needsKey": "認証情報なし",

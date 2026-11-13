@@ -262,6 +262,7 @@
     "needsCredential": "需要凭证",
     "openModels": "打开模型",
     "noEndpoints": "暂无端点",
+    "noEndpointsGuide": "暂无可选模型。可在模型页面扫描并导入已有配置，也可手动添加。",
     "status": {
       "ready": "就绪",
       "needsKey": "无凭证",

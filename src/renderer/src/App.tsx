@@ -565,7 +565,15 @@ function App(): React.ReactNode {
       ['app:menu:back', () => goHub()],
       ['app:menu:go-pairs', () => selectSection('pairs')],
       ['app:menu:go-activity', () => selectSection('activity')],
-      ['app:menu:go-models', () => selectSection('models')],
+      [
+        'app:menu:go-models',
+        () => {
+          setIsCreatePairOpen(false)
+          setIsAssignTaskOpen(false)
+          setIsPairSettingsOpen(false)
+          selectSection('models')
+        }
+      ],
       ['app:menu:go-insights', () => selectSection('insights')],
       ['app:menu:toggle-sidebar', () => toggleSidebar()],
       ['app:menu:toggle-theme', () => toggleTheme()],

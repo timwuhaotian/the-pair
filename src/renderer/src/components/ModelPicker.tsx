@@ -530,8 +530,8 @@ export function ModelPicker({
     setSearchQuery('')
   }
 
-  /** Credential problems are fixed in the Models section, not from the picker. */
   const openModelsSection = (): void => {
+    closeDropdown()
     void emit('app:menu:go-models').catch(() => {
       // No Tauri event bridge (plain browser, unit tests) — nothing to navigate.
     })
@@ -869,7 +869,12 @@ export function ModelPicker({
 
       {/* Nothing signed in at all — the picker cannot offer a model. */}
       {runnableGroups.length === 0 && blockedGroups.length === 0 && (
-        <div className={emptyHint}>{t('pickers.noEndpoints')}</div>
+        <div className="space-y-2 text-center">
+          <p className={emptyHint}>{t('pickers.noEndpointsGuide')}</p>
+          <GlassButton variant="ghost" size="xs" onClick={openModelsSection}>
+            {t('pickers.openModels')}
+          </GlassButton>
+        </div>
       )}
     </>
   )

@@ -1,10 +1,12 @@
 import './setup-dom.ts'
-import '../../src/renderer/src/i18n.ts'
+import i18n from '../../src/renderer/src/i18n.ts'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React, { useState } from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { assertAbsent } from './assert-dom.ts'
+import { clearMocks, mockIPC } from '@tauri-apps/api/mocks'
 import { ModelPicker } from '../../src/renderer/src/components/ModelPicker.tsx'
 import type { AccountStatus, ModelRoute, ProviderView } from '../../src/renderer/src/types.ts'
 
@@ -95,6 +97,38 @@ function Harness({
 afterEach(() => {
   cleanup()
   localStorage.clear()
+})
+
+test('an empty registry guides the user to Models and emits the navigation event', () => {
+  const guide = 'Import a model configuration in Models'
+  i18n.addResource(i18n.language, 'translation', 'pickers.noEndpointsGuide', guide)
+  const calls: Array<{ cmd: string; args: unknown }> = []
+  mockIPC((cmd, args) => {
+    calls.push({ cmd, args })
+  })
+  try {
+    const changes: string[] = []
+    render(<Harness initial="" onChange={(id) => changes.push(id)} registry={[]} />)
+    assert.ok(screen.getByText(guide))
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('pickers.openModels') }))
+    assert.ok(
+      calls.some(
+        ({ cmd, args }) =>
+          cmd === 'plugin:event|emit' && (args as { event?: string }).event === 'app:menu:go-models'
+      )
+    )
+    assert.deepEqual(changes, [])
+  } finally {
+    clearMocks()
+  }
+})
+
+test('a populated registry does not show the empty-registry guide', () => {
+  const guide = 'Import a model configuration in Models'
+  i18n.addResource(i18n.language, 'translation', 'pickers.noEndpointsGuide', guide)
+  render(<Harness initial="sonnet" onChange={() => {}} />)
+  assertAbsent(screen.queryByText(guide))
+  assertAbsent(screen.queryByRole('button', { name: i18n.t('pickers.openModels') }))
 })
 
 test('step one follows the selection; step two lists only that endpoint, with vendor marks', () => {

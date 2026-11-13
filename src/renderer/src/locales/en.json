@@ -262,6 +262,7 @@
     "needsCredential": "Needs a credential",
     "openModels": "Open Models",
     "noEndpoints": "No endpoints yet",
+    "noEndpointsGuide": "No models are available yet. In Models, scan and import existing configurations or add one manually.",
     "status": {
       "ready": "Ready",
       "needsKey": "No credential",

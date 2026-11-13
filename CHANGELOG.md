@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.3] - 2026-11-14
+
+### Fixed
+
+- **An empty model picker left users without a next step.** It now links to Models, where existing agent configurations can be scanned and imported or endpoints added manually.
+
 ## [3.0.2] - 2026-11-13
 
 A UI quality pass from a full accessibility, performance, theming and responsive audit (17/20, up from 11/20).

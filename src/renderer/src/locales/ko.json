@@ -252,6 +252,7 @@
     "needsCredential": "자격 증명 필요",
     "openModels": "모델 열기",
     "noEndpoints": "엔드포인트 없음",
+    "noEndpointsGuide": "선택할 수 있는 모델이 아직 없습니다. 모델 페이지에서 기존 설정을 스캔하여 가져오거나 직접 추가할 수 있습니다.",
     "status": {
       "ready": "사용 가능",
       "needsKey": "자격 증명 없음",
