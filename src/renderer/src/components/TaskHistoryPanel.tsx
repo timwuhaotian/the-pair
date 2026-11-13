@@ -148,7 +148,9 @@ function HistoryList({
                   data-testid="history-restore-btn"
                   className={cn(
                     'absolute right-1 top-1',
-                    !restoreDisabled && !isViewing && 'opacity-50 group-hover:opacity-100'
+                    !restoreDisabled &&
+                      !isViewing &&
+                      'opacity-50 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
                   )}
                 >
                   <RotateCcw size={12} />

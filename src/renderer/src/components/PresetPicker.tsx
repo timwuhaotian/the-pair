@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useLayoutEffect, useEffect, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Bug, RefreshCw, Sparkles, Shield, HelpCircle, FlaskConical } from 'lucide-react'
@@ -45,7 +45,14 @@ function PresetPopover({
   children: React.ReactNode
 }): React.ReactNode {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const tooltipId = useId()
+  // Touch screens have no hover: the description starts visible instead of
+  // waiting for a pointer that never arrives.
+  const [open, setOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(hover: none)').matches
+      : false
+  )
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -59,6 +66,26 @@ function PresetPopover({
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => setOpen(false), 150)
   }, [])
+  const dismiss = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setOpen(false)
+  }, [])
+  const toggle = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setOpen((prev) => !prev)
+  }, [])
+  // The trigger names the tooltip it opens; a tap toggles it where hover
+  // cannot fire. cloneElement only copies props here — it never reads the
+  // child's ref value during render.
+  const trigger = React.isValidElement<{ 'aria-describedby'?: string; onClick?: () => void }>(
+    children
+  )
+    ? // eslint-disable-next-line react-hooks/refs
+      React.cloneElement(children, {
+        'aria-describedby': tooltipId,
+        onClick: toggle
+      })
+    : children
 
   useEffect(() => {
     return () => {
@@ -93,16 +120,28 @@ function PresetPopover({
         data-preset-popover
         onMouseEnter={show}
         onMouseLeave={hide}
-        onFocus={show}
+        onFocusCapture={show}
         onBlur={hide}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            dismiss()
+          }
+        }}
       >
-        {children}
+        {trigger}
       </div>
       {open &&
         createPortal(
           <div
             ref={popoverRef}
-            className={cn('fixed w-64 p-3 text-[12px]', Z.popover, popoverSurface)}
+            role="tooltip"
+            id={tooltipId}
+            className={cn(
+              'fixed w-64 max-w-[calc(100vw-16px)] p-3 text-[12px]',
+              Z.popover,
+              popoverSurface
+            )}
             style={{ top: position.top, left: position.left }}
             onMouseEnter={show}
             onFocus={show}
@@ -165,7 +204,13 @@ function PresetCard({
         <span aria-hidden className={cn('shrink-0 translate-y-px', c.fg)}>
           {iconMap[preset.icon] || <Sparkles size={11} />}
         </span>
-        <span className={cn('min-w-0 flex-1 truncate', selected ? c.fg : 'text-foreground/90')}>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate [overflow-wrap:anywhere]',
+            selected ? c.fg : 'text-foreground/90'
+          )}
+          title={preset.name}
+        >
           {preset.name}
         </span>
         {selected && (
@@ -175,7 +220,7 @@ function PresetCard({
         )}
       </button>
       <PresetPopover preset={preset}>
-        <IconButton aria-label={t('pickers.presetInfo', { name: preset.name })} className="h-5 w-5">
+        <IconButton aria-label={t('pickers.presetInfo', { name: preset.name })} className="h-6 w-6">
           <HelpCircle size={11} />
         </IconButton>
       </PresetPopover>

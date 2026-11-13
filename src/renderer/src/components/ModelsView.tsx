@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { KeyRound, Plus, RefreshCw, ScanSearch, Trash2 } from 'lucide-react'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
 import { Chip } from './ui/Chip'
@@ -56,48 +56,53 @@ export function ModelsView(): React.ReactNode {
   return (
     <div data-testid="models-view" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 flex-1">
             <h1 className="text-[17px] font-semibold tracking-tight text-foreground">
               {t('models.title')}
             </h1>
             <p className="mt-0.5 text-[13px] text-muted-foreground">{t('models.subtitle')}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-2 overflow-x-auto">
             <GlassButton
               variant="secondary"
               size="sm"
               onClick={() => void refresh()}
+              title={t('models.refresh')}
               data-testid="models-refresh"
             >
               <RefreshCw size={13} />
-              {t('models.refresh')}
+              <span className="hidden xl:inline">{t('models.refresh')}</span>
             </GlassButton>
             <GlassButton
               variant="secondary"
               size="sm"
               onClick={() => setSignInOpen(true)}
+              title={t('models.signIn')}
               data-testid="models-sign-in"
             >
               <KeyRound size={13} />
-              {t('models.signIn')}
+              <span className="hidden xl:inline">{t('models.signIn')}</span>
             </GlassButton>
             <GlassButton
               variant="secondary"
               size="sm"
               onClick={() => setAddOpen(true)}
+              title={t('models.addProvider')}
               data-testid="models-add-provider"
             >
               <Plus size={13} />
-              {t('models.addProvider')}
+              <span className="hidden xl:inline">{t('models.addProvider')}</span>
             </GlassButton>
             <GlassButton
               variant="primary"
               size="sm"
               onClick={() => setWizardOpen(true)}
+              title={t('models.scan')}
               data-testid="models-scan"
             >
-              {t('models.scan')}
+              <ScanSearch size={13} />
+              <span className="hidden xl:inline">{t('models.scan')}</span>
             </GlassButton>
           </div>
         </div>

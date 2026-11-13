@@ -23,7 +23,7 @@ interface IconButtonProps {
 }
 
 const sizeMap: Record<NonNullable<IconButtonProps['size']>, string> = {
-  sm: 'h-6 w-6',
+  sm: 'h-6 min-h-6 w-6 min-w-6',
   md: 'h-7 w-7'
 }
 

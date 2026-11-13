@@ -172,7 +172,10 @@ export function GlassModal({
         {/* min-h-0 lets the body shrink inside the max-h card, so long
             content scrolls inside the dialog instead of pushing the footer
             (and the submit button) out of it. */}
-        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
+        <div
+          ref={bodyRef}
+          className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin scroll-pb-16"
+        >
           {children}
         </div>
       </motion.div>

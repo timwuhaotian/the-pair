@@ -161,7 +161,11 @@ export function SignInModal({ isOpen, onClose, onDone }: SignInModalProps): Reac
     >
       <div className="space-y-3 px-4 py-4">
         <p className="text-[12px] text-muted-foreground">{t('models.signInIntro')}</p>
-        {error && <p className={cn(errorCallout, 'text-[12px]')}>{error}</p>}
+        {error && (
+          <p role="alert" className={cn(errorCallout, 'text-[12px]')}>
+            {error}
+          </p>
+        )}
 
         <ul className="space-y-2">
           {(services ?? []).map((service) => (
@@ -234,7 +238,9 @@ export function SignInModal({ isOpen, onClose, onDone }: SignInModalProps): Reac
         )}
 
         {status?.state === 'done' && (
-          <p className="text-[12px] state-done">{t('models.signInDone')}</p>
+          <p role="status" className="text-[12px] state-done">
+            {t('models.signInDone')}
+          </p>
         )}
 
         <div className="flex justify-end border-t border-border pt-3">

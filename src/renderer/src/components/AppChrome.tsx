@@ -111,8 +111,8 @@ export function AppChrome({
 
   return (
     <div className="app-chrome shrink-0">
-      <div className="app-drag flex items-center justify-between gap-3 px-4 py-2">
-        <div className="flex min-w-0 items-baseline gap-2">
+      <div className="app-drag flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-2">
           {selectedPair ? (
             <ChromeIconButton onClick={onBack} testId="chrome-back" title={t('common.back')}>
               <ChevronLeft size={14} />
@@ -189,7 +189,7 @@ export function AppChrome({
           </div>
         </div>
 
-        <div className="app-no-drag flex shrink-0 items-center gap-1.5">
+        <div className="app-no-drag flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1.5 overflow-x-auto">
           {!selectedPair && <UpdateControls />}
 
           {selectedPair && (
@@ -199,9 +199,10 @@ export function AppChrome({
                 size="sm"
                 onClick={onOpenSettings}
                 icon={<Settings2 size={11} />}
+                title={t('common.models')}
                 data-testid="chrome-models"
               >
-                {t('common.models')}
+                <span className="hidden xl:inline">{t('common.models')}</span>
               </GlassButton>
               <GlassButton
                 variant="secondary"
@@ -212,7 +213,7 @@ export function AppChrome({
                 icon={<Eraser size={11} />}
                 data-testid="chrome-clear-session"
               >
-                {t('chrome.clearSession')}
+                <span className="hidden xl:inline">{t('chrome.clearSession')}</span>
               </GlassButton>
               <GlassButton
                 variant="primary"
@@ -227,7 +228,7 @@ export function AppChrome({
                 icon={<Sparkles size={11} />}
                 data-testid="chrome-new-task"
               >
-                {t('chrome.newTask')}
+                <span className="hidden xl:inline">{t('chrome.newTask')}</span>
               </GlassButton>
             </>
           )}

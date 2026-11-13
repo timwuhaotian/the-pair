@@ -72,13 +72,13 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
         <Chip>{nextActionLabel(verdict.nextStep.action, t)}</Chip>
       </div>
 
-      <p className="text-[12px] leading-relaxed text-foreground/90">{verdict.summary}</p>
+      <p className="text-[12px] leading-relaxed text-foreground">{verdict.summary}</p>
 
       <div className="space-y-0.5">
         <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           ── {t('console.evidenceHeading')} ──
         </div>
-        <ul className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
+        <ul className="space-y-0.5 text-[11px] leading-relaxed text-foreground">
           {verdict.evidence.map((item) => (
             <li key={item} className="flex items-baseline gap-1.5">
               <span className="text-muted-foreground-faint select-none">·</span>
@@ -93,7 +93,7 @@ export function AcceptanceMessageBody({ content }: { content: string }): React.R
           <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             ── {t('console.nextStepsHeading')} ──
           </div>
-          <ol className="space-y-0.5 text-[11px] leading-relaxed text-foreground/80">
+          <ol className="space-y-0.5 text-[11px] leading-relaxed text-foreground">
             {verdict.nextStep.instructions.map((step, index) => (
               <li key={`${index}-${step}`} className="flex items-baseline gap-1.5">
                 <span className="text-muted-foreground-faint tabular-nums">{index + 1}.</span>
@@ -130,7 +130,7 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
         </Chip>
       </div>
 
-      <p className="text-[12px] leading-relaxed text-foreground/90">{record.summary}</p>
+      <p className="text-[12px] leading-relaxed text-foreground">{record.summary}</p>
 
       <div className="space-y-1">
         <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -144,7 +144,7 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-foreground/85 truncate">{check.name}</span>
+                  <span className="text-foreground truncate">{check.name}</span>
                   <span className="text-muted-foreground-faint text-[10px] shrink-0">
                     {formatDuration(check.durationMs)}
                   </span>
@@ -161,7 +161,7 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
       {record.verdict && (
         <div className="flex flex-wrap items-baseline gap-1.5 pt-1 border-t border-border/40">
           <VerdictChip verdict={record.verdict.verdict} />
-          <span className="text-[11px] text-foreground/80">{record.verdict.summary}</span>
+          <span className="text-[11px] text-foreground">{record.verdict.summary}</span>
         </div>
       )}
     </div>

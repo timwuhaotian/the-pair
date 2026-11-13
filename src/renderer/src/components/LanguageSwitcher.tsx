@@ -77,7 +77,11 @@ export function LanguageSwitcher(): React.ReactNode {
             ref={panelRef}
             role="menu"
             aria-label={t('chrome.language')}
-            className={cn('fixed w-44 p-1', popoverSurface, Z.popover)}
+            className={cn(
+              'fixed min-w-44 w-max max-w-[calc(100vw-16px)] p-1',
+              popoverSurface,
+              Z.popover
+            )}
             style={{ top: position.top, left: position.left }}
           >
             <div className={cn(sectionLabel, 'px-2 py-1')}>{t('chrome.language')}</div>

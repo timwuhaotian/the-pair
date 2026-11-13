@@ -47,7 +47,7 @@ export function MessageFilterBar({
             onClick={() => onFilterChange(key)}
             data-testid={`filter-${key}`}
             className={cn(
-              'inline-flex items-baseline gap-1 rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-[0.12em] transition-colors cursor-pointer',
+              'inline-flex min-h-[24px] items-baseline gap-1 rounded-sm border px-1.5 py-1 text-[10px] uppercase tracking-[0.12em] transition-colors cursor-pointer',
               isActive
                 ? activeClass
                 : cn('border-transparent text-muted-foreground hover:text-foreground/80', hoverTint)

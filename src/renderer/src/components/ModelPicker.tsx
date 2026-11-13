@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react'
+import React, { useMemo, useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, ExternalLink, Search } from 'lucide-react'
 import { emit } from '@tauri-apps/api/event'
 import { useTranslation } from 'react-i18next'
@@ -84,16 +85,26 @@ function effortTranslationKey(
   }
 }
 
+// `buildCanonicalModels` walks the whole provider each call; the registry
+// objects are stable across renders, so one entry per provider is enough.
+const canonicalForCache = new WeakMap<ProviderView, CanonicalModel[]>()
+function canonicalFor(provider: ProviderView): CanonicalModel[] {
+  const hit = canonicalForCache.get(provider)
+  if (hit) return hit
+  const canonical = buildCanonicalModels([
+    { ...provider, models: ordinaryModelChoices(provider.models) }
+  ])
+  canonicalForCache.set(provider, canonical)
+  return canonical
+}
+
 /**
  * The listed choices for one endpoint: current MiniMax text slots only, Flash
  * first. `buildCanonicalModels` re-sorts by name, so the ordering is laid over
  * the result rather than before it.
  */
 function choiceModelsFor(provider: ProviderView): CanonicalModel[] {
-  const canonical = buildCanonicalModels([
-    { ...provider, models: ordinaryModelChoices(provider.models) }
-  ])
-  return preferMiniMaxFlash(canonical, (model) => model.routes[0]?.modelId ?? '')
+  return preferMiniMaxFlash(canonicalFor(provider), (model) => model.routes[0]?.modelId ?? '')
 }
 
 /** Endpoints grouped by vendor, each carrying the registry row it came from. */
@@ -223,7 +234,10 @@ function EndpointRow({
         label={provider.vendor}
         className="size-3.5"
       />
-      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/90">
+      <span
+        className="min-w-0 flex-1 truncate text-[12px] text-foreground/90 [overflow-wrap:anywhere]"
+        title={provider.displayName}
+      >
         {provider.displayName}
       </span>
       <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground-faint">
@@ -299,6 +313,9 @@ function QuickPickRow({
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={selected}
+      title={choice.model.displayName}
       onClick={() => onSelect(choice)}
       className={cn(
         'flex w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors cursor-pointer text-[12px]',
@@ -314,9 +331,16 @@ function QuickPickRow({
         {selected ? '●' : '○'}
       </span>
       <VendorIcon canonicalKey={choice.model.canonicalKey} />
-      <span className="min-w-0 flex-1 truncate text-foreground/90">{choice.model.displayName}</span>
+      {/* No title here: the button already carries the model name as its
+          title, and a duplicate would break getByTitle queries. */}
+      <span className="min-w-0 flex-1 truncate text-foreground/90 [overflow-wrap:anywhere]">
+        {choice.model.displayName}
+      </span>
       {choice.route && (
-        <span className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint">
+        <span
+          title={choice.route.label}
+          className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint"
+        >
           {choice.route.label}
         </span>
       )}
@@ -336,33 +360,65 @@ export function ModelPicker({
 }: ModelPickerProps): React.ReactNode {
   const { t } = useTranslation()
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [autoDropUp, setAutoDropUp] = useState(false)
-  // Flip up when the trigger sits in the lower half of the viewport and the
-  // caller didn't pin a direction: the list lives inside overflow-clipped
-  // modals/panels, so opening downward there hides most of it.
-  const effectiveDropUp = dropUp ?? autoDropUp
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 })
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [recentModelIds, setRecentModelIds] = useState<string[]>(() => getRecentModelIds(role))
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const c = roleClasses(role)
 
+  // The model list lives in a portal so modal scroll containers never clip
+  // it: it is anchored to the trigger and flips up when space runs out.
+  const placeMenu = useCallback(() => {
+    const trigger = triggerRef.current
+    const menu = menuRef.current
+    if (!trigger || !menu) return
+    const rect = trigger.getBoundingClientRect()
+    const gap = 4
+    const height = menu.offsetHeight
+    const fitsBelow = rect.bottom + gap + height <= window.innerHeight - 8
+    const fitsAbove = rect.top - gap - height >= 8
+    const openUp =
+      dropUp ?? (!fitsBelow && (fitsAbove || rect.top > window.innerHeight - rect.bottom))
+    setMenuPos({
+      top: openUp ? Math.max(8, rect.top - gap - height) : rect.bottom + gap,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)),
+      width: rect.width
+    })
+  }, [dropUp])
+
   useEffect(() => {
     if (!isDropdownOpen) return
     const handler = (e: MouseEvent): void => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsDropdownOpen(false)
-        setSearchQuery('')
-      }
+      const target = e.target as Node
+      if (menuRef.current?.contains(target) || dropdownRef.current?.contains(target)) return
+      setIsDropdownOpen(false)
+      setSearchQuery('')
     }
+    const handleViewport = (): void => placeMenu()
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [isDropdownOpen])
+    window.addEventListener('resize', handleViewport)
+    window.addEventListener('scroll', handleViewport, true)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      window.removeEventListener('resize', handleViewport)
+      window.removeEventListener('scroll', handleViewport, true)
+    }
+  }, [isDropdownOpen, placeMenu])
 
   useEffect(() => {
     if (isDropdownOpen && inputRef.current) inputRef.current.focus()
   }, [isDropdownOpen])
+
+  // The list filters on the settled query so fast typing never re-renders it
+  // per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 100)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
 
   const runnable = useMemo(() => providers.filter(isSelectableForPairExecution), [providers])
   // Endpoints with models but no usable account are kept out of the runnable
@@ -434,9 +490,14 @@ export function ModelPicker({
   }, [recentModelIds, canonicalModels])
 
   const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return choiceModels
-    return choiceModels.filter((model) => modelMatchesQuery(model, searchQuery))
-  }, [choiceModels, searchQuery])
+    if (!debouncedQuery.trim()) return choiceModels
+    return choiceModels.filter((model) => modelMatchesQuery(model, debouncedQuery))
+  }, [choiceModels, debouncedQuery])
+
+  // Re-anchor after the result count changes: the menu height follows it.
+  useLayoutEffect(() => {
+    if (isDropdownOpen) placeMenu()
+  }, [isDropdownOpen, placeMenu, filteredModels.length])
 
   const applyLeaf = (
     modelId: string,
@@ -460,8 +521,6 @@ export function ModelPicker({
   }
 
   const openDropdown = (): void => {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (rect) setAutoDropUp(rect.top > window.innerHeight / 2)
     setSearchQuery('')
     setIsDropdownOpen(true)
   }
@@ -498,7 +557,7 @@ export function ModelPicker({
     if (!provider) return
     const choices = choiceModelsFor(provider)
     const remembered = recentModelIds
-      .map((id) => resolveSelection(buildCanonicalModels([provider]), id))
+      .map((id) => resolveSelection(canonicalFor(provider), id))
       .find((selection) => selection.model)
     const model = remembered?.model ?? choices.find((candidate) => candidate.ready) ?? choices[0]
     const route = model ? pickDefaultRoute(model, role) : undefined
@@ -615,9 +674,17 @@ export function ModelPicker({
             {currentModel ? (
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <VendorIcon canonicalKey={currentModel.canonicalKey} />
-                <span className="truncate text-foreground/90">{currentModel.displayName}</span>
+                <span
+                  title={currentModel.displayName}
+                  className="min-w-0 flex-1 line-clamp-2 text-foreground/90 [overflow-wrap:anywhere]"
+                >
+                  {currentModel.displayName}
+                </span>
                 {currentRoute && (
-                  <span className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint">
+                  <span
+                    title={currentRoute.label}
+                    className="max-w-[16ch] shrink-0 truncate text-[10px] text-muted-foreground-faint"
+                  >
                     · {currentRoute.label}
                   </span>
                 )}
@@ -639,93 +706,96 @@ export function ModelPicker({
             />
           </button>
 
-          {isDropdownOpen && (
-            <div
-              className={cn(
-                'absolute left-0 right-0 overflow-hidden',
-                Z.popover,
-                popoverSurface,
-                effectiveDropUp ? 'bottom-full mb-1' : 'top-full mt-1'
-              )}
-            >
-              <div className="border-b border-border p-1.5">
-                <div className="relative">
-                  <Search
-                    size={11}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground-faint"
-                  />
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder={t('pickers.searchModels')}
-                    className={searchInput}
-                  />
-                </div>
-              </div>
-              <div className="max-h-60 overflow-y-auto scrollbar-thin p-1">
-                {filteredModels.length === 0 ? (
-                  <div className={emptyHint}>— {t('pickers.noModels')} —</div>
-                ) : (
-                  <div role="listbox" className="space-y-px">
-                    {filteredModels.map((model) => {
-                      const route = model.routes[0]
-                      const isActiveModel = model.canonicalKey === currentModel?.canonicalKey
-                      return (
-                        <button
-                          key={model.canonicalKey}
-                          type="button"
-                          role="option"
-                          aria-selected={isActiveModel}
-                          onClick={() => selectModel(model)}
-                          title={model.displayName}
-                          className={menuItem(isActiveModel)}
-                        >
-                          <span
-                            aria-hidden
-                            className={cn(
-                              'shrink-0',
-                              isActiveModel ? c.fg : 'text-muted-foreground-faint'
-                            )}
-                          >
-                            {isActiveModel ? '●' : '○'}
-                          </span>
-                          <VendorIcon canonicalKey={model.canonicalKey} />
-                          <span className="min-w-0 flex-1 truncate text-foreground/90">
-                            {model.displayName}
-                          </span>
-                          {route && (
-                            <span className="max-w-[20ch] shrink-0 truncate font-mono text-[10px] text-muted-foreground-faint">
-                              {route.modelId}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
+          {isDropdownOpen &&
+            createPortal(
+              <div
+                ref={menuRef}
+                onKeyDown={handleDropdownKeyDown}
+                className={cn('fixed overflow-hidden', Z.popover, popoverSurface)}
+                style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+              >
+                <div className="border-b border-border p-1.5">
+                  <div className="relative">
+                    <Search
+                      size={11}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground-faint"
+                    />
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={searchQuery}
+                      aria-label={t('pickers.searchModels')}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleSearchKeyDown}
+                      placeholder={t('pickers.searchModels')}
+                      className={searchInput}
+                    />
                   </div>
-                )}
-              </div>
-
-              {/* Endpoints whose credential needs attention — the reason a
-                  remembered model is missing from the list above. */}
-              {!searchQuery.trim() && blockedGroups.length > 0 && (
-                <div className="space-y-px border-t border-border/50 p-1.5">
-                  <div className={groupHeader}>── {t('pickers.needsCredential')} ──</div>
-                  {blockedGroups.map(({ choices }) =>
-                    choices.map((choice) => (
-                      <BlockedEndpointRow
-                        key={choice.endpoint.key}
-                        provider={choice.provider}
-                        onOpenModels={openModelsSection}
-                      />
-                    ))
+                </div>
+                <div className="max-h-60 overflow-y-auto scrollbar-thin p-1">
+                  {filteredModels.length === 0 ? (
+                    <div className={emptyHint}>— {t('pickers.noModels')} —</div>
+                  ) : (
+                    <div role="listbox" className="space-y-px">
+                      {filteredModels.map((model) => {
+                        const route = model.routes[0]
+                        const isActiveModel = model.canonicalKey === currentModel?.canonicalKey
+                        return (
+                          <button
+                            key={model.canonicalKey}
+                            type="button"
+                            role="option"
+                            aria-selected={isActiveModel}
+                            onClick={() => selectModel(model)}
+                            title={model.displayName}
+                            className={menuItem(isActiveModel)}
+                          >
+                            <span
+                              aria-hidden
+                              className={cn(
+                                'shrink-0',
+                                isActiveModel ? c.fg : 'text-muted-foreground-faint'
+                              )}
+                            >
+                              {isActiveModel ? '●' : '○'}
+                            </span>
+                            <VendorIcon canonicalKey={model.canonicalKey} />
+                            {/* No title here: the option button already carries
+                                it; a duplicate breaks getByTitle queries. */}
+                            <span className="min-w-0 flex-1 truncate text-foreground/90 [overflow-wrap:anywhere]">
+                              {model.displayName}
+                            </span>
+                            {route && (
+                              <span className="max-w-[20ch] shrink-0 truncate font-mono text-[10px] text-muted-foreground-faint">
+                                {route.modelId}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Endpoints whose credential needs attention — the reason a
+                  remembered model is missing from the list above. */}
+                {!searchQuery.trim() && blockedGroups.length > 0 && (
+                  <div className="space-y-px border-t border-border/50 p-1.5">
+                    <div className={groupHeader}>── {t('pickers.needsCredential')} ──</div>
+                    {blockedGroups.map(({ choices }) =>
+                      choices.map((choice) => (
+                        <BlockedEndpointRow
+                          key={choice.endpoint.key}
+                          provider={choice.provider}
+                          onOpenModels={openModelsSection}
+                        />
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>,
+              document.body
+            )}
         </div>
 
         {/* Step 3 — reasoning effort, hidden when the endpoint offers none */}
@@ -749,13 +819,19 @@ export function ModelPicker({
                 </GlassButton>
               )}
             </div>
-            <div className="flex flex-1 overflow-hidden rounded-md border border-border">
+            <div
+              role="radiogroup"
+              aria-label={t('pickers.reasoning')}
+              className="flex flex-1 overflow-hidden rounded-md border border-border"
+            >
               {effortOptions.map((option) => {
                 const isActive = option.value === currentEffort?.value
                 return (
                   <button
                     key={option.value}
                     type="button"
+                    role="radio"
+                    aria-checked={isActive}
                     onClick={() => selectEffort(option)}
                     className={cn(
                       'flex-1 border-r border-border px-2 py-0.5 text-[11px] transition-colors cursor-pointer last:border-r-0',
@@ -777,7 +853,7 @@ export function ModelPicker({
       {recentChoices.length > 0 && (
         <div className="space-y-1">
           <div className={groupHeader}>── {t('pickers.recent')} ──</div>
-          <div className="space-y-px">
+          <div role="radiogroup" aria-label={t('pickers.recent')} className="space-y-px">
             {recentChoices.map((choice) => (
               <QuickPickRow
                 key={choice.storedId}

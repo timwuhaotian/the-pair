@@ -80,6 +80,7 @@ test('explicit legacy recent history remains selectable', () => {
       role="executor"
     />
   )
-  fireEvent.click(screen.getByRole('button', { name: /MiniMax M2.7/ }))
+  // Recent rows are radios in a radiogroup (selection state exposed to AT).
+  fireEvent.click(screen.getByRole('radio', { name: /MiniMax M2.7/ }))
   assert.deepEqual(changes, [legacy.id])
 })

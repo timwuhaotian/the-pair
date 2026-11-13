@@ -6,6 +6,8 @@ import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
 import { IconButton } from './ui/IconButton'
+import { ModalFooter } from './ui/ModalFooter'
+import { ToggleRow } from './ui/ToggleRow'
 import { ModelPicker } from './ModelPicker'
 import { BrandMark } from './BrandMark'
 import { resolvePreferredModel } from '../lib/modelPreferences'
@@ -18,14 +20,7 @@ import { usePresets } from '../lib/usePresets'
 import { prependFileContext } from '../lib/fileMentions'
 import { isTauri, tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
-import {
-  errorCallout,
-  fieldInput,
-  fieldLabel,
-  hoverTint,
-  sectionLabel,
-  warningCallout
-} from '../lib/ui'
+import { errorCallout, fieldInput, fieldLabel, sectionLabel, warningCallout } from '../lib/ui'
 import type { ConfigRecommendation, PairPreset } from '../types'
 import { preventImeEnterSubmit } from './keyboard'
 import {
@@ -78,50 +73,6 @@ function FieldLabel({
         </span>
       )}
     </label>
-  )
-}
-
-/** A checkbox row: label plus a one-line explainer. */
-function ToggleRow({
-  checked,
-  onToggle,
-  label,
-  hint,
-  testId
-}: {
-  checked: boolean
-  onToggle: () => void
-  label: string
-  hint: string
-  testId: string
-}): React.ReactNode {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={checked}
-      data-testid={testId}
-      className={cn(
-        '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-        hoverTint
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'mt-px select-none font-mono text-[12px]',
-          checked ? 'state-running' : 'text-muted-foreground-faint'
-        )}
-      >
-        {checked ? '[x]' : '[ ]'}
-      </span>
-      <span className="flex flex-col gap-0.5">
-        <span className={fieldLabel}>{label}</span>
-        <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-          {hint}
-        </span>
-      </span>
-    </button>
   )
 }
 
@@ -285,6 +236,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   )
 
   const presetTaskMissing = isPresetTaskMissing(appliedPreset, spec)
+  const modelsMissing = mentorModel.length === 0 || executorModel.length === 0
+  const rolesHintId = `${fieldId}-roles-hint`
+  const createDisabled = isLoading || presetTaskMissing || modelsMissing
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -395,9 +349,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       header={brandHeader}
       className="max-w-2xl"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col text-[13px]">
+      <form
+        onSubmit={handleSubmit}
+        className="flex h-[70vh] max-h-[600px] min-h-0 flex-col text-[13px]"
+      >
         {/* -mx/px gives the toggles' -mx-1.5 hover tint room inside the scroll clip. */}
-        <div className="-mx-1.5 flex flex-1 flex-col gap-5 overflow-y-auto px-1.5">
+        <div className="-mx-1.5 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-1.5 pb-2 scrollbar-thin">
           {/* ── Task ─────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-2.5">
             <SectionLabel>{t('common.task')}</SectionLabel>
@@ -623,10 +580,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           )}
         </div>
 
-        {/* The footer rides the bottom of the scroll area: the dialog is
-            content-sized, so on a short window the form is taller than the
-            card and the submit button has to stay reachable. */}
-        <div className="sticky bottom-0 -mx-1.5 mt-1 flex shrink-0 justify-end gap-2 border-t border-border bg-surface-raised px-1.5 pt-3">
+        {/* In-flow footer below the single scroll region (cf. AssignTaskModal):
+            never sticky, so ROLES rows scroll clear of it. */}
+        {modelsMissing && (
+          <p id={rolesHintId} className="sr-only">
+            {t('modals.createNeedsModels')}
+          </p>
+        )}
+        <ModalFooter>
           <GlassButton
             type="button"
             variant="secondary"
@@ -638,17 +599,13 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           <GlassButton
             type="submit"
             variant="primary"
-            disabled={
-              isLoading ||
-              presetTaskMissing ||
-              mentorModel.length === 0 ||
-              executorModel.length === 0
-            }
+            disabled={createDisabled}
+            aria-describedby={modelsMissing ? rolesHintId : undefined}
             data-testid="pair-submit-btn"
           >
             {isLoading ? t('modals.creating') : t('modals.create')}
           </GlassButton>
-        </div>
+        </ModalFooter>
       </form>
     </GlassModal>
   )

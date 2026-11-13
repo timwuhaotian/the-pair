@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { GlassButton } from './GlassButton'
 import { GlassModal } from './GlassModal'
+import { ModalFooter } from './ModalFooter'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -34,7 +35,7 @@ export function ConfirmModal({
         <AlertTriangle size={12} className={cn('shrink-0 translate-y-px', toneClass)} />
         <p className="text-[13px] leading-relaxed text-foreground/90">{message}</p>
       </div>
-      <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
+      <ModalFooter>
         <GlassButton variant="secondary" onClick={onCancel} data-testid="confirm-modal-cancel">
           {cancelLabel}
         </GlassButton>
@@ -45,7 +46,7 @@ export function ConfirmModal({
         >
           {confirmLabel}
         </GlassButton>
-      </div>
+      </ModalFooter>
     </GlassModal>
   )
 }

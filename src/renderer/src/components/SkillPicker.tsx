@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
@@ -26,6 +27,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
   const [selectedIndex, setSelectedIndex] = useState(0)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
 
   const loadSkills = async (): Promise<void> => {
     setLoading(true)
@@ -47,6 +49,29 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
+  // The menu lives in a portal so modal scroll containers never clip it: it
+  // is anchored to the trigger and flips up when the viewport runs out.
+  const placeMenu = useCallback(() => {
+    const trigger = buttonRef.current
+    const menu = dropdownRef.current
+    if (!trigger || !menu) return
+    const rect = trigger.getBoundingClientRect()
+    const gap = 4
+    const menuWidth = 320
+    const height = menu.offsetHeight
+    const fitsBelow = rect.bottom + gap + height <= window.innerHeight - 8
+    const fitsAbove = rect.top - gap - height >= 8
+    const openUp = !fitsBelow && (fitsAbove || rect.top > window.innerHeight - rect.bottom)
+    setMenuPos({
+      top: openUp ? Math.max(8, rect.top - gap - height) : rect.bottom + gap,
+      left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8))
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (isOpen) placeMenu()
+  }, [isOpen, filter, skills.length, placeMenu])
+
   useEffect(() => {
     if (!isOpen) return
     const handleClickOutside = (e: MouseEvent): void => {
@@ -59,9 +84,16 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
         setIsOpen(false)
       }
     }
+    const handleViewport = (): void => placeMenu()
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen])
+    window.addEventListener('resize', handleViewport)
+    window.addEventListener('scroll', handleViewport, true)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('resize', handleViewport)
+      window.removeEventListener('scroll', handleViewport, true)
+    }
+  }, [isOpen, placeMenu])
 
   const filteredSkills = skills.filter(
     (s) =>
@@ -118,87 +150,97 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
         <Sparkles size={13} />
       </IconButton>
 
-      {isOpen && (
-        <div
-          ref={dropdownRef}
-          className={cn(
-            'absolute top-full right-0 mt-1 w-80 max-h-96 overflow-hidden text-[12px]',
-            Z.popover,
-            popoverSurface
-          )}
-        >
-          <div className="px-2 py-1.5 border-b border-border flex items-center gap-2">
-            <span aria-hidden className="text-muted-foreground-faint select-none">
-              ·
-            </span>
-            <input
-              type="text"
-              value={filter}
-              onChange={(e) => {
-                setFilter(e.target.value)
-                setSelectedIndex(0)
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={t('skills.search')}
-              className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground-faint"
-              autoFocus
-            />
-            <IconButton
-              aria-label={t('skills.refresh')}
-              onClick={() => void loadSkills()}
-              disabled={loading}
-              className="h-5 w-5"
-            >
-              {loading ? (
-                <Loader2 size={12} className="animate-spin text-muted-foreground" />
-              ) : (
-                <RefreshCw size={11} />
-              )}
-            </IconButton>
-          </div>
-
-          <div className="max-h-80 overflow-y-auto scrollbar-thin">
-            {loading && skills.length === 0 ? (
-              <div className={cn(emptyHint, 'flex items-center justify-center gap-2')}>
-                <Loader2 size={12} className="animate-spin text-muted-foreground" />
-                {t('skills.discovering')}
-              </div>
-            ) : filteredSkills.length === 0 ? (
-              <div className={emptyHint}>
-                — {filter ? t('skills.noMatch') : t('skills.empty')} —
-              </div>
-            ) : (
-              <div role="listbox" className="p-1">
-                {filteredSkills.map((skill, index) => (
-                  <button
-                    key={skill.name}
-                    type="button"
-                    role="option"
-                    aria-selected={index === selectedIndex}
-                    onClick={() => handleSelect(skill)}
-                    // Pointer and keyboard share one highlight: hovering moves the active row.
-                    onMouseEnter={() => setSelectedIndex(index)}
-                    className={cn(
-                      menuItem(index === selectedIndex),
-                      'flex-col items-start gap-0.5 py-1.5'
-                    )}
-                  >
-                    <span className="flex items-baseline gap-1.5">
-                      <span aria-hidden className="role-mentor select-none">
-                        ▸
-                      </span>
-                      <span className="font-medium text-foreground/90">{skill.name}</span>
-                    </span>
-                    <span className="line-clamp-2 pl-[2ch] text-[10px] text-muted-foreground">
-                      {skill.description}
-                    </span>
-                  </button>
-                ))}
-              </div>
+      {isOpen &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            onKeyDown={handleContainerKeyDown}
+            className={cn(
+              'fixed w-80 max-h-96 overflow-hidden text-[12px]',
+              Z.popover,
+              popoverSurface
             )}
-          </div>
-        </div>
-      )}
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            <div className="px-2 py-1.5 border-b border-border flex items-center gap-2">
+              <span aria-hidden className="text-muted-foreground-faint select-none">
+                ·
+              </span>
+              <input
+                type="text"
+                value={filter}
+                aria-label={t('skills.search')}
+                onChange={(e) => {
+                  setFilter(e.target.value)
+                  setSelectedIndex(0)
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={t('skills.search')}
+                className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground-faint"
+                autoFocus
+              />
+              <IconButton
+                aria-label={t('skills.refresh')}
+                onClick={() => void loadSkills()}
+                disabled={loading}
+                className="h-6 w-6"
+              >
+                {loading ? (
+                  <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                ) : (
+                  <RefreshCw size={11} />
+                )}
+              </IconButton>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto scrollbar-thin">
+              {loading && skills.length === 0 ? (
+                <div className={cn(emptyHint, 'flex items-center justify-center gap-2')}>
+                  <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                  {t('skills.discovering')}
+                </div>
+              ) : filteredSkills.length === 0 ? (
+                <div className={emptyHint}>
+                  — {filter ? t('skills.noMatch') : t('skills.empty')} —
+                </div>
+              ) : (
+                <div role="listbox" className="p-1">
+                  {filteredSkills.map((skill, index) => (
+                    <button
+                      key={skill.name}
+                      type="button"
+                      role="option"
+                      aria-selected={index === selectedIndex}
+                      onClick={() => handleSelect(skill)}
+                      // Pointer and keyboard share one highlight: hovering moves the active row.
+                      onMouseEnter={() => setSelectedIndex(index)}
+                      className={cn(
+                        menuItem(index === selectedIndex),
+                        'flex-col items-start gap-0.5 py-1.5'
+                      )}
+                    >
+                      <span className="flex items-baseline gap-1.5">
+                        <span aria-hidden className="role-mentor select-none">
+                          ▸
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate font-medium text-foreground/90 [overflow-wrap:anywhere]"
+                          title={skill.name}
+                        >
+                          {skill.name}
+                        </span>
+                      </span>
+                      <span className="line-clamp-2 pl-[2ch] text-[10px] text-muted-foreground">
+                        {skill.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

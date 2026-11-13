@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useReducedMotion } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { Z } from '../lib/ui'
 import { StartupHero } from './StartupHero'
@@ -20,6 +21,7 @@ interface BootSplashProps {
 
 export function BootSplash({ visible, minDurationMs = 700 }: BootSplashProps): React.ReactNode {
   const { t } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const [mounted, setMounted] = useState(true)
   const [leaving, setLeaving] = useState(false)
   const [mountedAt] = useState(() => Date.now())
@@ -59,7 +61,7 @@ export function BootSplash({ visible, minDurationMs = 700 }: BootSplashProps): R
       <div className="relative flex flex-col items-center gap-6 px-8">
         <StartupHero
           size="lg"
-          animated
+          animated={!reduceMotion}
           tagline={t('startup.tagline')}
           wordmark={t('startup.wordmark')}
           caption={t('startup.bootCaption')}
@@ -73,7 +75,9 @@ export function BootSplash({ visible, minDurationMs = 700 }: BootSplashProps): R
           <span aria-hidden className="select-none">
             {'>_'}
           </span>
-          <span className="boot-splash__dots">{t('startup.booting')}</span>
+          <span className={reduceMotion ? undefined : 'boot-splash__dots'}>
+            {reduceMotion ? `${t('startup.booting')}...` : t('startup.booting')}
+          </span>
         </div>
       </div>
     </div>

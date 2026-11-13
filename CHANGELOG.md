@@ -5,7 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.1] - 2026-11-11
+## [3.0.2] - 2026-11-13
+
+A UI quality pass from a full accessibility, performance, theming and responsive audit (17/20, up from 11/20).
+
+### Fixed
+
+- **The Create Pair footer covered the ROLES endpoint lists.** The dialog had two nested scroll regions and a sticky footer, so the last endpoint rows slid underneath it and could not be reached. The form is height-bounded with a single scroll region and an in-flow footer now, matching the Assign Task dialog.
+- **Small text failed contrast.** The faint text tier sat near 3:1 and was used for 10–12px hints and placeholders; it renders near 4.9:1 in both themes now.
+- **The command palette trapped nothing.** Tab escaped to the background and focus was never restored; it traps, restores and respects IME composition like the other dialogs.
+- **Selection state was invisible to assistive tech.** The progress bar, recent-model rows, effort buttons and preset tooltip expose roles and states now, and every search field has a label in all four locales.
+- **Dropdowns clipped inside modal scroll containers.** Picker menus portal to the body with flip-up placement and viewport caps.
+- **Hover-only controls hid from touch and keyboard.** Pair actions and info popovers appear on focus and where hover does not exist.
+
+### Changed
+
+- **One footer and one toggle row for every modal.** `ModalFooter` and `ToggleRow` replace the three hand-rolled footer and row variants.
+- **The transcript renders the last 100 messages** with a "show earlier" control instead of mounting the whole run, and row animations no longer force layout.
+- **The run report follows the app theme** instead of guessing from the OS, with its palette recompiled from the app tokens.
+- **Native scrollbars and form controls follow the theme**, and motion (spinner, caret, splash, updater) stills under reduced motion.
 
 A new mark and app icon from the killi family, a boot splash that goes away when it has faded, and search-facing descriptions that match 3.0.
 

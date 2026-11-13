@@ -4,6 +4,7 @@ import { Check, Clipboard, Download } from 'lucide-react'
 import { TimelineIterationGroup } from './TimelineIterationGroup'
 import { IconButton } from './ui/IconButton'
 import { TerminalDivider } from './terminal/TerminalDivider'
+import { useThemeStore } from '../store/useThemeStore'
 import type { TimelineData } from '../lib/timeline'
 import { formatDuration, formatTokenCount } from '../lib/timeline'
 
@@ -16,6 +17,7 @@ interface TimelinePanelProps {
 export function TimelineActions({ timeline }: { timeline: TimelineData }): React.ReactNode {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
+  const theme = useThemeStore((state) => state.theme)
 
   const handleCopy = async (): Promise<void> => {
     const { copyMarkdownReport } = await import('../lib/reportExport')
@@ -29,7 +31,7 @@ export function TimelineActions({ timeline }: { timeline: TimelineData }): React
   const handleExport = async (): Promise<void> => {
     try {
       const { exportAsHtml } = await import('../lib/reportExport')
-      await exportAsHtml(timeline)
+      await exportAsHtml(timeline, { theme })
     } catch (err) {
       console.error('Failed to export timeline report:', err)
     }

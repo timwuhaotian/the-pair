@@ -86,7 +86,6 @@ export function TerminalBlock({
   const wrapProps = flat
     ? {}
     : {
-        layout: 'position' as const,
         initial: { opacity: 0, y: 4 },
         animate: { opacity: 1, y: 0 },
         transition: { duration: 0.14 }

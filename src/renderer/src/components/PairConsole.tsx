@@ -2,7 +2,7 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, Search, Square, Trash2, X, XCircle } from 'lucide-react'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, useReducedMotion } from 'framer-motion'
 import { cn, extractErrorMessage, formatIterations } from '../lib/utils'
 import { usePairStore, type Message, type Pair, type TurnCard } from '../store/usePairStore'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
@@ -46,6 +46,22 @@ interface CompositionState {
 }
 
 const NO_COMPOSITION: CompositionState = { text: '', start: null }
+
+const INITIAL_TRANSCRIPT_MESSAGES = 100
+
+interface ConsoleRowProps {
+  msg: Message
+  searchQuery?: string
+  isActiveMatch: boolean
+}
+
+const ConsoleRow = React.memo(function ConsoleRow({
+  msg,
+  searchQuery,
+  isActiveMatch
+}: ConsoleRowProps): React.ReactNode {
+  return <MessageCard msg={msg} searchQuery={searchQuery} isActiveMatch={isActiveMatch} />
+})
 
 function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const { t } = useTranslation()
@@ -98,6 +114,8 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   // and a fast double-press composes instead of keeping only the last one.
   const [pendingMatchSteps, setPendingMatchSteps] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const reduceMotion = useReducedMotion()
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
@@ -187,6 +205,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
   const matchCount = useMemo(() => searchMatches.reduce((n, x) => n + x.count, 0), [searchMatches])
 
+  const visibleConsoleMessages = useMemo(() => {
+    if (searching || transcriptExpanded) return consoleMessages
+    return consoleMessages.slice(-INITIAL_TRANSCRIPT_MESSAGES)
+  }, [consoleMessages, searching, transcriptExpanded])
+  const hiddenMessageCount = consoleMessages.length - visibleConsoleMessages.length
+
   const messageCounts = useMemo(() => {
     const allMessages = viewingRun ? viewingRun.messages : pair.messages
     return {
@@ -253,8 +277,8 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     const card = document.getElementById(`console-msg-${activeMessageId}`)
     if (!card) return
     const target = card.querySelector('mark') ?? card
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [activeMessageId, matchCycle])
+    target.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [activeMessageId, matchCycle, reduceMotion])
 
   const closeSearch = useCallback((): void => {
     setSearchOpen(false)
@@ -293,6 +317,10 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     el.addEventListener('scroll', handleScroll, { passive: true })
     return () => el.removeEventListener('scroll', handleScroll)
   }, [])
+
+  useEffect(() => {
+    setTranscriptExpanded(false)
+  }, [pair.id, viewingRunId])
 
   // Opening the pair (or returning from an archived run) lands on the newest output.
   useEffect(() => {
@@ -341,7 +369,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   const renderedChat = useMemo(() => {
     const nodes: React.ReactNode[] = []
     let lastIteration = -1
-    for (const msg of consoleMessages) {
+    for (const msg of visibleConsoleMessages) {
       const iter = msg.iteration
       if (iter > 0 && iter !== lastIteration) {
         nodes.push(
@@ -381,7 +409,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
       nodes.push(
         <div key={msg.id} className={cn('flex', alignClass)}>
           <div className={cn(maxWidthClass)}>
-            <MessageCard
+            <ConsoleRow
               msg={msg}
               searchQuery={searching ? listQuery : undefined}
               isActiveMatch={searching && msg.id === activeMessageId}
@@ -392,7 +420,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     }
     return nodes
   }, [
-    consoleMessages,
+    visibleConsoleMessages,
     dropCountByMessageId,
     pair.maxIterations,
     t,
@@ -603,7 +631,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 className="normal-case tracking-normal"
               >
                 <span className="text-muted-foreground-faint">/</span>
-                <span className="truncate max-w-[28ch]">{name}</span>
+                <span className="truncate max-w-[28ch] [overflow-wrap:anywhere]">{name}</span>
               </Chip>
             ))}
           {Array.from(fileContexts.keys())
@@ -615,7 +643,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
                 className="normal-case tracking-normal"
               >
                 <span className="text-muted-foreground-faint">@</span>
-                <span className="truncate max-w-[28ch]">{path}</span>
+                <span className="truncate max-w-[28ch] [overflow-wrap:anywhere]">{path}</span>
               </Chip>
             ))}
         </div>
@@ -682,7 +710,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
       {/* Header bar */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-background px-4 font-mono text-[11px] text-muted-foreground">
+      <div className="flex min-h-9 min-w-0 shrink-0 flex-wrap items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 font-mono text-[11px] text-muted-foreground">
         <span aria-hidden className="select-none text-foreground/75">
           {'>_'}
         </span>
@@ -846,9 +874,19 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               </>
             ) : (
               <>
+                {hiddenMessageCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptExpanded(true)}
+                    data-testid="console-show-earlier-btn"
+                    className="self-start font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground-faint transition-colors hover:text-foreground/80 cursor-pointer"
+                  >
+                    {`· ${t('console.earlierMessagesButton', { count: hiddenMessageCount })} ·`}
+                  </button>
+                )}
                 {renderedChat}
                 {((!isViewingArchived && isPairActive(pair.status)) || visibleCurrentTurnCard) && (
-                  <AnimatePresence mode="popLayout">
+                  <AnimatePresence>
                     {visibleCurrentTurnCard ? (
                       <div key={visibleCurrentTurnCard.id} className="space-y-1">
                         <TurnCardView card={visibleCurrentTurnCard} />

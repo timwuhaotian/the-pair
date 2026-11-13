@@ -291,6 +291,39 @@ test('CreatePairModal: clicking an empty directory asks the host for a folder', 
   )
 })
 
+test('CreatePairModal: the footer sits below the scroll region so ROLES rows stay visible', () => {
+  setLocale()
+  seedStore()
+  renderModal()
+
+  // Regression test for the footer-overlap glitch: the submit bar must be an
+  // in-flow sibling below the single scroll region, never a sticky overlay
+  // that paints over the endpoint rows.
+  const submit = screen.getByTestId('pair-submit-btn')
+  const footer = submit.parentElement
+  assert.ok(footer, 'the submit button has no footer container')
+  assert.ok(
+    !footer.className.includes('sticky'),
+    `footer must not be sticky (got: ${footer.className})`
+  )
+  const scrollRegion = footer.previousElementSibling
+  assert.ok(scrollRegion, 'the footer has no preceding scroll region')
+  assert.ok(
+    scrollRegion.className.includes('overflow-y-auto'),
+    'the content above the footer must be the scroll region'
+  )
+  assert.ok(
+    scrollRegion.className.includes('min-h-0'),
+    'the scroll region must shrink inside the bounded form'
+  )
+  const form = footer.parentElement
+  assert.ok(form?.tagName.toLowerCase() === 'form', 'the footer must be a direct form child')
+  assert.ok(
+    form.className.includes('h-[70vh]'),
+    `the form must be height-bounded (got: ${form.className})`
+  )
+})
+
 test('CreatePairModal: the recommendation hint names the models that worked', async () => {
   setLocale()
   state.recommendation = [

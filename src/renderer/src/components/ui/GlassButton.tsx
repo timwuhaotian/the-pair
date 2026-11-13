@@ -11,6 +11,7 @@ interface GlassButtonProps {
   type?: 'button' | 'submit'
   icon?: React.ReactNode
   'aria-label'?: string
+  'aria-describedby'?: string
   title?: string
   'data-testid'?: string
 }
@@ -45,7 +46,8 @@ const variantMap: Record<
 }
 
 const sizeMap: Record<NonNullable<GlassButtonProps['size']>, string> = {
-  // xs: compact control inside the conversation core / inspector rows.
+  // xs: compact control inside the conversation core / inspector rows (22px floor
+  // is pinned by uiPrimitives.test.tsx; WCAG 2.5.8 spacing exception applies).
   xs: 'px-1.5 py-0.5 text-[11px] gap-1 rounded-sm min-h-[22px]',
   sm: 'px-2.5 py-1 text-[12px] gap-1.5 rounded-md min-h-[28px]',
   md: 'px-3.5 py-1.5 text-[13px] gap-2 rounded-md min-h-[34px]',
@@ -62,6 +64,7 @@ export function GlassButton({
   type = 'button',
   icon,
   'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
   title,
   'data-testid': dataTestId
 }: GlassButtonProps): React.ReactNode {
@@ -71,6 +74,7 @@ export function GlassButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       title={title}
       data-testid={dataTestId}
       className={cn(

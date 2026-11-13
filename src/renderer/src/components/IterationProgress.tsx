@@ -38,6 +38,11 @@ export function IterationProgress({
 
   return (
     <div
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={isUnlimited ? undefined : Math.round(percentage)}
+      aria-label={t('errors.iterations')}
       className={cn('space-y-1 font-mono text-[11px]', className)}
       data-testid="iteration-progress"
     >
@@ -54,15 +59,17 @@ export function IterationProgress({
         </span>
       </div>
       {isUnlimited ? (
-        <div className="text-[10px] text-muted-foreground tabular-nums">[ ∞ unlimited ]</div>
+        <div aria-hidden className="text-[10px] text-muted-foreground tabular-nums">
+          [ ∞ unlimited ]
+        </div>
       ) : (
-        <div className={cn('flex items-baseline gap-0 tabular-nums', stateClass)}>
-          <span aria-hidden>[</span>
-          <span aria-hidden className="select-none">
+        <div aria-hidden className={cn('flex items-baseline gap-0 tabular-nums', stateClass)}>
+          <span>[</span>
+          <span className="select-none">
             {'█'.repeat(filled)}
             <span className="text-muted-foreground/30">{'░'.repeat(empty)}</span>
           </span>
-          <span aria-hidden>]</span>
+          <span>]</span>
         </div>
       )}
       {isAtLimit ? (

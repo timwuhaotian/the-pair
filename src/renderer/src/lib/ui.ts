@@ -56,6 +56,17 @@ export const warningCallout =
   'border-l-2 border-state-running bg-state-running/10 px-2.5 py-2 text-[12px] state-running'
 export const errorCallout =
   'border-l-2 border-state-error bg-state-error/10 px-2.5 py-2 text-[12px] state-error'
+export const neutralCallout =
+  'border-l-2 border-border bg-muted/60 px-2.5 py-2 text-[12px] text-muted-foreground'
+
+/** Role-tinted notice in the same border-l-2 voice (mentor default). */
+export function roleCallout(role: 'mentor' | 'executor' | 'human' = 'mentor'): string {
+  const c = toneClasses(role)
+  return `border-l-2 ${c.border} ${c.bg}/10 px-2.5 py-2 text-[12px] ${c.fg}`
+}
+
+/** Bottom clearance for scrollable modal bodies so last rows clear sticky footers. */
+export const modalScroll = 'pb-2 scroll-pb-16'
 
 /** Placeholder line for empty pickers and lists. */
 export const emptyHint = 'px-3 py-3 text-center text-[11px] text-muted-foreground-faint'

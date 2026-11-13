@@ -5,9 +5,10 @@ import { usePairStore, Pair } from '../store/usePairStore'
 import type { PairModelSelection } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
+import { ModalFooter } from './ui/ModalFooter'
 import { ModelPicker } from './ModelPicker'
 import { isPairActive } from '../lib/pairStatus'
-import { errorCallout, warningCallout } from '../lib/ui'
+import { errorCallout, neutralCallout, warningCallout } from '../lib/ui'
 
 interface PairSettingsModalProps {
   pair: Pair | null
@@ -66,7 +67,7 @@ export function PairSettingsModal({
     >
       <form onSubmit={handleSubmit} className="flex flex-col text-[13px]">
         <div className="flex flex-col gap-3">
-          <div className="border-l-2 border-border bg-background/40 px-2.5 py-2">
+          <div className={neutralCallout}>
             <div className="flex items-baseline gap-2">
               <SlidersHorizontal size={11} className="text-muted-foreground translate-y-px" />
               <div className="space-y-0.5">
@@ -124,7 +125,7 @@ export function PairSettingsModal({
           )}
         </div>
 
-        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
+        <ModalFooter>
           <GlassButton
             type="button"
             variant="secondary"
@@ -141,7 +142,7 @@ export function PairSettingsModal({
           >
             {isLoading ? t('common.saving') : t('modals.saveDefaults')}
           </GlassButton>
-        </div>
+        </ModalFooter>
       </form>
     </GlassModal>
   )

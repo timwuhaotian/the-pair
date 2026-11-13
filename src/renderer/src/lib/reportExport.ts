@@ -118,7 +118,15 @@ export function generateMarkdownReport(timeline: TimelineData): string {
 
 // ── HTML Report ────────────────────────────────────────
 
-export function generateHtmlReport(timeline: TimelineData): string {
+export interface HtmlReportOptions {
+  /** Explicit color theme. When omitted the report falls back to the viewer's OS setting. */
+  theme?: 'light' | 'dark'
+}
+
+export function generateHtmlReport(
+  timeline: TimelineData,
+  options: HtmlReportOptions = {}
+): string {
   const eventItems = timeline.iterations
     .map(
       (group) => `
@@ -144,32 +152,59 @@ export function generateHtmlReport(timeline: TimelineData): string {
       : ''
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${options.theme ? ` data-theme="${options.theme}"` : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pair Session Report — ${escapeHtml(timeline.pairName)}</title>
   <style>
+    /* Standalone-report palette — resolved equivalents of the app tokens in
+       assets/main.css (:root / .dark): --background, --foreground,
+       --muted-foreground (tier 2, AA-normal-safe secondary text),
+       --border, --surface-raised, --role-mentor, --role-executor,
+       --role-human, --state-done (pass), --state-error (fail),
+       --muted-foreground-faint (system dots). Recompiled here because the
+       report is a standalone file with no access to the app stylesheet. */
     :root {
-      --bg: #ffffff;
-      --fg: #1a1a2e;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --card-bg: #f9fafb;
-      --mentor: #3b82f6;
-      --executor: #a855f7;
-      --human: #22c55e;
-      --system: #94a3b8;
-      --pass: #10b981;
-      --fail: #f59e0b;
+      --bg: #f9f8f6;
+      --fg: #191d24;
+      --muted: #555d6d;
+      --border: #dad8d2;
+      --card-bg: #f4f3f0;
+      --mentor: #2052b6;
+      --executor: #7a37be;
+      --human: #2d8661;
+      --system: #676d79;
+      --pass: #309159;
+      --fail: #ca2b2b;
     }
+    html[data-theme='dark'] {
+      --bg: #0a0e14;
+      --fg: #e9edf2;
+      --muted: #8a939e;
+      --border: #2b3546;
+      --card-bg: #121921;
+      --mentor: #56c3f5;
+      --executor: #ce9af4;
+      --human: #64d8a8;
+      --system: #758195;
+      --pass: #54c45f;
+      --fail: #f7534a;
+    }
+    /* OS fallback only when the caller passes no explicit theme. */
     @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f0f1a;
-        --fg: #e5e7eb;
-        --muted: #9ca3af;
-        --border: #1f2937;
-        --card-bg: #1a1a2e;
+      html:not([data-theme]) {
+        --bg: #0a0e14;
+        --fg: #e9edf2;
+        --muted: #8a939e;
+        --border: #2b3546;
+        --card-bg: #121921;
+        --mentor: #56c3f5;
+        --executor: #ce9af4;
+        --human: #64d8a8;
+        --system: #758195;
+        --pass: #54c45f;
+        --fail: #f7534a;
       }
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -394,8 +429,11 @@ export function buildReportFileName(pairName: string, now: Date): string {
   return `pair-report-${slug}-${date}.html`
 }
 
-export async function exportAsHtml(timeline: TimelineData): Promise<void> {
-  const html = generateHtmlReport(timeline)
+export async function exportAsHtml(
+  timeline: TimelineData,
+  options: HtmlReportOptions = {}
+): Promise<void> {
+  const html = generateHtmlReport(timeline, options)
   const defaultName = buildReportFileName(timeline.pairName, new Date())
 
   const filePath = await save({

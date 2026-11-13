@@ -53,6 +53,12 @@ export function AppShell({
 
   return (
     <div className="flex h-full min-w-0 flex-1 overflow-hidden">
+      <a
+        href="#shell-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:border focus:border-border focus:bg-background focus:px-3 focus:py-1.5 focus:text-[13px] focus:text-foreground"
+      >
+        {t('shell.skipToContent')}
+      </a>
       {/* Source-list rail: translucent sidebar surface, section items with
           badge counts. Collapses to an icon strip. */}
       <nav
@@ -119,7 +125,13 @@ export function AppShell({
         })}
       </nav>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+      <main
+        id="shell-main"
+        tabIndex={-1}
+        className="flex min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
+      >
+        {children}
+      </main>
     </div>
   )
 }

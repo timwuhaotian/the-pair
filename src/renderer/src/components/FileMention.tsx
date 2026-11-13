@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { File, Folder } from 'lucide-react'
@@ -49,11 +49,33 @@ export function FileMention({
   const [listing, setListing] = useState<{ key: string; failed: boolean } | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // `getComputedStyle` plus a mirror-layout pass runs per keystroke; the
+  // textarea's typography barely changes, so cache it per element and only
+  // re-read when the element or its width changes.
+  const mirrorStyleRef = useRef<{
+    el: HTMLTextAreaElement | null
+    clientWidth: number
+    font: string
+    padding: string
+    border: string
+    width: string
+    lineHeight: string
+  }>({ el: null, clientWidth: 0, font: '', padding: '', border: '', width: '', lineHeight: '' })
   // Pointer hover moves the highlight too, but must not scroll the list under
   // the cursor — only keyboard moves bring the active row into view.
   const pointerNavRef = useRef(false)
 
-  const [fuse, setFuse] = useState<Fuse<FileEntry> | null>(null)
+  const fuse = useMemo(
+    () =>
+      files.length === 0
+        ? null
+        : new Fuse(files, {
+            keys: ['path'],
+            threshold: 0.4,
+            includeScore: true
+          }),
+    [files]
+  )
   const filesRef = useRef<FileEntry[]>([])
   const resultsRef = useRef<FileEntry[]>([])
   const selectedIndexRef = useRef(0)
@@ -83,18 +105,6 @@ export function FileMention({
     }
   }, [directory, pairId, listingKey])
 
-  useEffect(() => {
-    if (files.length === 0) return
-
-    setFuse(
-      new Fuse(files, {
-        keys: ['path'],
-        threshold: 0.4,
-        includeScore: true
-      })
-    )
-  }, [files])
-
   const getCaretRect = useCallback((): CaretLineRect | null => {
     const textarea = textareaRef.current
     if (!textarea) return null
@@ -104,8 +114,22 @@ export function FileMention({
     const pos = textarea.selectionStart
     const textBeforeCursor = text.slice(0, pos)
 
+    const cached = mirrorStyleRef.current
+    if (cached.el !== textarea || cached.clientWidth !== textarea.clientWidth) {
+      const computed = window.getComputedStyle(textarea)
+      mirrorStyleRef.current = {
+        el: textarea,
+        clientWidth: textarea.clientWidth,
+        font: computed.font,
+        padding: computed.padding,
+        border: computed.border,
+        width: computed.width,
+        lineHeight: computed.lineHeight
+      }
+    }
+    const style = mirrorStyleRef.current
+
     const mirror = document.createElement('div')
-    const computed = window.getComputedStyle(textarea)
 
     mirror.style.cssText = `
       position: fixed;
@@ -114,11 +138,11 @@ export function FileMention({
       visibility: hidden;
       white-space: pre-wrap;
       word-wrap: break-word;
-      font: ${computed.font};
-      padding: ${computed.padding};
-      border: ${computed.border};
-      width: ${computed.width};
-      line-height: ${computed.lineHeight};
+      font: ${style.font};
+      padding: ${style.padding};
+      border: ${style.border};
+      width: ${style.width};
+      line-height: ${style.lineHeight};
     `
 
     mirror.textContent = textBeforeCursor
@@ -185,6 +209,8 @@ export function FileMention({
       }
 
       setQuery(mentionQuery)
+      // Synchronous: the popover placement reads the caret on this tick
+      // (rAF coalescing left it null in tests and on fast open/scroll).
       setCaret(getCaretRect())
       setIsOpen(true)
       isOpenRef.current = true
@@ -257,6 +283,15 @@ export function FileMention({
     textarea.addEventListener('compositionstart', composition.onCompositionStart)
     textarea.addEventListener('compositionend', composition.onCompositionEnd)
 
+    // The caret moved with the scroll anyway; re-measuring the mirror every
+    // tick costs a reflow per tick, so hide instead — typing re-opens it.
+    function handleScroll(): void {
+      if (isOpenRef.current) {
+        setIsOpen(false)
+        isOpenRef.current = false
+      }
+    }
+
     return () => {
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
@@ -265,12 +300,6 @@ export function FileMention({
       textarea.removeEventListener('compositionstart', composition.onCompositionStart)
       textarea.removeEventListener('compositionend', composition.onCompositionEnd)
       composition.dispose()
-    }
-
-    function handleScroll(): void {
-      if (isOpenRef.current) {
-        setCaret(getCaretRect())
-      }
     }
   }, [textareaRef, getCaretRect, insertMention])
 
@@ -327,7 +356,7 @@ export function FileMention({
     <div
       ref={popoverRef}
       className={cn(
-        'fixed flex max-h-72 w-96 flex-col overflow-hidden font-mono',
+        'fixed flex max-h-72 w-96 max-w-[calc(100vw-16px)] flex-col overflow-hidden font-mono',
         Z.popover,
         popoverSurface
       )}
@@ -364,7 +393,9 @@ export function FileMention({
               ) : (
                 <File size={12} aria-hidden className="shrink-0 text-muted-foreground" />
               )}
-              <span className="truncate">{file.path}</span>
+              <span className="truncate [overflow-wrap:anywhere]" title={file.path}>
+                {file.path}
+              </span>
             </div>
           ))
         )}

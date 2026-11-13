@@ -351,7 +351,7 @@ export function SkillMention({
     <div
       ref={popoverRef}
       className={cn(
-        'fixed flex max-h-72 w-96 flex-col overflow-hidden font-mono',
+        'fixed flex max-h-72 w-96 max-w-[calc(100vw-16px)] flex-col overflow-hidden font-mono',
         Z.popover,
         popoverSurface
       )}
@@ -405,7 +405,12 @@ export function SkillMention({
             >
               <div className="flex items-baseline gap-1.5">
                 <span className="select-none text-muted-foreground">/</span>
-                <span className="truncate font-bold">{skill.name}</span>
+                <span
+                  className="min-w-0 flex-1 truncate font-bold [overflow-wrap:anywhere]"
+                  title={skill.name}
+                >
+                  {skill.name}
+                </span>
               </div>
               <div className="line-clamp-2 pl-[2ch] text-[10px] text-muted-foreground">
                 {skill.description}

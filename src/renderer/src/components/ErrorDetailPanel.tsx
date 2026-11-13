@@ -37,7 +37,10 @@ export function ErrorDetailPanel({
   const isLongError = error.length > 200
 
   return (
-    <div className="border-l-2 border-state-error bg-state-error/8 px-3 py-2 font-mono text-[12px]">
+    <div
+      role="alert"
+      className="border-l-2 border-state-error bg-state-error/8 px-3 py-2 font-mono text-[12px]"
+    >
       <div className="mb-1.5 flex items-baseline gap-2">
         <span aria-hidden className="state-error select-none">
           ✗

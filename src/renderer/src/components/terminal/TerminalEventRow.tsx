@@ -66,7 +66,6 @@ export function TerminalEventRow({
   const wrapProps = flat
     ? {}
     : {
-        layout: 'position' as const,
         initial: { opacity: 0, x: -2 },
         animate: { opacity: 1, x: 0 },
         transition: { duration: 0.12 }
@@ -122,7 +121,7 @@ export function TerminalEventRow({
         className={cn(
           'min-w-0 flex-1 truncate',
           isRunning && 'state-running',
-          isCompleted && 'text-foreground/75',
+          isCompleted && 'text-muted-foreground',
           isError && 'state-error'
         )}
         title={event.description}

@@ -1,7 +1,8 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { type Pair } from '../store/usePairStore'
-import { emptyHint, sectionLabel } from '../lib/ui'
+import { cn } from '../lib/utils'
+import { emptyHint, sectionLabel, warningCallout } from '../lib/ui'
 import { InsightsPanel } from './InsightsPanel'
 import { RecentActivityPanel } from './RecentActivityPanel'
 
@@ -41,9 +42,12 @@ export function ActivityView({ pairs, onSelectPair }: ActivityViewProps): React.
                   key={pair.id}
                   type="button"
                   onClick={() => onSelectPair?.(pair)}
-                  className="w-full min-w-0 cursor-pointer rounded-md border-l-2 border-state-error/40 bg-state-error/[0.04] px-2.5 py-1.5 text-left transition-colors hover:bg-state-error/[0.08]"
+                  className={cn(
+                    warningCallout,
+                    'w-full min-w-0 cursor-pointer rounded-md text-left transition-colors hover:bg-state-running/15'
+                  )}
                 >
-                  <div className="flex items-baseline justify-between gap-2">
+                  <div className="flex min-w-0 items-baseline justify-between gap-2">
                     <span className="truncate text-[13px] font-medium text-foreground/90">
                       {pair.name}
                     </span>

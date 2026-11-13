@@ -82,6 +82,9 @@ const MARKDOWN_COMPONENTS: Components = {
     <td className="border border-border px-2 py-1 align-baseline">{children}</td>
   ),
   hr: () => <hr className="my-2 tty-divider" />,
+  img: ({ src, alt }) => (
+    <img src={src} alt={alt ?? ''} loading="lazy" className="my-2 max-w-full rounded-sm" />
+  ),
   strong: ({ children }) => <strong className="font-bold text-foreground">{children}</strong>,
   em: ({ children }) => <em className="not-italic text-foreground/85">{children}</em>
 }

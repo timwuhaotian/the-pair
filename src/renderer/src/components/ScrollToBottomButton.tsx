@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useReducedMotion } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
 
@@ -18,6 +19,7 @@ export function ScrollToBottomButton({
   className
 }: ScrollToBottomButtonProps): React.ReactNode {
   const { t } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const [showButton, setShowButton] = useState(false)
 
   const updateVisibility = useCallback(() => {
@@ -42,7 +44,7 @@ export function ScrollToBottomButton({
   const scrollToBottom = (): void => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
   if (!showButton) return null

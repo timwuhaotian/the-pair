@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
+import { ModalFooter } from './ui/ModalFooter'
 import { Chip } from './ui/Chip'
 import { cn } from '../lib/utils'
 import { errorCallout, warningCallout } from '../lib/ui'
@@ -200,32 +201,33 @@ export function ImportWizardModal({
           </ul>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-          <GlassButton
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => void runScan()}
-            data-testid="import-wizard-rescan"
-          >
-            <RefreshCw size={13} />
-            {t('models.wizard.rescan')}
-          </GlassButton>
-          <div className="flex items-center gap-2">
-            <GlassButton variant="ghost" size="sm" onClick={onClose}>
-              {t('common.cancel')}
-            </GlassButton>
+        <ModalFooter
+          start={
             <GlassButton
-              variant="primary"
+              variant="ghost"
               size="sm"
-              disabled={busy || selectedCount === 0}
-              onClick={() => void commit()}
-              data-testid="import-wizard-commit"
+              disabled={busy}
+              onClick={() => void runScan()}
+              data-testid="import-wizard-rescan"
             >
-              {t('models.wizard.import', { count: selectedCount })}
+              <RefreshCw size={13} />
+              {t('models.wizard.rescan')}
             </GlassButton>
-          </div>
-        </div>
+          }
+        >
+          <GlassButton variant="ghost" size="sm" onClick={onClose}>
+            {t('common.cancel')}
+          </GlassButton>
+          <GlassButton
+            variant="primary"
+            size="sm"
+            disabled={busy || selectedCount === 0}
+            onClick={() => void commit()}
+            data-testid="import-wizard-commit"
+          >
+            {t('models.wizard.import', { count: selectedCount })}
+          </GlassButton>
+        </ModalFooter>
       </div>
     </GlassModal>
   )

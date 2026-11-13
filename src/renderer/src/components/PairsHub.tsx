@@ -1,10 +1,8 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Folder, Pause, Play, Plus, Trash2 } from 'lucide-react'
-import { motion } from 'framer-motion'
 import { type Pair } from '../store/usePairStore'
 import { buildWorkspaceGroups } from '../lib/dashboardPairs'
-import { fadeInUp } from '../lib/animations'
 import { isPairActive } from '../lib/pairStatus'
 import { cn, formatIterations } from '../lib/utils'
 import { StatusBadge } from './StatusBadge'
@@ -49,13 +47,10 @@ function PairCard({
     (pair.turn === 'executor' && pair.executorActivity.phase === 'stalled')
 
   return (
-    <motion.div
-      variants={fadeInUp}
-      initial="hidden"
-      animate="visible"
+    <div
       data-testid={`hub-pair-card-${pair.id}`}
       className={cn(
-        'shell-card shell-card-hover group relative flex w-full flex-col gap-2 px-4 py-3',
+        'shell-card shell-card-hover group relative flex w-full flex-col gap-2 px-4 py-3 animate-in fade-in slide-in-from-bottom-2 duration-300',
         className
       )}
     >
@@ -76,7 +71,7 @@ function PairCard({
         >
           {pair.name}
         </button>
-        <span className="relative z-10 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <span className="relative z-10 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           {pair.status === 'Paused' ? (
             <IconButton
               aria-label={t('common.resume', { defaultValue: 'Resume' })}
@@ -116,9 +111,14 @@ function PairCard({
         )}
       </div>
       {(pair.spec || pair.directory) && (
-        <p className="truncate text-[12px] text-muted-foreground">{pair.spec || pair.directory}</p>
+        <p
+          className="truncate text-[12px] text-muted-foreground"
+          title={pair.spec || pair.directory}
+        >
+          {pair.spec || pair.directory}
+        </p>
       )}
-    </motion.div>
+    </div>
   )
 }
 

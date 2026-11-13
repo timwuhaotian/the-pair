@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
+import { ModalFooter } from './ui/ModalFooter'
+import { ToggleRow } from './ui/ToggleRow'
 import { FileMention } from './FileMention'
 import { ModelPicker } from './ModelPicker'
 import { SkillPicker } from './SkillPicker'
@@ -15,7 +17,7 @@ import { prependFileContext } from '../lib/fileMentions'
 import { isPairBusy } from '../lib/pairStatus'
 import { tauriApi } from '../lib/tauri-api'
 import { cn } from '../lib/utils'
-import { errorCallout, fieldInput, fieldLabel, hoverTint, warningCallout } from '../lib/ui'
+import { errorCallout, fieldInput, fieldLabel, roleCallout, warningCallout } from '../lib/ui'
 import type { PairPreset, RepoState } from '../types'
 import {
   finalizePresetSpec,
@@ -291,31 +293,13 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             )}
           </div>
           {!isRestoring && pairRepoCheck?.isGitRepo && (
-            <button
-              type="button"
-              onClick={toggleFreshWorktree}
-              aria-pressed={freshWorktree}
-              data-testid="fresh-worktree-toggle"
-              className={cn(
-                '-mx-1.5 flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1 text-left transition-colors',
-                hoverTint
-              )}
-            >
-              <span
-                className={cn(
-                  'mt-px select-none font-mono text-[12px]',
-                  freshWorktree ? 'state-running' : 'text-muted-foreground-faint'
-                )}
-              >
-                {freshWorktree ? '[x]' : '[ ]'}
-              </span>
-              <span className="flex flex-col gap-0.5">
-                <span className={fieldLabel}>{t('modals.freshWorktreeLabel')}</span>
-                <span className="text-[11px] normal-case leading-snug text-muted-foreground-faint">
-                  {t('modals.freshWorktreeHint')}
-                </span>
-              </span>
-            </button>
+            <ToggleRow
+              checked={freshWorktree}
+              onToggle={toggleFreshWorktree}
+              label={t('modals.freshWorktreeLabel')}
+              hint={t('modals.freshWorktreeHint')}
+              testId="fresh-worktree-toggle"
+            />
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModelPicker
@@ -335,9 +319,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           {modelsChanged && (
-            <div className="border-l-2 border-role-mentor bg-role-mentor px-2.5 py-2 text-[12px] role-mentor">
-              → {t('modals.modelUpdateNote')}
-            </div>
+            <div className={roleCallout('mentor')}>→ {t('modals.modelUpdateNote')}</div>
           )}
 
           <div className="flex flex-col gap-1">
@@ -404,7 +386,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           )}
         </div>
 
-        <div className="mt-3 flex shrink-0 justify-end gap-2 border-t border-border pt-3">
+        <ModalFooter>
           <GlassButton
             type="button"
             variant="secondary"
@@ -438,7 +420,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
                 ? t('modals.restore')
                 : t('modals.startNewTask')}
           </GlassButton>
-        </div>
+        </ModalFooter>
       </form>
     </GlassModal>
   )

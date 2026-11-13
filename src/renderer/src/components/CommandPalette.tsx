@@ -1,10 +1,12 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { CornerDownLeft } from 'lucide-react'
+import { useReducedMotion } from 'framer-motion'
 import { cn } from '../lib/utils'
 import { activeTint, emptyHint, hoverTint, kbd, sectionLabel, Z } from '../lib/ui'
+import { shouldCloseOnEscape } from './keyboard'
 import type { PaletteAction } from '../lib/paletteActions'
 
 interface CommandPaletteProps {
@@ -18,6 +20,9 @@ interface RankedAction {
   action: PaletteAction
   label: string
 }
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 /**
  * Global command palette (Cmd+K). Filters the provided actions with fuzzy
@@ -34,6 +39,10 @@ export function CommandPalette({
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const previouslyFocused = useRef<HTMLElement | null>(null)
+  const reduceMotion = useReducedMotion()
 
   const available = useMemo(
     () => actions.filter((action) => action.available?.() ?? true),
@@ -65,12 +74,58 @@ export function CommandPalette({
   // leave it pointing past the end — no reset effects needed.
   const clampedIndex = results.length === 0 ? 0 : Math.min(activeIndex, results.length - 1)
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent): void => {
+      if (isOpen && shouldCloseOnEscape(e)) onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [isOpen, onClose])
+
+  useEffect(() => {
+    if (!isOpen) {
+      previouslyFocused.current?.focus?.()
+      previouslyFocused.current = null
+      return
+    }
+    previouslyFocused.current = document.activeElement as HTMLElement | null
+    inputRef.current?.focus()
+    const handleTab = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return
+      const el = containerRef.current
+      if (!el) return
+      const nodes = el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      if (nodes.length === 0) {
+        e.preventDefault()
+        el.focus()
+        return
+      }
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const outside = !el.contains(document.activeElement) || document.activeElement === el
+      if (e.shiftKey) {
+        if (document.activeElement === first || outside) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last || outside) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', handleTab)
+    return () => document.removeEventListener('keydown', handleTab)
+  }, [isOpen])
+
   if (!isOpen) return null
 
   const scrollActiveIntoView = (): void => {
     requestAnimationFrame(() => {
       listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({
-        block: 'nearest'
+        block: 'nearest',
+        behavior: reduceMotion ? 'auto' : 'smooth'
       })
     })
   }
@@ -104,9 +159,6 @@ export function CommandPalette({
     } else if (e.key === 'Enter') {
       e.preventDefault()
       runAt(clampedIndex)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
     }
   }
 
@@ -119,12 +171,14 @@ export function CommandPalette({
     >
       <div aria-hidden className="absolute inset-0 bg-background/80" onMouseDown={onClose} />
       <div
+        ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-label={t('palette.title')}
         data-testid="command-palette"
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="shell-card relative w-full max-w-[560px] overflow-hidden bg-popover"
+        className="shell-card relative w-full max-w-[560px] overflow-hidden bg-popover outline-none"
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
           <span aria-hidden className="select-none text-muted-foreground">
@@ -136,9 +190,9 @@ export function CommandPalette({
             placeholder={t('palette.placeholder')}
             aria-label={t('palette.placeholder')}
             data-testid="command-palette-input"
+            ref={inputRef}
             autoComplete="off"
             spellCheck={false}
-            autoFocus
             className="h-12 w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground-faint"
           />
           <kbd className={cn(kbd, 'shrink-0')}>esc</kbd>
