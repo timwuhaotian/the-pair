@@ -1,13 +1,11 @@
-import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 
-import { getRustupBinDir, prependPathEntry } from './rustup-env.mjs'
+import { prependPathEntry, resolveRustupBinDir } from './rustup-env.mjs'
 
 const require = createRequire(import.meta.url)
-const rustupBinDir = getRustupBinDir()
 
 export function getPathEnvKey(env = process.env) {
   return Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
@@ -34,8 +32,9 @@ function main() {
     throw new Error('Usage: node scripts/run-with-rustup.mjs <command> [args...]')
   }
 
-  if (!existsSync(rustupBinDir)) {
-    throw new Error(`Rustup shims were not found at ${rustupBinDir}`)
+  const rustupBinDir = resolveRustupBinDir()
+  if (!rustupBinDir) {
+    throw new Error('rustup cargo proxy not found; run `npm run preflight` for details')
   }
 
   const pathKey = getPathEnvKey(process.env)

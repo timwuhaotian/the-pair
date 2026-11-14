@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 
-import { getRustupBinDir } from './rustup-env.mjs'
+import { resolveRustupBinDir } from './rustup-env.mjs'
 
 function loadPackageJson() {
   const packageJsonUrl = new URL('../package.json', import.meta.url)
@@ -120,11 +120,11 @@ function checkRustup() {
     return { ok: false, message: `Unable to run rustup. ${hint}` }
   }
 
-  const rustupBinDir = getRustupBinDir()
-  if (!existsSync(rustupBinDir)) {
+  if (!resolveRustupBinDir()) {
     return {
       ok: false,
-      message: `Rustup shims were not found at ${rustupBinDir}. Make sure Cargo home is configured correctly or reinstall Rust with rustup.`
+      message:
+        'rustup is installed but its `cargo` proxy was not found next to any `rustup` on PATH or in Cargo home. Run `rustup default stable` or reinstall Rust with rustup.'
     }
   }
 
