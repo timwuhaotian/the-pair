@@ -202,6 +202,7 @@
       case 'load_all_pairs':
         return state.snapshots ?? []
       case 'list_recoverable_sessions':
+      case 'list_snapshot_problems':
         return []
       case 'git_commit_changes':
         return { sha: 'abc1234', filesCommitted: 1 }

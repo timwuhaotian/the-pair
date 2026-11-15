@@ -75,9 +75,9 @@ pub struct AcceptanceVerdict {
 /// `confidence`, `issues` and `reasoning` were added after verdicts were
 /// already being persisted in snapshots (v1.3.3–v1.3.10 wrote them without
 /// these fields), so they must stay optional on the wire or those snapshots
-/// fail to load. The defaults mirror the lenient mentor-verdict parser in
-/// `acceptance.rs` (pass → 1.0 / fail → 0.0 confidence, reasoning falls back to
-/// the summary), so strict and lenient parsing of a mentor reply still agree.
+/// fail to load. Live mentor replies are parsed separately in `acceptance.rs`:
+/// finishing there requires an explicit confidence, while these defaults apply
+/// only to already-persisted records.
 impl<'de> Deserialize<'de> for AcceptanceVerdict {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

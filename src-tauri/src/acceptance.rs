@@ -1,4 +1,5 @@
 use crate::git_tracker::GitTracker;
+pub use crate::quality_gate::NO_CHANGES_CHECK_NAME;
 use crate::types::{
     AcceptanceCheckRun, AcceptanceCheckStatus, AcceptanceNextAction, AcceptanceNextStep,
     AcceptanceRecord, AcceptanceRisk, AcceptanceVerdict, AcceptanceVerdictDecision, ModifiedFile,
@@ -35,6 +36,7 @@ const MAX_JSON_CANDIDATES: usize = 256;
 /// last thing a review says, so most of the budget goes to the end; these few
 /// still find one that was written first with a long excerpt after it.
 const LEADING_JSON_CANDIDATES: usize = 32;
+const TRAILING_JSON_CANDIDATES: usize = 32;
 /// A verdict JSON is a few hundred bytes. Anything larger is a file the mentor
 /// quoted, not the verdict.
 const MAX_CANDIDATE_CHARS: usize = 32 * 1024;
@@ -46,11 +48,13 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 ///
 /// The structured evidence format (`FILES_REVIEWED:` / `CHECKS:` / `CODE:`
 /// lines) is part of the mentor's system prompt on the direct connection, so it
-/// is enforced whenever the mentor used all three markers at the start of a
-/// line. Incidental text such as "EXIT CODE: 1" or "AUTOMATED CHECKS: 3 passed"
-/// never causes a valid JSON verdict to be rejected.
+/// is required on real review turns. Incidental text such as "EXIT CODE: 1"
+/// or "AUTOMATED CHECKS: 3 passed" does not count as evidence.
 pub fn parse_review_verdict_with_quality(raw: &str) -> Result<AcceptanceVerdict, String> {
-    if let Some(evidence) = crate::quality_gate::extract_evidence(raw) {
+    if !crate::util::is_mock_mode() {
+        let evidence = crate::quality_gate::extract_evidence(raw).ok_or_else(|| {
+            "Review quality gate: missing FILES_REVIEWED, CHECKS, or CODE evidence".to_string()
+        })?;
         if let crate::quality_gate::QualityGateResult::Fail { reason } =
             crate::quality_gate::validate_review(&evidence)
         {
@@ -84,7 +88,14 @@ struct LooseAcceptanceVerdict {
 }
 
 impl LooseAcceptanceVerdict {
-    fn into_verdict(self) -> AcceptanceVerdict {
+    fn into_verdict(self) -> Result<AcceptanceVerdict, String> {
+        if self.confidence.is_none()
+            && matches!(self.next_step.action, AcceptanceNextAction::Finish)
+        {
+            return Err(
+                "Acceptance verdict must include an explicit confidence when finishing".into(),
+            );
+        }
         let confidence = self.confidence.unwrap_or(match self.verdict {
             AcceptanceVerdictDecision::Pass => 1.0,
             AcceptanceVerdictDecision::Fail => 0.0,
@@ -94,7 +105,7 @@ impl LooseAcceptanceVerdict {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| self.summary.clone());
 
-        AcceptanceVerdict {
+        Ok(AcceptanceVerdict {
             verdict: self.verdict,
             risk: self.risk,
             confidence,
@@ -103,7 +114,7 @@ impl LooseAcceptanceVerdict {
             reasoning,
             summary: self.summary,
             next_step: self.next_step,
-        }
+        })
     }
 }
 
@@ -146,18 +157,17 @@ fn package_scripts(package_json: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn completion_signal_present(executor_output: &str) -> bool {
+pub fn completion_signal_present(executor_output: &str) -> bool {
     let lower = executor_output.to_lowercase();
-    [
-        "done",
-        "complete",
-        "completed",
-        "implemented",
-        "fixed",
-        "ready for review",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
+    lower.contains("ready for review")
+        || lower
+            .split(|character: char| !character.is_alphanumeric())
+            .any(|word| {
+                matches!(
+                    word,
+                    "done" | "complete" | "completed" | "implemented" | "fixed"
+                )
+            })
 }
 
 pub fn classify_acceptance_risk(modified_files: &[ModifiedFile]) -> AcceptanceRisk {
@@ -263,30 +273,6 @@ fn build_acceptance_check_plan(
     }
 
     checks
-}
-
-/// Classifies whether a non-zero exit code from `git diff --check` indicates a
-/// real whitespace problem or an environment-level anomaly (signal kill, not a
-/// git repo, etc.). Returning true means the failure is genuine; false means
-/// the check could not produce a meaningful answer and should be reported as
-/// `Skipped` so it doesn't poison the mentor's review.
-fn is_actionable_git_check_failure(exit_code: Option<i32>, stderr: &str) -> bool {
-    let stderr_lower = stderr.to_lowercase();
-    if stderr_lower.contains("not a git repository") {
-        return false;
-    }
-    match exit_code {
-        // Exit 1 / 2 are the canonical "found whitespace errors" codes.
-        Some(1) | Some(2) => true,
-        // Signal-killed (128 + signo) or other environment failures aren't
-        // about the diff itself — treat as inconclusive.
-        Some(code) if code > 128 => false,
-        // Unknown status (e.g., process terminated without exit code) → skip.
-        None => false,
-        // Any other unexpected non-zero code: skip rather than surface as a
-        // hard fail. If a real whitespace problem occurs, exit 1 covers it.
-        Some(_) => false,
-    }
 }
 
 fn check_timeout(check: &AcceptanceCheckPlan) -> Duration {
@@ -434,7 +420,7 @@ async fn run_check_with_timeout(
             return AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: AcceptanceCheckStatus::Skipped,
+                status: AcceptanceCheckStatus::Failed,
                 exit_code: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 summary: format!("{} could not start", check.command),
@@ -487,18 +473,17 @@ async fn run_check_with_timeout(
     let duration_ms = started.elapsed().as_millis() as u64;
 
     let exit_status = match wait_result {
-        // Running out of time says nothing about the executor's work (a slow
-        // machine, a huge suite, a watcher that never exits). Reporting it as
-        // failed told the mentor the tests fail on every iteration.
+        // Running out of time does not prove the executor's work is bad, but
+        // it does prove verification did not pass. Completion stays blocked.
         Err(_elapsed) => {
             return AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: AcceptanceCheckStatus::Skipped,
+                status: AcceptanceCheckStatus::Failed,
                 exit_code: None,
                 duration_ms,
                 summary: format!(
-                    "{} timed out after {}s and was stopped",
+                    "{} timed out after {}s and was stopped; completion is blocked",
                     check.command,
                     limit.as_secs()
                 ),
@@ -510,7 +495,7 @@ async fn run_check_with_timeout(
             return AcceptanceCheckRun {
                 name: check.name.clone(),
                 command: check.command.clone(),
-                status: AcceptanceCheckStatus::Skipped,
+                status: AcceptanceCheckStatus::Failed,
                 exit_code: None,
                 duration_ms,
                 summary: format!("{} could not complete", check.command),
@@ -528,17 +513,12 @@ async fn run_check_with_timeout(
     let success = exit_status.success();
     let exit_code = exit_status.code();
 
-    // Special-case `git diff --check`: env/signal failures shouldn't be
-    // reported as `failed`, only genuine whitespace errors should.
-    let is_git_diff_check = check.program == "git"
-        && check.args.first().map(|s| s.as_str()) == Some("diff")
-        && check.args.iter().any(|s| s == "--check");
-
     let status = if success {
         AcceptanceCheckStatus::Passed
-    } else if is_git_diff_check && !is_actionable_git_check_failure(exit_code, &stderr) {
-        AcceptanceCheckStatus::Skipped
     } else {
+        // A non-zero or unknown exit never proves the change is bad, but it
+        // does prove verification did not pass. It must not become a skip that
+        // the mentor can finish over.
         AcceptanceCheckStatus::Failed
     };
 
@@ -609,15 +589,24 @@ fn balanced_object_ranges(chars: &[char]) -> Vec<(usize, usize)> {
         .enumerate()
         .filter_map(|(index, ch)| (*ch == '{').then_some(index))
         .collect();
-    let trailing = MAX_JSON_CANDIDATES - LEADING_JSON_CANDIDATES;
     let starts: Vec<usize> = if opens.len() <= MAX_JSON_CANDIDATES {
         opens
     } else {
-        opens[..LEADING_JSON_CANDIDATES]
-            .iter()
-            .chain(&opens[opens.len() - trailing..])
-            .copied()
-            .collect()
+        // Keep both ends and sample the middle. A valid verdict surrounded by
+        // quoted code used to disappear when it fell outside the first/last
+        // 256 braces, ending the run in a parse-failure pause.
+        let middle_len = MAX_JSON_CANDIDATES - LEADING_JSON_CANDIDATES - TRAILING_JSON_CANDIDATES;
+        let middle = opens.len() - LEADING_JSON_CANDIDATES - TRAILING_JSON_CANDIDATES;
+        let mut selected: Vec<usize> = Vec::with_capacity(MAX_JSON_CANDIDATES);
+        selected.extend_from_slice(&opens[..LEADING_JSON_CANDIDATES]);
+        for index in 0..middle_len {
+            let offset = (index + 1) * middle / (middle_len + 1);
+            selected.push(opens[LEADING_JSON_CANDIDATES + offset]);
+        }
+        selected.extend_from_slice(&opens[opens.len() - TRAILING_JSON_CANDIDATES..]);
+        selected.sort_unstable();
+        selected.dedup();
+        selected
     };
 
     let mut ranges: Vec<(usize, usize)> = starts
@@ -666,21 +655,12 @@ fn object_end(chars: &[char], start: usize) -> Option<usize> {
 pub fn parse_acceptance_verdict(raw: &str) -> Result<AcceptanceVerdict, String> {
     let mut last_error = "Acceptance verdict was empty".to_string();
     for candidate in extract_json_candidates(raw) {
-        let parsed =
-            serde_json::from_str::<AcceptanceVerdict>(&candidate).or_else(|strict_error| {
-                last_error = strict_error.to_string();
-                serde_json::from_str::<LooseAcceptanceVerdict>(&candidate)
-                    .map(LooseAcceptanceVerdict::into_verdict)
-            });
-
-        match parsed {
-            Ok(verdict) => match validate_acceptance_verdict(verdict) {
-                Ok(validated) => return Ok(validated),
-                Err(error) => return Err(error),
-            },
-            Err(error) => {
-                last_error = error.to_string();
+        match serde_json::from_str::<LooseAcceptanceVerdict>(&candidate) {
+            Ok(loose) => {
+                let verdict = loose.into_verdict()?;
+                return validate_acceptance_verdict(verdict);
             }
+            Err(error) => last_error = error.to_string(),
         }
     }
 
@@ -769,11 +749,56 @@ async fn refresh_modified_files(
     merge_modified_files(known, fresh)
 }
 
-async fn resolve_diff_base(workspace_root: &Path) -> String {
+async fn resolve_diff_base(workspace_root: &Path, baseline: Option<&str>) -> String {
     let directory = workspace_root.to_string_lossy().to_string();
-    tokio::task::spawn_blocking(move || crate::git_tracker::diff_base(&directory))
-        .await
-        .unwrap_or_else(|_| "HEAD".to_string())
+    let baseline = baseline.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        crate::git_tracker::diff_base_at(&directory, baseline.as_deref())
+    })
+    .await
+    .unwrap_or_else(|_| "HEAD".to_string())
+}
+
+pub fn empty_changes_check() -> AcceptanceCheckRun {
+    AcceptanceCheckRun {
+        name: NO_CHANGES_CHECK_NAME.into(),
+        command: NO_CHANGES_CHECK_NAME.into(),
+        status: AcceptanceCheckStatus::Failed,
+        exit_code: None,
+        duration_ms: 0,
+        summary: "No files changed; automated completion is blocked".into(),
+        stdout: String::new(),
+        stderr: String::new(),
+    }
+}
+
+/// The single completion invariant used for both structured verdicts and a
+/// bare TASK_COMPLETE: real changes and every planned check must have passed.
+pub fn completion_block(
+    modified_files: &[ModifiedFile],
+    acceptance: Option<&AcceptanceRecord>,
+) -> Option<String> {
+    if modified_files.is_empty() {
+        return Some("No files changed; finish requires human review".into());
+    }
+    let Some(acceptance) = acceptance else {
+        return Some("No automated acceptance record; finish requires human review".into());
+    };
+    if acceptance.checks.is_empty() {
+        return Some("No automated checks ran; finish requires human review".into());
+    }
+    let incomplete: Vec<_> = acceptance
+        .checks
+        .iter()
+        .filter(|check| !matches!(check.status, AcceptanceCheckStatus::Passed))
+        .map(|check| check.name.clone())
+        .collect();
+    (!incomplete.is_empty()).then(|| {
+        format!(
+            "Automated checks did not pass ({}); finish requires repair or human review",
+            incomplete.join(", ")
+        )
+    })
 }
 
 pub async fn run_acceptance_checks(
@@ -782,10 +807,11 @@ pub async fn run_acceptance_checks(
     executor_output: &str,
     iteration: u32,
     max_iterations: u32,
+    baseline: Option<&str>,
 ) -> AcceptanceRecord {
     let started_at = now_millis();
     let modified_files = refresh_modified_files(workspace_root, modified_files).await;
-    let diff_base = resolve_diff_base(workspace_root).await;
+    let diff_base = resolve_diff_base(workspace_root, baseline).await;
     let checks = build_acceptance_check_plan(
         &workspace_root.to_string_lossy(),
         None,
@@ -796,9 +822,13 @@ pub async fn run_acceptance_checks(
         &diff_base,
     );
 
-    let mut runs = Vec::with_capacity(checks.len());
-    for check in &checks {
-        runs.push(run_check(workspace_root, check).await);
+    let mut runs = Vec::with_capacity(checks.len().max(1));
+    if modified_files.is_empty() {
+        runs.push(empty_changes_check());
+    } else {
+        for check in &checks {
+            runs.push(run_check(workspace_root, check).await);
+        }
     }
 
     let passed = runs
@@ -857,7 +887,8 @@ pub fn build_mentor_acceptance_prompt(
         "Notes:".to_string(),
         "- `verdict` judges the executor's latest output: \"pass\" if it's correct, \"fail\" if it needs rework. `nextStep.action` is a separate axis that tracks whether the overall task is finished.".to_string(),
         "- These two are independent. In a multi-step task, a correct step that still has follow-up work is \"verdict\": \"pass\" with \"action\": \"continue\" plus the next instructions. Avoid marking a good step \"fail\" just because later steps remain.".to_string(),
-        "- Use \"action\": \"finish\" only when the entire task is complete; confidence ≥ 0.8 is required to finish.".to_string(),
+        "- Use \"action\": \"finish\" only when the entire task is complete; confidence ≥ 0.8 is required and must be explicit.".to_string(),
+        "- Never finish when any automated check failed, timed out, could not start, or reported no file changes. Use continue with concrete repair instructions, or ask for human review.".to_string(),
         "- If nextStep.action is \"continue\", include concrete instructions for what the executor should do next.".to_string(),
         "- If nextStep.action is \"finish\", instructions should be an empty array.".to_string(),
         "- When you finish the workflow (action \"finish\"), add TASK_COMPLETE on its own line after the JSON so the orchestrator knows to stop.".to_string(),
@@ -942,7 +973,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_acceptance_verdict_accepts_minimal_display_schema() {
+    fn parse_acceptance_verdict_requires_confidence_to_finish() {
         let verdict = super::parse_acceptance_verdict(
             r#"{
                 "verdict": "pass",
@@ -955,17 +986,9 @@ mod tests {
                 }
             }"#,
         )
-        .expect("minimal verdict should parse");
+        .expect_err("finishing without explicit confidence must fail");
 
-        assert_eq!(verdict.verdict, AcceptanceVerdictDecision::Pass);
-        assert_eq!(verdict.risk, AcceptanceRisk::Low);
-        assert_eq!(verdict.confidence, 1.0);
-        assert!(verdict.issues.is_empty());
-        assert_eq!(
-            verdict.reasoning,
-            "Executor stayed focused on real project work"
-        );
-        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+        assert!(verdict.contains("explicit confidence"), "{}", verdict);
     }
 
     #[test]
@@ -1091,6 +1114,127 @@ mod tests {
         assert!(!prompt.contains("### ROLE:"));
     }
 
+    fn test_file(path: &str, status: FileStatus) -> ModifiedFile {
+        ModifiedFile {
+            path: path.into(),
+            display_path: path.into(),
+            status,
+        }
+    }
+
+    #[test]
+    fn acceptance_risk_covers_backend_and_size_boundaries() {
+        assert_eq!(classify_acceptance_risk(&[]), AcceptanceRisk::Low);
+        assert_eq!(
+            classify_acceptance_risk(&[test_file("src/a.py", FileStatus::M)]),
+            AcceptanceRisk::Low
+        );
+        assert_eq!(
+            classify_acceptance_risk(&[test_file("src-tauri/src/a.rs", FileStatus::M)]),
+            AcceptanceRisk::Medium
+        );
+        for (count, expected) in [
+            (5, AcceptanceRisk::Low),
+            (6, AcceptanceRisk::Medium),
+            (11, AcceptanceRisk::Medium),
+            (12, AcceptanceRisk::High),
+        ] {
+            let files: Vec<_> = (0..count)
+                .map(|index| test_file(&format!("src/f{index}.py"), FileStatus::M))
+                .collect();
+            assert_eq!(classify_acceptance_risk(&files), expected);
+        }
+        assert_eq!(
+            classify_acceptance_risk(&[test_file("db/migrations/1.sql", FileStatus::M)]),
+            AcceptanceRisk::High
+        );
+        assert_eq!(
+            classify_acceptance_risk(&[test_file("src/a.py", FileStatus::D)]),
+            AcceptanceRisk::High
+        );
+    }
+
+    #[test]
+    fn full_test_scheduling_uses_word_signals_and_budget_boundary() {
+        assert!(!completion_signal_present(
+            "This is undone, not a completion claim"
+        ));
+        assert!(completion_signal_present("Done"));
+        assert!(!should_add_full_test(
+            &AcceptanceRisk::Low,
+            "working",
+            1,
+            10
+        ));
+        assert!(should_add_full_test(&AcceptanceRisk::Low, "done", 1, 10));
+        assert!(should_add_full_test(&AcceptanceRisk::Low, "working", 8, 10));
+        assert!(should_add_full_test(
+            &AcceptanceRisk::High,
+            "working",
+            1,
+            10
+        ));
+    }
+
+    #[test]
+    fn completion_gate_requires_changes_and_passed_checks() {
+        let file = test_file("src/a.py", FileStatus::M);
+        assert!(completion_block(&[], None).is_some());
+        assert!(completion_block(std::slice::from_ref(&file), None).is_some());
+        let mut record = AcceptanceRecord {
+            iteration: 1,
+            risk: AcceptanceRisk::Low,
+            checks: vec![empty_changes_check()],
+            summary: String::new(),
+            started_at: 0,
+            finished_at: 0,
+            verdict: None,
+            raw_verdict: None,
+            error: None,
+            repair_attempts: 0,
+        };
+        assert!(completion_block(&[file.clone()], Some(&record)).is_some());
+        record.checks[0].status = AcceptanceCheckStatus::Passed;
+        assert_eq!(completion_block(&[file], Some(&record)), None);
+    }
+
+    #[test]
+    fn completion_gate_blocks_when_no_checks_ran() {
+        let file = test_file("src/a.py", FileStatus::M);
+        let record = AcceptanceRecord {
+            iteration: 1,
+            risk: AcceptanceRisk::Low,
+            checks: vec![],
+            summary: String::new(),
+            started_at: 0,
+            finished_at: 0,
+            verdict: None,
+            raw_verdict: None,
+            error: None,
+            repair_attempts: 0,
+        };
+
+        assert_eq!(
+            completion_block(&[file], Some(&record)),
+            Some("No automated checks ran; finish requires human review".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn no_change_runs_emit_a_blocking_check_and_prompt() {
+        let dir = unique_dir("no-changes");
+        fs::create_dir_all(&dir).unwrap();
+        let record = run_acceptance_checks(&dir, &[], "done", 1, 0, None).await;
+        assert_eq!(record.checks.len(), 1);
+        assert_eq!(record.checks[0].name, NO_CHANGES_CHECK_NAME);
+        assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
+        assert!(completion_block(&[], Some(&record)).is_some());
+        let prompt = build_mentor_acceptance_prompt("task", "done", &record);
+        assert!(prompt.contains("Never finish when any automated check failed"));
+        assert!(prompt.contains("confidence ≥ 0.8 is required and must be explicit"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn build_acceptance_check_plan_prefers_fast_checks_and_adds_test_when_needed() {
         let package_json = serde_json::json!({
@@ -1152,22 +1296,6 @@ mod tests {
                 .map(|c| c.name.as_str())
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn is_actionable_git_check_failure_classifies_signal_and_repo_errors_as_skipped() {
-        // Genuine whitespace failures should remain actionable.
-        assert!(super::is_actionable_git_check_failure(Some(1), ""));
-        assert!(super::is_actionable_git_check_failure(Some(2), ""));
-
-        // Signal-killed (128+) and env-level failures should not.
-        assert!(!super::is_actionable_git_check_failure(Some(129), ""));
-        assert!(!super::is_actionable_git_check_failure(Some(143), ""));
-        assert!(!super::is_actionable_git_check_failure(None, ""));
-        assert!(!super::is_actionable_git_check_failure(
-            Some(128),
-            "fatal: not a git repository (or any of the parent directories): .git"
-        ));
     }
 
     #[test]
@@ -1416,6 +1544,17 @@ mod tests {
     }
 
     #[test]
+    fn a_verdict_between_hundreds_of_quoted_objects_is_still_found() {
+        let noise = (0..150)
+            .map(|index| format!("fn f{}() {{ g(); }}", index))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let raw = format!("{}\n{}\n{}", noise, PASS_FINISH_JSON, noise);
+        let verdict = super::parse_acceptance_verdict(&raw).expect("middle verdict should parse");
+        assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
+    }
+
+    #[test]
     fn a_verdict_written_before_a_long_excerpt_is_still_found() {
         let mut raw = String::from(PASS_FINISH_JSON);
         raw.push_str("\n\nFor reference, the code I read:\n");
@@ -1427,18 +1566,22 @@ mod tests {
     }
 
     #[test]
-    fn quality_gate_ignores_incidental_marker_text() {
-        // Markers inside JSON strings or mid-line prose must not reject a valid verdict.
-        let verdict = super::parse_review_verdict_with_quality(PASS_FINISH_JSON)
-            .expect("markers inside strings are incidental");
+    fn quality_gate_requires_real_evidence_and_ignores_incidental_marker_text() {
+        let raw = format!(
+            "FILES_REVIEWED: a.rs\nCHECKS: types\nCODE: fn main()\n{}",
+            PASS_FINISH_JSON
+        );
+        let verdict = super::parse_review_verdict_with_quality(&raw)
+            .expect("markers inside JSON strings are incidental");
         assert_eq!(verdict.next_step.action, AcceptanceNextAction::Finish);
 
         let with_prose = format!(
             "CHECKS: ran npm test, all green\nNo code changes needed.\n{}\nTASK_COMPLETE",
             PASS_FINISH_JSON
         );
-        super::parse_review_verdict_with_quality(&with_prose)
-            .expect("a lone CHECKS: line is not the evidence format");
+        let error = super::parse_review_verdict_with_quality(&with_prose)
+            .expect_err("a lone CHECKS line is not complete evidence");
+        assert!(error.contains("missing FILES_REVIEWED"), "{}", error);
     }
 
     #[test]
@@ -1513,11 +1656,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_check_reports_spawn_failures_as_skipped() {
+    async fn run_check_reports_spawn_failures_as_failed() {
         let dir = unique_dir("spawn");
         let plan = AcceptanceCheckPlan::new("the-pair-no-such-binary-xyz", vec!["run".to_string()]);
         let run = super::run_check(&dir, &plan).await;
-        assert_eq!(run.status, AcceptanceCheckStatus::Skipped);
+        assert_eq!(run.status, AcceptanceCheckStatus::Failed);
         assert!(run.summary.contains("could not start"), "{}", run.summary);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1558,7 +1701,7 @@ mod tests {
         let run =
             super::run_check_with_timeout(&dir, &plan, std::time::Duration::from_secs(1)).await;
         assert!(started.elapsed() < std::time::Duration::from_secs(20));
-        assert_eq!(run.status, AcceptanceCheckStatus::Skipped);
+        assert_eq!(run.status, AcceptanceCheckStatus::Failed);
         assert!(
             run.summary.contains("timed out after 1s"),
             "{}",
@@ -1657,7 +1800,7 @@ mod tests {
         fs::write(dir.join("a.txt"), "trailing   \n").unwrap();
         git(&dir, &["add", "a.txt"]);
         // The pair state's (stale) list is empty; the fresh status must be used.
-        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0, None).await;
         assert_eq!(record.checks.len(), 1, "{:?}", record.checks);
         assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
 
@@ -1667,14 +1810,16 @@ mod tests {
         git(&dir, &["commit", "-q", "--no-verify", "-m", "init"]);
         fs::write(dir.join("b.txt"), "bad   \n").unwrap();
         git(&dir, &["add", "b.txt"]);
-        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
-        assert_eq!(record.checks[0].command, "git diff HEAD --check --");
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0, None).await;
+        assert!(record.checks[0].command.starts_with("git diff "));
+        assert!(record.checks[0].command.ends_with(" --check --"));
+        assert!(!record.checks[0].command.contains(" HEAD "));
         assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
 
         // A file named `HEAD` must not make the revision ambiguous.
         fs::write(dir.join("HEAD"), "not a revision\n").unwrap();
         git(&dir, &["add", "HEAD"]);
-        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0).await;
+        let record = super::run_acceptance_checks(&dir, &[], "", 1, 0, None).await;
         assert_eq!(record.checks[0].status, AcceptanceCheckStatus::Failed);
         assert!(
             !record.checks[0].stderr.contains("ambiguous"),

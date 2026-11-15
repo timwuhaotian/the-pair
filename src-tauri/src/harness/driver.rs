@@ -30,15 +30,15 @@
 //! flushes the last one when it ends, so the state still converges.
 
 use crate::acceptance::{
-    canonical_acceptance_verdict_json, parse_review_verdict_with_quality, run_acceptance_checks,
-    should_stop_iteration,
+    canonical_acceptance_verdict_json, completion_block, parse_review_verdict_with_quality,
+    run_acceptance_checks, should_stop_iteration,
 };
 use crate::message_broker::MessageBroker;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AcceptanceNextAction, AcceptanceNextStep, AcceptanceRecord, AcceptanceRisk, AcceptanceVerdict,
     AcceptanceVerdictDecision, ActivityPhase, AgentRole, Message, MessageSender, MessageType,
-    PairStatus, TurnTokenUsage,
+    ModifiedFile, PairStatus, TurnTokenUsage,
 };
 use crate::util::{is_mock_mode, now_millis};
 use serde::{Deserialize, Serialize};
@@ -327,6 +327,7 @@ fn process_mentor_review_verdict(
     raw_output: &str,
     stored_output: String,
     fallback_iteration: u32,
+    modified_files: &[ModifiedFile],
 ) -> AcceptanceVerdictOutcome {
     // Normally the executor's check record for this iteration. Without one
     // (checks skipped, or a snapshot restored without it) start a fresh record
@@ -347,7 +348,24 @@ fn process_mentor_review_verdict(
         repair_attempts: 0,
     });
 
-    match parse_review_verdict_with_quality(raw_output) {
+    let parsed = parse_review_verdict_with_quality(raw_output).and_then(|verdict| {
+        if !is_mock_mode() {
+            let evidence = crate::quality_gate::extract_evidence(raw_output)
+                .expect("the evidence parser already required complete evidence");
+            if let crate::quality_gate::QualityGateResult::Fail { reason } =
+                crate::quality_gate::validate_review_with_files(
+                    &evidence,
+                    modified_files,
+                    &acceptance,
+                )
+            {
+                return Err(format!("Review quality gate: {}", reason));
+            }
+        }
+        Ok(verdict)
+    });
+
+    match parsed {
         Ok(verdict) => {
             let output = canonical_acceptance_verdict_json(&verdict);
             acceptance.raw_verdict = Some(raw_output.trim().to_string());
@@ -584,6 +602,10 @@ struct TurnFacts<'a> {
     smoke_needs_more: bool,
     /// Dev-smoke shortcut: accept a finish signal on a planning turn.
     smoke_finish_before_review: bool,
+    /// Why this review may not finish, from the shared acceptance gate.
+    completion_block: Option<&'a str>,
+    /// A provider failure that should pause for recovery instead of erroring.
+    recoverable_pause: Option<&'a str>,
 }
 
 /// A reply that tried to include a JSON verdict (and so must parse) rather
@@ -593,6 +615,13 @@ fn attempts_json_verdict(output: &str) -> bool {
 }
 
 fn decide_turn_outcome(facts: &TurnFacts<'_>) -> TurnDecision {
+    if let Some(detail) = facts.recoverable_pause {
+        return TurnDecision::Pause {
+            detail: detail.to_string(),
+            hand_to_mentor: false,
+            ends_run: true,
+        };
+    }
     if let Some(error) = facts.turn_error {
         return TurnDecision::Error {
             detail: format!("{} error: {}", facts.role, error),
@@ -626,6 +655,13 @@ fn decide_turn_outcome(facts: &TurnFacts<'_>) -> TurnDecision {
         };
 
         if finish {
+            if let Some(block) = facts.completion_block {
+                return TurnDecision::Pause {
+                    detail: block.to_string(),
+                    hand_to_mentor: false,
+                    ends_run: true,
+                };
+            }
             if facts.smoke_needs_more {
                 return TurnDecision::Handoff {
                     next_role: "executor",
@@ -693,12 +729,7 @@ fn decide_turn_outcome(facts: &TurnFacts<'_>) -> TurnDecision {
                 ),
             };
         }
-        if crate::smart_pause::should_gate_plan(
-            facts.role,
-            facts.is_review_turn,
-            facts.plan_gate_enabled,
-            true,
-        ) {
+        if crate::smart_pause::should_gate_plan(facts.is_review_turn, facts.plan_gate_enabled) {
             return TurnDecision::AwaitHumanReview;
         }
         return TurnDecision::Handoff {
@@ -848,7 +879,31 @@ struct TurnOutput {
     final_output: String,
     no_text_output: bool,
     turn_error: Option<String>,
+    recoverable_pause: Option<String>,
     token_usage: Option<TurnTokenUsage>,
+}
+
+fn overflow_turn_output(
+    failed_history: &[serde_json::Value],
+    prior_history: &[serde_json::Value],
+) -> (TurnOutput, Vec<serde_json::Value>) {
+    let history = if failed_history.is_empty() {
+        prior_history
+    } else {
+        failed_history
+    };
+    let overflow = crate::harness::turn::decide_overflow_outcome(history);
+    let compressed_history = overflow.compressed_history.clone();
+    (
+        TurnOutput {
+            final_output: overflow.pause_message.clone(),
+            no_text_output: false,
+            turn_error: None,
+            recoverable_pause: Some(overflow.pause_message),
+            token_usage: None,
+        },
+        compressed_history,
+    )
 }
 
 /// Build the executor's acceptance record: refresh the modified-file list
@@ -882,6 +937,7 @@ async fn run_executor_acceptance(tc: &TurnContext, final_output: &str) -> Option
         final_output,
         refreshed.iteration,
         refreshed.max_iterations,
+        refreshed.git_tracking.baseline.as_deref(),
     );
     tokio::pin!(checks);
     loop {
@@ -974,6 +1030,31 @@ async fn finish_turn_bookkeeping(tc: &TurnContext, decision: &TurnDecision) {
 /// record. Takes PairManager and MessageBroker one at a time, never nested:
 /// the turn path must not hold the broker while locking the manager
 /// (pair_create/resume lock them in the opposite order).
+fn answered_provider_in_messages(messages: &[Message], role: MessageSender) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .filter(|message| message.from == role)
+        .filter_map(|message| message.token_usage.as_ref()?.provider.as_deref())
+        .next()
+        .map(|provider| {
+            provider
+                .rsplit_once(':')
+                .map(|(provider, _)| provider)
+                .unwrap_or(provider)
+                .to_string()
+        })
+}
+
+fn mentor_provider_for_record(
+    messages: &[Message],
+    stored: Option<&crate::harness::ModelSelection>,
+) -> String {
+    answered_provider_in_messages(messages, MessageSender::Mentor)
+        .or_else(|| stored.map(|selection| selection.provider_id.clone()))
+        .unwrap_or_default()
+}
+
 fn record_run_outcome(app: &tauri::AppHandle, pair_id: &str, finished: bool) {
     if is_mock_mode() {
         // e2e smoke runs must never pollute real reports or stats.
@@ -1021,11 +1102,12 @@ fn record_run_outcome(app: &tauri::AppHandle, pair_id: &str, finished: bool) {
 
     // The endpoint the mentor actually talked to, which is what the insights
     // leaderboard groups by. A pair with no selection never ran a turn.
-    let mentor_provider = context
-        .as_ref()
-        .and_then(|context| context.mentor_selection.as_ref())
-        .map(|selection| selection.provider_id.clone())
-        .unwrap_or_default();
+    let mentor_provider = mentor_provider_for_record(
+        &state.messages,
+        context
+            .as_ref()
+            .and_then(|context| context.mentor_selection.as_ref()),
+    );
     let (mentor_model, executor_model) = match context.as_ref() {
         Some(context) => (context.mentor_model.clone(), context.executor_model.clone()),
         None => (pair.mentor_model.clone(), pair.executor_model.clone()),
@@ -1151,6 +1233,7 @@ async fn complete_turn(tc: TurnContext, out: TurnOutput) {
                 &out.final_output,
                 out.final_output.clone(),
                 state.iteration.saturating_sub(1),
+                &state.modified_files,
             );
             (
                 outcome.stored_output,
@@ -1173,12 +1256,18 @@ async fn complete_turn(tc: TurnContext, out: TurnOutput) {
         smoke_history.push(acceptance.clone());
     }
     let smoke_needs_more = dev_smoke_needs_more_greetings(&state.messages, &smoke_history);
+    let review_completion_block = if has_dev_smoke_pair_spec(&state.messages) {
+        None
+    } else {
+        completion_block(&state.modified_files, state.latest_acceptance.as_ref())
+    };
     let facts = TurnFacts {
         role,
         is_review_turn: is_review,
         output: &out.final_output,
         no_text_output: out.no_text_output,
         turn_error: out.turn_error.as_deref(),
+        recoverable_pause: out.recoverable_pause.as_deref(),
         verdict: verdict.as_ref(),
         verdict_error: acceptance_error.as_deref(),
         repair_attempts: parsed_acceptance
@@ -1194,6 +1283,7 @@ async fn complete_turn(tc: TurnContext, out: TurnOutput) {
             &state.messages,
             &out.final_output,
         ) && !smoke_needs_more,
+        completion_block: review_completion_block.as_deref(),
     };
     let decision = decide_turn_outcome(&facts);
 
@@ -1242,9 +1332,7 @@ async fn complete_turn(tc: TurnContext, out: TurnOutput) {
         }
         if role == "mentor" {
             let checklist = crate::context_bridge::parse_checklist(&stored_output);
-            if !checklist.is_empty() {
-                broker.set_plan_checklist(&tc.pair_id, checklist);
-            }
+            broker.set_plan_checklist(&tc.pair_id, checklist);
         }
     });
     if recorded.is_none() {
@@ -1344,6 +1432,7 @@ async fn run_mock_turn(tc: TurnContext) {
             final_output,
             no_text_output: false,
             turn_error,
+            recoverable_pause: None,
             token_usage: Some(mock_token_usage()),
         },
     )
@@ -1659,11 +1748,13 @@ async fn run_direct_turn(
             // the live run writes it, so a superseded turn leaves the pair's
             // conversation as it was.
             remember_history(&tc, &outcome.history);
+            let answered_provider_id = outcome.answered_provider_id().to_string();
             TurnOutput {
                 final_output: outcome.text,
                 no_text_output: false,
                 turn_error: None,
-                token_usage: turn_token_usage(outcome.usage, &role, &selection.provider_id),
+                recoverable_pause: None,
+                token_usage: turn_token_usage(outcome.usage, &role, &answered_provider_id),
             }
         }
         Err(failure) => {
@@ -1689,7 +1780,14 @@ async fn run_direct_turn(
                     &failure.selection.account_id,
                 );
             }
-            fail_direct_turn(&tc, &failure.error.to_string()).await;
+            if failure.error.kind == crate::llm::ErrorKind::Overflow {
+                let prior = prior_conversation(&tc, &tc.role);
+                let (output, compressed) = overflow_turn_output(&failure.history, &prior);
+                remember_history(&tc, &compressed);
+                complete_turn(tc, output).await;
+            } else {
+                fail_direct_turn(&tc, &failure.error.to_string()).await;
+            }
             return;
         }
     };
@@ -1768,6 +1866,7 @@ async fn fail_direct_turn(tc: &TurnContext, detail: &str) {
             final_output: format!("{} reported an error: {}", tc.role, detail),
             no_text_output: true,
             turn_error: Some(detail.to_string()),
+            recoverable_pause: None,
             token_usage: None,
         },
     )
@@ -2268,6 +2367,7 @@ mod tests {
             output,
             no_text_output: false,
             turn_error: None,
+            recoverable_pause: None,
             verdict: None,
             verdict_error: None,
             repair_attempts: 0,
@@ -2277,6 +2377,7 @@ mod tests {
             plan_gate_enabled: false,
             smoke_needs_more: false,
             smoke_finish_before_review: false,
+            completion_block: None,
         }
     }
 
@@ -2452,6 +2553,101 @@ mod tests {
     }
 
     #[test]
+    fn completion_gate_blocks_both_bare_and_structured_finish() {
+        let mut bare = facts("mentor", true, "Looks done\nTASK_COMPLETE");
+        bare.completion_block = Some("npm test did not pass");
+        assert!(matches!(
+            decide_turn_outcome(&bare),
+            TurnDecision::Pause { ends_run: true, .. }
+        ));
+
+        let pass = verdict(
+            AcceptanceVerdictDecision::Pass,
+            AcceptanceNextAction::Finish,
+            0.95,
+        );
+        let mut structured = facts("mentor", true, "{}\nTASK_COMPLETE");
+        structured.verdict = Some(&pass);
+        structured.completion_block = Some("no files changed");
+        assert!(matches!(
+            decide_turn_outcome(&structured),
+            TurnDecision::Pause { ends_run: true, .. }
+        ));
+    }
+
+    #[test]
+    fn backup_usage_is_billed_and_reported_against_the_answered_provider() {
+        let usage = turn_token_usage(
+            crate::llm::Usage {
+                prompt_tokens: 100,
+                completion_tokens: 20,
+                ..Default::default()
+            },
+            "mentor",
+            "backup-1",
+        )
+        .unwrap();
+        let messages = vec![Message {
+            id: "m1".into(),
+            timestamp: 1,
+            from: MessageSender::Mentor,
+            to: "human".into(),
+            msg_type: MessageType::Result,
+            content: "done".into(),
+            attachments: None,
+            iteration: 1,
+            token_usage: Some(usage),
+            cognitive_events: None,
+            started_at: None,
+            finalized_at: None,
+        }];
+        assert_eq!(
+            answered_provider_in_messages(&messages, MessageSender::Mentor).as_deref(),
+            Some("backup-1")
+        );
+        let primary = crate::harness::ModelSelection {
+            provider_id: "primary-1".into(),
+            account_id: "primary-1-a".into(),
+            model: "test-model".into(),
+            effort: None,
+            backup: None,
+        };
+        assert_eq!(
+            mentor_provider_for_record(&messages, Some(&primary)),
+            "backup-1"
+        );
+        assert_eq!(mentor_provider_for_record(&[], Some(&primary)), "primary-1");
+        assert_eq!(mentor_provider_for_record(&[], None), "");
+    }
+
+    #[test]
+    fn overflow_output_uses_prior_history_when_the_request_never_started() {
+        let prior = vec![serde_json::json!({"role": "user", "content": "keep me"})];
+        let (output, compressed) = overflow_turn_output(&[], &prior);
+        assert_eq!(compressed, prior);
+        assert!(output.recoverable_pause.is_some());
+        assert!(output.turn_error.is_none());
+    }
+
+    #[test]
+    fn overflow_output_prefers_failed_history_when_present() {
+        let failed = vec![serde_json::json!({"role": "user", "content": "retry me"})];
+        let prior = vec![serde_json::json!({"role": "user", "content": "old history"})];
+        let (_, compressed) = overflow_turn_output(&failed, &prior);
+        assert_eq!(compressed, failed);
+    }
+
+    #[test]
+    fn overflow_pause_is_recoverable_instead_of_an_error() {
+        let mut overflow = facts("executor", false, "context window exceeded");
+        overflow.recoverable_pause = Some("Trim history and retry");
+        assert!(matches!(
+            decide_turn_outcome(&overflow),
+            TurnDecision::Pause { ends_run: true, .. }
+        ));
+    }
+
+    #[test]
     fn errors_and_empty_output_stop_the_run() {
         let mut errored = facts("executor", false, "partial");
         errored.turn_error = Some("process exited with code 1");
@@ -2494,20 +2690,48 @@ mod tests {
     #[test]
     fn a_review_without_an_executor_record_still_parses_and_counts_repairs() {
         let good = "{\"verdict\":\"pass\",\"risk\":\"low\",\"confidence\":0.9,\"issues\":[],\"evidence\":[\"e\"],\"reasoning\":\"r\",\"summary\":\"s\",\"nextStep\":{\"action\":\"finish\",\"instructions\":[]}}";
-        let outcome = process_mentor_review_verdict(None, good, good.to_string(), 2);
+        let review = format!(
+            "FILES_REVIEWED: src/a.rs\nCHECKS: types\nCODE: fn main()\n{}",
+            good
+        );
+        let modified = [ModifiedFile {
+            path: "src/a.rs".into(),
+            display_path: "src/a.rs".into(),
+            status: crate::types::FileStatus::M,
+        }];
+        let outcome = process_mentor_review_verdict(None, &review, good.to_string(), 2, &modified);
         assert!(outcome.acceptance_error.is_none());
         let record = outcome.parsed_acceptance.unwrap();
         assert_eq!(record.iteration, 2);
         assert!(record.verdict.is_some());
 
-        let first = process_mentor_review_verdict(None, "nope", "nope".to_string(), 2);
+        let first = process_mentor_review_verdict(None, "nope", "nope".to_string(), 2, &[]);
         let second = process_mentor_review_verdict(
             first.parsed_acceptance.clone(),
             "still nope",
             "still nope".to_string(),
             2,
+            &[],
         );
         assert_eq!(second.parsed_acceptance.unwrap().repair_attempts, 2);
+    }
+
+    #[test]
+    fn review_quality_rejects_files_the_mentor_did_not_cover() {
+        let verdict = "{\"verdict\":\"pass\",\"risk\":\"low\",\"confidence\":0.9,\"issues\":[],\"evidence\":[\"e\"],\"reasoning\":\"r\",\"summary\":\"s\",\"nextStep\":{\"action\":\"continue\",\"instructions\":[\"fix\"]}}";
+        let raw = format!(
+            "FILES_REVIEWED: src/a.rs\nCHECKS: types\nCODE: fn main()\n{}",
+            verdict
+        );
+        let modified = [ModifiedFile {
+            path: "src/b.rs".into(),
+            display_path: "src/b.rs".into(),
+            status: crate::types::FileStatus::M,
+        }];
+        let outcome = process_mentor_review_verdict(None, &raw, raw.clone(), 1, &modified);
+        assert!(outcome
+            .acceptance_error
+            .is_some_and(|error| error.contains("src/b.rs")));
     }
 
     #[test]
@@ -2534,8 +2758,13 @@ mod tests {
             AcceptanceNextAction::Finish,
             1.0,
         ));
-        let outcome =
-            process_mentor_review_verdict(Some(existing), "not json", "not json".to_string(), 1);
+        let outcome = process_mentor_review_verdict(
+            Some(existing),
+            "not json",
+            "not json".to_string(),
+            1,
+            &[],
+        );
         let acceptance = outcome.parsed_acceptance.unwrap();
         assert!(acceptance.verdict.is_none());
         assert!(outcome.acceptance_error.is_some());

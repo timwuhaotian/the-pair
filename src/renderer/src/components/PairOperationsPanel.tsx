@@ -25,6 +25,7 @@ import { IterationProgress } from './IterationProgress'
 import { GlassButton } from './ui/GlassButton'
 import { Chip } from './ui/Chip'
 import { buildTimeline } from '../lib/timeline'
+import { dropDuplicatedLocalTurnCards } from '../lib/consoleMessages'
 import { isPairActive, isPairBusy } from '../lib/pairStatus'
 import { isAgentExecuting } from '../lib/helpers'
 import { modifierLabel, shiftLabel } from '../lib/shortcuts'
@@ -117,32 +118,13 @@ interface UsageTotals {
   outputTokens: number
 }
 
-/** The renderer's own turn card, committed into `messages` when a turn ends. */
-const LOCAL_TURN_CARD_ID = /^turn-(?:mentor|executor)-iter\d+$/
-
-function turnKey(message: { from: string; iteration?: number }): string {
-  return `${message.from}:${message.iteration ?? 'unknown'}`
-}
-
 /**
  * One turn lands in `messages` twice: the renderer commits its live turn card
  * (`turn-<role>-iter<N>`) and then appends the backend's own message for that
- * same turn. `PairConsole` hides the duplicate by collapsing each role to its
- * last message per iteration; the inspector must not bill it twice, so a local
- * card whose turn the backend also reported is dropped here. The backend's
- * message wins — on the direct connection it is the only one of the two that
- * carries usage.
+ * same turn. Shared with console/timeline via `dropDuplicatedLocalTurnCards`
+ * so all three surfaces bill one turn once; the backend's message wins.
  */
-function dropDuplicatedTurns<T extends { id: string; from: string; iteration?: number }>(
-  messages: ReadonlyArray<T>
-): T[] {
-  const reportedTurns = new Set(
-    messages.filter((message) => !LOCAL_TURN_CARD_ID.test(message.id)).map(turnKey)
-  )
-  return messages.filter(
-    (message) => !LOCAL_TURN_CARD_ID.test(message.id) || !reportedTurns.has(turnKey(message))
-  )
-}
+const dropDuplicatedTurns = dropDuplicatedLocalTurnCards
 
 /** Tokens one role reported across a run's messages. */
 function sumUsage(
@@ -307,7 +289,10 @@ function PairOperationsPanel({
 }: PairOperationsPanelProps): React.ReactNode {
   const { t } = useTranslation()
   const retryTurn = usePairStore((s) => s.retryTurn)
-  const isStoreBusy = usePairStore((s) => s.isLoading)
+  const setPairSyncError = usePairStore((s) => s.setPairSyncError)
+  // Pair-scoped loading gives per-pair mutual exclusion: another pair's
+  // control call never disables this inspector.
+  const isStoreBusy = usePairStore((s) => s.loadingPairs.includes(pair.id))
   const viewingRunId = usePairStore((s) => s.viewingRunId)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const providers = usePairStore((s) => s.providers)
@@ -321,6 +306,13 @@ function PairOperationsPanel({
   const [diffLoadingPath, setDiffLoadingPath] = useState<string | null>(null)
   // Monotonic token so a slow diff for an earlier file can't render under a later file.
   const diffRequestRef = useRef(0)
+  useEffect(() => {
+    diffRequestRef.current += 1
+    setExpandedPath(null)
+    setDiffCache({})
+    setDiffErrorCache({})
+    setDiffLoadingPath(null)
+  }, [pair.id, pair.directory, pair.gitTracking.baseline, pair.modifiedFiles])
   const [isRetrying, setIsRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
 
@@ -588,7 +580,7 @@ function PairOperationsPanel({
     const requestId = ++diffRequestRef.current
     setDiffLoadingPath(file.path)
     void window.api.repo
-      .getFileDiff(pair.directory, file.path, file.status)
+      .getFileDiff(pair.directory, file.path, file.status, pair.gitTracking.baseline)
       .then((diff) => {
         if (requestId !== diffRequestRef.current) return
         setDiffCache((prev) => ({ ...prev, [file.path]: diff }))
@@ -684,6 +676,16 @@ function PairOperationsPanel({
           </div>
         </div>
       )}
+
+      {pair.handoffError && (
+        <ErrorDetailPanel
+          error={pair.handoffError}
+          onRetry={() => void handleRetryTurn()}
+          isRetrying={isRetrying}
+        />
+      )}
+
+      {pair.syncError && <ErrorDetailPanel error={pair.syncError} />}
 
       {pair.status === 'Error' && (
         <ErrorDetailPanel
@@ -1069,7 +1071,14 @@ function PairOperationsPanel({
         id="timeline"
         label={t('pair.timeline')}
         defaultOpen={false}
-        actions={timelineData ? <TimelineActions timeline={timelineData} /> : undefined}
+        actions={
+          timelineData ? (
+            <TimelineActions
+              timeline={timelineData}
+              onError={(message) => setPairSyncError(pair.id, message)}
+            />
+          ) : undefined
+        }
       >
         <TimelinePanel timeline={timelineData} bare />
       </InspectorSection>

@@ -78,6 +78,14 @@ pub struct TurnOutcome {
     pub history: Vec<Value>,
 }
 
+impl TurnOutcome {
+    /// The endpoint that actually answered — the backup when it stepped in — so
+    /// the caller bills the account that ran the turn, not the one first asked.
+    pub fn answered_provider_id(&self) -> &str {
+        &self.answered_by.provider_id
+    }
+}
+
 /// What a tool did, as it happened.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToolEvent<'a> {
@@ -92,6 +100,29 @@ pub enum ToolEvent<'a> {
         ok: bool,
         output: &'a str,
     },
+}
+
+/// What a turn stopped by a spent context window hands back: the pair pauses
+/// for a human decision, and a compressed conversation a trimmed retry replays.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverflowOutcome {
+    /// What the human is told: the window ran out, and trimming the history is
+    /// what unblocks the pair.
+    pub pause_message: String,
+    /// The failed turn's conversation cut to the replay window, oldest first, so
+    /// a retry after trimming starts from something that fits.
+    pub compressed_history: Vec<Value>,
+}
+
+/// Decides what an overflowed turn leaves behind. The driver's overflow arm
+/// pauses with this message and stores the compressed history for a retry.
+pub fn decide_overflow_outcome(history: &[Value]) -> OverflowOutcome {
+    OverflowOutcome {
+        pause_message: "The conversation no longer fits the model's context window. \
+            Trim the history or start a new task to carry on."
+            .to_string(),
+        compressed_history: history::bounded(history).messages,
+    }
 }
 
 /// A turn that could not finish, and the selection it was running when it gave
@@ -407,7 +438,13 @@ async fn converse(
 
         let reply = tokio::select! {
             biased;
-            reply = client.complete(messages, &tool_schemas, &request.cache_key, &mut observed) => reply?,
+            reply = client.complete_with_cancel(
+                messages,
+                &tool_schemas,
+                &request.cache_key,
+                &mut observed,
+                cancel,
+            ) => reply?,
             _ = raised(cancel) => return Err(ProviderError::cancelled(1)),
         };
 
@@ -1306,7 +1343,58 @@ mod wire_tests {
             outcome.answered_by.provider_id,
             format!("wire-{}", short(&backup))
         );
+        assert_eq!(
+            outcome.answered_provider_id(),
+            format!("wire-{}", short(&backup)),
+            "the caller bills the backup that answered, not the primary"
+        );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_answered_provider_is_the_selection_that_replied() {
+        let outcome = TurnOutcome {
+            text: "done".into(),
+            reasoning: String::new(),
+            usage: Usage::default(),
+            session_id: None,
+            answered_by: ModelSelection {
+                provider_id: "backup-1".into(),
+                account_id: "backup-1-a".into(),
+                model: "test-model".into(),
+                effort: None,
+                backup: None,
+            },
+            fell_back: true,
+            tool_calls: Vec::new(),
+            todos: Vec::new(),
+            history: Vec::new(),
+        };
+        assert_eq!(outcome.answered_provider_id(), "backup-1");
+    }
+
+    #[test]
+    fn an_overflowed_turn_pauses_with_a_replayable_history() {
+        let mut history: Vec<Value> = Vec::new();
+        for index in 0..(crate::harness::history::MAX_HISTORY_MESSAGES / 2 + 5) {
+            history.push(json!({"role": "user", "content": format!("turn {}", index)}));
+            history.push(json!({"role": "assistant", "content": format!("answer {}", index)}));
+        }
+        let outcome = decide_overflow_outcome(&history);
+        assert!(
+            outcome.pause_message.contains("context window"),
+            "{}",
+            outcome.pause_message
+        );
+        assert_eq!(
+            outcome.compressed_history.len(),
+            crate::harness::history::MAX_HISTORY_MESSAGES
+        );
+        assert_eq!(
+            outcome.compressed_history.last().unwrap(),
+            history.last().unwrap(),
+            "the newest turns are what a retry replays"
+        );
     }
 
     #[tokio::test]

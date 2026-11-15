@@ -1,7 +1,7 @@
 import type { AcceptanceRecord, AcceptanceVerdict, TurnTokenUsage } from '../types'
 import { stripSystemPrompt } from './utils'
 import { isAcceptanceVerdictContent, parseAcceptanceVerdictForDisplay } from './acceptance'
-import { collapseConsecutiveConsoleMessages } from './consoleMessages'
+import { collapseConsecutiveConsoleMessages, dropDuplicatedLocalTurnCards } from './consoleMessages'
 
 // ── Types ──────────────────────────────────────────────
 
@@ -200,15 +200,18 @@ function groupMessagesByIteration(messages: TimelineMessage[]): Map<number, Time
 // ── Main builder ───────────────────────────────────────
 
 export function buildTimeline(messages: TimelineMessage[], pair: TimelinePair): TimelineData {
-  // Filter out noise
+  // Filter out noise. Handoffs stay visible as `handoff` events; only
+  // scaffolding / empty bodies are dropped.
   const filtered = collapseConsecutiveConsoleMessages(
-    messages.filter((msg) => {
-      if (msg.type === 'handoff') return false
-      if (!msg.content || isEmptyContent(msg.content)) return false
-      if (msg.type === 'plan' || msg.type === 'result' || msg.type === 'acceptance') return true
-      if (isTechnicalHandoff(msg.content) && msg.from !== 'human') return false
-      return true
-    })
+    dropDuplicatedLocalTurnCards(
+      messages.filter((msg) => {
+        if (msg.type === 'handoff') return true
+        if (!msg.content || isEmptyContent(msg.content)) return false
+        if (msg.type === 'plan' || msg.type === 'result' || msg.type === 'acceptance') return true
+        if (isTechnicalHandoff(msg.content) && msg.from !== 'human') return false
+        return true
+      })
+    )
   )
 
   // Group by iteration

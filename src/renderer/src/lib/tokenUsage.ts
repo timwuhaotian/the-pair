@@ -60,24 +60,59 @@ export function turnCardToMessage(
   }
 }
 
+/** Field-level merge: backend `null` clears (object gone → undefined; a field
+ *  explicitly null → that field's cleared value), `undefined` (absent) keeps.
+ *  Serde may still emit `inputTokens: null` for unreported optionals; TS types
+ *  mark it optional, so a bare null clears an optional field when an earlier
+ *  live event had supplied it. */
 export function mergeTokenUsage(
-  nextUsage: TurnTokenUsage | undefined,
+  nextUsage: TurnTokenUsage | null | undefined,
   existingUsage: TurnTokenUsage | undefined
 ): TurnTokenUsage | undefined {
-  return nextUsage ?? existingUsage
+  if (nextUsage === undefined) return existingUsage
+  if (nextUsage === null) return undefined
+  const next = nextUsage as unknown as Record<string, unknown>
+  if (!existingUsage && next['outputTokens'] === null) return undefined
+
+  const nextOutput = next['outputTokens']
+  const nextInput = next['inputTokens']
+  const nextTimestamp = next['lastUpdatedAt']
+  const outputTokens =
+    nextOutput === null
+      ? 0
+      : typeof nextOutput === 'number' && Number.isFinite(nextOutput)
+        ? nextOutput
+        : (existingUsage?.outputTokens ?? 0)
+  const inputTokens =
+    nextInput === null
+      ? undefined
+      : typeof nextInput === 'number' && Number.isFinite(nextInput)
+        ? nextInput
+        : existingUsage?.inputTokens
+  const lastUpdatedAt =
+    typeof nextTimestamp === 'number' && Number.isFinite(nextTimestamp)
+      ? nextTimestamp
+      : (existingUsage?.lastUpdatedAt ?? Date.now())
+  const nextSource = next['source']
+  const source = (
+    typeof nextSource === 'string' ? nextSource : (existingUsage?.source ?? 'live')
+  ) as TurnTokenUsage['source']
+  const nextProvider = next['provider']
+  const provider =
+    nextProvider === null
+      ? undefined
+      : typeof nextProvider === 'string'
+        ? nextProvider
+        : existingUsage?.provider
+
+  return { outputTokens, inputTokens, lastUpdatedAt, source, provider }
 }
 
 export function syncTokenUsage(
   backendValue: TurnTokenUsage | null | undefined,
   existingValue: TurnTokenUsage | undefined
 ): TurnTokenUsage | undefined {
-  if (backendValue === null) {
-    return undefined
-  }
-  if (backendValue !== undefined) {
-    return backendValue
-  }
-  return existingValue
+  return mergeTokenUsage(backendValue, existingValue)
 }
 
 export function resolveCurrentTurnTokenUsage(
@@ -88,10 +123,10 @@ export function resolveCurrentTurnTokenUsage(
   if (backendValue === null) {
     return undefined
   }
-  if (backendValue !== undefined) {
-    return backendValue
+  if (backendValue === undefined) {
+    return currentValue ?? fallbackValue
   }
-  return currentValue ?? fallbackValue
+  return mergeTokenUsage(backendValue, mergeTokenUsage(currentValue, fallbackValue))
 }
 
 export function areTokenUsagesEqual(

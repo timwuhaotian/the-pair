@@ -87,8 +87,13 @@ export const tauriApi = {
       }
       return await invokeTauri('repo_list_branches', { directory })
     },
-    getFileDiff: async (directory: string, filePath: string, status: string): Promise<string> => {
-      return await invokeTauri('git_get_file_diff', { directory, filePath, status })
+    getFileDiff: async (
+      directory: string,
+      filePath: string,
+      status: string,
+      baseline?: string
+    ): Promise<string> => {
+      return await invokeTauri('git_get_file_diff', { directory, filePath, status, baseline })
     },
     commitChanges: async (directory: string, message: string): Promise<CommitOutcome> => {
       return await invokeTauri('git_commit_changes', { directory, message })

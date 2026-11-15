@@ -53,10 +53,16 @@ async fn git_get_file_diff(
     directory: String,
     file_path: String,
     status: String,
+    baseline: Option<String>,
 ) -> Result<String, String> {
     // Off the main thread: diffs (and untracked-file reads) can be slow.
     tauri::async_runtime::spawn_blocking(move || {
-        git_tracker::GitTracker::get_file_diff(&directory, &file_path, &status)
+        git_tracker::GitTracker::get_file_diff_at(
+            &directory,
+            &file_path,
+            &status,
+            baseline.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("Diff task failed: {}", e))?
@@ -269,6 +275,7 @@ pub fn run() {
             pair_manager::pair_update_models,
             pair_manager::repo_check_state,
             pair_manager::repo_list_branches,
+            worktree_manager::gc_rescued_branches_command,
             pair_manager::kill_process,
             pair_manager::pair_retry_turn,
             accounts::commands::accounts_login_services,
@@ -290,6 +297,7 @@ pub fn run() {
             session_snapshot::session_save_snapshot,
             session_snapshot::load_all_pairs,
             session_snapshot::list_recoverable_sessions,
+            session_snapshot::list_snapshot_problems,
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
             recent_activity::get_recent_activities,

@@ -71,7 +71,91 @@ fn monitor_scratch_state(state: &PairState) -> PairState {
     }
 }
 
-/// Whether the current mentor turn is a planning turn (as opposed to a
+/// Copy a finished git sample back only if the pair is still on the same
+/// workspace and run. The baseline belongs to that run, not to the poll.
+fn merge_monitor_sample(state: &mut PairState, scratch: PairState) -> bool {
+    if state.directory != scratch.directory || state.run_started_at != scratch.run_started_at {
+        return false;
+    }
+    state.git_tracking.available = scratch.git_tracking.available;
+    if state.git_tracking.root_path.is_none() {
+        state.git_tracking.root_path = scratch.git_tracking.root_path;
+    }
+    if state.git_tracking.baseline.is_none() {
+        state.git_tracking.baseline = scratch.git_tracking.baseline;
+    }
+    state.git_tracking.git_review_available = scratch.git_tracking.git_review_available;
+    state.git_review_available = scratch.git_review_available;
+    state.modified_files = scratch.modified_files;
+    true
+}
+
+/// How long a turn may stay quiet before the monitor warns, and before it
+/// calls the turn stuck. Shared by `classify_stall` and the monitor loop.
+pub const STALL_WARNING_SECS: u64 = 120;
+pub const STALL_CRITICAL_SECS: u64 = 600;
+
+/// What a quiet turn needs: nothing, a warning detail, or the Stalled phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StallSignal {
+    Quiet,
+    Warning,
+    Stalled,
+}
+
+/// Pure stall classifier: quiet seconds + current phase → monitor action.
+///
+/// Boundaries: 119s is quiet, 120s warns, 600s stalls. Stalled is sticky:
+/// an already-stalled turn past the warning threshold reports Quiet (the
+/// monitor leaves it alone — only fresh output clears it), never a
+/// downgrade back to Warning.
+pub fn classify_stall(elapsed_secs: u64, current: &ActivityPhase) -> StallSignal {
+    if elapsed_secs >= STALL_CRITICAL_SECS {
+        StallSignal::Stalled
+    } else if elapsed_secs >= STALL_WARNING_SECS {
+        if *current == ActivityPhase::Stalled {
+            StallSignal::Quiet
+        } else {
+            StallSignal::Warning
+        }
+    } else {
+        StallSignal::Quiet
+    }
+}
+
+fn stall_activity(
+    activity: &AgentActivity,
+    elapsed_secs: u64,
+    waiting_for_first_output: bool,
+) -> Option<(ActivityPhase, String, String)> {
+    match classify_stall(elapsed_secs, &activity.phase) {
+        StallSignal::Stalled => Some((
+            ActivityPhase::Stalled,
+            if waiting_for_first_output {
+                format!("No output after {}s — process may be stuck", elapsed_secs)
+            } else {
+                format!("No output for {}s — process may be stuck", elapsed_secs)
+            },
+            if waiting_for_first_output {
+                format!("Waiting for first output for {}s", elapsed_secs)
+            } else {
+                format!("Stalled after {}s of inactivity", elapsed_secs)
+            },
+        )),
+        StallSignal::Warning => Some((
+            activity.phase.clone(),
+            activity.label.clone(),
+            if waiting_for_first_output {
+                format!("Waiting for first output... ({}s)", elapsed_secs)
+            } else {
+                format!("No new output for {}s", elapsed_secs)
+            },
+        )),
+        StallSignal::Quiet => None,
+    }
+}
+
+/// Whether the current mentor turn is a planning turn (as opposed to
 /// review of executor work). A mentor turn is planning when it resumes a
 /// gated plan, or when the executor has not produced anything in this run yet.
 fn mentor_turn_is_planning(state: &PairState) -> bool {
@@ -183,7 +267,7 @@ impl MessageBroker {
             .map(|s| s.to_string())
             .unwrap_or(input.directory.clone());
 
-        let state = PairState {
+        let mut state = PairState {
             pair_id: pair_id.to_string(),
             directory,
             status: PairStatus::Idle,
@@ -231,6 +315,7 @@ impl MessageBroker {
             run_started_at: Some(now_millis()),
         };
 
+        crate::git_tracker::GitTracker::update_state(&mut state);
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         pair_states.insert(pair_id.to_string(), state);
         println!("[MessageBroker::initialize_pair] Pair state inserted successfully");
@@ -258,14 +343,9 @@ impl MessageBroker {
                 state.messages.push(message.clone());
             }
 
-            if message.msg_type == MessageType::Handoff {
-                state.turn = if matches!(state.turn, AgentRole::Mentor) {
-                    AgentRole::Executor
-                } else {
-                    AgentRole::Mentor
-                };
-                state.iteration += 1;
-            }
+            // NOTE: a Handoff record never flips turn/iteration here. Turn
+            // advancement belongs to prepare_run/resume_run only, so a stale
+            // or duplicate handoff event cannot double-count the budget.
 
             self.notify_state_update(pair_id, state);
 
@@ -429,6 +509,9 @@ impl MessageBroker {
             state.executor.token_usage = None;
             state.task_spec = task_spec.to_string();
             state.run_started_at = Some(now_millis());
+            state.git_tracking.root_path = None;
+            state.git_tracking.baseline = None;
+            crate::git_tracker::GitTracker::update_state(state);
             println!("[MessageBroker] New run started for pair {}", pair_id);
         }
     }
@@ -436,16 +519,24 @@ impl MessageBroker {
     /// Point a pair's broker state at a new workspace (worktree rotation).
     /// Git/resource sampling reads `state.directory` every tick, so this is
     /// all the monitor needs to follow the pair into its new worktree.
-    pub fn update_workspace(&self, pair_id: &str, directory: &str, worktree_path: Option<&str>) {
+    pub fn update_workspace(
+        &self,
+        pair_id: &str,
+        directory: &str,
+        worktree_path: Option<&str>,
+    ) -> Result<(), String> {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(state) = pair_states.get_mut(pair_id) {
-            state.directory = directory.to_string();
-            state.worktree_path = worktree_path.map(|s| s.to_string());
-            println!(
-                "[MessageBroker] Workspace for pair {} is now {}",
-                pair_id, directory
-            );
-        }
+        let state = pair_states
+            .get_mut(pair_id)
+            .ok_or_else(|| format!("No broker state found for pair {}", pair_id))?;
+        state.directory = directory.to_string();
+        state.worktree_path = worktree_path.map(|s| s.to_string());
+        crate::git_tracker::GitTracker::update_state(state);
+        println!(
+            "[MessageBroker] Workspace for pair {} is now {}",
+            pair_id, directory
+        );
+        Ok(())
     }
 
     /// Drop all broker state for a deleted pair (its monitor exits on its
@@ -598,9 +689,6 @@ impl MessageBroker {
     /// gone quiet. There is no process to sample any more — a turn is an HTTP
     /// stream, so its own progress markers are the signal.
     fn spawn_monitor(&self, pair_id: &str) {
-        const STALL_WARNING_SECS: u64 = 120;
-        const STALL_CRITICAL_SECS: u64 = 600;
-
         let pair_states = self.pair_states.clone();
         let app_handle = self.app_handle.clone();
         let monitor_tokens = self.monitor_tokens.clone();
@@ -663,9 +751,9 @@ impl MessageBroker {
                     break;
                 }
 
-                state.git_tracking = scratch.git_tracking;
-                state.git_review_available = scratch.git_review_available;
-                state.modified_files = scratch.modified_files;
+                if !merge_monitor_sample(state, scratch) {
+                    continue;
+                }
 
                 let now = now_millis();
                 let activity = if state.turn == AgentRole::Mentor {
@@ -674,50 +762,21 @@ impl MessageBroker {
                     &mut state.executor_activity
                 };
 
-                let mut activity_for_update = false;
-                let mut new_phase = activity.phase.clone();
-                let mut new_label = activity.label.clone();
-                let mut new_detail = activity.detail.clone();
+                let elapsed_secs = if let Some(last_output_at) = activity.last_output_at {
+                    // saturating_sub guards against a backward wall-clock jump.
+                    Some((now.saturating_sub(last_output_at) / 1000, false))
+                } else {
+                    state
+                        .turn_started_at
+                        .map(|started| (now.saturating_sub(started) / 1000, true))
+                };
+                let update = elapsed_secs
+                    .and_then(|(elapsed, waiting)| stall_activity(activity, elapsed, waiting));
 
-                if let Some(last_output_at) = activity.last_output_at {
-                    // saturating_sub guards against a backward wall-clock jump
-                    // (NTP correction, manual change, VM resume) which would
-                    // otherwise underflow and report a spurious multi-century stall.
-                    let elapsed_secs = now.saturating_sub(last_output_at) / 1000;
-                    if elapsed_secs >= STALL_CRITICAL_SECS {
-                        new_phase = ActivityPhase::Stalled;
-                        new_label =
-                            format!("No output for {}s — process may be stuck", elapsed_secs);
-                        new_detail = Some(format!("Stalled after {}s of inactivity", elapsed_secs));
-                        activity_for_update = true;
-                    } else if elapsed_secs >= STALL_WARNING_SECS
-                        && activity.phase != ActivityPhase::Stalled
-                    {
-                        new_detail = Some(format!("No new output for {}s", elapsed_secs));
-                        activity_for_update = true;
-                    }
-                } else if let Some(started) = state.turn_started_at {
-                    let elapsed_secs = now.saturating_sub(started) / 1000;
-                    if elapsed_secs >= STALL_CRITICAL_SECS {
-                        new_phase = ActivityPhase::Stalled;
-                        new_label =
-                            format!("No output after {}s — process may be stuck", elapsed_secs);
-                        new_detail =
-                            Some(format!("Waiting for first output for {}s", elapsed_secs));
-                        activity_for_update = true;
-                    } else if elapsed_secs >= STALL_WARNING_SECS
-                        && activity.phase != ActivityPhase::Stalled
-                    {
-                        new_detail =
-                            Some(format!("Waiting for first output... ({}s)", elapsed_secs));
-                        activity_for_update = true;
-                    }
-                }
-
-                if activity_for_update {
+                if let Some((new_phase, new_label, new_detail)) = update {
                     activity.phase = new_phase;
                     activity.label = new_label;
-                    activity.detail = new_detail;
+                    activity.detail = Some(new_detail);
                     activity.updated_at = now_millis();
                     if let Some(handle) = &app_handle {
                         last_state_signature = Some(pair_state_signature(state));
@@ -883,7 +942,13 @@ impl MessageBroker {
         }
     }
 
-    pub fn set_plan_checklist(&self, pair_id: &str, checklist: Vec<PlanItem>) {
+    /// Writes the mentor's parsed checklist into the pair state.
+    ///
+    /// Returns `Some` when the pair exists and the write landed, `None` when
+    /// there is no such pair. An empty parse explicitly clears the previous
+    /// plan's items. The `Some`
+    /// still tells the driver the pair was live at write time.
+    pub fn set_plan_checklist(&self, pair_id: &str, checklist: Vec<PlanItem>) -> Option<()> {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
             state.plan_checklist = checklist
@@ -891,6 +956,9 @@ impl MessageBroker {
                 .filter_map(|item| serde_json::to_value(&item).ok())
                 .collect();
             self.notify_state_update(pair_id, state);
+            Some(())
+        } else {
+            None
         }
     }
 
@@ -1057,23 +1125,33 @@ impl MessageBroker {
 
     pub fn set_turn_started_at(&self, pair_id: &str, timestamp: u64) {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(state) = pair_states.get_mut(pair_id) {
-            // Clear cognitive events for new turn
-            state.cognitive_events.clear();
-            let activity = if state.turn == AgentRole::Mentor {
-                &mut state.mentor_activity
-            } else {
-                &mut state.executor_activity
-            };
-            activity.output_line_count = 0;
-            activity.last_output_at = None;
-            activity.phase = ActivityPhase::Thinking;
-            activity.label = "Starting process...".to_string();
-            activity.detail = None;
-            activity.updated_at = timestamp;
-            state.turn_started_at = Some(timestamp);
-            self.notify_state_update(pair_id, state);
-        }
+        let Some(state) = pair_states.get_mut(pair_id) else {
+            return;
+        };
+        // A turn marker must never precede the pair's own clock or the run's
+        // start: a stale/foreign timestamp would corrupt stall math.
+        debug_assert!(
+            timestamp >= state.run_started_at.unwrap_or(0),
+            "turn_started_at {} precedes run start {:?} for pair {}",
+            timestamp,
+            state.run_started_at,
+            pair_id
+        );
+        // Clear cognitive events for new turn
+        state.cognitive_events.clear();
+        let activity = if state.turn == AgentRole::Mentor {
+            &mut state.mentor_activity
+        } else {
+            &mut state.executor_activity
+        };
+        activity.output_line_count = 0;
+        activity.last_output_at = None;
+        activity.phase = ActivityPhase::Thinking;
+        activity.label = "Starting process...".to_string();
+        activity.detail = None;
+        activity.updated_at = timestamp;
+        state.turn_started_at = Some(timestamp);
+        self.notify_state_update(pair_id, state);
     }
 
     pub fn update_token_usage(&self, pair_id: &str, role: &str, usage: TurnTokenUsage) {
@@ -1107,6 +1185,11 @@ impl MessageBroker {
     pub fn set_pair_status(&self, pair_id: &str, status: PairStatus, detail: Option<String>) {
         let mut pair_states = self.pair_states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = pair_states.get_mut(pair_id) {
+            // Terminal states are sticky: once Finished/Error, nothing
+            // (pause, handoff noise, a late turn ending) moves the pair again.
+            if matches!(state.status, PairStatus::Finished | PairStatus::Error) {
+                return;
+            }
             state.status = status.clone();
             state.mentor.status = status.clone();
             state.executor.status = status.clone();
@@ -1360,11 +1443,13 @@ mod tests {
             .initialize_pair("pair-wt", sample_input(), Some("/repo/.worktrees/pair-old"))
             .unwrap();
 
-        broker.update_workspace(
-            "pair-wt",
-            "/repo/.worktrees/pair-new",
-            Some("/repo/.worktrees/pair-new"),
-        );
+        broker
+            .update_workspace(
+                "pair-wt",
+                "/repo/.worktrees/pair-new",
+                Some("/repo/.worktrees/pair-new"),
+            )
+            .unwrap();
 
         let state = broker.get_state("pair-wt").unwrap();
         assert_eq!(state.directory, "/repo/.worktrees/pair-new");
@@ -1373,8 +1458,8 @@ mod tests {
             Some("/repo/.worktrees/pair-new")
         );
 
-        // An unknown pair is a no-op: a rotation racing a delete must not panic.
-        broker.update_workspace("gone", "/somewhere", None);
+        // An unknown pair tells the transaction to roll its manager write back.
+        assert!(broker.update_workspace("gone", "/somewhere", None).is_err());
     }
 
     #[test]
@@ -1437,7 +1522,7 @@ mod tests {
     }
 
     #[test]
-    fn add_message_only_persists_high_signal_messages_and_handoffs_turns() {
+    fn add_message_never_advances_turn_or_iteration() {
         let broker = MessageBroker::new();
         broker
             .initialize_pair("pair-1", sample_input(), None)
@@ -1518,9 +1603,157 @@ mod tests {
         );
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
-        assert_eq!(state.turn, AgentRole::Executor);
-        assert_eq!(state.iteration, 1);
+        assert_eq!(
+            state.turn,
+            AgentRole::Mentor,
+            "handoff records must not flip the turn; only prepare_run/resume_run advance it"
+        );
+        assert_eq!(
+            state.iteration, 0,
+            "handoff records must not bump the iteration; only prepare_run/resume_run advance it"
+        );
         assert_eq!(state.messages.len(), 1);
+    }
+
+    #[test]
+    fn classify_stall_pins_warning_stall_and_sticky_boundaries() {
+        // Boundaries: 119 quiet, 120 warn, 600 stall.
+        assert_eq!(
+            classify_stall(119, &ActivityPhase::Thinking),
+            StallSignal::Quiet
+        );
+        assert_eq!(
+            classify_stall(120, &ActivityPhase::Thinking),
+            StallSignal::Warning
+        );
+        assert_eq!(
+            classify_stall(599, &ActivityPhase::Thinking),
+            StallSignal::Warning
+        );
+        assert_eq!(
+            classify_stall(600, &ActivityPhase::Thinking),
+            StallSignal::Stalled
+        );
+        // Stalled is sticky: at warning level it reports Quiet so the monitor
+        // never downgrades an already-stalled turn back to a warning.
+        assert_eq!(
+            classify_stall(300, &ActivityPhase::Stalled),
+            StallSignal::Quiet
+        );
+        assert_eq!(
+            classify_stall(120, &ActivityPhase::Stalled),
+            StallSignal::Quiet
+        );
+        // ...but past the critical threshold it stays Stalled.
+        assert_eq!(
+            classify_stall(600, &ActivityPhase::Stalled),
+            StallSignal::Stalled
+        );
+    }
+
+    #[test]
+    fn checklist_writes_clear_old_items_and_report_missing_pairs() {
+        let broker = MessageBroker::new();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
+        let items = crate::context_bridge::parse_checklist("- [ ] next");
+        assert_eq!(broker.set_plan_checklist("pair-1", items), Some(()));
+        assert_eq!(broker.get_state("pair-1").unwrap().plan_checklist.len(), 1);
+        assert_eq!(broker.set_plan_checklist("pair-1", vec![]), Some(()));
+        assert!(broker
+            .get_state("pair-1")
+            .unwrap()
+            .plan_checklist
+            .is_empty());
+        assert_eq!(broker.set_plan_checklist("missing", vec![]), None);
+        broker.set_turn_started_at("missing", 1);
+    }
+
+    #[test]
+    fn turn_start_resets_the_active_roles_output_clock() {
+        let broker = MessageBroker::new();
+        let mut state = pair_state(PairStatus::Executing, 1);
+        state.turn = AgentRole::Mentor;
+        state.run_started_at = Some(1);
+        state.mentor_activity.output_line_count = 9;
+        state.mentor_activity.last_output_at = Some(2);
+        state.mentor_activity.detail = Some("old".into());
+        state.cognitive_events = vec![crate::types::CognitiveEvent {
+            id: "old".into(),
+            timestamp: 1,
+            role: AgentRole::Mentor,
+            event_type: crate::types::CognitiveEventType::Reasoning,
+            tool_name: None,
+            description: "old".into(),
+            status: crate::types::CognitiveEventStatus::Completed,
+        }];
+        broker.restore_state(state).unwrap();
+
+        broker.set_turn_started_at("pair-1", 2);
+        let state = broker.get_state("pair-1").unwrap();
+        assert_eq!(state.turn_started_at, Some(2));
+        assert_eq!(state.mentor_activity.output_line_count, 0);
+        assert_eq!(state.mentor_activity.last_output_at, None);
+        assert_eq!(state.mentor_activity.phase, ActivityPhase::Thinking);
+        assert_eq!(state.mentor_activity.detail, None);
+        assert!(state.cognitive_events.is_empty());
+    }
+
+    #[test]
+    fn stall_activity_formats_first_and_later_output_warnings() {
+        let activity = activity("working", ActivityPhase::Thinking);
+        let (_, label, detail) = stall_activity(&activity, 600, true).unwrap();
+        assert!(label.contains("No output after 600s"));
+        assert!(detail.contains("first output"));
+        let (_, label, detail) = stall_activity(&activity, 600, false).unwrap();
+        assert!(label.contains("No output for 600s"));
+        assert!(detail.contains("inactivity"));
+        let (_, _, warning) = stall_activity(&activity, 120, true).unwrap();
+        assert!(warning.contains("Waiting for first output"));
+        let (_, _, warning) = stall_activity(&activity, 120, false).unwrap();
+        assert!(warning.contains("No new output"));
+        assert!(stall_activity(&activity, 119, false).is_none());
+    }
+
+    #[test]
+    fn set_pair_status_terminal_states_are_sticky() {
+        for terminal in [PairStatus::Finished, PairStatus::Error] {
+            let broker = MessageBroker::new();
+            let mut state = pair_state(terminal.clone(), 3);
+            // A terminal pair has all three statuses terminal (set together
+            // by the single set_pair_status call that finished it).
+            state.mentor.status = terminal.clone();
+            state.executor.status = terminal.clone();
+            state.finished_at = if terminal == PairStatus::Finished {
+                Some(7)
+            } else {
+                None
+            };
+            broker.restore_state(state).unwrap();
+
+            // A late pause (or any other write) must not cover a terminal state.
+            broker.set_pair_status("pair-1", PairStatus::Paused, Some("late pause".to_string()));
+
+            let state = broker.get_state("pair-1").expect("pair state should exist");
+            assert_eq!(state.status, terminal);
+            assert_eq!(state.mentor.status, terminal);
+            assert_eq!(state.executor.status, terminal);
+        }
+    }
+
+    #[test]
+    fn set_pair_status_finished_still_records_finish_time() {
+        let broker = MessageBroker::new();
+        broker
+            .restore_state(pair_state(PairStatus::Executing, 2))
+            .unwrap();
+
+        broker.set_pair_status("pair-1", PairStatus::Finished, Some("done".to_string()));
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::Finished);
+        assert!(state.finished_at.is_some());
     }
 
     #[test]
@@ -1995,6 +2228,29 @@ mod tests {
             display_path: "b.rs".to_string(),
         });
         assert_ne!(after_files, pair_state_signature(&state));
+    }
+
+    #[test]
+    fn monitor_sample_preserves_the_run_baseline_and_rejects_stale_runs() {
+        let mut state = pair_state(PairStatus::Executing, 1);
+        state.git_tracking.root_path = Some(state.directory.clone());
+        state.git_tracking.baseline = Some("run-base".into());
+        let mut scratch = monitor_scratch_state(&state);
+        scratch.git_tracking.available = true;
+        scratch.git_tracking.baseline = Some("poll-base".into());
+        scratch.modified_files = vec![crate::types::ModifiedFile {
+            path: "a.rs".into(),
+            display_path: "a.rs".into(),
+            status: crate::types::FileStatus::M,
+        }];
+
+        assert!(merge_monitor_sample(&mut state, scratch.clone()));
+        assert_eq!(state.git_tracking.baseline.as_deref(), Some("run-base"));
+        assert_eq!(state.modified_files.len(), 1);
+
+        state.run_started_at = state.run_started_at.map(|started| started + 1);
+        assert!(!merge_monitor_sample(&mut state, scratch));
+        assert_eq!(state.git_tracking.baseline.as_deref(), Some("run-base"));
     }
 
     #[test]

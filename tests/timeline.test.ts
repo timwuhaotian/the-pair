@@ -197,7 +197,7 @@ test('buildTimeline groups mentor plan and executor result into one iteration', 
   assert.equal(timeline.totalInputTokens, 130)
 })
 
-test('buildTimeline filters handoff messages', () => {
+test('buildTimeline keeps handoff messages visible', () => {
   const messages: TimelineMessage[] = [
     {
       id: 'm1',
@@ -220,8 +220,9 @@ test('buildTimeline filters handoff messages', () => {
   ]
 
   const timeline = buildTimeline(messages, makePair({ messages }))
-  assert.equal(timeline.iterations[0].events.length, 1)
+  assert.equal(timeline.iterations[0].events.length, 2)
   assert.equal(timeline.iterations[0].events[0].type, 'mentor-plan')
+  assert.equal(timeline.iterations[0].events[1].type, 'handoff')
 })
 
 test('buildTimeline filters empty content ({})', () => {

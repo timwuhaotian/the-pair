@@ -89,6 +89,26 @@ afterEach(() => {
   delete commitPush.push
 })
 
+test('file diffs request the run baseline through the shim', () => {
+  setLocale()
+  renderPanel(makePair({ gitTracking: { available: true, baseline: 'base-sha' } }))
+  fireEvent.click(screen.getByTestId('ops-file-row-src/a.ts'))
+  assert.ok(
+    commitPush.calls.some(
+      (call) =>
+        call.cmd === 'git_get_file_diff' &&
+        (call.args as { baseline?: string }).baseline === 'base-sha'
+    )
+  )
+})
+
+test('handoff and sync failures stay visible in the inspector', () => {
+  setLocale()
+  renderPanel(makePair({ handoffError: 'previous handoff failed', syncError: 'snapshot failed' }))
+  assert.ok(screen.getByText(/previous handoff failed/))
+  assert.ok(screen.getByText(/snapshot failed/))
+})
+
 test('Commit: sends directory + message and shows the returned SHA', async () => {
   setLocale()
   renderPanel(makePair())

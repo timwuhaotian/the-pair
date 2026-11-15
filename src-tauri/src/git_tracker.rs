@@ -218,19 +218,22 @@ fn truncate_lines(content: &str, max_lines: usize, force_marker: bool) -> String
     }
 }
 
-/// `HEAD`, or the empty tree when the repository has no commits yet, so
-/// staged files in a brand-new repo still diff.
-pub(crate) fn diff_base(directory: &str) -> String {
-    let has_head = git_command()
+/// The commit `HEAD` points at, or `None` when the repository has no commits
+/// yet (unborn `HEAD`).
+fn head_commit_sha(directory: &str) -> Option<String> {
+    git_command()
         .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
         .current_dir(directory)
         .stdin(Stdio::null())
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false);
-    if has_head {
-        return "HEAD".to_string();
-    }
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|sha| !sha.is_empty())
+}
+
+/// The empty-tree object id, used as a diff base before the first commit.
+fn empty_tree_sha(directory: &str) -> Option<String> {
     git_command()
         .args(["hash-object", "-t", "tree", "--stdin"])
         .current_dir(directory)
@@ -240,7 +243,32 @@ pub(crate) fn diff_base(directory: &str) -> String {
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|sha| !sha.is_empty())
-        .unwrap_or_else(|| "HEAD".to_string())
+}
+
+/// The baseline a fresh workspace diffs against: the `HEAD` commit sha, or the
+/// empty tree when the repository has no commits yet.
+pub(crate) fn baseline_for(directory: &str) -> Option<String> {
+    head_commit_sha(directory).or_else(|| empty_tree_sha(directory))
+}
+
+/// `HEAD`, or the empty tree when the repository has no commits yet, so
+/// staged files in a brand-new repo still diff.
+pub(crate) fn diff_base(directory: &str) -> String {
+    baseline_for(directory).unwrap_or_else(|| "HEAD".to_string())
+}
+
+/// The revision a file diff runs against: the pair's recorded `baseline` when
+/// one is known, otherwise the legacy `HEAD`-or-empty-tree fallback. The
+/// monitor never moves a baseline (see `GitTracker::update_state`); only a new
+/// workspace (a directory the state has not seen yet) re-baselines to `HEAD`.
+/// Callers pass `state.git_tracking.baseline` here so diffs stay pinned to the
+/// run's start even after the workspace gains commits.
+pub(crate) fn diff_base_at(directory: &str, baseline: Option<&str>) -> String {
+    baseline
+        .map(str::trim)
+        .filter(|base| !base.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| diff_base(directory))
 }
 
 fn read_untracked_file(
@@ -481,9 +509,27 @@ impl GitTracker {
     }
 
     pub fn update_state(state: &mut PairState) {
+        // Baseline revival: a workspace the state has not seen yet (first
+        // poll, or a rotation into a fresh worktree) pins `baseline` to the
+        // current `HEAD` commit sha and `root_path` to the directory it was
+        // sampled from. The monitor's later copy-back must not move it: it
+        // only refreshes the file list, so diffs stay pinned to the run's
+        // start even after the workspace gains commits.
+        let directory_seen =
+            state.git_tracking.root_path.as_deref() == Some(state.directory.as_str());
+        let needs_baseline = !directory_seen || state.git_tracking.baseline.is_none();
+        let baseline = if needs_baseline {
+            baseline_for(&state.directory)
+        } else {
+            state.git_tracking.baseline.clone()
+        };
         match Self::collect_modified_files(&state.directory) {
             Some(files) => {
                 state.git_tracking.available = true;
+                state.git_tracking.root_path = Some(state.directory.clone());
+                if needs_baseline {
+                    state.git_tracking.baseline = baseline;
+                }
                 state.modified_files = files;
             }
             None => {
@@ -496,7 +542,15 @@ impl GitTracker {
         }
     }
 
-    pub fn get_file_diff(directory: &str, file_path: &str, status: &str) -> Result<String, String> {
+    /// File diff pinned to the pair's recorded `baseline` when one is known.
+    /// The IPC command passes the pair's recorded baseline; the test-only
+    /// `get_file_diff` wrapper keeps the legacy fallback for direct calls.
+    pub fn get_file_diff_at(
+        directory: &str,
+        file_path: &str,
+        status: &str,
+        baseline: Option<&str>,
+    ) -> Result<String, String> {
         let relative = validate_relative_path(file_path)?;
         let canonical_directory = Path::new(directory)
             .canonicalize()
@@ -523,10 +577,11 @@ impl GitTracker {
             }
         }
 
-        // Tracked changes (including deletions) diff against HEAD, or the
-        // empty tree in a repository without commits. `--literal-pathspecs`
-        // stops names with `*`, `?` or `:(...)` from acting as patterns.
-        let base = diff_base(directory);
+        // Tracked changes (including deletions) diff against the run's
+        // baseline (or `HEAD`/empty tree before one is recorded).
+        // `--literal-pathspecs` stops names with `*`, `?` or `:(...)` from
+        // acting as patterns.
+        let base = diff_base_at(directory, baseline);
         let output = git_command()
             .args([
                 "--literal-pathspecs",
@@ -555,6 +610,11 @@ impl GitTracker {
         } else {
             Ok(truncated)
         }
+    }
+
+    #[cfg(test)]
+    pub fn get_file_diff(directory: &str, file_path: &str, status: &str) -> Result<String, String> {
+        Self::get_file_diff_at(directory, file_path, status, None)
     }
 }
 
@@ -1117,5 +1177,169 @@ mod tests {
 
         let err = push_changes(temp.dir(), "  ").expect_err("blank remote");
         assert!(err.contains("empty"), "{}", err);
+    }
+
+    fn blank_state(dir: &str) -> PairState {
+        PairState {
+            pair_id: "pair-baseline".to_string(),
+            directory: dir.to_string(),
+            status: crate::types::PairStatus::Executing,
+            iteration: 1,
+            max_iterations: 0,
+            turn: crate::types::AgentRole::Executor,
+            mentor: crate::types::AgentState {
+                status: crate::types::PairStatus::Idle,
+                turn: crate::types::AgentRole::Mentor,
+                last_message: None,
+                activity: crate::types::AgentActivity {
+                    phase: crate::types::ActivityPhase::Idle,
+                    label: "idle".to_string(),
+                    detail: None,
+                    started_at: 0,
+                    updated_at: 0,
+                    last_output_at: None,
+                    output_line_count: 0,
+                },
+                token_usage: None,
+            },
+            executor: crate::types::AgentState {
+                status: crate::types::PairStatus::Executing,
+                turn: crate::types::AgentRole::Executor,
+                last_message: None,
+                activity: crate::types::AgentActivity {
+                    phase: crate::types::ActivityPhase::Idle,
+                    label: "idle".to_string(),
+                    detail: None,
+                    started_at: 0,
+                    updated_at: 0,
+                    last_output_at: None,
+                    output_line_count: 0,
+                },
+                token_usage: None,
+            },
+            messages: Vec::new(),
+            mentor_activity: crate::types::AgentActivity {
+                phase: crate::types::ActivityPhase::Idle,
+                label: "idle".to_string(),
+                detail: None,
+                started_at: 0,
+                updated_at: 0,
+                last_output_at: None,
+                output_line_count: 0,
+            },
+            executor_activity: crate::types::AgentActivity {
+                phase: crate::types::ActivityPhase::Idle,
+                label: "idle".to_string(),
+                detail: None,
+                started_at: 0,
+                updated_at: 0,
+                last_output_at: None,
+                output_line_count: 0,
+            },
+            modified_files: Vec::new(),
+            git_tracking: crate::types::GitTracking {
+                available: false,
+                root_path: None,
+                baseline: None,
+                git_review_available: None,
+            },
+            automation_mode: "full-auto".to_string(),
+            git_review_available: false,
+            finished_at: None,
+            latest_acceptance: None,
+            acceptance_history: Vec::new(),
+            worktree_path: None,
+            turn_started_at: None,
+            plan_checklist: Vec::new(),
+            key_decisions: Vec::new(),
+            cognitive_events: Vec::new(),
+            plan_gate: false,
+            task_spec: String::new(),
+            run_started_at: None,
+        }
+    }
+
+    #[test]
+    fn update_state_pins_baseline_to_first_seen_head() {
+        let temp = TempRepo::new("baseline-pin");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+        let head = baseline_for(temp.dir()).expect("baseline");
+
+        let mut state = blank_state(temp.dir());
+        GitTracker::update_state(&mut state);
+        assert!(state.git_tracking.available);
+        assert_eq!(state.git_tracking.root_path.as_deref(), Some(temp.dir()));
+        assert_eq!(state.git_tracking.baseline.as_deref(), Some(head.as_str()));
+
+        // A later commit must not move the pinned baseline; the file list does.
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "second"]);
+        GitTracker::update_state(&mut state);
+        assert_eq!(state.git_tracking.baseline.as_deref(), Some(head.as_str()));
+        assert_eq!(state.git_tracking.root_path.as_deref(), Some(temp.dir()));
+        assert_eq!(state.modified_files.len(), 0);
+    }
+
+    #[test]
+    fn update_state_rebaselines_when_the_directory_changes() {
+        let temp = TempRepo::new("baseline-rotate");
+        fs::write(temp.root.join("keep.txt"), "keep\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+
+        let mut state = blank_state(temp.dir());
+        GitTracker::update_state(&mut state);
+        let first = state.git_tracking.baseline.clone().expect("baseline");
+
+        fs::write(temp.root.join("keep.txt"), "changed\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "second"]);
+        let second_dir = format!("{}/sub", temp.dir());
+        fs::create_dir_all(&second_dir).unwrap();
+        // A rotation into a fresh worktree is a new directory: re-baseline.
+        state.directory = temp.dir().to_string();
+        state.git_tracking.root_path = Some("/gone".to_string());
+        state.git_tracking.baseline = Some("stale".to_string());
+        GitTracker::update_state(&mut state);
+        assert_eq!(state.git_tracking.root_path.as_deref(), Some(temp.dir()));
+        assert_ne!(state.git_tracking.baseline.as_deref(), Some("stale"));
+        assert_eq!(
+            state.git_tracking.baseline.as_deref(),
+            baseline_for(temp.dir()).as_deref()
+        );
+        assert_ne!(first, state.git_tracking.baseline.unwrap());
+    }
+
+    #[test]
+    fn diff_base_at_prefers_the_recorded_baseline() {
+        assert_eq!(diff_base_at("/repo", Some("abc123"),), "abc123");
+        assert_eq!(diff_base_at("/repo", Some("  "),), diff_base("/repo"));
+        assert_eq!(diff_base_at("/repo", None), diff_base("/repo"));
+    }
+
+    #[test]
+    fn get_file_diff_at_reads_the_pinned_baseline() {
+        let temp = TempRepo::new("baseline-diff");
+        fs::write(temp.root.join("keep.txt"), "v1\n").unwrap();
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "init"]);
+        let pinned = baseline_for(temp.dir()).expect("baseline");
+
+        fs::write(temp.root.join("keep.txt"), "v2\n").unwrap();
+        let diff =
+            GitTracker::get_file_diff_at(temp.dir(), "keep.txt", "M", Some(&pinned)).expect("diff");
+        assert!(diff.contains("-v1") && diff.contains("+v2"), "{}", diff);
+
+        // The recorded baseline survives a new commit: diff still shows all
+        // changes since the run started, not just since the latest `HEAD`.
+        temp.git(&["add", "."]);
+        temp.git(&["commit", "-q", "--no-verify", "-m", "second"]);
+        fs::write(temp.root.join("keep.txt"), "v3\n").unwrap();
+        let diff =
+            GitTracker::get_file_diff_at(temp.dir(), "keep.txt", "M", Some(&pinned)).expect("diff");
+        assert!(diff.contains("-v1") && diff.contains("+v3"), "{}", diff);
     }
 }

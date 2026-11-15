@@ -18,6 +18,15 @@ export type SnapshotComparablePair = {
   mentorModel: string
   executorModel: string
   currentTurnCard?: SnapshotComparableTurnCard
+  messages?: unknown[]
+  latestAcceptance?: unknown
+  modifiedFiles?: unknown[]
+  gitTracking?: unknown
+}
+
+function changedJson(previous: unknown, next: unknown): boolean {
+  if (previous === next) return false
+  return JSON.stringify(previous) !== JSON.stringify(next)
 }
 
 function areTokenUsagesEqual(
@@ -54,6 +63,10 @@ export function shouldSaveSnapshot(
     previous.pendingExecutorModel !== next.pendingExecutorModel ||
     previous.mentorModel !== next.mentorModel ||
     previous.executorModel !== next.executorModel ||
+    changedJson(previous.messages, next.messages) ||
+    changedJson(previous.latestAcceptance, next.latestAcceptance) ||
+    changedJson(previous.modifiedFiles, next.modifiedFiles) ||
+    changedJson(previous.gitTracking, next.gitTracking) ||
     previousCard?.content !== nextCard?.content ||
     previousCard?.state !== nextCard?.state ||
     !areTokenUsagesEqual(previousCard?.tokenUsage, nextCard?.tokenUsage)

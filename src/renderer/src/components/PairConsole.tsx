@@ -20,7 +20,7 @@ import { TurnCardView } from './TurnCardView'
 import { PlanReviewBar } from './PlanReviewBar'
 import { SystemBanner } from './SystemBanner'
 import { TerminalBlock } from './terminal/TerminalBlock'
-import { collapseWithDropCounts } from '../lib/consoleMessages'
+import { collapseWithDropCounts, dropDuplicatedLocalTurnCards } from '../lib/consoleMessages'
 import { nextMatchIndex } from '../lib/consoleSearch'
 import { FileMention } from './FileMention'
 import { SkillMention } from './SkillMention'
@@ -168,12 +168,11 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
   }, [pair.messages, viewingRun, messageFilter])
 
   const searching = searchOpen && listQuery.trim().length > 0
-  // Dedup before the search filter, so which drafts collapse never depends on
-  // the query: search keeps the same finals as the unsearched view, a draft
-  // hidden without a query stays hidden with one, and the final's drop marker
-  // survives.
+  // Same dedup as timeline/inspector so all three surfaces bill one turn once.
   const { deduplicatedConsoleMessages, dropCountByMessageId } = useMemo(() => {
-    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(roleFilteredMessages)
+    const { kept, droppedBeforeId } = collapseWithDropCounts<Message>(
+      dropDuplicatedLocalTurnCards(roleFilteredMessages)
+    )
     return { deduplicatedConsoleMessages: kept, dropCountByMessageId: droppedBeforeId }
   }, [roleFilteredMessages])
 
@@ -441,6 +440,12 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
     // Guard: if pair is running, refuse silently. The UI already disables the textarea,
     // but keep this as a belt-and-suspenders fallback against stale state.
     if (isPairActive(pair.status)) return
+    // Same budget as IterationProgress: adaptiveBudget wins over maxIterations.
+    const budget = pair.adaptiveBudget ?? pair.maxIterations
+    if (budget > 0 && pair.iterations >= budget) {
+      setSubmitError(t('errors.iterationLimit'))
+      return
+    }
 
     setIsSubmittingTask(true)
     setSubmitError(null)
@@ -729,7 +734,7 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
         <span className="text-muted-foreground-faint">·</span>
         <span className="tabular-nums">
           {t('console.iteration', {
-            value: formatIterations(pair.iterations, pair.maxIterations)
+            value: formatIterations(pair.iterations, pair.adaptiveBudget ?? pair.maxIterations)
           })}
         </span>
         <div className="ml-auto flex items-center gap-3">

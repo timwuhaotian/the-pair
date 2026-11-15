@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  appendChecklistToExecutorPrompt,
+  formatChecklistForHandoff,
   isHandoffIgnoredError,
-  shouldIgnoreHandoffEvent
+  shouldIgnoreHandoffEvent,
+  tryEnqueueHandoff
 } from '../src/renderer/src/lib/handoffGuard.ts'
 
 test('backend finished handoff is ignored even when local pair state is stale', () => {
@@ -124,4 +127,45 @@ test('isHandoffIgnoredError recognizes the backend HANDOFF_IGNORED rejection', (
   assert.equal(isHandoffIgnoredError({ message: 'HANDOFF_IGNORED: pair is error' }), true)
   assert.equal(isHandoffIgnoredError(new Error('Pair not found')), false)
   assert.equal(isHandoffIgnoredError(undefined), false)
+})
+
+test('tryEnqueueHandoff appends without mutating and drops invalid payloads', () => {
+  const queue: Array<{ pairId: string; nextRole: string }> = []
+  const next = tryEnqueueHandoff(queue, { pairId: 'p1', nextRole: 'executor' })
+  assert.deepEqual(next, [{ pairId: 'p1', nextRole: 'executor' }])
+  assert.deepEqual(queue, [], 'input queue must not be mutated')
+  assert.deepEqual(tryEnqueueHandoff(next, { pairId: '', nextRole: 'executor' }), next)
+  assert.deepEqual(tryEnqueueHandoff(next, { pairId: 'p1', nextRole: '' }), next)
+})
+
+test('tryEnqueueHandoff is bounded: the 9th handoff is dropped', () => {
+  let queue: Array<{ pairId: string; nextRole: string }> = []
+  for (let i = 0; i < 8; i += 1) {
+    queue = tryEnqueueHandoff(queue, { pairId: `p${i}`, nextRole: 'executor' })
+  }
+  assert.equal(queue.length, 8)
+  assert.deepEqual(tryEnqueueHandoff(queue, { pairId: 'p8', nextRole: 'executor' }), queue)
+  assert.equal(tryEnqueueHandoff(queue, { pairId: 'p8', nextRole: 'executor' }).length, 8)
+})
+
+test('formatChecklistForHandoff renders lines and returns null when empty', () => {
+  assert.equal(formatChecklistForHandoff([]), null)
+  assert.equal(formatChecklistForHandoff([{ description: '   ' }]), null)
+  assert.equal(
+    formatChecklistForHandoff([
+      { description: 'Do it', completed: false },
+      { description: '  ', completed: true },
+      { description: 'Done', completed: true }
+    ]),
+    '- [ ] Do it\n- [x] Done'
+  )
+})
+
+test('appendChecklistToExecutorPrompt appends CHECKLIST and leaves empty alone', () => {
+  assert.equal(appendChecklistToExecutorPrompt('PLAN\nrun', null), 'PLAN\nrun')
+  assert.equal(appendChecklistToExecutorPrompt('PLAN\nrun', '  '), 'PLAN\nrun')
+  assert.equal(
+    appendChecklistToExecutorPrompt('PLAN\nrun', '- [ ] Do it'),
+    'PLAN\nrun\n\nCHECKLIST\n- [ ] Do it'
+  )
 })

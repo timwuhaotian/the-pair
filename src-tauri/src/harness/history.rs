@@ -82,34 +82,40 @@ pub fn tool_result(id: &str, output: &str) -> Value {
 /// What stands in for the answer of a call the turn stopped before running.
 const NEVER_RAN: &str = "This call did not finish: the turn was stopped before it returned.";
 
-/// Answers every tool call the last assistant turn made that has no result yet.
+/// Answers every tool call any assistant turn made that has no result yet.
 ///
 /// A turn that fails or is stopped part-way through its calls leaves an
 /// assistant turn asking for more than was answered, and every provider refuses
 /// a history like that. The calls that did run keep their real results.
 pub fn close_open_calls(messages: &mut Vec<Value>) {
-    let Some(asked_at) = messages
-        .iter()
-        .rposition(|message| role_of(message) == "assistant")
-    else {
-        return;
-    };
-    let answered: Vec<&str> = messages[asked_at + 1..]
+    let answered: Vec<&str> = messages
         .iter()
         .filter_map(|message| message.get("tool_call_id").and_then(Value::as_str))
         .collect();
-    let open: Vec<String> = messages[asked_at]
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|call| call.get("id").and_then(Value::as_str))
-        .filter(|id| !answered.contains(id))
-        .map(str::to_string)
-        .collect();
-    for id in open {
-        messages.push(tool_result(&id, NEVER_RAN));
+    let mut closed = Vec::with_capacity(messages.len());
+    let mut seen = Vec::new();
+    for message in messages.iter() {
+        closed.push(message.clone());
+        if role_of(message) != "assistant" {
+            continue;
+        }
+        let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else {
+            continue;
+        };
+        for call in calls {
+            let Some(id) = call.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if answered.contains(&id) || seen.iter().any(|known| known == id) {
+                continue;
+            }
+            seen.push(id.to_string());
+            // Providers require every result before the next assistant/user
+            // message; appending older orphans at the end still fails replay.
+            closed.push(tool_result(id, NEVER_RAN));
+        }
     }
+    *messages = closed;
 }
 
 /// The history as the next turn replays it: at most [`MAX_HISTORY_MESSAGES`]
@@ -358,6 +364,16 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_assistant_reply_does_not_gain_a_tool_result() {
+        let mut history = turn(0);
+        let original = history.clone();
+
+        close_open_calls(&mut history);
+
+        assert_eq!(history, original);
+    }
+
+    #[test]
     fn calls_a_stopped_turn_never_answered_get_a_result() {
         let two_calls = assistant(&Reply {
             tool_calls: ["call-1", "call-2"]
@@ -380,9 +396,9 @@ mod tests {
         close_open_calls(&mut history);
 
         assert_eq!(history.len(), 4);
-        assert_eq!(history[2]["content"], "edited a.rs", "a real result stays");
-        assert_eq!(history[3]["tool_call_id"], "call-2");
-        assert!(history[3]["content"]
+        assert_eq!(history[2]["tool_call_id"], "call-2");
+        assert_eq!(history[3]["content"], "edited a.rs", "a real result stays");
+        assert!(history[2]["content"]
             .as_str()
             .unwrap()
             .contains("did not finish"));
@@ -394,6 +410,66 @@ mod tests {
         let mut bare = vec![user("hi")];
         close_open_calls(&mut bare);
         assert_eq!(bare.len(), 1);
+    }
+
+    #[test]
+    fn orphaned_calls_from_every_assistant_turn_get_results() {
+        // Two rounds of calls with only the first call ever answered: the second
+        // call of the first round and the only call of the second round are both
+        // orphans, even though only the second round is the last assistant turn.
+        let calls = |ids: &[&str]| {
+            ids.iter()
+                .map(|id| crate::llm::ToolCall {
+                    id: (*id).into(),
+                    name: "bash".into(),
+                    arguments: "{}".into(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut history = vec![
+            user("do it"),
+            assistant(&Reply {
+                tool_calls: calls(&["call-1", "call-2"]),
+                ..Reply::default()
+            })
+            .unwrap(),
+            tool_result("call-1", "edited a.rs"),
+            assistant(&Reply {
+                tool_calls: calls(&["call-3"]),
+                ..Reply::default()
+            })
+            .unwrap(),
+        ];
+
+        close_open_calls(&mut history);
+
+        assert_eq!(history.len(), 6);
+        assert_eq!(history[2]["tool_call_id"], "call-2");
+        assert_eq!(history[3]["content"], "edited a.rs", "a real result stays");
+        assert_eq!(history[5]["tool_call_id"], "call-3");
+        let answered: Vec<&str> = history
+            .iter()
+            .filter_map(|message| message.get("tool_call_id").and_then(Value::as_str))
+            .collect();
+        for id in ["call-1", "call-2", "call-3"] {
+            assert!(answered.contains(&id), "{} is answered: {:?}", id, history);
+        }
+
+        // Nothing open, nothing added on a second pass.
+        close_open_calls(&mut history);
+        assert_eq!(history.len(), 6);
+    }
+
+    #[test]
+    fn duplicate_and_idless_calls_do_not_create_duplicate_results() {
+        let mut history = vec![serde_json::json!({"role": "assistant", "tool_calls": [
+            {"id": "call-1", "function": {"name": "bash", "arguments": "{}"}},
+            {"id": "call-1", "function": {"name": "bash", "arguments": "{}"}},
+            {"function": {"name": "bash", "arguments": "{}"}}
+        ]})];
+        close_open_calls(&mut history);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1]["tool_call_id"], "call-1");
     }
 
     #[test]

@@ -30,6 +30,10 @@ interface FakeApi {
   createImpl: (input: Record<string, unknown>) => Promise<unknown>
   createCalls: Array<Record<string, unknown>>
   refreshModels: () => Promise<unknown>
+  controlWithState: boolean
+  controlError: boolean
+  saveError: boolean
+  stateError: boolean
 }
 
 const api: FakeApi = {
@@ -43,7 +47,11 @@ const api: FakeApi = {
   backendState: null,
   createImpl: async () => ({ pairId: 'created' }),
   createCalls: [],
-  refreshModels: async () => []
+  refreshModels: async () => [],
+  controlWithState: false,
+  controlError: false,
+  saveError: false,
+  stateError: false
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -65,13 +73,27 @@ Object.defineProperty(globalThis, 'window', {
           return input
         },
         pause: async (pairId: string) => {
+          if (api.controlError) throw new Error('pause failed')
           api.pauseCalls.push(pairId)
+          if (api.controlWithState) setTimeout(() => emitState({ status: 'paused' }), 0)
         },
-        resume: async () => undefined,
+        resume: async () => {
+          if (api.controlError) throw new Error('resume failed')
+          if (api.controlWithState) setTimeout(() => emitState({ status: 'mentoring' }), 0)
+        },
         delete: async (pairId: string) => api.deleteImpl(pairId),
-        retryTurn: async () => undefined,
-        killProcess: async () => undefined,
-        getState: async () => api.backendState,
+        retryTurn: async () => {
+          if (api.controlError) throw new Error('retry failed')
+          if (api.controlWithState) setTimeout(() => emitState({ status: 'reviewing' }), 0)
+        },
+        killProcess: async () => {
+          if (api.controlError) throw new Error('kill failed')
+          if (api.controlWithState) setTimeout(() => emitState({ status: 'paused' }), 0)
+        },
+        getState: async () => {
+          if (api.stateError) throw new Error('IPC unavailable')
+          return api.backendState
+        },
         onMessage: async (callback: Callback) => {
           api.onMessage = callback
           return () => undefined
@@ -87,6 +109,7 @@ Object.defineProperty(globalThis, 'window', {
       },
       session: {
         saveSnapshot: async (input: { pairId: string; messages: unknown[] }) => {
+          if (api.saveError) throw new Error('disk full')
           api.saved.push(input)
         },
         loadAllPairs: async () => []
@@ -196,6 +219,10 @@ function reset(pairs: Pair[], extra: Record<string, unknown> = {}): void {
   api.assignImpl = async () => undefined
   api.deleteImpl = async () => undefined
   api.backendState = null
+  api.controlWithState = false
+  api.controlError = false
+  api.saveError = false
+  api.stateError = false
   api.createCalls = []
   usePairStore.setState({
     pairs,
@@ -366,6 +393,107 @@ test('a HANDOFF_IGNORED rejection is dropped silently', async () => {
   assert.equal(api.pauseCalls.length, 0)
   assert.equal(usePairStore.getState().error, null)
   assert.equal(getPair().handoffError, undefined)
+})
+
+test('control calls settle through state events and release per-pair locks', async () => {
+  for (const action of ['pausePair', 'resumePair', 'retryTurn', 'killProcess'] as const) {
+    reset([makePair({ status: 'Executing' })])
+    api.controlWithState = true
+    if (action === 'killProcess') {
+      await usePairStore.getState()[action]('pair-1', 'executor')
+    } else {
+      await usePairStore.getState()[action]('pair-1')
+    }
+    assert.deepEqual(usePairStore.getState().loadingPairs, [], action)
+    assert.equal(usePairStore.getState().error, null, action)
+  }
+})
+
+test('control failures release locks and surface the command error', async () => {
+  for (const action of ['pausePair', 'resumePair', 'retryTurn', 'killProcess'] as const) {
+    reset([makePair({ status: 'Executing' })])
+    api.controlError = true
+    const promise =
+      action === 'killProcess'
+        ? usePairStore.getState()[action]('pair-1', 'executor')
+        : usePairStore.getState()[action]('pair-1')
+    await assert.rejects(promise)
+    assert.deepEqual(usePairStore.getState().loadingPairs, [], action)
+    assert.match(usePairStore.getState().error ?? '', /failed/, action)
+  }
+})
+
+test('a dropped state event falls back to a readable refresh error', async () => {
+  reset([makePair({ status: 'Executing' })])
+  api.backendState = null
+  api.stateError = true
+  await usePairStore.getState().pausePair('pair-1')
+  assert.match(getPair().syncError ?? '', /State refresh failed/)
+  assert.deepEqual(usePairStore.getState().loadingPairs, [])
+})
+
+test('handoff messages stay visible and snapshot failures surface on the pair', async () => {
+  reset([makePair({ status: 'Executing' })])
+  api.saveError = true
+  assert.ok(api.onMessage)
+  api.onMessage({
+    pairId: 'pair-1',
+    message: {
+      ...message('handoff-visible', 'mentor', 4_000, 'to executor'),
+      type: 'handoff'
+    }
+  })
+  await flush()
+  assert.ok(getPair().messages.some((entry) => entry.type === 'handoff'))
+  assert.match(getPair().syncError ?? '', /Snapshot save failed: disk full/)
+  usePairStore.getState().setPairSyncError('pair-1')
+  assert.equal(getPair().syncError, undefined)
+})
+
+test('malformed progress events surface an error instead of disappearing', async () => {
+  reset([makePair({ status: 'Executing' })])
+  assert.ok(api.onMessage)
+  api.onMessage({
+    pairId: 'pair-1',
+    message: {
+      ...message('broken-progress', 'mentor', 4_000, '{"type":'),
+      type: 'progress'
+    }
+  })
+  await flush()
+  assert.equal(getPair().mentorActivity.phase, 'error')
+  assert.match(getPair().mentorActivity.detail ?? '', /Malformed agent progress/)
+})
+
+test('a queued handoff still runs after the first is ignored', async () => {
+  reset([makePair({ status: 'Executing' })])
+  api.backendState = { status: 'executing', messages: [] }
+  let calls = 0
+  api.assignImpl = async () => {
+    calls += 1
+    if (calls === 1) throw 'HANDOFF_IGNORED: pair is paused'
+  }
+  assert.ok(api.onHandoff)
+  api.onHandoff({ pairId: 'pair-1', nextRole: 'executor' })
+  api.onHandoff({ pairId: 'pair-1', nextRole: 'mentor' })
+  await flush()
+  assert.equal(api.assignCalls.length, 2)
+  assert.equal(api.assignCalls[1].input.role, 'mentor')
+  assert.equal(getPair().handoffError, undefined)
+})
+
+test('executor handoff includes the backend plan checklist', async () => {
+  reset([makePair({ status: 'Executing', latestAcceptance: undefined })])
+  api.backendState = {
+    status: 'executing',
+    messages: [],
+    planChecklist: [{ description: 'Ship the fix', completed: false }]
+  }
+  assert.ok(api.onHandoff)
+  api.onHandoff({ pairId: 'pair-1', nextRole: 'executor' })
+  await flush()
+  assert.equal(api.assignCalls.length, 1)
+  assert.match(api.assignCalls[0].input.spec, /CHECKLIST\n- \[ \] Ship the fix/)
 })
 
 test('a failed handoff is recorded on the pair (not the global error) and pauses it', async () => {

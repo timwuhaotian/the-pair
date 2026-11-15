@@ -108,6 +108,14 @@ test('a fresh session also docks the input at the bottom', () => {
   assertDocked(screen.getByTestId('pair-task-input'))
 })
 
+test('an exhausted adaptive budget blocks submission with a visible error', () => {
+  renderConsole(makePair([], { iterations: 2, maxIterations: 4, adaptiveBudget: 2 }))
+  const input = screen.getByTestId('pair-task-input').querySelector('textarea')!
+  fireEvent.change(input, { target: { value: 'next task' } })
+  fireEvent.submit(input.closest('form')!)
+  assert.ok(screen.getByText('Iteration limit reached — manual intervention required'))
+})
+
 test('the plan review bar docks above the input while awaiting review', () => {
   renderConsole(makePair(MESSAGES, { status: 'Awaiting Human Review' }))
   const approve = screen.getByTestId('plan-approve-btn')

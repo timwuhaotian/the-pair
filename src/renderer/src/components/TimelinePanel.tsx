@@ -14,17 +14,30 @@ interface TimelinePanelProps {
   bare?: boolean
 }
 
-export function TimelineActions({ timeline }: { timeline: TimelineData }): React.ReactNode {
+export function TimelineActions({
+  timeline,
+  onError
+}: {
+  timeline: TimelineData
+  onError?: (message: string) => void
+}): React.ReactNode {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const theme = useThemeStore((state) => state.theme)
 
   const handleCopy = async (): Promise<void> => {
-    const { copyMarkdownReport } = await import('../lib/reportExport')
-    const ok = await copyMarkdownReport(timeline)
-    if (ok) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+    try {
+      const { copyMarkdownReport } = await import('../lib/reportExport')
+      const ok = await copyMarkdownReport(timeline)
+      if (ok) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } else {
+        onError?.('Failed to copy timeline report')
+      }
+    } catch (err) {
+      console.error('Failed to copy timeline report:', err)
+      onError?.('Failed to copy timeline report')
     }
   }
 
@@ -34,6 +47,7 @@ export function TimelineActions({ timeline }: { timeline: TimelineData }): React
       await exportAsHtml(timeline, { theme })
     } catch (err) {
       console.error('Failed to export timeline report:', err)
+      onError?.('Failed to export timeline report')
     }
   }
 

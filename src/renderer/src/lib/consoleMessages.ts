@@ -5,6 +5,30 @@ type ConsoleMessageLike = {
   iteration?: number
 }
 
+/** Local turn cards the renderer commits (`turn-<role>-iter<N>`); the backend
+ *  later reports the same turn as its own message. One turn must not bill twice. */
+export const LOCAL_TURN_CARD_ID = /^turn-(?:mentor|executor)-iter\d+$/
+
+function localTurnKey(message: ConsoleMessageLike): string {
+  return `${message.from}:${message.iteration ?? 'unknown'}`
+}
+
+/**
+ * Shared dedup for console / timeline / inspector: drop a local turn card when
+ * the backend also reported that turn. The backend message wins — on the direct
+ * connection it is the only one of the two that carries usage.
+ */
+export function dropDuplicatedLocalTurnCards<T extends ConsoleMessageLike>(
+  messages: ReadonlyArray<T>
+): T[] {
+  const reportedTurns = new Set(
+    messages.filter((message) => !LOCAL_TURN_CARD_ID.test(message.id)).map(localTurnKey)
+  )
+  return messages.filter(
+    (message) => !LOCAL_TURN_CARD_ID.test(message.id) || !reportedTurns.has(localTurnKey(message))
+  )
+}
+
 function canCollapseMessage(type: string): boolean {
   return type !== 'handoff'
 }

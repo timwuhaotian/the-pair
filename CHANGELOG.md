@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.4] - 2026-11-14
+
+### Fixed
+
+- **Restoring or reloading a pair no longer rewinds live work.** Backend state wins over stale renderer snapshots, crash recovery keeps the selected endpoint, conversation and run position, and an unreadable snapshot is quarantined without hiding healthy pairs.
+- **Failed turns recover without corrupting the conversation.** Retry and cooldown waits are cancellable, spent quotas do not throttle unrelated calls, context overflow pauses with compacted history, and tool-call history stays replayable. Backup-model usage is attributed to the endpoint that actually answered.
+- **Completion requires verifiable work.** Empty diffs, missing review evidence, and checks that time out, fail to start or exit unknown can no longer pass acceptance. The Mentor must provide explicit confidence, and its parsed checklist reaches the Executor.
+- **Run changes preserve workspace work and accurate diffs.** Each run keeps a fixed Git baseline, stale monitor samples cannot overwrite a new run, replacement worktrees are created before old ones are removed, and a stop timeout pauses instead of deleting the workspace. Rescue cleanup only removes branches already contained elsewhere.
+- **Console controls and token usage stay consistent.** Control commands are locked per pair with state-event fallback, handoffs remain visible and bounded, token fields merge without stale values, snapshot and diff failures surface in the UI, and file diffs use the run baseline.
+
 ## [3.0.3] - 2026-11-14
 
 ### Fixed

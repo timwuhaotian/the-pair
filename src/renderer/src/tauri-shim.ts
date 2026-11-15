@@ -44,6 +44,7 @@ const api = {
       invoke('session_save_snapshot', { input }) as Promise<unknown>,
     loadAllPairs: () => invoke('load_all_pairs') as Promise<unknown>,
     listRecoverable: () => invoke('list_recoverable_sessions') as Promise<unknown>,
+    listProblems: () => invoke('list_snapshot_problems') as Promise<unknown>,
     deleteRecoverable: (pairId: string) =>
       invoke('delete_recoverable_session', { pairId }) as Promise<unknown>,
     restore: (pairId: string, continueRun = true) =>
@@ -63,8 +64,8 @@ const api = {
       invoke('file_read_content', { options }) as Promise<string>
   },
   repo: {
-    getFileDiff: (directory: string, filePath: string, status: string) =>
-      invoke('git_get_file_diff', { directory, filePath, status }) as Promise<string>,
+    getFileDiff: (directory: string, filePath: string, status: string, baseline?: string) =>
+      invoke('git_get_file_diff', { directory, filePath, status, baseline }) as Promise<string>,
     commitChanges: (directory: string, message: string) =>
       invoke('git_commit_changes', { directory, message }) as Promise<{
         sha: string

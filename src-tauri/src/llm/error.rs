@@ -133,6 +133,15 @@ impl fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
+impl super::Failure {
+    /// Whether this failure must not pace other requests on the account: a spent
+    /// allowance resets on its own schedule, so publishing it as a shared
+    /// cooldown would hold every later call for a wait that heals nothing.
+    pub(super) fn is_quota(&self) -> bool {
+        self.kind == ErrorKind::Quota
+    }
+}
+
 /// Statuses another attempt can heal.
 pub(super) fn retryable_status(status: StatusCode) -> bool {
     matches!(status.as_u16(), 408 | 409 | 425 | 429 | 500..=599)

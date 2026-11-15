@@ -24,6 +24,44 @@ use tauri::{AppHandle, Manager, State};
 const SNAPSHOT_VERSION: u32 = 3;
 const SNAPSHOT_DIR_NAME: &str = "pair-snapshots";
 pub(crate) const INDEX_FILE_NAME: &str = "index.json";
+pub(crate) const QUARANTINE_DIR_NAME: &str = "quarantine";
+const SNAPSHOT_PROBLEMS_FILE_NAME: &str = "problems.json";
+const INTERRUPTED_DETAIL: &str = "Interrupted when the app closed. Resume to continue.";
+
+/// OWNERSHIP TABLE — the single contract for snapshot merges.
+///
+/// `merge_state_into_snapshot` is the only writer that blends the two sides:
+/// every field it overwrites is backend-owned, every field it leaves alone is
+/// renderer-owned. Renderer drafts go through this same merge, so a stale UI
+/// mirror cannot overwrite live backend state.
+///
+/// Backend wins (merge overwrites): `snapshot_version`, `saved_at`, `name`,
+/// `directory`, `spec`, `status` (except the Reviewing crash guard — disk keeps
+/// `Reviewing` while memory is `Paused` until a new verdict lands),
+/// `iterations`, `max_iterations`, `turn`, `mentor_model`, `executor_model`,
+/// `mentor_reasoning_effort`, `executor_reasoning_effort`, `messages` (merged:
+/// backend turns plus renderer-only current-run messages), `mentor_activity`,
+/// `executor_activity`, `modified_files`, `git_tracking`, `automation_mode`,
+/// `latest_acceptance`, `acceptance_history`, `current_run_started_at`,
+/// `current_run_finished_at`, `provider_sessions`, `branch`, `repo_path`,
+/// `worktree_path`, `worktree_branch`.
+///
+/// Frontend kept (merge preserves): `run_count`, `run_history`,
+/// `current_turn_card`, `plan_gate`, `pending_mentor_model` /
+/// `pending_executor_model` while the backend holds none.
+///
+/// Immutable identity (never merged, keyed on): `pair_id`, `created_at`.
+/// A snapshot file that could not be read: isolated aside with a backup copy
+/// instead of being silently skipped, and reported through the load-report
+/// helpers so the UI can surface it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotProblem {
+    pub pair_id: String,
+    pub path: String,
+    pub error: String,
+    pub quarantined_as: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,7 +99,7 @@ pub struct SnapshotRunSummary {
     pub latest_acceptance: Option<AcceptanceRecord>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotProcessContext {
     pub mentor_session_id: Option<String>,
@@ -83,6 +121,21 @@ pub struct SnapshotProcessContext {
     pub run_generation: u32,
     #[serde(default)]
     pub is_smoke_test: bool,
+}
+
+impl From<&ProcessContext> for SnapshotProcessContext {
+    fn from(context: &ProcessContext) -> Self {
+        Self {
+            mentor_session_id: context.mentor_session_id.clone(),
+            executor_session_id: context.executor_session_id.clone(),
+            mentor_history: context.mentor_history.clone(),
+            executor_history: context.executor_history.clone(),
+            mentor_selection: context.mentor_selection.clone(),
+            executor_selection: context.executor_selection.clone(),
+            run_generation: context.run_generation,
+            is_smoke_test: context.is_smoke_test,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -469,51 +522,109 @@ fn load_index_from_dir(snapshot_dir: &Path) -> Result<Vec<RecoverableSessionSumm
     read_json::<Vec<RecoverableSessionSummary>>(&index_path)
 }
 
-fn load_index(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
-    let dir = snapshot_dir(app)?;
-    load_index_from_dir(&dir)
+fn snapshot_problems_path_in_dir(snapshot_dir: &Path) -> PathBuf {
+    snapshot_dir
+        .join(QUARANTINE_DIR_NAME)
+        .join(SNAPSHOT_PROBLEMS_FILE_NAME)
 }
 
-fn scan_snapshot_files_in_dir(
-    snapshot_dir: &Path,
-) -> Result<Vec<RecoverableSessionSummary>, String> {
-    let mut summaries = Vec::new();
+/// Move an unreadable snapshot out of the live set, retaining both an isolated
+/// original and a backup copy. A failed backup never removes the only copy.
+fn quarantine_snapshot_in_dir(snapshot_dir: &Path, path: &Path, error: String) -> SnapshotProblem {
+    let pair_id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let quarantine_dir = snapshot_dir.join(QUARANTINE_DIR_NAME);
+    let quarantined_as = (|| -> Result<PathBuf, String> {
+        fs::create_dir_all(&quarantine_dir).map_err(|e| e.to_string())?;
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("snapshot.json");
+        let isolated = quarantine_dir.join(format!(
+            "{}.{}.json",
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("snapshot"),
+            uuid::Uuid::new_v4()
+        ));
+        let backup = quarantine_dir.join(format!("{}.{}.backup", file_name, uuid::Uuid::new_v4()));
+        fs::copy(path, &backup).map_err(|e| e.to_string())?;
+        fs::rename(path, &isolated).map_err(|e| e.to_string())?;
+        Ok(isolated)
+    })()
+    .map_err(|backup_error| {
+        format!(
+            "{}; quarantine failed: {} (original left in place)",
+            error, backup_error
+        )
+    });
 
+    let (quarantined_as, error) = match quarantined_as {
+        Ok(path) => (Some(path.to_string_lossy().into_owned()), error),
+        Err(error) => (None, error),
+    };
+    SnapshotProblem {
+        pair_id,
+        path: path.to_string_lossy().into_owned(),
+        error,
+        quarantined_as,
+    }
+}
+
+fn quarantine_unreadable_snapshot(path: &Path, error: String) -> Option<SnapshotProblem> {
+    let snapshot_dir = path.parent()?;
+    Some(quarantine_snapshot_in_dir(snapshot_dir, path, error))
+}
+
+fn scan_snapshot_records_in_dir(
+    snapshot_dir: &Path,
+) -> Result<(Vec<SessionSnapshotRecord>, Vec<SnapshotProblem>), String> {
+    let mut snapshots = Vec::new();
+    let mut problems = Vec::new();
     let entries =
         fs::read_dir(snapshot_dir).map_err(|e| format!("Failed to read snapshot dir: {}", e))?;
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-
+    for entry in entries.flatten() {
         let path = entry.path();
-        if path.file_name().and_then(|name| name.to_str()) == Some(INDEX_FILE_NAME) {
+        if path.file_name().and_then(|name| name.to_str()) == Some(INDEX_FILE_NAME)
+            || path.extension().and_then(|ext| ext.to_str()) != Some("json")
+        {
             continue;
         }
-
-        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-            continue;
-        }
-
         match read_json::<SessionSnapshotRecord>(&path) {
-            Ok(snapshot) => summaries.push(snapshot.to_summary()),
-            Err(err) => {
-                println!(
-                    "[session_snapshot] Skipping unreadable snapshot {:?}: {}",
-                    path, err
+            Ok(snapshot) if validate_pair_id(&snapshot.pair_id).is_ok() => snapshots.push(snapshot),
+            Ok(snapshot) => {
+                let problem = quarantine_snapshot_in_dir(
+                    snapshot_dir,
+                    &path,
+                    format!("Invalid pair id: {}", snapshot.pair_id),
                 );
+                problems.push(problem);
+            }
+            Err(error) => {
+                let problem = quarantine_snapshot_in_dir(snapshot_dir, &path, error);
+                eprintln!(
+                    "[session_snapshot] Snapshot {:?} could not be loaded: {}",
+                    path, problem.error
+                );
+                problems.push(problem);
             }
         }
     }
-
-    summaries.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
-    Ok(summaries)
-}
-
-fn scan_snapshot_files(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
-    let dir = ensure_snapshot_dir(app)?;
-    scan_snapshot_files_in_dir(&dir)
+    if !problems.is_empty() {
+        let report_path = snapshot_problems_path_in_dir(snapshot_dir);
+        if let Err(error) = write_json_atomic(&report_path, &problems) {
+            // A reporting failure must not hide the snapshots that did load.
+            eprintln!(
+                "[session_snapshot] Could not record snapshot problems: {}",
+                error
+            );
+        }
+    }
+    snapshots.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    Ok((snapshots, problems))
 }
 
 fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
@@ -521,23 +632,33 @@ fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, Str
     load_summaries_unlocked(app)
 }
 
-fn load_summaries_unlocked(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
-    match load_index(app) {
-        Ok(from_index) if !from_index.is_empty() => return Ok(from_index),
-        Ok(_) => {}
-        Err(err) => {
-            println!(
-                "[session_snapshot] Failed to load index, falling back to file scan: {}",
-                err
-            );
-        }
-    }
+fn load_summaries_in_dir(snapshot_dir: &Path) -> Result<Vec<RecoverableSessionSummary>, String> {
+    // Files are the truth. The index is only a cache; trusting a non-empty
+    // cache hid snapshots written immediately before a crash.
+    let (records, _) = scan_snapshot_records_in_dir(snapshot_dir)?;
+    let summaries: Vec<_> = records
+        .iter()
+        .map(SessionSnapshotRecord::to_summary)
+        .collect();
+    save_index_in_dir(snapshot_dir, &summaries)?;
+    Ok(summaries)
+}
 
-    let scanned = scan_snapshot_files(app)?;
-    if !scanned.is_empty() {
-        save_index(app, &scanned)?;
+fn load_summaries_unlocked(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
+    load_summaries_in_dir(&ensure_snapshot_dir(app)?)
+}
+
+fn snapshot_problems_in_dir(snapshot_dir: &Path) -> Result<Vec<SnapshotProblem>, String> {
+    let path = snapshot_problems_path_in_dir(snapshot_dir);
+    if !path.exists() {
+        return Ok(Vec::new());
     }
-    Ok(scanned)
+    read_json(&path)
+}
+
+#[tauri::command]
+pub fn list_snapshot_problems(app: AppHandle) -> Result<Vec<SnapshotProblem>, String> {
+    snapshot_problems_in_dir(&ensure_snapshot_dir(&app)?)
 }
 
 fn delete_pair_snapshot_in_dir(snapshot_dir: &Path, pair_id: &str) -> Result<(), String> {
@@ -853,16 +974,7 @@ fn build_snapshot_from_state(
             _ => None,
         },
         created_at: pair.created_at,
-        provider_sessions: SnapshotProcessContext {
-            mentor_session_id: context.mentor_session_id.clone(),
-            executor_session_id: context.executor_session_id.clone(),
-            mentor_history: context.mentor_history.clone(),
-            executor_history: context.executor_history.clone(),
-            mentor_selection: context.mentor_selection.clone(),
-            executor_selection: context.executor_selection.clone(),
-            run_generation: context.run_generation,
-            is_smoke_test: context.is_smoke_test,
-        },
+        provider_sessions: SnapshotProcessContext::from(&context),
         branch: pair.branch.clone(),
         repo_path: pair.repo_path.clone(),
         worktree_path: pair.worktree_path.clone(),
@@ -873,24 +985,8 @@ fn build_snapshot_from_state(
 
 fn build_snapshot_from_draft(
     draft: SessionSnapshotDraft,
-    context: Option<ProcessContext>,
+    context: Option<&ProcessContext>,
 ) -> SessionSnapshotRecord {
-    let context = context.unwrap_or(ProcessContext {
-        directory: draft.directory.clone(),
-        mentor_model: draft.mentor_model.clone(),
-        executor_model: draft.executor_model.clone(),
-        mentor_session_id: None,
-        executor_session_id: None,
-        mentor_reasoning_effort: draft.mentor_reasoning_effort.clone(),
-        executor_reasoning_effort: draft.executor_reasoning_effort.clone(),
-        run_generation: 0,
-        is_smoke_test: false,
-        mentor_history: Vec::new(),
-        executor_history: Vec::new(),
-        mentor_selection: None,
-        executor_selection: None,
-    });
-
     SessionSnapshotRecord {
         snapshot_version: SNAPSHOT_VERSION,
         saved_at: now_millis(),
@@ -922,16 +1018,9 @@ fn build_snapshot_from_draft(
         current_run_started_at: draft.current_run_started_at,
         current_run_finished_at: draft.current_run_finished_at,
         created_at: draft.created_at,
-        provider_sessions: SnapshotProcessContext {
-            mentor_session_id: context.mentor_session_id,
-            executor_session_id: context.executor_session_id,
-            mentor_history: context.mentor_history,
-            executor_history: context.executor_history,
-            mentor_selection: context.mentor_selection,
-            executor_selection: context.executor_selection,
-            run_generation: context.run_generation,
-            is_smoke_test: context.is_smoke_test,
-        },
+        provider_sessions: context
+            .map(SnapshotProcessContext::from)
+            .unwrap_or_default(),
         branch: draft.branch,
         repo_path: draft.repo_path,
         worktree_path: draft.worktree_path,
@@ -942,6 +1031,17 @@ fn build_snapshot_from_draft(
 
 fn snapshot_path_for_pair(app: &AppHandle, pair_id: &str) -> Result<PathBuf, String> {
     Ok(snapshot_dir(app)?.join(format!("{}.json", pair_id)))
+}
+
+fn persisted_snapshot_status(snapshot: &SessionSnapshotRecord, state: &PairState) -> PairStatus {
+    let interrupted_review = snapshot.status == PairStatus::Reviewing
+        && state.status == PairStatus::Paused
+        && state.mentor_activity.detail.as_deref() == Some(INTERRUPTED_DETAIL);
+    if interrupted_review {
+        PairStatus::Reviewing
+    } else {
+        state.status.clone()
+    }
 }
 
 /// Fold the backend's live state into a pair's snapshot. The backend owns
@@ -963,7 +1063,7 @@ fn merge_state_into_snapshot(
     if !state.task_spec.trim().is_empty() {
         snapshot.spec = state.task_spec.clone();
     }
-    snapshot.status = state.status.clone();
+    snapshot.status = persisted_snapshot_status(snapshot, state);
     snapshot.iterations = state.iteration;
     snapshot.max_iterations = state.max_iterations;
     snapshot.turn = state.turn.clone();
@@ -1019,16 +1119,7 @@ fn merge_state_into_snapshot(
     };
 
     if let Some(context) = context {
-        snapshot.provider_sessions = SnapshotProcessContext {
-            mentor_session_id: context.mentor_session_id.clone(),
-            executor_session_id: context.executor_session_id.clone(),
-            mentor_history: context.mentor_history.clone(),
-            executor_history: context.executor_history.clone(),
-            mentor_selection: context.mentor_selection.clone(),
-            executor_selection: context.executor_selection.clone(),
-            run_generation: context.run_generation,
-            is_smoke_test: context.is_smoke_test,
-        };
+        snapshot.provider_sessions = SnapshotProcessContext::from(context);
     }
     snapshot.branch = pair.branch.clone();
     snapshot.repo_path = pair.repo_path.clone();
@@ -1076,10 +1167,12 @@ pub fn persist_current_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(
         Ok(existing) => existing,
         Err(error) => {
             if path.exists() {
-                println!(
-                    "[session_snapshot] Existing snapshot {:?} is unreadable ({}); rebuilding it from live state",
-                    path, error
-                );
+                if let Some(problem) = quarantine_unreadable_snapshot(&path, error) {
+                    eprintln!(
+                        "[session_snapshot] Existing snapshot was quarantined as {:?}; rebuilding it from live state",
+                        problem.quarantined_as
+                    );
+                }
             }
             build_snapshot_from_state(&pair, &state, context.as_ref())
         }
@@ -1102,6 +1195,18 @@ pub async fn session_save_snapshot(
         .map_err(|e| format!("Snapshot save task failed: {}", e))?
 }
 
+fn previous_snapshot_status(path: &Path) -> Option<PairStatus> {
+    match read_json::<SessionSnapshotRecord>(path) {
+        Ok(snapshot) => Some(snapshot.status),
+        Err(error) => {
+            if path.exists() {
+                let _ = quarantine_unreadable_snapshot(path, error);
+            }
+            None
+        }
+    }
+}
+
 fn save_snapshot_blocking(
     app: &AppHandle,
     input: SessionSnapshotDraft,
@@ -1112,14 +1217,19 @@ fn save_snapshot_blocking(
 
     // A save for a pair that was deleted (or never existed) must not write a
     // snapshot that brings it back on the next launch.
-    let exists = {
+    let pair = {
         let pair_manager = app.state::<std::sync::Mutex<PairManager>>();
         let manager = pair_manager.lock().unwrap_or_else(|e| e.into_inner());
-        manager.get_pair(&input.pair_id).is_some()
+        manager.get_pair(&input.pair_id)
     };
-    if !exists {
+    let Some(pair) = pair else {
         return Err(format!("Pair {} not found", input.pair_id));
-    }
+    };
+    let state = {
+        let broker = app.state::<std::sync::Mutex<MessageBroker>>();
+        let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
+        broker.get_state(&input.pair_id)
+    };
 
     let context = {
         let spawner = app.state::<TurnDriver>();
@@ -1129,20 +1239,20 @@ fn save_snapshot_blocking(
             .unwrap_or_else(|e| e.into_inner());
         contexts.get(&input.pair_id).cloned()
     };
-    // The renderer doesn't send the acceptance history; keep the backend's.
-    let acceptance_history = if input.acceptance_history.is_empty() {
-        let broker = app.state::<std::sync::Mutex<MessageBroker>>();
-        let broker_guard = broker.lock().unwrap_or_else(|e| e.into_inner());
-        broker_guard
-            .get_state(&input.pair_id)
-            .map(|state| state.acceptance_history)
-            .unwrap_or_default()
-    } else {
-        input.acceptance_history.clone()
-    };
-
-    let mut snapshot = build_snapshot_from_draft(input, context);
-    snapshot.acceptance_history = acceptance_history;
+    let previous_status = snapshot_path_for_pair(app, &pair.pair_id)
+        .ok()
+        .and_then(|path| previous_snapshot_status(&path));
+    let mut snapshot = build_snapshot_from_draft(input, context.as_ref());
+    if let Some(status) = previous_status {
+        // The crash-position guard compares the on-disk status, not the
+        // renderer's already-demoted Paused mirror.
+        snapshot.status = status;
+    }
+    if let Some(state) = state {
+        // The renderer supplies only its owned fields. Live backend state wins
+        // for status, messages, acceptance, files and provider sessions.
+        merge_state_into_snapshot(&mut snapshot, &pair, &state, context.as_ref());
+    }
     upsert_snapshot_record(app, &snapshot)?;
 
     Ok(snapshot)
@@ -1184,15 +1294,12 @@ pub fn read_snapshot(app: &AppHandle, pair_id: &str) -> Result<SessionSnapshotRe
 /// previous conversation; `assignTask` is what archives them into
 /// `run_history` for a new run.
 fn prepare_loaded_snapshot(snapshot: SessionSnapshotRecord) -> (PairState, SessionSnapshotRecord) {
-    const INTERRUPTED_DETAIL: &str = "Interrupted when the app closed. Resume to continue.";
-
     let was_running = snapshot.status.is_active();
     // Only a snapshot this version wrote (kept current through the run) with a
     // task to resume is offered as a paused run. Pre-v3 files froze at the first
     // session-id registration — resuming one would replay a long-dead turn with
     // an empty task — so those still come back Idle.
-    let resumable =
-        was_running && snapshot.snapshot_version >= 3 && !snapshot.spec.trim().is_empty();
+    let resumable = was_running && resume_requested(&snapshot, true);
     let mut snapshot = snapshot;
     if was_running && !resumable {
         snapshot.status = PairStatus::Idle;
@@ -1334,17 +1441,23 @@ fn install_resume_selection(
     *slot = Some(selection);
 }
 
+fn resume_requested(snapshot: &SessionSnapshotRecord, continue_run: bool) -> bool {
+    continue_run
+        && snapshot.snapshot_version >= SNAPSHOT_VERSION
+        && !snapshot.spec.trim().is_empty()
+        && !matches!(
+            snapshot.status,
+            PairStatus::AwaitingHumanReview | PairStatus::Error | PairStatus::Finished
+        )
+}
+
 /// Decide what the interrupted run does, before anything is restored.
-fn plan_resume(
+fn resume_decision(
     app_dir: Option<&Path>,
     continue_run: bool,
     snapshot: &SessionSnapshotRecord,
 ) -> Resume {
-    let resumable = continue_run
-        && !matches!(
-            snapshot.status,
-            PairStatus::AwaitingHumanReview | PairStatus::Error | PairStatus::Finished
-        );
+    let resumable = resume_requested(snapshot, continue_run);
     if !resumable {
         return Resume::Skip;
     }
@@ -1388,6 +1501,19 @@ fn install_restored_context(spawner: &TurnDriver, pair_id: &str, context: &mut P
         .insert(pair_id.to_string(), context.clone());
 }
 
+fn snapshot_after_restore(
+    snapshot: &SessionSnapshotRecord,
+    context: &ProcessContext,
+    resume: &Resume,
+) -> SessionSnapshotRecord {
+    let mut restored = snapshot.clone();
+    if matches!(resume, Resume::Blocked(_)) {
+        restored.status = PairStatus::Paused;
+    }
+    restored.provider_sessions = SnapshotProcessContext::from(context);
+    restored
+}
+
 /// Register one loaded snapshot's pair, broker state and turn context.
 ///
 /// A pair this process already runs keeps its live state: its turn context and
@@ -1413,10 +1539,32 @@ fn register_loaded_snapshot(
     };
     if live {
         println!(
-            "[session_snapshot] Pair {} is live in this session; keeping its state",
+            "[session_snapshot] Pair {} is live in this session; returning live state",
             pair.pair_id
         );
-        return Ok(snapshot_with_idle);
+        let live_pair = pair_manager
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get_pair(&pair.pair_id)
+            .ok_or_else(|| format!("Live pair {} is missing from its manager", pair.pair_id))?;
+        let live_state = broker
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get_state(&pair.pair_id)
+            .ok_or_else(|| format!("Live pair {} is missing from its broker", pair.pair_id))?;
+        let live_context = contexts
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(&pair.pair_id)
+            .cloned();
+        let mut live_snapshot = snapshot_with_idle;
+        merge_state_into_snapshot(
+            &mut live_snapshot,
+            &live_pair,
+            &live_state,
+            live_context.as_ref(),
+        );
+        return Ok(live_snapshot);
     }
 
     {
@@ -1451,39 +1599,9 @@ pub fn load_all_pairs(
     spawner: State<'_, TurnDriver>,
 ) -> Result<Vec<SessionSnapshotRecord>, String> {
     let dir = ensure_snapshot_dir(&app)?;
-    let entries = match fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(vec![]),
-    };
-
+    let (records, _) = scan_snapshot_records_in_dir(&dir)?;
     let mut snapshots = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.file_name().and_then(|n| n.to_str()) == Some(INDEX_FILE_NAME) {
-            continue;
-        }
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let snapshot = match read_json::<SessionSnapshotRecord>(&path) {
-            Ok(s) => s,
-            Err(error) => {
-                // Don't drop a pair silently: say which file failed and why.
-                eprintln!(
-                    "[session_snapshot] Skipping snapshot {:?} that failed to load: {}",
-                    path, error
-                );
-                continue;
-            }
-        };
-        if validate_pair_id(&snapshot.pair_id).is_err() {
-            eprintln!(
-                "[session_snapshot] Skipping snapshot {:?} with an invalid pair id",
-                path
-            );
-            continue;
-        }
-
+    for snapshot in records {
         let snapshot_with_idle =
             register_loaded_snapshot(&pair_manager, &broker, &spawner.pair_contexts, snapshot)?;
         snapshots.push(snapshot_with_idle);
@@ -1529,7 +1647,7 @@ pub async fn restore_session(
     // What the interrupted run does next, decided before the pair's status is
     // restored: a turn that cannot start must not come back as a pair in
     // Reviewing/Executing with nothing running behind it.
-    let resume = plan_resume(
+    let resume = resume_decision(
         app.path().app_data_dir().ok().as_deref(),
         input.continue_run,
         &snapshot,
@@ -1557,62 +1675,39 @@ pub async fn restore_session(
     install_restored_context(&spawner, &pair.pair_id, &mut context);
     spawner.stop_pair_processes(&pair.pair_id);
 
-    let mut updated_snapshot = snapshot.clone();
-    if matches!(resume, Resume::Blocked(_)) {
-        // The pair is paused, not mid-run: persist that so a restart does not
-        // offer a resume that cannot start.
-        updated_snapshot.status = PairStatus::Paused;
-    }
-    updated_snapshot.provider_sessions = SnapshotProcessContext {
-        mentor_session_id: updated_snapshot.provider_sessions.mentor_session_id.clone(),
-        executor_session_id: updated_snapshot
-            .provider_sessions
-            .executor_session_id
-            .clone(),
-        mentor_history: updated_snapshot.provider_sessions.mentor_history.clone(),
-        executor_history: updated_snapshot.provider_sessions.executor_history.clone(),
-        mentor_selection: updated_snapshot.provider_sessions.mentor_selection.clone(),
-        executor_selection: updated_snapshot
-            .provider_sessions
-            .executor_selection
-            .clone(),
-        run_generation: updated_snapshot.provider_sessions.run_generation,
-        is_smoke_test: updated_snapshot.provider_sessions.is_smoke_test,
-    };
+    // Persist the exact context the resumed turn will use, including a cleared
+    // history after endpoint migration and the superseding run generation.
+    let updated_snapshot = snapshot_after_restore(&snapshot, &context, &resume);
     {
         let lock = snapshot_lock(&updated_snapshot.pair_id);
         let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         upsert_snapshot_record(&app, &updated_snapshot)?;
     }
 
-    let should_resume = input.continue_run
-        && !matches!(
-            snapshot.status,
-            PairStatus::AwaitingHumanReview | PairStatus::Error | PairStatus::Finished
-        );
-
-    if let Resume::Start(role, _) = resume {
-        let prompt = build_resume_prompt(&snapshot);
-        {
-            let broker_guard = broker.lock().map_err(|e| e.to_string())?;
-            // Use resume_run to preserve iteration count; prepare_run incorrectly
-            // increments for non-planning mentor turns.
-            broker_guard.resume_run(&pair.pair_id, &role);
+    match resume {
+        Resume::Start(role, _) => {
+            let prompt = build_resume_prompt(&snapshot);
+            {
+                let broker_guard = broker.lock().map_err(|e| e.to_string())?;
+                // Use resume_run to preserve iteration count; prepare_run incorrectly
+                // increments for non-planning mentor turns.
+                broker_guard.resume_run(&pair.pair_id, &role);
+            }
+            // `resume_run` has just put the pair back into a running status, so a
+            // turn that cannot start must take it out again: `start_turn` marks the
+            // pair errored instead of leaving it Mentoring/Executing with nothing
+            // behind it.
+            crate::pair_manager::start_turn(&app, &broker, &spawner, &pair.pair_id, &role, prompt)
+                .await?;
         }
-        // `resume_run` has just put the pair back into a running status, so a
-        // turn that cannot start must take it out again: `start_turn` marks the
-        // pair errored instead of leaving it Mentoring/Executing with nothing
-        // behind it.
-        crate::pair_manager::start_turn(&app, &broker, &spawner, &pair.pair_id, &role, prompt)
-            .await?;
-    } else if should_resume {
-        println!(
-            "[restore_session] Not resuming pair {}: its next turn has no model it can talk to",
-            pair.pair_id
-        );
+        Resume::Blocked(role) => println!(
+            "[restore_session] Not resuming pair {}: its {} turn has no model it can talk to",
+            pair.pair_id, role
+        ),
+        Resume::Skip => {}
     }
 
-    Ok(snapshot)
+    Ok(updated_snapshot)
 }
 
 #[cfg(test)]
@@ -1850,7 +1945,7 @@ mod tests {
         record.mentor_model = "test-mentor".to_string();
         let dir = app_dir_listing("test-mentor");
 
-        match plan_resume(Some(&dir), true, &record) {
+        match resume_decision(Some(&dir), true, &record) {
             Resume::Start(role, selection) => {
                 assert_eq!(role, "mentor");
                 assert_eq!(
@@ -1873,7 +1968,8 @@ mod tests {
         record.mentor_model = "test-mentor".to_string();
         assert!(record.provider_sessions.mentor_selection.is_none());
         let dir = app_dir_listing("test-mentor");
-        let Resume::Start(role, Some(selection)) = plan_resume(Some(&dir), true, &record) else {
+        let Resume::Start(role, Some(selection)) = resume_decision(Some(&dir), true, &record)
+        else {
             panic!("expected a resume with a selection");
         };
 
@@ -1893,7 +1989,7 @@ mod tests {
         gone.provider_id = "gone-1".into();
         gone.account_id = "gone-1-a".into();
         record.provider_sessions.mentor_selection = Some(gone.clone());
-        let Resume::Start(_, Some(resolved)) = plan_resume(Some(&dir), true, &record) else {
+        let Resume::Start(_, Some(resolved)) = resume_decision(Some(&dir), true, &record) else {
             panic!("expected a resume with a selection");
         };
         assert_eq!(resolved, selection, "the model resolves where it can run");
@@ -1958,7 +2054,7 @@ mod tests {
         let record = snapshot(AgentRole::Executor, PairStatus::Executing, vec![]);
         let nowhere = std::path::Path::new("/nonexistent-app-dir");
 
-        match plan_resume(Some(nowhere), true, &record) {
+        match resume_decision(Some(nowhere), true, &record) {
             Resume::Blocked(role) => assert_eq!(role, "executor"),
             other => panic!("expected a blocked resume, got {:?}", other),
         }
@@ -1966,7 +2062,7 @@ mod tests {
         // No resume asked for, or a pair that was already stopped: nothing to
         // block.
         assert!(matches!(
-            plan_resume(Some(nowhere), false, &record),
+            resume_decision(Some(nowhere), false, &record),
             Resume::Skip
         ));
         for status in [
@@ -1976,7 +2072,7 @@ mod tests {
         ] {
             let stopped = snapshot(AgentRole::Mentor, status, vec![]);
             assert!(matches!(
-                plan_resume(Some(nowhere), true, &stopped),
+                resume_decision(Some(nowhere), true, &stopped),
                 Resume::Skip
             ));
         }
@@ -2091,7 +2187,7 @@ mod tests {
         // The frontend still gets its record, so the pair is never missing from
         // the store...
         assert_eq!(returned.pair_id, "pair-1");
-        assert_eq!(returned.mentor_model, "snapshot-mentor");
+        assert_eq!(returned.mentor_model, "live-mentor");
         // ...while the backend keeps everything the live turn has done.
         let contexts = contexts.lock().unwrap();
         assert_eq!(
@@ -2755,6 +2851,188 @@ mod tests {
             record.worktree_path.as_deref(),
             Some("/tmp/repo/.worktrees/pair-abc")
         );
+    }
+
+    #[test]
+    fn restored_snapshot_persists_the_resolved_context_and_generation() {
+        let mut record = snapshot(AgentRole::Mentor, PairStatus::Executing, vec![]);
+        let selection = crate::harness::ModelSelection {
+            provider_id: "listed-1".into(),
+            account_id: "listed-1-a".into(),
+            model: "test-mentor".into(),
+            effort: None,
+            backup: None,
+        };
+        record.provider_sessions.mentor_history =
+            vec![serde_json::json!({"role": "user", "content": "old endpoint"})];
+        record.provider_sessions.mentor_session_id = Some("old-session".into());
+        record.provider_sessions.mentor_selection = Some(crate::harness::ModelSelection {
+            provider_id: "gone-1".into(),
+            account_id: "gone-1-a".into(),
+            ..selection.clone()
+        });
+        let mut context = build_process_context(&record);
+        install_resume_selection(&mut context, "mentor", selection.clone());
+        context.run_generation = 7;
+        let resume = Resume::Start("mentor".into(), Some(selection.clone()));
+
+        let restored = snapshot_after_restore(&record, &context, &resume);
+        assert_eq!(restored.provider_sessions.mentor_selection, Some(selection));
+        assert!(restored.provider_sessions.mentor_history.is_empty());
+        assert_eq!(restored.provider_sessions.mentor_session_id, None);
+        assert_eq!(restored.provider_sessions.run_generation, 7);
+
+        let blocked = snapshot_after_restore(&record, &context, &Resume::Blocked("mentor".into()));
+        assert_eq!(blocked.status, PairStatus::Paused);
+    }
+
+    #[test]
+    fn interrupted_review_keeps_its_disk_position_until_new_activity() {
+        let record = snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]);
+        let pair = build_pair(&record);
+        let mut state = build_pair_state(&record);
+        state.status = PairStatus::Paused;
+        state.mentor_activity.detail = Some(INTERRUPTED_DETAIL.into());
+        let mut persisted = record.clone();
+
+        merge_state_into_snapshot(&mut persisted, &pair, &state, None);
+        assert_eq!(persisted.status, PairStatus::Reviewing);
+
+        state.mentor_activity.detail = Some("New acceptance verdict recorded".into());
+        merge_state_into_snapshot(&mut persisted, &pair, &state, None);
+        assert_eq!(persisted.status, PairStatus::Paused);
+    }
+
+    #[test]
+    fn snapshot_scan_discovers_records_missing_from_the_index() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-snapshot-scan-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let indexed = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        let mut unindexed = snapshot(AgentRole::Executor, PairStatus::Paused, vec![]);
+        unindexed.pair_id = "pair-new".into();
+        fs::write(
+            dir.join(INDEX_FILE_NAME),
+            serde_json::to_vec_pretty(&vec![indexed.to_summary()]).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("pair-new.json"),
+            serde_json::to_vec_pretty(&unindexed).unwrap(),
+        )
+        .unwrap();
+
+        let summaries = load_summaries_in_dir(&dir).unwrap();
+        assert!(summaries.iter().any(|record| record.pair_id == "pair-new"));
+        let index = fs::read_to_string(dir.join(INDEX_FILE_NAME)).unwrap();
+        assert!(index.contains("pair-new"));
+        assert!(snapshot_problems_in_dir(&dir).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_snapshots_are_quarantined_and_reported_without_hiding_valid_pairs() {
+        let dir = std::env::temp_dir().join(format!(
+            "the-pair-snapshot-quarantine-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let valid = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        fs::write(
+            dir.join("pair-1.json"),
+            serde_json::to_vec_pretty(&valid).unwrap(),
+        )
+        .unwrap();
+        let corrupt = dir.join("pair-corrupt.json");
+        fs::write(&corrupt, "{truncated").unwrap();
+
+        let (records, problems) = scan_snapshot_records_in_dir(&dir).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].pair_id, "pair-corrupt");
+        assert!(!corrupt.exists());
+        let isolated = problems[0]
+            .quarantined_as
+            .as_ref()
+            .expect("isolated original");
+        assert!(Path::new(isolated).exists());
+        let backup_count = fs::read_dir(dir.join(QUARANTINE_DIR_NAME))
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("backup"))
+            .count();
+        assert_eq!(backup_count, 1);
+        let reported = snapshot_problems_in_dir(&dir).unwrap();
+        assert_eq!(reported, problems);
+
+        fs::write(&corrupt, "{also truncated").unwrap();
+        let (_, later) = scan_snapshot_records_in_dir(&dir).unwrap();
+        assert_eq!(later.len(), 1);
+        assert_ne!(later[0].quarantined_as, problems[0].quarantined_as);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn previous_snapshot_status_quarantines_corrupt_files() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-previous-status-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pair-1.json");
+        let record = snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]);
+        fs::write(&path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+        assert_eq!(previous_snapshot_status(&path), Some(PairStatus::Reviewing));
+        fs::write(&path, "{bad").unwrap();
+        assert_eq!(previous_snapshot_status(&path), None);
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalid_pair_ids_are_quarantined_instead_of_loading() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-invalid-id-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut invalid = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        invalid.pair_id = "../escape".into();
+        fs::write(
+            dir.join("pair-safe.json"),
+            serde_json::to_vec_pretty(&invalid).unwrap(),
+        )
+        .unwrap();
+
+        let (records, problems) = scan_snapshot_records_in_dir(&dir).unwrap();
+        assert!(records.is_empty());
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].error.contains("Invalid pair id"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quarantine_io_failures_do_not_hide_valid_snapshots() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-quarantine-io-{}", uuid::Uuid::new_v4()));
+        let quarantine = dir.join(QUARANTINE_DIR_NAME);
+        fs::create_dir_all(&quarantine).unwrap();
+        let valid = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        fs::write(
+            dir.join("pair-1.json"),
+            serde_json::to_vec_pretty(&valid).unwrap(),
+        )
+        .unwrap();
+        fs::write(dir.join("pair-corrupt.json"), "{bad").unwrap();
+        fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o444)).unwrap();
+
+        let result = scan_snapshot_records_in_dir(&dir);
+        fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o755)).unwrap();
+        let (records, problems) = result.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].quarantined_as, None);
+        assert!(problems[0].error.contains("original left in place"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

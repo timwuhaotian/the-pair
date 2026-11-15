@@ -277,6 +277,77 @@ test('resolveCurrentTurnTokenUsage preserves the current turn usage when backend
   assert.equal(resolved, currentUsage)
 })
 
+test('mergeTokenUsage merges fields and honors explicit null clears', () => {
+  const existing: TurnTokenUsage = {
+    outputTokens: 10,
+    inputTokens: 100,
+    lastUpdatedAt: 1000,
+    source: 'live',
+    provider: 'primary'
+  }
+  const partial = mergeTokenUsage(
+    { outputTokens: 20, lastUpdatedAt: 2000, source: 'final' },
+    existing
+  )
+  assert.equal(partial?.inputTokens, 100)
+  assert.equal(partial?.provider, 'primary')
+
+  const cleared = mergeTokenUsage(
+    {
+      outputTokens: 20,
+      inputTokens: null,
+      lastUpdatedAt: 2000,
+      source: 'final',
+      provider: null
+    } as unknown as TurnTokenUsage,
+    existing
+  )
+  assert.equal(cleared?.inputTokens, undefined)
+  assert.equal(cleared?.provider, undefined)
+})
+
+test('mergeTokenUsage drops an empty live usage payload', () => {
+  assert.equal(
+    mergeTokenUsage({ outputTokens: null } as unknown as TurnTokenUsage, undefined),
+    undefined
+  )
+})
+
+test('mergeTokenUsage handles cleared numbers and live defaults', () => {
+  const existing: TurnTokenUsage = {
+    outputTokens: 10,
+    inputTokens: 100,
+    lastUpdatedAt: 1000,
+    source: 'live'
+  }
+  const cleared = mergeTokenUsage({ outputTokens: null } as unknown as TurnTokenUsage, existing)
+  assert.equal(cleared?.outputTokens, 0)
+  assert.equal(cleared?.lastUpdatedAt, 1000)
+
+  const fresh = mergeTokenUsage({} as TurnTokenUsage, undefined)
+  assert.equal(fresh?.outputTokens, 0)
+  assert.equal(fresh?.source, 'live')
+  assert.ok(fresh && fresh.lastUpdatedAt > 0)
+})
+
+test('resolveCurrentTurnTokenUsage merges backend fields over the live fallback', () => {
+  const current: TurnTokenUsage = {
+    outputTokens: 10,
+    inputTokens: 100,
+    lastUpdatedAt: 1000,
+    source: 'live',
+    provider: 'primary'
+  }
+  const resolved = resolveCurrentTurnTokenUsage(
+    { outputTokens: 20, lastUpdatedAt: 2000, source: 'final' },
+    current,
+    undefined
+  )
+  assert.equal(resolved?.inputTokens, 100)
+  assert.equal(resolved?.provider, 'primary')
+  assert.equal(resolved?.outputTokens, 20)
+})
+
 test('areTokenUsagesEqual compares the token usage payload structurally', () => {
   const left: TurnTokenUsage = {
     outputTokens: 50,

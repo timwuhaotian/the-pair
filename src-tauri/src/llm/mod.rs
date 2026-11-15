@@ -42,6 +42,7 @@ mod responses;
 mod tokens;
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -78,6 +79,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Body bytes kept from a response, enough for an error message's excerpt.
 const EXCERPT_BYTES: usize = 8_192;
+
+/// How often a cooldown wait looks at its cancel flag: a paused pair stops
+/// waiting at most this long after it was stopped.
+const CANCEL_POLL: Duration = Duration::from_millis(100);
 
 /// How The Pair names itself to the servers it calls.
 const USER_AGENT: &str = concat!("the-pair/", env!("CARGO_PKG_VERSION"));
@@ -420,6 +425,7 @@ impl Client {
     /// Sends one request, retrying transient failures. `on_delta` sees every
     /// streamed chunk and every retry; answering [`CancelResult::Cancel`] stops
     /// the stream where it is and returns a cancelled error.
+    #[cfg(test)]
     pub async fn complete(
         &self,
         messages: &[Value],
@@ -427,13 +433,30 @@ impl Client {
         cache_key: &str,
         on_delta: &mut (dyn FnMut(Delta) -> CancelResult + Send),
     ) -> Result<Reply, ProviderError> {
+        static NEVER: AtomicBool = AtomicBool::new(false);
+        self.complete_with_cancel(messages, tools, cache_key, on_delta, &NEVER)
+            .await
+    }
+
+    /// [`complete`] with a flag that also stops the waits between attempts: a
+    /// paused pair stops pacing a cooldown or a backoff it will never use.
+    pub async fn complete_with_cancel(
+        &self,
+        messages: &[Value],
+        tools: &[Value],
+        cache_key: &str,
+        on_delta: &mut (dyn FnMut(Delta) -> CancelResult + Send),
+        cancel: &AtomicBool,
+    ) -> Result<Reply, ProviderError> {
         let prepared = self.prepare(messages, tools, cache_key)?;
         let mut attempt = 1u32;
         let mut burns = 0u32;
         let mut mine: Option<Instant> = None;
         let mut waited = Duration::ZERO;
         loop {
-            let (slept, shared) = self.wait_cooldown(mine).await;
+            let Some((slept, shared)) = self.wait_cooldown(mine, cancel).await else {
+                return Err(ProviderError::cancelled(attempt));
+            };
             waited += slept;
             let failure = match self.attempt(&prepared, on_delta).await {
                 Ok(reply) => return Ok(reply),
@@ -456,11 +479,13 @@ impl Client {
                 || attempt >= HARD_ATTEMPTS
                 || waited >= self.wait_budget
             {
-                // Even a final 429 paces the next call on this client: the
+                // Even a final rate limit paces the next call on this account: the
                 // server just named a wait, and a clone starting now should
-                // observe it. The wait is capped, so a gateway that names an
-                // hour cannot hold every later call on this client for an hour.
-                if failure.status == Some(429) {
+                // observe it. A spent allowance resets on its own schedule, so it
+                // is never published: it would hold every later call for a wait
+                // that heals nothing. The wait is capped, so a gateway that names
+                // an hour cannot hold every later call on this client for an hour.
+                if failure.status == Some(429) && !failure.is_quota() {
                     self.set_cooldown(published_wait(failure.retry_after, attempt));
                 }
                 return Err(ProviderError {
@@ -492,7 +517,11 @@ impl Client {
                 let deadline = self.set_cooldown(wait);
                 mine = Some(deadline);
             } else {
-                tokio::time::sleep(wait).await;
+                tokio::select! {
+                    biased;
+                    _ = raised(cancel) => return Err(ProviderError::cancelled(attempt)),
+                    _ = tokio::time::sleep(wait) => {}
+                }
                 // The backoff is a wait like any other, so the budget that bounds
                 // every wait between attempts bounds this one too.
                 waited += wait;
@@ -524,21 +553,31 @@ impl Client {
         })
     }
 
-    /// Sleeps until the shared 429 cooldown passes. Returns how long it waited,
-    /// and whether this call actually waited out a deadline another pair set;
-    /// such an attempt doesn't burn this call's budget.
-    async fn wait_cooldown(&self, mine: Option<Instant>) -> (Duration, bool) {
+    /// Sleeps until the shared 429 cooldown passes, or until `cancel` is raised.
+    /// Returns how long it waited, and whether this call actually waited out a
+    /// deadline another pair set; such an attempt doesn't burn this call's
+    /// budget. `None` means the wait was cancelled before the deadline passed.
+    async fn wait_cooldown(
+        &self,
+        mine: Option<Instant>,
+        cancel: &AtomicBool,
+    ) -> Option<(Duration, bool)> {
         let Some(shared) = cooldown_deadline(&self.cooldown) else {
-            return (Duration::ZERO, false);
+            return Some((Duration::ZERO, false));
         };
         let deadline = mine.filter(|mine| *mine > shared).unwrap_or(shared);
         let now = Instant::now();
         if deadline <= now {
-            return (Duration::ZERO, false);
+            return Some((Duration::ZERO, false));
         }
         let wait = deadline - now;
-        tokio::time::sleep(wait).await;
-        (wait, mine.is_none_or(|mine| deadline > mine))
+        tokio::select! {
+            biased;
+            _ = raised(cancel) => None,
+            _ = tokio::time::sleep(wait) => {
+                Some((wait, mine.is_none_or(|mine| deadline > mine)))
+            }
+        }
     }
 
     /// Names a 429 cooldown every request on this client waits out, and returns
@@ -685,6 +724,14 @@ impl Client {
         ensure_stream_consumed(lines.rest())?;
         parser.finish(&mut reply)?;
         validate_reply(reply)
+    }
+}
+
+/// Resolves once `cancel` is raised, so a wait between attempts stops where it
+/// is instead of sitting out a cooldown or a backoff a stopped pair never uses.
+async fn raised(cancel: &AtomicBool) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(CANCEL_POLL).await;
     }
 }
 
@@ -1132,6 +1179,87 @@ mod tests {
         assert_eq!(error.attempts, 1);
         assert!(error.message.contains("reset at 10:00"));
         assert_eq!(arrivals(&asked).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_spent_quota_does_not_pace_later_calls_on_the_account() {
+        // A quota resets on its own schedule, so publishing it as the shared
+        // cooldown would hold every later call for a wait that heals nothing.
+        let spent = failed(
+            "429 Too Many Requests",
+            &[("content-type", "application/json")],
+            r#"{"error":{"message":"Usage limit reached. Your limit will reset at 10:00"}}"#,
+        );
+        let (url, _) = serve(vec![spent]).await;
+        let waiting = client(&url);
+        let error = waiting
+            .complete(&user(), &[], "k", &mut |_| CancelResult::Continue)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Quota);
+        assert!(!error.retryable);
+        assert_eq!(
+            cooldown_deadline(&waiting.cooldown),
+            None,
+            "a spent allowance is final, not a pace for the next call"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cooldown_wait_stops_when_it_is_cancelled() {
+        // A pair paused while pacing a cooldown must not sit the wait out: the
+        // wait ends when the flag is raised.
+        let (url, _) = serve(vec![sse_ok()]).await;
+        let waiting = client(&url);
+        waiting.set_cooldown(Duration::from_secs(30));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&cancel);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            stop.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let error = waiting
+            .complete_with_cancel(&user(), &[], "k", &mut |_| CancelResult::Continue, &cancel)
+            .await
+            .unwrap_err();
+        assert!(error.is_cancelled(), "{:?}", error);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the wait ended with the cancel: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_backoff_wait_stops_when_it_is_cancelled() {
+        // A 500 is retried after a backoff; a pair stopped during it must not
+        // sit the wait out either.
+        let broken = failed(
+            "500 Internal Server Error",
+            &[("content-type", "application/json")],
+            r#"{"error":{"message":"boom"}}"#,
+        );
+        let (url, asked) = serve(vec![broken, sse_ok()]).await;
+        let waiting = client(&url);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&cancel);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            stop.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let error = waiting
+            .complete_with_cancel(&user(), &[], "k", &mut |_| CancelResult::Continue, &cancel)
+            .await
+            .unwrap_err();
+        assert!(error.is_cancelled(), "{:?}", error);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the backoff ended with the cancel: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(arrivals(&asked).len(), 1, "the retry was never sent");
     }
 
     #[tokio::test]

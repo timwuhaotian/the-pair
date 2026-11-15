@@ -6,10 +6,12 @@ import type {
   ProviderView,
   SessionSnapshotDraft,
   SessionSnapshotRecord,
+  SnapshotProblem,
   TurnTokenUsage
 } from '../types'
 import {
   turnCardToMessage as turnCardToMessageImpl,
+  mergeTokenUsage,
   resolveCurrentTurnTokenUsage,
   syncTokenUsage as syncTokenUsageImpl,
   type TokenUsageTurnCard,
@@ -27,7 +29,14 @@ import {
 } from '../lib/modelResolution'
 import { stripModelQualifier } from '../lib/providerResolution'
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
-import { isHandoffIgnoredError, shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
+import {
+  appendChecklistToExecutorPrompt,
+  formatChecklistForHandoff,
+  isHandoffIgnoredError,
+  shouldIgnoreHandoffEvent,
+  tryEnqueueHandoff,
+  type QueuedHandoff
+} from '../lib/handoffGuard'
 import {
   buildInitialExecutorHandoffPrompt,
   buildInitialMentorReviewPrompt,
@@ -79,6 +88,7 @@ interface ModifiedFile {
 interface GitTracking {
   available: boolean
   rootPath?: string
+  baseline?: string
 }
 
 type AutomationMode = 'full-auto'
@@ -192,6 +202,8 @@ export interface Pair {
    * so background failures never land in the global `error` shown by modals.
    */
   handoffError?: string
+  /** Last snapshot/load failure for this pair — surfaced in the inspector, not modals. */
+  syncError?: string
 }
 
 interface PairStateSnapshot {
@@ -269,13 +281,17 @@ interface BackendPairState {
   iteration?: number
   messages?: Message[]
   latestAcceptance?: AcceptanceRecord
+  planChecklist?: Array<{ description: string; completed: boolean }>
 }
 
 interface PairStore {
   pairs: Pair[]
   /** Every endpoint in the credential registry, with its accounts and models. */
   providers: ProviderView[]
+  /** Global busy flag (kept for modals); pair-scoped work additionally tracks `loadingPairs`. */
   isLoading: boolean
+  /** Pair ids with an in-flight control call (pause/resume/retry/kill); per-pair mutex. */
+  loadingPairs: string[]
   isLoadingModels: boolean
   modelsLastUpdatedAt: number | null
   modelsError: string | null
@@ -285,6 +301,7 @@ interface PairStore {
 
   loadAvailableModels: () => Promise<void>
   loadAllPairs: () => Promise<void>
+  setPairSyncError: (pairId: string, message?: string) => void
   flushSnapshots: () => Promise<void>
   createPair: (
     input: Omit<CreatePairInput, 'mentor' | 'executor'> & {
@@ -333,6 +350,8 @@ interface PairStore {
 let _listenersInitialized = false
 let _modelsLoading = false
 const _handoffLocks = new Map<string, Promise<void>>()
+const _handoffQueues = new Map<string, QueuedHandoff[]>()
+const _controlLocks = new Set<string>()
 const _manualPauseTimestamps = new Map<string, number>()
 let _unlistenFns: Array<() => void> = []
 /** Bumped by teardownListeners so listeners that finish registering afterwards are dropped. */
@@ -344,6 +363,63 @@ const _stateEventCounts = new Map<string, number>()
 
 function stateEventCount(pairId: string): number {
   return _stateEventCounts.get(pairId) ?? 0
+}
+
+function setPairLoading(pairId: string, loading: boolean): void {
+  usePairStore.setState((state) => ({
+    loadingPairs: loading
+      ? state.loadingPairs.includes(pairId)
+        ? state.loadingPairs
+        : [...state.loadingPairs, pairId]
+      : state.loadingPairs.filter((id) => id !== pairId)
+  }))
+}
+
+/** Best-effort refresh after a control call so a dropped `pair:state` never wedges the UI. */
+async function refreshPairState(pairId: string): Promise<void> {
+  try {
+    const backendState = (await window.api.pair.getState(pairId)) as PairStateSnapshot | null
+    if (!backendState) return
+    usePairStore.setState((state) => ({
+      pairs: state.pairs.map((p) => (p.id === pairId ? syncPairFromState(p, backendState) : p))
+    }))
+  } catch (error) {
+    const detail = extractErrorMessage(error, 'unknown error')
+    console.warn('[usePairStore] Failed to refresh pair state:', error)
+    usePairStore.setState((state) => ({
+      pairs: state.pairs.map((pair) =>
+        pair.id === pairId ? { ...pair, syncError: `State refresh failed: ${detail}` } : pair
+      )
+    }))
+  }
+}
+
+/** Wait for the next `pair:state` for this pair, then fall back to a `getState` read. */
+function waitForStateEvent(pairId: string, timeoutMs = 3000): Promise<boolean> {
+  const before = stateEventCount(pairId)
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (arrived: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(arrived)
+    }
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    const check = (): void => {
+      if (stateEventCount(pairId) !== before) {
+        finish(true)
+      } else if (!settled) {
+        setTimeout(check, 50)
+      }
+    }
+    setTimeout(check, 50)
+  })
+}
+
+async function settleControlCall(pairId: string, timeoutMs = 3000): Promise<void> {
+  const arrived = await waitForStateEvent(pairId, timeoutMs)
+  if (!arrived) await refreshPairState(pairId)
 }
 
 function generateId(): string {
@@ -408,7 +484,7 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     gitTracking: {
       available: pair.gitTracking.available,
       rootPath: pair.gitTracking.rootPath,
-      baseline: undefined,
+      baseline: pair.gitTracking.baseline,
       gitReviewAvailable: undefined
     },
     automationMode: pair.automationMode,
@@ -449,7 +525,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     modifiedFiles: snapshot.modifiedFiles,
     gitTracking: {
       available: snapshot.gitTracking.available,
-      rootPath: snapshot.gitTracking.rootPath
+      rootPath: snapshot.gitTracking.rootPath,
+      baseline: snapshot.gitTracking.baseline
     },
     automationMode: snapshot.automationMode,
     planGate: snapshot.planGate,
@@ -483,10 +560,17 @@ async function saveSnapshotForPair(pair: Pair): Promise<void> {
   try {
     await window.api.session.saveSnapshot(snapshotPair(pair))
   } catch (error) {
+    const detail = extractErrorMessage(error, 'unknown error')
     console.warn(
-      `[usePairStore] Failed to save session snapshot for pair ${pair.id}: ${extractErrorMessage(error, 'unknown error')}`,
+      `[usePairStore] Failed to save session snapshot for pair ${pair.id}: ${detail}`,
       error
     )
+    // Snapshot failures must surface in the pair, not just the console.
+    usePairStore.setState((state) => ({
+      pairs: state.pairs.map((p) =>
+        p.id === pair.id ? { ...p, syncError: `Snapshot save failed: ${detail}` } : p
+      )
+    }))
   }
 }
 
@@ -727,7 +811,7 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
       ...preservedMessages,
       ...backendMessages.map((m) => ({
         ...m,
-        tokenUsage: m.tokenUsage ?? existingTokenUsage.get(m.id)
+        tokenUsage: mergeTokenUsage(m.tokenUsage, existingTokenUsage.get(m.id))
       }))
     ].sort((a, b) => a.timestamp - b.timestamp)
   }
@@ -994,6 +1078,17 @@ function parseProgressUpdate(
     return null
   }
 
+  if (line.startsWith('{') || line.startsWith('data: {')) {
+    return {
+      detail: sanitizeProgressDetail(
+        `Malformed agent progress event: ${line.slice(0, 220)}`,
+        'Agent progress error',
+        role
+      ),
+      phase: 'error'
+    }
+  }
+
   const normalized = line.replace(/^\[STDERR\]\s*/i, '').trim()
   if (!normalized) return null
 
@@ -1022,6 +1117,7 @@ export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
   providers: [],
   isLoading: false,
+  loadingPairs: [],
   isLoadingModels: false,
   modelsLastUpdatedAt: null,
   modelsError: null,
@@ -1124,8 +1220,34 @@ export const usePairStore = create<PairStore>((set) => ({
         }
 
         if (incoming.type === 'handoff') {
+          // Handoff plumbing stays visible in the console as a thin rule;
+          // MessageCard renders `type: 'handoff'` as a SystemBanner.
+          set((state) => ({
+            pairs: state.pairs.map((p) => {
+              if (p.id !== data.pairId) return p
+              if (p.messages.some((m) => m.id === incoming.id)) return p
+              let messages = p.messages
+              let currentTurnCard = p.currentTurnCard
+              if (currentTurnCard) {
+                messages = commitTurnCard(messages, currentTurnCard, p.iterations)
+                currentTurnCard = undefined
+              }
+              return {
+                ...p,
+                messages: [...messages, { ...incoming, type: 'handoff' as const }],
+                currentTurnCard
+              }
+            })
+          }))
+          const visiblePair = usePairStore.getState().pairs.find((pair) => pair.id === data.pairId)
+          if (visiblePair) {
+            void saveSnapshotForPair(visiblePair)
+          }
           return
         }
+
+        // Malformed agent output is surfaced, never silently dropped: commit any
+        // live card, then append the raw payload as an `error` diagnostic row.
 
         set((state) => ({
           pairs: state.pairs.map((p) =>
@@ -1246,9 +1368,11 @@ export const usePairStore = create<PairStore>((set) => ({
       window.api.pair.onHandoff(async (payload) => {
         const data = payload as PairHandoffEvent
 
-        const existing = _handoffLocks.get(data.pairId)
-        if (existing) return
-        const promise = (async () => {
+        const queue = tryEnqueueHandoff(_handoffQueues.get(data.pairId) ?? [], data)
+        _handoffQueues.set(data.pairId, queue)
+        if (_handoffLocks.has(data.pairId)) return
+
+        const processHandoff = async (data: PairHandoffEvent): Promise<void> => {
           try {
             let backendState: BackendPairState | null = null
             try {
@@ -1333,9 +1457,12 @@ export const usePairStore = create<PairStore>((set) => ({
                 return
               }
 
-              message = buildInitialExecutorHandoffPrompt({
-                mentorPlan: lastMentorMessage?.content
-              })
+              message = appendChecklistToExecutorPrompt(
+                buildInitialExecutorHandoffPrompt({
+                  mentorPlan: lastMentorMessage?.content
+                }),
+                formatChecklistForHandoff(backendState?.planChecklist ?? pair.planChecklist ?? [])
+              )
             } else {
               if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
                 message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
@@ -1383,6 +1510,20 @@ export const usePairStore = create<PairStore>((set) => ({
             } catch (pauseError) {
               console.error('[usePairStore] Failed to pause pair after handoff error:', pauseError)
             }
+          }
+        }
+
+        const promise = (async () => {
+          let next = data as PairHandoffEvent | undefined
+          while (next) {
+            await processHandoff(next)
+            const remaining = (_handoffQueues.get(data.pairId) ?? []).slice(1)
+            if (remaining.length > 0) {
+              _handoffQueues.set(data.pairId, remaining)
+            } else {
+              _handoffQueues.delete(data.pairId)
+            }
+            next = remaining[0] as PairHandoffEvent | undefined
           }
         })()
         _handoffLocks.set(data.pairId, promise)
@@ -1439,13 +1580,54 @@ export const usePairStore = create<PairStore>((set) => ({
     }
   },
 
+  setPairSyncError: (pairId, message) => {
+    set((state) => ({
+      pairs: state.pairs.map((pair) =>
+        pair.id === pairId ? { ...pair, syncError: message } : pair
+      )
+    }))
+  },
+
   loadAllPairs: async () => {
     try {
       const snapshots = (await window.api.session.loadAllPairs()) as SessionSnapshotRecord[]
-      const pairs = snapshots.map(snapshotToPair)
-      set({ pairs })
+      const previous = new Map(usePairStore.getState().pairs.map((pair) => [pair.id, pair]))
+      const pairs = snapshots.map((snapshot) => {
+        const existing = previous.get(snapshot.pairId)
+        const restored = snapshotToPair(snapshot)
+        if (!existing) return restored
+        return {
+          ...restored,
+          currentTurnCard: existing.currentTurnCard ?? restored.currentTurnCard,
+          mentorTokenUsage: existing.mentorTokenUsage,
+          executorTokenUsage: existing.executorTokenUsage,
+          adaptiveBudget: existing.adaptiveBudget,
+          pauseMessage: existing.pauseMessage,
+          planChecklist: existing.planChecklist,
+          keyDecisions: existing.keyDecisions,
+          messagesClearedAt: existing.messagesClearedAt,
+          handoffError: existing.handoffError,
+          syncError: undefined
+        }
+      })
+      set({ pairs, error: null })
+      // Recovery diagnostics are secondary; never hold the first paint or a
+      // handoff reload hostage to another IPC round trip.
+      void (window.api.session.listProblems?.() ?? Promise.resolve([]))
+        .catch(() => [])
+        .then((reported) => {
+          const problems = (Array.isArray(reported) ? reported : []) as SnapshotProblem[]
+          const problemMessage =
+            problems.length > 0
+              ? `Snapshot recovery quarantined ${problems.length} unreadable file(s): ${problems.map((problem) => problem.pairId).join(', ')}`
+              : null
+          set({ error: problemMessage })
+        })
     } catch (error) {
+      const message = extractErrorMessage(error, 'Failed to load pairs')
       console.error('Failed to load pairs:', error)
+      // Load failures surface in the global error so the hub's empty state can explain itself.
+      set({ error: message })
     }
   },
 
@@ -1709,13 +1891,17 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   pausePair: async (id) => {
+    if (_controlLocks.has(id)) return
+    _controlLocks.add(id)
     set({ isLoading: true, error: null })
+    setPairLoading(id, true)
     _manualPauseTimestamps.set(id, Date.now())
 
     try {
       await window.api.pair.pause(id)
       playPauseConfirm()
       set({ isLoading: false })
+      await settleControlCall(id)
     } catch (error) {
       _manualPauseTimestamps.delete(id)
       const message = extractErrorMessage(error, 'Failed to pause pair')
@@ -1724,18 +1910,27 @@ export const usePairStore = create<PairStore>((set) => ({
         error: message
       })
       throw error instanceof Error ? error : new Error(message)
+    } finally {
+      setPairLoading(id, false)
+      _controlLocks.delete(id)
     }
   },
 
   resumePair: async (id) => {
+    if (_controlLocks.has(id)) return
+    _controlLocks.add(id)
     set({ isLoading: true, error: null })
+    setPairLoading(id, true)
 
     try {
       await window.api.pair.resume(id)
       set((state) => ({
         isLoading: false,
-        pairs: state.pairs.map((p) => (p.id === id ? { ...p, handoffError: undefined } : p))
+        pairs: state.pairs.map((p) =>
+          p.id === id ? { ...p, handoffError: undefined, syncError: undefined } : p
+        )
       }))
+      await settleControlCall(id)
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to resume pair')
       set({
@@ -1743,6 +1938,9 @@ export const usePairStore = create<PairStore>((set) => ({
         error: message
       })
       throw error instanceof Error ? error : new Error(message)
+    } finally {
+      setPairLoading(id, false)
+      _controlLocks.delete(id)
     }
   },
 
@@ -1868,29 +2066,45 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   retryTurn: async (id) => {
+    if (_controlLocks.has(id)) return
+    _controlLocks.add(id)
     set({ isLoading: true, error: null })
+    setPairLoading(id, true)
     try {
       await window.api.pair.retryTurn(id)
       set((state) => ({
         isLoading: false,
-        pairs: state.pairs.map((p) => (p.id === id ? { ...p, handoffError: undefined } : p))
+        pairs: state.pairs.map((p) =>
+          p.id === id ? { ...p, handoffError: undefined, syncError: undefined } : p
+        )
       }))
+      await settleControlCall(id)
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to retry turn')
       set({ isLoading: false, error: message })
       throw error instanceof Error ? error : new Error(message)
+    } finally {
+      setPairLoading(id, false)
+      _controlLocks.delete(id)
     }
   },
 
   killProcess: async (pairId, role) => {
+    if (_controlLocks.has(pairId)) return
+    _controlLocks.add(pairId)
     set({ isLoading: true, error: null })
+    setPairLoading(pairId, true)
     try {
       await window.api.pair.killProcess(pairId, role)
       set({ isLoading: false })
+      await settleControlCall(pairId)
     } catch (error) {
       const message = extractErrorMessage(error, 'Failed to kill process')
       set({ isLoading: false, error: message })
       throw error instanceof Error ? error : new Error(message)
+    } finally {
+      setPairLoading(pairId, false)
+      _controlLocks.delete(pairId)
     }
   },
 

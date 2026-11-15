@@ -31,6 +31,7 @@ interface Window {
       saveSnapshot: (input: unknown) => Promise<unknown>
       loadAllPairs: () => Promise<unknown>
       listRecoverable: () => Promise<unknown>
+      listProblems?: () => Promise<unknown>
       deleteRecoverable: (pairId: string) => Promise<unknown>
       restore: (pairId: string, continueRun?: boolean) => Promise<unknown>
     }
@@ -77,7 +78,12 @@ interface Window {
       }) => Promise<string>
     }
     repo: {
-      getFileDiff: (directory: string, filePath: string, status: string) => Promise<string>
+      getFileDiff: (
+        directory: string,
+        filePath: string,
+        status: string,
+        baseline?: string
+      ) => Promise<string>
       commitChanges: (
         directory: string,
         message: string

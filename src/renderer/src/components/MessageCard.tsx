@@ -86,10 +86,14 @@ export const MessageCard = memo(function MessageCard({
     [isAcceptance, displayContent]
   )
 
+  // Handoffs stay visible as a thin divider row, not a full turn card.
+  if (isSystem) {
+    return <SystemBanner variant="handoff" />
+  }
+
   // Skip empty / dropped messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
   if (isTechnicalHandoff(displayContent) && !isHuman && msg.from !== 'executor') return null
-  if (isSystem) return null
 
   // Human messages become a centered system banner
   if (isHuman) {

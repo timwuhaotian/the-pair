@@ -126,6 +126,17 @@ test('shouldSaveSnapshot persists executorModel change', () => {
   assert.equal(shouldSaveSnapshot(previous, next), true)
 })
 
+for (const field of ['messages', 'latestAcceptance', 'modifiedFiles', 'gitTracking'] as const) {
+  test(`shouldSaveSnapshot persists ${field} changes`, () => {
+    const previous = makePair()
+    const next = {
+      ...makePair(),
+      [field]: field === 'gitTracking' ? { available: true } : [{ id: 'changed' }]
+    }
+    assert.equal(shouldSaveSnapshot(previous, next), true)
+  })
+}
+
 test('shouldSaveSnapshot persists turn-card state change', () => {
   const previous = makePair()
   const next = makePair()

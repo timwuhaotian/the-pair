@@ -205,6 +205,13 @@ export interface SessionSnapshotDraft {
   cognitiveEvents?: SnapshotCognitiveEvent[]
 }
 
+export interface SnapshotProblem {
+  pairId: string
+  path: string
+  error: string
+  quarantinedAs?: string
+}
+
 export interface SessionSnapshotRecord extends SessionSnapshotDraft {
   snapshotVersion: number
   savedAt: number

@@ -8,6 +8,10 @@ test('tauriApi can be imported outside the Tauri renderer', async () => {
   assert.equal(isTauri, false)
   assert.deepEqual(await tauriApi.repo.checkState('/tmp/project'), mockRepoState)
   await assert.rejects(tauriApi.pair.list(), /Not running in Tauri/)
+  await assert.rejects(
+    tauriApi.repo.getFileDiff('/tmp/project', 'src/a.ts', 'M', 'base-sha'),
+    /Not running in Tauri/
+  )
 })
 
 test('detectTauriRuntime recognizes a Tauri 2 webview without withGlobalTauri', () => {

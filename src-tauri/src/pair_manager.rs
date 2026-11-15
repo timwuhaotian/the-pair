@@ -196,6 +196,38 @@ fn apply_workspace(mut pair: Pair, workspace: &PairWorkspace) -> Pair {
     pair
 }
 
+/// Commit a rotated workspace to both in-memory owners. If the broker has
+/// already lost the pair, restore the manager's previous record instead of
+/// leaving the two pointing at different directories.
+fn commit_workspace(
+    pair_manager: &std::sync::Mutex<PairManager>,
+    broker: &std::sync::Mutex<MessageBroker>,
+    pair_id: &str,
+    pair: Pair,
+) -> Result<Pair, String> {
+    let previous = pair_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_pair(pair_id)
+        .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+    pair_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .upsert_pair(pair.clone());
+    if let Err(error) = broker
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .update_workspace(pair_id, &pair.directory, pair.worktree_path.as_deref())
+    {
+        pair_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .upsert_pair(previous);
+        return Err(error);
+    }
+    Ok(pair)
+}
+
 /// Move a pair into a fresh worktree on a new auto-named `the-pair/…` branch
 /// before a new task run. The previous worktree's work is preserved by
 /// `delete_worktree` (uncommitted changes stashed, non-redundant `the-pair/…`
@@ -225,16 +257,11 @@ pub fn rotate_workspace(pair: &Pair) -> Result<PairWorkspace, String> {
                 .to_string()
         })?;
 
-    if repo_state.is_dirty && base_branch != repo_state.current_branch.unwrap_or_default() {
-        return Err("Repository has uncommitted changes. Please commit or stash before rotating to a fresh worktree.".to_string());
-    }
-
-    if let Some(worktree_path) = &pair.worktree_path {
-        println!(
-            "[pair_manager] Preserving and removing previous worktree at {}",
-            worktree_path
-        );
-        delete_worktree(worktree_path)?;
+    // Only an in-place pair shares the user's checkout, so only that case
+    // needs a clean-tree gate. A linked pair worktree is preserved by
+    // `delete_worktree`; unrelated dirt in the main checkout must not block it.
+    if pair.worktree_path.is_none() && repo_state.is_dirty {
+        return Err("Repository has uncommitted changes. Please commit or stash before rotating an in-place pair.".to_string());
     }
 
     let worktree_rel_path = format!(".worktrees/pair-{}", uuid::Uuid::new_v4());
@@ -242,7 +269,20 @@ pub fn rotate_workspace(pair: &Pair) -> Result<PairWorkspace, String> {
         println!("[pair_manager] Warning: could not update .gitignore: {}", e);
     }
 
+    // Create the replacement first. If git cannot create it, the old worktree
+    // is still exactly where the pair points. Only then preserve/remove the old
+    // one; if that fails, roll back the untouched replacement.
     let worktree_full_path = create_worktree(&repo_path, &base_branch, &worktree_rel_path)?;
+    if let Some(old_path) = &pair.worktree_path {
+        println!(
+            "[pair_manager] Preserving and removing previous worktree at {}",
+            old_path
+        );
+        if let Err(error) = delete_worktree(old_path) {
+            let _ = delete_worktree(&worktree_full_path);
+            return Err(error);
+        }
+    }
     println!(
         "[pair_manager] Fresh worktree created at {} for pair {}",
         worktree_full_path, pair.pair_id
@@ -396,7 +436,7 @@ fn turn_in_flight(spawner: &TurnDriver, pair_id: &str) -> bool {
 /// a running `bash` command is killed with its process tree — but that still
 /// takes a moment. Waiting a bounded one before a worktree is stashed and
 /// removed gives the turn the chance to unwind first; past the timeout the
-/// caller goes ahead, because a delete must not hang on it.
+/// caller must abort and leave the worktree untouched.
 async fn wait_for_turns_to_stop(spawner: &TurnDriver, pair_id: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
@@ -408,6 +448,20 @@ async fn wait_for_turns_to_stop(spawner: &TurnDriver, pair_id: &str, timeout: Du
             return false;
         }
         tokio::time::sleep(TURN_STOP_POLL.min(deadline - now)).await;
+    }
+}
+
+fn pause_after_stop_timeout(
+    broker: &std::sync::Mutex<MessageBroker>,
+    pair_id: &str,
+    detail: String,
+) {
+    let broker = broker.lock().unwrap_or_else(|e| e.into_inner());
+    if broker
+        .status_and_turn(pair_id)
+        .is_some_and(|(status, _)| status.is_active())
+    {
+        broker.set_pair_status(pair_id, PairStatus::Paused, Some(detail));
     }
 }
 
@@ -774,10 +828,12 @@ async fn prepare_new_run_workspace(
     // that was writing into it has to be gone first. The wait is bounded: a tool
     // call in flight takes no cancel token, and an assignment must not hang.
     if !wait_for_turns_to_stop(spawner, pair_id, TURN_STOP_TIMEOUT).await {
-        println!(
-            "[pair_manager] Pair {} still has a turn in flight; rotating anyway",
+        let detail = format!(
+            "Pair {} still has a turn in flight; the old worktree was left untouched. Retry after the turn stops.",
             pair_id
         );
+        pause_after_stop_timeout(broker, pair_id, detail.clone());
+        return Err(detail);
     }
 
     let rotated = {
@@ -787,15 +843,7 @@ async fn prepare_new_run_workspace(
             .map_err(|e| format!("Workspace rotation failed: {}", e))?
     }?;
     let pair = apply_workspace(pair, &rotated);
-    pair_manager
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .upsert_pair(pair.clone());
-    broker
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .update_workspace(pair_id, &pair.directory, pair.worktree_path.as_deref());
-    Ok(pair)
+    commit_workspace(pair_manager, broker, pair_id, pair)
 }
 
 /// (Re)build the pair's process context for the turn about to start: install
@@ -1286,10 +1334,13 @@ pub async fn pair_delete(
         // moment for it to unwind before the worktree is stashed and removed
         // under it.
         if !wait_for_turns_to_stop(&spawner, &pair_id, TURN_STOP_TIMEOUT).await {
-            println!(
-                "[pair_delete] Pair {} still has a turn in flight; deleting anyway",
+            let message = format!(
+                "Could not delete pair {}: its turn is still stopping. The worktree was left untouched; retry after it stops.",
                 pair_id
             );
+            pause_after_stop_timeout(&broker, &pair_id, message.clone());
+            persist_snapshot_in_background(&app, &pair_id);
+            return Err(message);
         }
 
         println!("[pair_delete] Deleting worktree at {}", worktree_path);
@@ -2582,7 +2633,7 @@ mod tests {
     }
 
     #[test]
-    fn rotate_workspace_keeps_requiring_clean_repo_for_a_held_base() {
+    fn rotate_workspace_ignores_unrelated_main_checkout_dirt() {
         let temp = TempRepo::new("rotate-dirty-held-base");
         temp.git(&temp.repo, &["branch", "feature"]);
         std::fs::write(temp.repo.join("dirty.txt"), "uncommitted\n").unwrap();
@@ -2593,10 +2644,90 @@ mod tests {
         pair.worktree_path = Some(old.clone());
         pair.repo_path = Some(temp.repo_str().to_string());
 
+        let workspace = rotate_workspace(&pair).expect("main checkout dirt is unrelated");
+        assert!(!std::path::PathBuf::from(&old).exists());
+        assert!(std::path::PathBuf::from(workspace.directory).exists());
+    }
+
+    #[test]
+    fn rotate_workspace_rejects_dirt_for_an_in_place_pair() {
+        let temp = TempRepo::new("rotate-dirty-in-place");
+        std::fs::write(temp.repo.join("dirty.txt"), "uncommitted\n").unwrap();
+        let pair = git_pair("pair-in-place-dirty", temp.repo_str(), None);
         let error = rotate_workspace(&pair).unwrap_err();
-        assert!(error.contains("uncommitted changes"));
-        // Nothing was removed — the pair keeps its workspace on failure.
-        assert!(std::path::PathBuf::from(&old).exists());
+        assert!(error.contains("in-place pair"), "{}", error);
+    }
+
+    #[test]
+    fn rotate_workspace_keeps_the_old_worktree_when_replacement_creation_fails() {
+        let temp = TempRepo::new("rotate-create-fails");
+        let old =
+            create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree");
+        let mut pair = git_pair("pair-create-fail", &old, Some("missing-base"));
+        pair.repo_path = Some(temp.repo_str().to_string());
+        pair.worktree_path = Some(old.clone());
+
+        assert!(rotate_workspace(&pair).is_err());
+        assert!(std::path::PathBuf::from(old).exists());
+    }
+
+    #[test]
+    fn rotate_workspace_rolls_back_the_replacement_when_old_removal_fails() {
+        let temp = TempRepo::new("rotate-remove-fails");
+        let old = temp.repo.join(".worktrees/pair-old");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("keep.txt"), "not a linked worktree\n").unwrap();
+        let mut pair = git_pair("pair-remove-fail", old.to_str().unwrap(), Some("main"));
+        pair.repo_path = Some(temp.repo_str().to_string());
+        pair.worktree_path = Some(old.to_string_lossy().into_owned());
+
+        assert!(rotate_workspace(&pair).is_err());
+        assert!(old.join("keep.txt").exists());
+        let worktrees = temp.git(&temp.repo, &["worktree", "list", "--porcelain"]);
+        assert!(!worktrees.contains("pair-remove-fail"), "{}", worktrees);
+    }
+
+    #[test]
+    fn stop_timeout_marks_the_pair_paused() {
+        let broker = std::sync::Mutex::new(MessageBroker::new());
+        broker
+            .lock()
+            .unwrap()
+            .initialize_pair("pair-stop", worktree_input("/repo"), None)
+            .unwrap();
+        broker.lock().unwrap().prepare_run("pair-stop", "mentor");
+
+        pause_after_stop_timeout(&broker, "pair-stop", "stop timed out".into());
+        assert_eq!(
+            broker
+                .lock()
+                .unwrap()
+                .status_and_turn("pair-stop")
+                .unwrap()
+                .0,
+            PairStatus::Paused
+        );
+    }
+
+    #[test]
+    fn workspace_commit_rolls_back_the_manager_when_broker_state_is_gone() {
+        let manager = std::sync::Mutex::new(PairManager::new());
+        let broker = std::sync::Mutex::new(MessageBroker::new());
+        let previous = git_pair("pair-rollback", "/old", None);
+        manager.lock().unwrap().upsert_pair(previous);
+        let rotated = git_pair("pair-rollback", "/new", None);
+
+        let error = commit_workspace(&manager, &broker, "pair-rollback", rotated).unwrap_err();
+        assert!(error.contains("No broker state"));
+        assert_eq!(
+            manager
+                .lock()
+                .unwrap()
+                .get_pair("pair-rollback")
+                .unwrap()
+                .directory,
+            "/old"
+        );
     }
 
     #[test]
@@ -3127,12 +3258,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prepare_new_run_workspace_keeps_the_pair_put_when_rotation_fails() {
+    async fn prepare_new_run_workspace_ignores_unrelated_main_checkout_dirt() {
         let temp = TempRepo::new("rotate-command-fail");
         let old =
             create_worktree(temp.repo_str(), "main", ".worktrees/pair-old").expect("old worktree");
-        // A held base other than the current branch requires a clean repo; a
-        // dirty tree makes the rotation refuse before touching the old work.
+        // Dirt in the main checkout is unrelated to this linked worktree.
         temp.git(&temp.repo, &["branch", "feature"]);
         std::fs::write(temp.repo.join("dirty.txt"), "uncommitted\n").unwrap();
 
@@ -3150,7 +3280,7 @@ mod tests {
             .initialize_pair("pair-rot-fail", worktree_input(temp.repo_str()), Some(&old))
             .unwrap();
 
-        let error = prepare_new_run_workspace(
+        let rotated = prepare_new_run_workspace(
             &manager,
             &broker,
             &TurnDriver::new(),
@@ -3159,15 +3289,14 @@ mod tests {
             true,
         )
         .await
-        .expect_err("rotation should refuse a dirty repo for another base");
-        assert!(error.contains("uncommitted changes"));
+        .expect("unrelated main checkout dirt must not block rotation");
 
         let stored = manager.lock().unwrap().get_pair("pair-rot-fail").unwrap();
-        assert_eq!(stored.worktree_path.as_deref(), Some(old.as_str()));
+        assert_eq!(stored.worktree_path, rotated.worktree_path);
         assert_eq!(stored.branch.as_deref(), Some("feature"));
-        assert!(std::path::PathBuf::from(&old).exists());
+        assert!(!std::path::PathBuf::from(&old).exists());
         let state = broker.lock().unwrap().get_state("pair-rot-fail").unwrap();
-        assert_eq!(state.directory, old);
+        assert_eq!(state.directory, rotated.directory);
     }
 
     #[tokio::test]

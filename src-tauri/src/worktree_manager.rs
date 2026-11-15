@@ -539,8 +539,18 @@ pub fn delete_worktree(worktree_path: &str) -> Result<(), String> {
 /// git already removed, i.e. what a part-failed `git worktree remove` leaves.
 fn leftover_pair_worktree(path: &Path) -> Option<PathBuf> {
     let name = path.file_name()?.to_str()?;
-    let pair_id = name.strip_prefix("pair-")?;
-    uuid::Uuid::parse_str(pair_id).ok()?;
+    let recognized = name
+        .strip_prefix("pair-")
+        .is_some_and(|pair_id| uuid::Uuid::parse_str(pair_id).is_ok())
+        || name.strip_prefix("the-pair-").is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .chars()
+                    .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
+        });
+    if !recognized {
+        return None;
+    }
     let parent = path.parent()?;
     if parent.file_name()? != ".worktrees" {
         return None;
@@ -1236,6 +1246,25 @@ fn forget_missing_worktree(common_dir: &Path, path: &Path) -> Option<WorktreeEnt
 /// but only when every commit on it is also on another branch/tag (no new
 /// commits, or already merged). Otherwise the branch stays as the record of the
 /// executor's work.
+fn delete_branch_if_redundant(common_dir: &Path, branch_ref: &str, head: &str) -> bool {
+    if !commit_reachable_from_other_refs(common_dir, head, Some(branch_ref)) {
+        return false;
+    }
+    // The old-value guard only deletes the branch if it still points at `head`.
+    run_git_command(
+        common_dir,
+        &[
+            "update-ref",
+            "-m",
+            "the-pair: remove redundant preserved branch",
+            "-d",
+            branch_ref,
+            head,
+        ],
+    )
+    .is_ok()
+}
+
 fn delete_pair_branch_if_redundant(
     common_dir: &Path,
     branch_ref: &str,
@@ -1243,24 +1272,42 @@ fn delete_pair_branch_if_redundant(
     dir_name: &str,
 ) {
     let expected = format!("refs/heads/{}", pair_branch_name(dir_name));
-    if branch_ref != expected {
-        return;
+    if branch_ref == expected {
+        delete_branch_if_redundant(common_dir, branch_ref, head);
     }
-    if !commit_reachable_from_other_refs(common_dir, head, Some(branch_ref)) {
-        return;
+}
+
+/// Garbage-collect old rescue branches whose commits are reachable elsewhere.
+/// Unique rescued work is never deleted. This is explicit maintenance, never
+/// an automatic side effect of pair deletion.
+pub fn gc_rescued_branches(directory: &str, keep_last_n: usize) -> Result<Vec<String>, String> {
+    let common_dir = find_common_git_dir(Path::new(directory))
+        .ok_or_else(|| "Directory is not a git repository".to_string())?;
+    let mut rescued: Vec<_> = list_branches(directory)?
+        .into_iter()
+        .filter(|branch| branch.is_local && branch.name.starts_with(RESCUE_BRANCH_PREFIX))
+        .collect();
+    rescued.sort_by_key(|branch| std::cmp::Reverse(branch.last_commit_date.unwrap_or(0)));
+
+    let mut deleted = Vec::new();
+    for branch in rescued.into_iter().skip(keep_last_n) {
+        let Some(head) = branch.last_commit_sha else {
+            continue;
+        };
+        let branch_ref = format!("refs/heads/{}", branch.name);
+        if delete_branch_if_redundant(&common_dir, &branch_ref, &head) {
+            deleted.push(branch.name);
+        }
     }
-    // The old-value guard only deletes the branch if it still points at `head`.
-    let _ = run_git_command(
-        common_dir,
-        &[
-            "update-ref",
-            "-m",
-            "the-pair: remove pair branch without new commits",
-            "-d",
-            branch_ref,
-            head,
-        ],
-    );
+    Ok(deleted)
+}
+
+#[tauri::command]
+pub fn gc_rescued_branches_command(
+    directory: String,
+    keep_last_n: usize,
+) -> Result<Vec<String>, String> {
+    gc_rescued_branches(&directory, keep_last_n)
 }
 
 /// Creates (if needed) a local branch tracking `remote_branch` (e.g.
@@ -1961,6 +2008,20 @@ mod tests {
         assert!(listed.join("README.md").exists());
     }
 
+    #[test]
+    fn delete_worktree_finishes_a_namespaced_leftover() {
+        let temp = TempRepo::new("delete-namespaced-leftover");
+        temp.git(&temp.repo, &["branch", "feature"]);
+        let path = PathBuf::from(
+            create_worktree(temp.repo_str(), "feature", ".worktrees/the-pair-leftover").unwrap(),
+        );
+        fs::remove_dir_all(temp.repo.join(".git/worktrees/the-pair-leftover")).unwrap();
+        write(&path.join("locked.bin"), "x");
+
+        delete_worktree(path.to_str().unwrap()).expect("namespaced leftover removed");
+        assert!(!path.exists());
+    }
+
     #[cfg(unix)]
     #[test]
     fn delete_worktree_can_be_retried_after_git_removed_part_of_the_directory() {
@@ -2145,6 +2206,41 @@ mod tests {
         temp.git(&temp.repo, &["branch", "feature"]);
         let linked = create_worktree(temp.repo_str(), "feature", ".worktrees/pair-linked").unwrap();
         assert!(!ensure_gitignore_worktrees(&linked).unwrap());
+    }
+
+    #[test]
+    fn rescued_branch_gc_removes_only_redundant_refs() {
+        let temp = TempRepo::new("rescued-gc");
+        temp.git(&temp.repo, &["branch", "the-pair/rescued-redundant"]);
+        let deleted = gc_rescued_branches(temp.repo_str(), 0).unwrap();
+        assert_eq!(deleted, vec!["the-pair/rescued-redundant"]);
+
+        temp.git(
+            &temp.repo,
+            &["checkout", "-q", "-b", "the-pair/rescued-unique"],
+        );
+        fs::write(temp.repo.join("unique.txt"), "keep\n").unwrap();
+        temp.git(&temp.repo, &["add", "unique.txt"]);
+        temp.git(
+            &temp.repo,
+            &["commit", "-q", "--no-verify", "-m", "unique work"],
+        );
+        temp.git(&temp.repo, &["checkout", "-q", "main"]);
+        let deleted = gc_rescued_branches(temp.repo_str(), 0).unwrap();
+        assert!(!deleted.contains(&"the-pair/rescued-unique".to_string()));
+        let head = temp.git(
+            &temp.repo,
+            &[
+                "rev-parse",
+                "--verify",
+                "refs/heads/the-pair/rescued-unique",
+            ],
+        );
+        assert!(!head.is_empty());
+
+        temp.git(&temp.repo, &["branch", "the-pair/rescued-command"]);
+        let deleted = gc_rescued_branches_command(temp.repo_str().to_string(), 0).unwrap();
+        assert!(deleted.contains(&"the-pair/rescued-command".to_string()));
     }
 
     #[test]
