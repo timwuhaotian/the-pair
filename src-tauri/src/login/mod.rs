@@ -104,7 +104,7 @@ pub async fn launch(
                 .ok_or_else(|| {
                     "Paste your OpenCode Go API key to finish signing in.".to_string()
                 })?;
-            opencode_go::login(key.trim())
+            opencode_go::login(key.trim()).await
         }
         LoginService::Muse => {
             let key = api_key

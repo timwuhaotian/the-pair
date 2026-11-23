@@ -5,7 +5,7 @@ use super::history;
 use super::ModelSelection;
 use crate::accounts::store::load as load_providers;
 use crate::accounts::types::{
-    Account, AccountKind, AccountStatus, ModelRoute, OAuthToken, Provider, Secret,
+    Account, AccountKind, AccountStatus, HeaderPair, ModelRoute, OAuthToken, Provider, Secret,
 };
 use crate::llm::{CancelResult, Client, ClientConfig, Delta, ProviderError, Usage};
 use crate::tools::{self, ToolPolicy};
@@ -332,7 +332,13 @@ async fn attempt(
         error,
         history: Vec::new(),
     };
-    let resolved = resolve(providers, selection, request.effort.as_deref()).map_err(before_work)?;
+    let resolved = resolve(
+        providers,
+        selection,
+        request.effort.as_deref(),
+        &request.cache_key,
+    )
+    .map_err(before_work)?;
     // A client that cannot be built — no request timeout, no TLS backend — will
     // never answer, and no retry heals it.
     let client = Client::new(resolved.config)
@@ -579,6 +585,8 @@ fn resolve(
     selection: &ModelSelection,
     // The pair's own effort for this role, which wins over the route's.
     effort: Option<&str>,
+    // Stable per conversation (`pairId-role`); OpenCode Go routes/caches by it.
+    cache_key: &str,
 ) -> Result<Resolved, ProviderError> {
     if !selection.is_usable() {
         return Err(ProviderError::bad_response(
@@ -613,7 +621,11 @@ fn resolve(
             protocol: provider.protocol,
             base_url: provider.base_url.clone(),
             api_key,
-            headers: account.headers.clone(),
+            headers: session_headers(
+                account,
+                provider.base_url.contains("opencode.ai/inference/go"),
+                cache_key,
+            ),
             tool_names: account.tool_names.clone(),
             model: selection.model.clone(),
             max_output_tokens: model.and_then(|route| route.max_output),
@@ -624,6 +636,32 @@ fn resolve(
             timeout: REQUEST_TIMEOUT,
         },
     })
+}
+
+/// Headers for the transport: a Go account — or any account already carrying
+/// a session header (an imported empty/static one, say) — gets exactly one
+/// `x-opencode-session` holding this conversation's cache key. Other accounts
+/// keep their headers untouched.
+fn session_headers(account: &Account, go_endpoint: bool, cache_key: &str) -> Vec<HeaderPair> {
+    const SESSION_HEADER: &str = "x-opencode-session";
+    let is_session = |header: &HeaderPair| header.name.trim().eq_ignore_ascii_case(SESSION_HEADER);
+    if account.kind != AccountKind::OpencodeGo
+        && !go_endpoint
+        && !account.headers.iter().any(is_session)
+    {
+        return account.headers.clone();
+    }
+    let mut headers: Vec<_> = account
+        .headers
+        .iter()
+        .filter(|header| !is_session(header))
+        .cloned()
+        .collect();
+    headers.push(HeaderPair {
+        name: SESSION_HEADER.to_string(),
+        value: cache_key.to_string(),
+    });
+    headers
 }
 
 /// The bearer value for an account, or why it cannot be used right now.
@@ -752,7 +790,7 @@ mod tests {
     #[test]
     fn resolves_the_route_into_a_client_config() {
         let providers = vec![provider()];
-        let resolved = resolve(&providers, &selection(), None).unwrap();
+        let resolved = resolve(&providers, &selection(), None, "pair-1-mentor").unwrap();
         assert_eq!(resolved.config.protocol, Protocol::Anthropic);
         assert_eq!(resolved.config.api_key, "sk-ant-test");
         assert_eq!(resolved.config.model, "claude-sonnet-4-5");
@@ -762,12 +800,82 @@ mod tests {
         assert_eq!(resolved.config.headers.len(), 1);
     }
 
+    fn session_headers_of(resolved: &Resolved) -> Vec<(&str, &str)> {
+        resolved
+            .config
+            .headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case("x-opencode-session"))
+            .map(|header| (header.name.as_str(), header.value.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn a_go_account_gets_a_session_header_from_the_cache_key() {
+        let mut providers = vec![provider()];
+        providers[0].accounts[0].kind = AccountKind::OpencodeGo;
+        providers[0].accounts[0].headers = Vec::new();
+        let resolved = resolve(&providers, &selection(), None, "pair-1-mentor").unwrap();
+        assert_eq!(
+            session_headers_of(&resolved),
+            vec![("x-opencode-session", "pair-1-mentor")]
+        );
+    }
+
+    #[test]
+    fn an_imported_empty_session_header_is_filled_from_the_cache_key() {
+        let mut providers = vec![provider()];
+        providers[0].accounts[0].headers = vec![
+            HeaderPair {
+                name: "X-OpenCode-Session".into(),
+                value: String::new(),
+            },
+            HeaderPair {
+                name: "x-opencode-session".into(),
+                value: "static".into(),
+            },
+            HeaderPair {
+                name: "x-test".into(),
+                value: "1".into(),
+            },
+        ];
+        let resolved = resolve(&providers, &selection(), None, "pair-2-executor").unwrap();
+        assert_eq!(
+            session_headers_of(&resolved),
+            vec![("x-opencode-session", "pair-2-executor")]
+        );
+        assert!(resolved.config.headers.contains(&HeaderPair {
+            name: "x-test".into(),
+            value: "1".into(),
+        }));
+    }
+
+    #[test]
+    fn a_manual_go_endpoint_account_gets_a_session_header() {
+        let mut providers = vec![provider()];
+        providers[0].base_url = "https://opencode.ai/inference/go/openai/v1".into();
+        providers[0].accounts[0].headers = Vec::new();
+        let resolved = resolve(&providers, &selection(), None, "pair-3-mentor").unwrap();
+        assert_eq!(
+            session_headers_of(&resolved),
+            vec![("x-opencode-session", "pair-3-mentor")]
+        );
+    }
+
+    #[test]
+    fn a_non_go_account_without_a_session_header_is_unchanged() {
+        let providers = vec![provider()];
+        let resolved = resolve(&providers, &selection(), None, "pair-1-mentor").unwrap();
+        assert_eq!(resolved.config.headers, providers[0].accounts[0].headers);
+        assert!(session_headers_of(&resolved).is_empty());
+    }
+
     #[test]
     fn the_route_default_effort_fills_in_when_none_is_named() {
         let providers = vec![provider()];
         let mut request = selection();
         request.effort = None;
-        let resolved = resolve(&providers, &request, None).unwrap();
+        let resolved = resolve(&providers, &request, None, "pair-1-mentor").unwrap();
         assert_eq!(resolved.config.reasoning_effort.as_deref(), Some("medium"));
     }
 
@@ -776,7 +884,7 @@ mod tests {
         let providers = vec![provider()];
         let mut request = selection();
         request.model = "claude-future-9".into();
-        let resolved = resolve(&providers, &request, None).unwrap();
+        let resolved = resolve(&providers, &request, None, "pair-1-mentor").unwrap();
         assert_eq!(resolved.config.model, "claude-future-9");
         assert_eq!(resolved.config.max_output_tokens, None);
         assert_eq!(resolved.config.reasoning_effort.as_deref(), Some("high"));
@@ -787,7 +895,7 @@ mod tests {
         let providers = vec![provider()];
         // The pair was given "low"; the route would have spent its own default,
         // and the selection carries the route's.
-        let resolved = resolve(&providers, &selection(), Some("low")).unwrap();
+        let resolved = resolve(&providers, &selection(), Some("low"), "pair-1-mentor").unwrap();
         assert_eq!(resolved.config.reasoning_effort.as_deref(), Some("low"));
 
         // Nothing named anywhere leaves it unset: a model that takes no effort
@@ -796,7 +904,7 @@ mod tests {
         bare.models[0].default_effort = None;
         let mut request = selection();
         request.effort = None;
-        let resolved = resolve(&[bare], &request, None).unwrap();
+        let resolved = resolve(&[bare], &request, None, "pair-1-mentor").unwrap();
         assert_eq!(resolved.config.reasoning_effort, None);
     }
 
@@ -805,7 +913,7 @@ mod tests {
         let providers = vec![provider()];
         let mut request = selection();
         request.provider_id = "gone".into();
-        let error = resolve(&providers, &request, None).unwrap_err();
+        let error = resolve(&providers, &request, None, "pair-1-mentor").unwrap_err();
         assert_eq!(error.kind, ErrorKind::BadResponse);
         assert!(error.message.contains("gone"), "{}", error.message);
     }
@@ -815,7 +923,7 @@ mod tests {
         let providers = vec![provider()];
         let mut request = selection();
         request.account_id = "gone".into();
-        let error = resolve(&providers, &request, None).unwrap_err();
+        let error = resolve(&providers, &request, None, "pair-1-mentor").unwrap_err();
         assert!(error.message.contains("no longer in the registry"));
     }
 
@@ -825,7 +933,7 @@ mod tests {
         std::env::remove_var("THE_PAIR_HARNESS_MISSING");
         let mut providers = vec![provider()];
         providers[0].accounts[0].secret = Secret::Env("THE_PAIR_HARNESS_MISSING".into());
-        let error = resolve(&providers, &selection(), None).unwrap_err();
+        let error = resolve(&providers, &selection(), None, "pair-1-mentor").unwrap_err();
         assert_eq!(error.kind, ErrorKind::Auth);
         assert!(error.message.contains("THE_PAIR_HARNESS_MISSING"));
     }
@@ -842,7 +950,7 @@ mod tests {
             scope: None,
             account_label: Some("me@example.com".into()),
         }));
-        let error = resolve(&providers, &selection(), None).unwrap_err();
+        let error = resolve(&providers, &selection(), None, "pair-1-mentor").unwrap_err();
         assert_eq!(error.kind, ErrorKind::Auth);
         assert!(error.message.contains("sign in again"), "{}", error.message);
     }
@@ -851,7 +959,7 @@ mod tests {
     fn a_selection_with_no_account_is_rejected_before_any_request() {
         let mut request = selection();
         request.account_id = String::new();
-        let error = resolve(&[provider()], &request, None).unwrap_err();
+        let error = resolve(&[provider()], &request, None, "pair-1-mentor").unwrap_err();
         assert!(error.message.contains("no model selected"));
     }
 

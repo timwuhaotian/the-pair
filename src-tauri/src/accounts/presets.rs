@@ -214,28 +214,8 @@ pub const PRESETS: &[Preset] = &[
         display_name: "OpenCode Go",
         hosts: &["opencode.ai"],
         protocol: Protocol::OpenAiChat,
-        models: &[
-            ModelSeed {
-                id: "claude-sonnet-4-5",
-                display_name: "Claude Sonnet 4.5 (Go)",
-                context_window: 200_000,
-                max_output: 64_000,
-                efforts: NO_EFFORTS,
-                default_effort: None,
-                input_per_million: None,
-                output_per_million: None,
-            },
-            ModelSeed {
-                id: "kimi-k2",
-                display_name: "Kimi K2 (Go)",
-                context_window: 256_000,
-                max_output: 32_000,
-                efforts: NO_EFFORTS,
-                default_effort: None,
-                input_per_million: None,
-                output_per_million: None,
-            },
-        ],
+        // No seeded models: sign-in lists them from Go's live catalog.
+        models: &[],
     },
     Preset {
         vendor: "google",
@@ -452,6 +432,23 @@ mod tests {
     fn subscription_models_have_no_price() {
         let models = preset_models(Protocol::CommandCode, "https://api.commandcode.ai");
         assert!(models.iter().all(|model| model.price.is_none()));
+    }
+
+    #[test]
+    fn opencode_go_seeds_no_models() {
+        // Its models come from the live catalog at sign-in, not a stale list.
+        let preset = preset_for(
+            Protocol::OpenAiChat,
+            "https://opencode.ai/inference/go/openai/v1",
+        )
+        .unwrap();
+        assert_eq!(preset.vendor, "opencode");
+        assert!(preset.models.is_empty());
+        assert!(preset_models(
+            Protocol::OpenAiChat,
+            "https://opencode.ai/inference/go/openai/v1"
+        )
+        .is_empty());
     }
 
     #[test]

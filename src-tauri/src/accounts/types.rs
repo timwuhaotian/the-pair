@@ -264,7 +264,7 @@ pub struct ModelRoute {
     pub context_window: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output: Option<u64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub efforts: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_effort: Option<String>,
@@ -614,6 +614,30 @@ mod tests {
             value: "the-pair".into(),
         });
         assert_eq!(plain.value, "the-pair");
+    }
+
+    #[test]
+    fn model_route_serializes_empty_efforts() {
+        let route = ModelRoute {
+            id: "glm-5".into(),
+            display_name: "GLM-5".into(),
+            context_window: None,
+            max_output: None,
+            efforts: vec![],
+            default_effort: None,
+            price: None,
+            source: ModelSource::Endpoint,
+        };
+        let json = serde_json::to_value(&route).unwrap();
+        assert_eq!(json["efforts"], serde_json::json!([]));
+        // Older payloads without the field still deserialize.
+        let legacy: ModelRoute = serde_json::from_value(serde_json::json!({
+            "id": "glm-5",
+            "displayName": "GLM-5",
+            "source": "endpoint"
+        }))
+        .unwrap();
+        assert!(legacy.efforts.is_empty());
     }
 
     #[test]

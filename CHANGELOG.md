@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5] - 2026-11-23
+
+### Fixed
+
+- **OpenCode Go works again (#17, #18).** Sign-in fetches Go's live model catalog (Chat Completions models only) instead of the stale 2-model preset, maps each model's reasoning efforts, default effort and context/output limits into the picker, and validates the key (HTTP 401 is refused at sign-in). Every Go request now sends `x-opencode-session` from the conversation's cache key, and models without reasoning efforts no longer crash the model picker.
+
 ## [3.0.4] - 2026-11-14
 
 ### Fixed

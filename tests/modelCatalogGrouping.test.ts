@@ -131,6 +131,23 @@ test('resolveSelection reports the effort only when the endpoint lists it', () =
   assert.equal(resolveSelection(models, 'gpt-5', 'xhigh').effort, undefined)
 })
 
+test('a route with missing efforts (old snapshot) resolves without throwing', () => {
+  const legacy = route('legacy-model', {
+    efforts: undefined as unknown as string[]
+  })
+  const models = buildCanonicalModels([
+    provider('opencode-go', { vendor: 'opencode', readyAccountCount: 1, models: [legacy] })
+  ])
+  assert.deepEqual(models[0].routes[0].efforts, [])
+  assert.deepEqual(defaultLeafForRoute(models[0].routes[0]), {
+    modelId: 'legacy-model',
+    reasoningEffort: undefined
+  })
+  const resolved = resolveSelection(models, 'legacy-model', 'medium')
+  assert.equal(resolved.route?.providerId, 'opencode-go')
+  assert.equal(resolved.effort, undefined)
+})
+
 test('defaultLeafForRoute takes the model default, then medium, then nothing', () => {
   const withDefault = buildCanonicalModels([
     provider('openai', {

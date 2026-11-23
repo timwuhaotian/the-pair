@@ -84,7 +84,7 @@ function buildRoute(provider: ProviderView, model: ModelRoute): EndpointRoute {
     baseUrl: provider.baseUrl,
     ready: isReady(provider),
     modelId: model.id,
-    efforts: model.efforts,
+    efforts: model.efforts ?? [],
     defaultEffort: model.defaultEffort
   }
 }
