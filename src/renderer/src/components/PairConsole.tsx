@@ -755,7 +755,9 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
               counts={messageCounts}
             />
           )}
-          <div className="flex items-center gap-1.5">
+          {/* Polite live region: announces each status change (Awaiting Human
+              Review, Error, Finished…) once, never the streaming output. */}
+          <div role="status" className="flex items-center gap-1.5">
             <span
               aria-hidden
               className={cn(
@@ -856,8 +858,15 @@ function PairConsole({ pair, className }: PairConsoleProps): React.ReactNode {
 
       {/* Message area */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* A named, focusable log so the transcript can be scrolled from the
+            keyboard; aria-live stays off — streaming tokens would flood a
+            screen reader, and status changes are announced above. */}
         <div
           ref={scrollRef}
+          role="log"
+          aria-live="off"
+          aria-label={t('console.transcriptLabel')}
+          tabIndex={0}
           data-testid="console-transcript"
           className="flex-1 min-h-0 overflow-y-auto scrollbar-thin"
         >

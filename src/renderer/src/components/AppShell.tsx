@@ -39,34 +39,34 @@ export function AppShell({
   children
 }: AppShellProps): React.ReactNode {
   const { t } = useTranslation()
-  const pairs = usePairStore((state) => state.pairs)
-  const runningCount = pairs.filter((p) => isPairActive(p.status)).length
-  const attentionCount = pairs.filter(
-    (p) => p.status === 'Error' || p.status === 'Awaiting Human Review'
-  ).length
+  // Select the counts, not the pairs: a number only changes when a badge
+  // does, so streaming state events don't re-render the rail.
+  const runningCount = usePairStore(
+    (state) => state.pairs.filter((p) => isPairActive(p.status)).length
+  )
+  const attentionCount = usePairStore(
+    (state) =>
+      state.pairs.filter((p) => p.status === 'Error' || p.status === 'Awaiting Human Review').length
+  )
   // Endpoints with no credential a pair could use: the Models section is where
   // that gets fixed, so its badge counts what is still missing.
-  const providers = useModelStore((state) => state.providers)
-  const credentialGapCount = providers.filter(
-    (provider) => provider.readyAccountCount === 0 && provider.models.length > 0
-  ).length
+  const credentialGapCount = useModelStore(
+    (state) =>
+      state.providers.filter(
+        (provider) => provider.readyAccountCount === 0 && provider.models.length > 0
+      ).length
+  )
 
   return (
     <div className="flex h-full min-w-0 flex-1 overflow-hidden">
-      <a
-        href="#shell-main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:border focus:border-border focus:bg-background focus:px-3 focus:py-1.5 focus:text-[13px] focus:text-foreground"
-      >
-        {t('shell.skipToContent')}
-      </a>
       {/* Source-list rail: translucent sidebar surface, section items with
           badge counts. Collapses to an icon strip. */}
       <nav
         aria-label={t('shell.navLabel')}
         data-testid="app-shell-rail"
         className={cn(
-          'app-source-list flex shrink-0 flex-col gap-1 border-r border-border px-2 py-3 transition-[width] duration-150',
-          collapsed ? 'w-12 items-center' : 'w-44'
+          'app-source-list flex shrink-0 flex-col gap-1 border-r border-border px-2 py-3',
+          collapsed ? 'w-12 items-center' : 'w-48'
         )}
       >
         {SECTIONS.map((key) => {
@@ -80,7 +80,7 @@ export function AppShell({
               onClick={() => onSelectSection(key)}
               aria-current={isActive ? 'page' : undefined}
               data-testid={`shell-nav-${key}`}
-              title={collapsed ? t(SECTION_LABEL_KEYS[key]) : undefined}
+              title={t(SECTION_LABEL_KEYS[key])}
               aria-label={collapsed ? t(SECTION_LABEL_KEYS[key]) : undefined}
               className={cn(
                 'relative flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors cursor-pointer',
@@ -109,7 +109,12 @@ export function AppShell({
                   }
                   className="shrink-0 rounded-full border border-state-running/50 bg-state-running/15 px-1.5 text-[10px] tabular-nums state-running"
                 >
-                  {badge}
+                  <span aria-hidden>{badge}</span>
+                  <span className="sr-only">
+                    {t(key === 'models' ? 'shell.badgeCredentials' : 'shell.badgeRunning', {
+                      count: badge
+                    })}
+                  </span>
                 </span>
               )}
               {!collapsed && key === 'activity' && attentionCount > 0 && (
@@ -117,7 +122,10 @@ export function AppShell({
                   data-testid="shell-nav-attention-badge"
                   className="shrink-0 rounded-full border border-state-error/50 bg-state-error/15 px-1.5 text-[10px] tabular-nums state-error"
                 >
-                  {attentionCount}
+                  <span aria-hidden>{attentionCount}</span>
+                  <span className="sr-only">
+                    {t('shell.badgeAttention', { count: attentionCount })}
+                  </span>
                 </span>
               )}
             </button>

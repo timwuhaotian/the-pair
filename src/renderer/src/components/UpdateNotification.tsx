@@ -133,12 +133,13 @@ function UpdateProgress({
         className="relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/[0.08]"
       >
         {determinate ? (
+          // Scaled, not resized: a transform animates without relayout.
           <div
             className={cn(
-              'h-full rounded-full transition-[width] duration-300 ease-out',
+              'h-full w-full origin-left rounded-full transition-transform duration-300 ease-out',
               isReady ? 'bg-[var(--state-done)]' : 'bg-foreground'
             )}
-            style={{ width: `${percent}%` }}
+            style={{ transform: `scaleX(${percent / 100})` }}
           />
         ) : (
           <div className="update-progress-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-foreground/60" />
@@ -203,10 +204,15 @@ export function UpdateNotification(): React.ReactNode {
   const installUpdate = useUpdateStore((s) => s.installUpdate)
   const restartToUpdate = useUpdateStore((s) => s.restartToUpdate)
 
+  // Hovering the toast holds it; an error stays twice as long as good news.
+  // The hold is tied to the message hovered, so a new toast never inherits it.
+  const [heldMessage, setHeldMessage] = useState<string | null>(null)
+  const toastHeld = heldMessage !== null && heldMessage === toastMessage
   useEffect(() => {
-    const timer = setTimeout(() => clearToast(), 4000)
+    if (toastHeld) return
+    const timer = setTimeout(() => clearToast(), toastType === 'error' ? 8000 : 4000)
     return () => clearTimeout(timer)
-  }, [showToast, clearToast])
+  }, [showToast, toastType, toastHeld, clearToast])
 
   const isModalVisible = shouldShowUpdateModal(showModal, phase)
   const canDismiss = canDismissUpdateModal(phase)
@@ -335,26 +341,34 @@ export function UpdateNotification(): React.ReactNode {
       </GlassModal>
 
       {portalRoot &&
-        showToast &&
-        toastMessage &&
         createPortal(
-          // Sits below the app chrome bar so it never covers the chrome icons.
+          // The live region stays mounted so WebKit announces the message when
+          // it appears (a region inserted together with its text often isn't
+          // read). Sits below the app chrome bar so it never covers its icons.
           <div
-            role="status"
-            aria-live="polite"
+            role={toastType === 'error' ? 'alert' : 'status'}
+            aria-live={toastType === 'error' ? 'assertive' : 'polite'}
             className={cn('fixed top-12 right-3 max-w-[22rem] font-mono', Z.toast)}
+            onMouseEnter={() => setHeldMessage(toastMessage ?? null)}
+            onMouseLeave={() => setHeldMessage(null)}
           >
-            <div
-              className={cn(
-                'flex items-baseline gap-2 rounded-sm border px-3 py-2 text-[11px]',
-                toastTone
-              )}
-            >
-              <span aria-hidden className="select-none">
-                {toastGlyph}
-              </span>
-              <span className="min-w-0 break-words">{toastMessage}</span>
-            </div>
+            {showToast && toastMessage && (
+              // Opaque surface under the tone tint: the toast floats over
+              // arbitrary content and must stay readable on all of it.
+              <div className="rounded-sm bg-popover">
+                <div
+                  className={cn(
+                    'flex items-baseline gap-2 rounded-sm border px-3 py-2 text-[11px]',
+                    toastTone
+                  )}
+                >
+                  <span aria-hidden className="select-none">
+                    {toastGlyph}
+                  </span>
+                  <span className="min-w-0 break-words">{toastMessage}</span>
+                </div>
+              </div>
+            )}
           </div>,
           portalRoot
         )}

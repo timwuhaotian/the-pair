@@ -1,4 +1,12 @@
-import React, { useMemo, useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import React, {
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useId
+} from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, ExternalLink, Search } from 'lucide-react'
 import { emit } from '@tauri-apps/api/event'
@@ -42,9 +50,60 @@ import {
 } from '../lib/modelCatalogGrouping'
 import { ordinaryModelChoices, preferMiniMaxFlash } from '../lib/minimaxModelChoices'
 import { isImeKeyEvent } from './keyboard'
+import { scrollActiveOptionIntoView } from '../lib/listbox'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
+
+const TABBABLE_SELECTOR =
+  'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
+
+/** True when this Tab would carry focus past the menu's first or last control. */
+function tabLeavesMenu(e: React.KeyboardEvent, menu: HTMLElement | null): boolean {
+  if (e.key !== 'Tab' || !menu) return false
+  const nodes = menu.querySelectorAll<HTMLElement>(TABBABLE_SELECTOR)
+  if (nodes.length === 0) return true
+  return document.activeElement === (e.shiftKey ? nodes[0] : nodes[nodes.length - 1])
+}
+
+/**
+ * Arrow keys, Home and End move between a radiogroup's radios (roving
+ * tabindex: only the checked radio is a Tab stop). `selectOnMove` checks the
+ * radio as focus lands on it; groups whose pick has side effects (switching
+ * endpoint opens the model list, a recent pick reorders the list) only move
+ * focus, and Space/Enter picks.
+ */
+function radioGroupKeyDown(selectOnMove: boolean) {
+  return (e: React.KeyboardEvent<HTMLElement>): void => {
+    const forward = e.key === 'ArrowDown' || e.key === 'ArrowRight'
+    const backward = e.key === 'ArrowUp' || e.key === 'ArrowLeft'
+    if (!forward && !backward && e.key !== 'Home' && e.key !== 'End') return
+    const radios = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'))
+    const at = radios.indexOf(document.activeElement as HTMLElement)
+    if (at < 0) return
+    e.preventDefault()
+    const last = radios.length - 1
+    const next =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? last
+          : forward
+            ? at >= last
+              ? 0
+              : at + 1
+            : at <= 0
+              ? last
+              : at - 1
+    radios[next].focus()
+    if (selectOnMove) radios[next].click()
+  }
+}
+
+/** Index of the radio that holds a radiogroup's Tab stop: the checked one, else the first. */
+function tabStopIndex(checked: boolean[]): number {
+  return Math.max(0, checked.indexOf(true))
+}
 
 /** One endpoint as the picker lists it, with the registry row it came from. */
 interface EndpointChoice {
@@ -197,11 +256,13 @@ function VendorIcon({ canonicalKey }: { canonicalKey: string }): React.ReactNode
 function EndpointRow({
   choice,
   active,
+  tabStop,
   role,
   onSelect
 }: {
   choice: EndpointChoice
   active: boolean
+  tabStop: boolean
   role: 'mentor' | 'executor'
   onSelect: (endpoint: EndpointOption) => void
 }): React.ReactNode {
@@ -213,6 +274,7 @@ function EndpointRow({
       type="button"
       role="radio"
       aria-checked={active}
+      tabIndex={tabStop ? 0 : -1}
       aria-label={provider.displayName}
       title={`${provider.displayName} · ${provider.baseUrl}`}
       onClick={() => onSelect(choice.endpoint)}
@@ -301,11 +363,13 @@ function BlockedEndpointRow({
 function QuickPickRow({
   choice,
   selected,
+  tabStop,
   role,
   onSelect
 }: {
   choice: RecentChoice
   selected: boolean
+  tabStop: boolean
   role: 'mentor' | 'executor'
   onSelect: (choice: RecentChoice) => void
 }): React.ReactNode {
@@ -315,6 +379,7 @@ function QuickPickRow({
       type="button"
       role="radio"
       aria-checked={selected}
+      tabIndex={tabStop ? 0 : -1}
       title={choice.model.displayName}
       onClick={() => onSelect(choice)}
       className={cn(
@@ -368,6 +433,15 @@ export function ModelPicker({
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  // Keyboard/pointer highlight in the model list (the input's active descendant).
+  const [activeIndex, setActiveIndex] = useState(0)
+  const idBase = useId()
+  const roleLabelId = `${idBase}-role`
+  const modelLabelId = `${idBase}-model-label`
+  const triggerId = `${idBase}-model-trigger`
+  const listId = `${idBase}-models`
+  const optionId = (index: number): string => `${listId}-option-${index}`
   const c = roleClasses(role)
 
   // The model list lives in a portal so modal scroll containers never clip
@@ -489,10 +563,15 @@ export function ModelPicker({
     return choices.slice(0, MAX_RECENT_MODELS)
   }, [recentModelIds, canonicalModels])
 
-  const filteredModels = useMemo(() => {
-    if (!debouncedQuery.trim()) return choiceModels
-    return choiceModels.filter((model) => modelMatchesQuery(model, debouncedQuery))
-  }, [choiceModels, debouncedQuery])
+  const filterModels = useCallback(
+    (query: string): CanonicalModel[] =>
+      query.trim() ? choiceModels.filter((model) => modelMatchesQuery(model, query)) : choiceModels,
+    [choiceModels]
+  )
+  const filteredModels = useMemo(() => filterModels(debouncedQuery), [filterModels, debouncedQuery])
+  // Clamped during render so a narrower list never leaves it past the end.
+  const highlightIndex =
+    filteredModels.length === 0 ? -1 : Math.min(activeIndex, filteredModels.length - 1)
 
   // Re-anchor after the result count changes: the menu height follows it.
   useLayoutEffect(() => {
@@ -522,10 +601,17 @@ export function ModelPicker({
 
   const openDropdown = (): void => {
     setSearchQuery('')
+    // The list opens on the model in use, so arrows move from where you are.
+    const current = choiceModels.findIndex(
+      (model) => model.canonicalKey === currentModel?.canonicalKey
+    )
+    setActiveIndex(Math.max(0, current))
     setIsDropdownOpen(true)
   }
 
   const closeDropdown = (): void => {
+    // The menu unmounts: focus inside it goes back to the trigger, not <body>.
+    if (menuRef.current?.contains(document.activeElement)) triggerRef.current?.focus()
     setIsDropdownOpen(false)
     setSearchQuery('')
   }
@@ -608,15 +694,65 @@ export function ModelPicker({
     closeDropdown()
   }
 
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key !== 'Enter') return
-    // Never let Enter in the search box submit the enclosing modal form — not
-    // even the Enter that confirms an IME candidate (WebKit reports it as Enter).
-    e.preventDefault()
-    e.stopPropagation()
-    if (isImeKeyEvent(e)) return
-    if (filteredModels.length === 1) selectModel(filteredModels[0])
+  // The menu is portaled out of any dialog: Tab past its first or last control
+  // closes it from the trigger (forward Tab then carries on from there).
+  const handleMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (tabLeavesMenu(e, menuRef.current) && !isImeKeyEvent(e)) {
+      if (e.shiftKey) e.preventDefault()
+      closeDropdown()
+      return
+    }
+    handleDropdownKeyDown(e)
   }
+
+  const moveHighlight = (index: number): void => {
+    if (filteredModels.length === 0) return
+    setActiveIndex(Math.max(0, Math.min(index, filteredModels.length - 1)))
+    requestAnimationFrame(() => scrollActiveOptionIntoView(listRef.current))
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      // Never let Enter in the search box submit the enclosing modal form — not
+      // even the Enter that confirms an IME candidate (WebKit reports it as Enter).
+      e.preventDefault()
+      e.stopPropagation()
+      if (isImeKeyEvent(e)) return
+      // The list filters on a debounced query; Enter acts on what was typed.
+      const live = searchQuery === debouncedQuery ? filteredModels : filterModels(searchQuery)
+      const pick = live[Math.min(Math.max(activeIndex, 0), live.length - 1)]
+      if (pick) selectModel(pick)
+      return
+    }
+    if (isImeKeyEvent(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveHighlight(highlightIndex + 1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveHighlight(highlightIndex - 1)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      moveHighlight(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      moveHighlight(filteredModels.length - 1)
+    }
+  }
+
+  const endpointTabStop = tabStopIndex(
+    runnableGroups.flatMap(({ choices }) =>
+      choices.map((choice) => choice.endpoint.key === activeEndpoint?.key)
+    )
+  )
+  const effortTabStop = tabStopIndex(
+    effortOptions.map((option) => option.value === currentEffort?.value)
+  )
+  const recentTabStop = tabStopIndex(
+    recentChoices.map((choice) => choice.model.canonicalKey === currentModel?.canonicalKey)
+  )
+  // Endpoint rows sit in vendor sub-groups; the Tab stop counts across all of them.
+  let endpointIndex = 0
 
   const pickerContent = (
     <>
@@ -634,38 +770,57 @@ export function ModelPicker({
           <div
             role="radiogroup"
             aria-label={t('pickers.endpoint')}
+            onKeyDown={radioGroupKeyDown(false)}
             className="max-h-40 space-y-px overflow-y-auto scrollbar-thin"
           >
-            {runnableGroups.map(({ group, choices }) => (
-              <div key={group.vendor} className="space-y-px">
-                {runnableGroups.length > 1 && (
-                  <div className={groupHeader}>── {group.label} ──</div>
-                )}
-                {choices.map((choice) => (
-                  <EndpointRow
-                    key={choice.endpoint.key}
-                    choice={choice}
-                    active={choice.endpoint.key === activeEndpoint?.key}
-                    role={role}
-                    onSelect={selectEndpoint}
-                  />
-                ))}
-              </div>
-            ))}
+            {runnableGroups.map(({ group, choices }) => {
+              const grouped = runnableGroups.length > 1
+              return (
+                <div
+                  key={group.vendor}
+                  role={grouped ? 'group' : undefined}
+                  aria-label={grouped ? group.label : undefined}
+                  className="space-y-px"
+                >
+                  {grouped && (
+                    <div aria-hidden className={groupHeader}>
+                      ── {group.label} ──
+                    </div>
+                  )}
+                  {choices.map((choice) => {
+                    const index = endpointIndex++
+                    return (
+                      <EndpointRow
+                        key={choice.endpoint.key}
+                        choice={choice}
+                        active={choice.endpoint.key === activeEndpoint?.key}
+                        tabStop={index === endpointTabStop}
+                        role={role}
+                        onSelect={selectEndpoint}
+                      />
+                    )
+                  })}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
 
       {/* Step 2 — a model the active endpoint lists */}
       <div className="flex flex-col gap-2">
-        <span className={cn(fieldLabel, 'font-sans')}>{t('pickers.model')}</span>
+        <span id={modelLabelId} className={cn(fieldLabel, 'font-sans')}>
+          {t('pickers.model')}
+        </span>
         <div className="relative" ref={dropdownRef} onKeyDown={handleDropdownKeyDown}>
           <button
             ref={triggerRef}
+            id={triggerId}
             type="button"
             onClick={() => (isDropdownOpen ? closeDropdown() : openDropdown())}
             aria-haspopup="listbox"
             aria-expanded={isDropdownOpen}
+            aria-labelledby={`${modelLabelId} ${triggerId}`}
             className={cn(
               'flex w-full cursor-pointer items-center gap-2 rounded-sm border bg-background px-2 py-1.5 text-left text-[12px] transition-colors',
               currentModel ? c.border : 'border-border hover:border-foreground/40'
@@ -710,7 +865,8 @@ export function ModelPicker({
             createPortal(
               <div
                 ref={menuRef}
-                onKeyDown={handleDropdownKeyDown}
+                data-modal-popover
+                onKeyDown={handleMenuKeyDown}
                 className={cn('fixed overflow-hidden', Z.popover, popoverSurface)}
                 style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
               >
@@ -725,30 +881,52 @@ export function ModelPicker({
                       type="text"
                       value={searchQuery}
                       aria-label={t('pickers.searchModels')}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={filteredModels.length > 0}
+                      aria-controls={listId}
+                      aria-activedescendant={
+                        highlightIndex >= 0 ? optionId(highlightIndex) : undefined
+                      }
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value)
+                        setActiveIndex(0)
+                      }}
                       onKeyDown={handleSearchKeyDown}
                       placeholder={t('pickers.searchModels')}
                       className={searchInput}
                     />
                   </div>
                 </div>
-                <div className="max-h-60 overflow-y-auto scrollbar-thin p-1">
+                <div ref={listRef} className="max-h-60 overflow-y-auto scrollbar-thin p-1">
                   {filteredModels.length === 0 ? (
                     <div className={emptyHint}>— {t('pickers.noModels')} —</div>
                   ) : (
-                    <div role="listbox" className="space-y-px">
-                      {filteredModels.map((model) => {
+                    <div
+                      id={listId}
+                      role="listbox"
+                      aria-label={t('pickers.model')}
+                      className="space-y-px"
+                    >
+                      {filteredModels.map((model, index) => {
                         const route = model.routes[0]
                         const isActiveModel = model.canonicalKey === currentModel?.canonicalKey
+                        const highlighted = index === highlightIndex
+                        // Rows are not Tab stops: focus stays in the search field
+                        // and the highlighted row is its active descendant. The
+                        // ●/○ mark still shows the model in use.
                         return (
                           <button
                             key={model.canonicalKey}
+                            id={optionId(index)}
                             type="button"
                             role="option"
-                            aria-selected={isActiveModel}
+                            aria-selected={highlighted}
+                            tabIndex={-1}
                             onClick={() => selectModel(model)}
+                            onMouseEnter={() => setActiveIndex(index)}
                             title={model.displayName}
-                            className={menuItem(isActiveModel)}
+                            className={menuItem(highlighted)}
                           >
                             <span
                               aria-hidden
@@ -780,8 +958,14 @@ export function ModelPicker({
                 {/* Endpoints whose credential needs attention — the reason a
                   remembered model is missing from the list above. */}
                 {!searchQuery.trim() && blockedGroups.length > 0 && (
-                  <div className="space-y-px border-t border-border/50 p-1.5">
-                    <div className={groupHeader}>── {t('pickers.needsCredential')} ──</div>
+                  <div
+                    role="group"
+                    aria-label={t('pickers.needsCredential')}
+                    className="space-y-px border-t border-border/50 p-1.5"
+                  >
+                    <div aria-hidden className={groupHeader}>
+                      ── {t('pickers.needsCredential')} ──
+                    </div>
                     {blockedGroups.map(({ choices }) =>
                       choices.map((choice) => (
                         <BlockedEndpointRow
@@ -801,10 +985,14 @@ export function ModelPicker({
         {/* Step 3 — reasoning effort, hidden when the endpoint offers none */}
         {showEffort && currentModel && currentRoute && (
           <div className="space-y-1">
-            <div className="flex items-baseline gap-2">
-              <span className={fieldLabel}>{t('pickers.reasoning')}</span>
+            {/* Label and value never break mid-word; in a narrow column (the
+                operations panel, CJK copy) the reset action wraps below instead. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className={cn(fieldLabel, 'whitespace-nowrap')}>{t('pickers.reasoning')}</span>
               {currentEffort && (
-                <span className={cn('text-[10px] uppercase tracking-[0.14em]', c.fg)}>
+                <span
+                  className={cn('whitespace-nowrap text-[10px] uppercase tracking-[0.14em]', c.fg)}
+                >
                   · {effortLabel(currentEffort.value)}
                 </span>
               )}
@@ -813,7 +1001,7 @@ export function ModelPicker({
                   variant="ghost"
                   size="xs"
                   onClick={resetReasoning}
-                  className="ml-auto text-muted-foreground"
+                  className="ml-auto whitespace-nowrap text-muted-foreground"
                 >
                   {t('pickers.resetReasoning')}
                 </GlassButton>
@@ -822,9 +1010,10 @@ export function ModelPicker({
             <div
               role="radiogroup"
               aria-label={t('pickers.reasoning')}
+              onKeyDown={radioGroupKeyDown(true)}
               className="flex flex-1 overflow-hidden rounded-md border border-border"
             >
-              {effortOptions.map((option) => {
+              {effortOptions.map((option, index) => {
                 const isActive = option.value === currentEffort?.value
                 return (
                   <button
@@ -832,9 +1021,10 @@ export function ModelPicker({
                     type="button"
                     role="radio"
                     aria-checked={isActive}
+                    tabIndex={index === effortTabStop ? 0 : -1}
                     onClick={() => selectEffort(option)}
                     className={cn(
-                      'flex-1 border-r border-border px-2 py-0.5 text-[11px] transition-colors cursor-pointer last:border-r-0',
+                      'min-h-6 flex-1 whitespace-nowrap border-r border-border px-2 py-0.5 text-[11px] transition-colors cursor-pointer last:border-r-0',
                       isActive
                         ? cn(c.bg, c.fg, c.border)
                         : cn('text-muted-foreground hover:text-foreground', hoverTint)
@@ -852,13 +1042,21 @@ export function ModelPicker({
       {/* Recent quick-picks */}
       {recentChoices.length > 0 && (
         <div className="space-y-1">
-          <div className={groupHeader}>── {t('pickers.recent')} ──</div>
-          <div role="radiogroup" aria-label={t('pickers.recent')} className="space-y-px">
-            {recentChoices.map((choice) => (
+          <div aria-hidden className={groupHeader}>
+            ── {t('pickers.recent')} ──
+          </div>
+          <div
+            role="radiogroup"
+            aria-label={t('pickers.recent')}
+            onKeyDown={radioGroupKeyDown(false)}
+            className="space-y-px"
+          >
+            {recentChoices.map((choice, index) => (
               <QuickPickRow
                 key={choice.storedId}
                 choice={choice}
                 selected={choice.model.canonicalKey === currentModel?.canonicalKey}
+                tabStop={index === recentTabStop}
                 role={role}
                 onSelect={selectRecent}
               />
@@ -881,12 +1079,21 @@ export function ModelPicker({
 
   if (variant === 'card') {
     return (
-      <div className={cn('flex flex-col rounded-md border bg-background p-3 font-sans', c.border)}>
+      // Mentor and executor cards carry identically named controls ("Endpoint",
+      // "Reasoning"); the group names each card after its role.
+      <div
+        role="group"
+        aria-labelledby={roleLabelId}
+        className={cn('flex flex-col rounded-md border bg-background p-3 font-sans', c.border)}
+      >
         <div className="mb-2 flex items-baseline gap-2">
           <span aria-hidden className={c.fg}>
             ●
           </span>
-          <span className={cn('text-[11px] font-medium uppercase tracking-[0.14em]', c.fg)}>
+          <span
+            id={roleLabelId}
+            className={cn('text-[11px] font-medium uppercase tracking-[0.14em]', c.fg)}
+          >
             {role === 'mentor' ? t('pickers.mentorLabel') : t('pickers.executorLabel')}
           </span>
           <span className="text-[10px] text-muted-foreground-faint">

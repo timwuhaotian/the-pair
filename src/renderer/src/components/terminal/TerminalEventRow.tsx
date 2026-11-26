@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { Terminal, FileText, Pencil, Search, Brain, type LucideProps } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { CognitiveEvent } from '../../store/usePairStore'
@@ -50,7 +51,7 @@ interface TerminalEventRowProps {
 }
 
 const STATUS_GLYPH: Record<CognitiveEvent['status'], string> = {
-  running: '⟳',
+  running: '…',
   completed: '✓',
   error: '✗'
 }
@@ -62,6 +63,7 @@ export function TerminalEventRow({
   flat = false,
   role
 }: TerminalEventRowProps): React.ReactNode {
+  const { t } = useTranslation()
   const Wrap = flat ? 'div' : motion.div
   const wrapProps = flat
     ? {}
@@ -128,8 +130,11 @@ export function TerminalEventRow({
       >
         {event.description}
       </span>
-      {/* status glyph (always rightmost) */}
+      {/* status glyph (always rightmost); the glyph is decoration, the
+          localized status beside it is what assistive tech reads */}
+      <span className="sr-only">{t(`console.stepStatus.${event.status}`)}</span>
       <span
+        aria-hidden
         className={cn(
           'shrink-0 tabular-nums',
           isRunning && 'state-running',

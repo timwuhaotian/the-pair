@@ -117,3 +117,57 @@ test('Palette: arrow keys move the active item before Enter', () => {
   fireEvent.keyDown(input, { key: 'Enter' })
   assert.deepEqual(calls, ['activity'])
 })
+
+test('Palette: the input is a combobox whose active descendant tracks the highlight', () => {
+  setLocale()
+  renderPalette(makeActions([]))
+
+  const input = screen.getByTestId('command-palette-input')
+  assert.equal(input.getAttribute('role'), 'combobox')
+  assert.equal(input.getAttribute('aria-autocomplete'), 'list')
+  assert.equal(input.getAttribute('aria-expanded'), 'true')
+  const listbox = screen.getByRole('listbox')
+  assert.equal(input.getAttribute('aria-controls'), listbox.id)
+
+  const first = screen.getByTestId('palette-item-pair.new')
+  const second = screen.getByTestId('palette-item-nav.activity')
+  assert.equal(first.getAttribute('role'), 'option')
+  assert.equal(input.getAttribute('aria-activedescendant'), first.id)
+  assert.equal(first.getAttribute('aria-selected'), 'true')
+  // Options are reached by arrows, never by Tab.
+  assert.equal(first.getAttribute('tabindex'), '-1')
+
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  assert.equal(input.getAttribute('aria-activedescendant'), second.id)
+  assert.equal(second.getAttribute('aria-selected'), 'true')
+  assert.equal(first.getAttribute('aria-selected'), 'false')
+
+  // Every option sits in a group named by its visible header.
+  const group = second.closest('[role="group"]')
+  assert.ok(group, 'option is grouped')
+  const header = document.getElementById(group.getAttribute('aria-labelledby') ?? '')
+  assert.ok(header?.textContent === i18n.t('palette.groups.go'))
+
+  fireEvent.change(input, { target: { value: 'zzz-nope' } })
+  assert.equal(input.getAttribute('aria-expanded'), 'false')
+  assert.ok(!input.hasAttribute('aria-activedescendant'), 'no active option without results')
+})
+
+test('Palette: unmounting the open palette hands focus back to the opener', () => {
+  setLocale()
+  const opener = document.createElement('button')
+  document.body.appendChild(opener)
+  try {
+    opener.focus()
+    const { unmount } = render(
+      <I18nextProvider i18n={i18n}>
+        <CommandPalette isOpen onClose={() => undefined} actions={makeActions([])} />
+      </I18nextProvider>
+    )
+    assert.ok(document.activeElement === screen.getByTestId('command-palette-input'))
+    unmount()
+    assert.ok(document.activeElement === opener, 'focus returned to the opener')
+  } finally {
+    opener.remove()
+  }
+})

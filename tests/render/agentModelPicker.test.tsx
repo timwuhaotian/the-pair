@@ -1,6 +1,5 @@
 import './setup-dom.ts'
 import i18n from '../../src/renderer/src/i18n.ts'
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React, { useState } from 'react'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
@@ -242,4 +241,126 @@ test('an endpoint with no ready account is listed with its credential state', ()
   fireEvent.click(blocked)
   // The row is a way into the Models section, never a model selection.
   assert.deepEqual(changes, [])
+})
+
+test('the model list is a combobox: arrows, Home and End move the highlight and Enter picks it', () => {
+  const changes: string[] = []
+  render(<Harness initial="gpt-5" onChange={(id) => changes.push(id)} />)
+  const trigger = screen.getByRole('button', { name: /GPT-5/ })
+  fireEvent.click(trigger)
+  const input = screen.getByRole('combobox', { name: i18n.t('pickers.searchModels') })
+  const listbox = screen.getByRole('listbox')
+  assert.equal(input.getAttribute('aria-controls'), listbox.id)
+  const options = within(listbox).getAllByRole('option')
+  const idOf = (title: string): string | undefined =>
+    options.find((option) => option.title === title)?.id
+  // The list opens on the model in use.
+  assert.equal(input.getAttribute('aria-activedescendant'), idOf('GPT-5'))
+  assert.ok(options.every((option) => option.getAttribute('tabindex') === '-1'))
+
+  fireEvent.keyDown(input, { key: 'End' })
+  const last = options[options.length - 1]
+  assert.equal(input.getAttribute('aria-activedescendant'), last.id)
+  assert.equal(last.getAttribute('aria-selected'), 'true')
+  fireEvent.keyDown(input, { key: 'Home' })
+  assert.equal(input.getAttribute('aria-activedescendant'), options[0].id)
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  assert.equal(input.getAttribute('aria-activedescendant'), options[1].id)
+
+  // Enter picks the highlighted row even with several matches, and focus
+  // goes back to the trigger instead of <body>.
+  input.focus()
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.equal(options[1].title, 'GPT-5 Mini')
+  assert.deepEqual(changes, ['gpt-5-mini'])
+  assert.ok(!screen.queryByRole('listbox'), 'list closed')
+  assert.ok(document.activeElement === trigger, 'focus is back on the trigger')
+})
+
+test('Escape in the model list closes it and refocuses the trigger', () => {
+  render(<Harness initial="gpt-5" onChange={() => undefined} />)
+  const trigger = screen.getByRole('button', { name: /GPT-5/ })
+  fireEvent.click(trigger)
+  const input = screen.getByRole('combobox', { name: i18n.t('pickers.searchModels') })
+  input.focus()
+  fireEvent.keyDown(input, { key: 'Escape' })
+  assert.ok(!screen.queryByRole('listbox'), 'list closed')
+  assert.ok(document.activeElement === trigger, 'focus is back on the trigger')
+})
+
+test('the model trigger is labelled by the Model field label', () => {
+  render(<Harness initial="opus" onChange={() => undefined} />)
+  const trigger = screen.getByRole('button', { name: /Claude Opus/ })
+  const ids = (trigger.getAttribute('aria-labelledby') ?? '').split(' ')
+  assert.ok(document.getElementById(ids[0])?.textContent === i18n.t('pickers.model'))
+  assert.ok(ids[1] === trigger.id, 'the trigger names itself after the label')
+})
+
+test('endpoint radios use a roving tab stop; arrows move focus without switching', () => {
+  const changes: string[] = []
+  render(<Harness initial="sonnet" onChange={(id) => changes.push(id)} />)
+  const claudeRadio = screen.getByRole('radio', { name: 'Claude Code' })
+  const codexRadio = screen.getByRole('radio', { name: 'Codex' })
+  assert.equal(claudeRadio.getAttribute('tabindex'), '0')
+  assert.equal(codexRadio.getAttribute('tabindex'), '-1')
+
+  claudeRadio.focus()
+  fireEvent.keyDown(claudeRadio, { key: 'ArrowDown' })
+  assert.ok(document.activeElement === codexRadio, 'ArrowDown moved focus to the next endpoint')
+  // Switching endpoint has side effects (applies a model, opens the list), so
+  // arrows only move focus; Space/Enter picks.
+  assert.deepEqual(changes, [])
+  fireEvent.keyDown(codexRadio, { key: 'ArrowDown' })
+  assert.ok(document.activeElement === claudeRadio, 'ArrowDown wraps')
+})
+
+test('the card variant is a group named after its role; reasoning radios select on arrows', () => {
+  const thinking = provider('claude-think', 'Claude Code', 'anthropic', [
+    {
+      id: 'sonnet',
+      displayName: 'Claude Sonnet',
+      efforts: ['low', 'medium', 'high'],
+      source: 'preset'
+    }
+  ])
+  const efforts: Array<string | undefined> = []
+  function CardHarness(): React.ReactNode {
+    const [effort, setEffort] = useState<string | undefined>('low')
+    return (
+      <ModelPicker
+        value="sonnet"
+        providers={[thinking]}
+        role="executor"
+        variant="card"
+        reasoningEffort={effort}
+        onChange={() => undefined}
+        onReasoningEffortChange={(value) => {
+          efforts.push(value)
+          setEffort(value)
+        }}
+      />
+    )
+  }
+  render(<CardHarness />)
+  const card = screen.getByRole('group', { name: i18n.t('pickers.executorLabel') })
+  assert.ok(within(card).getByRole('radiogroup', { name: i18n.t('pickers.reasoning') }))
+
+  const reasoning = within(card).getByRole('radiogroup', { name: i18n.t('pickers.reasoning') })
+  const radios = within(reasoning).getAllByRole('radio')
+  const checked = radios.find((radio) => radio.getAttribute('aria-checked') === 'true')
+  assert.ok(checked, 'one effort is checked')
+  assert.equal(
+    radios.filter((radio) => radio.getAttribute('tabindex') === '0').length,
+    1,
+    'one Tab stop'
+  )
+  assert.ok(checked.getAttribute('tabindex') === '0', 'the checked radio is the Tab stop')
+
+  checked.focus()
+  fireEvent.keyDown(checked, { key: 'ArrowRight' })
+  assert.deepEqual(efforts, ['medium'])
+  const nowChecked = within(reasoning)
+    .getAllByRole('radio')
+    .find((radio) => radio.getAttribute('aria-checked') === 'true')
+  assert.ok(nowChecked && document.activeElement === nowChecked, 'focus follows the selection')
 })

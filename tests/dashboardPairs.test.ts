@@ -5,6 +5,7 @@ import {
   buildPairInsights,
   buildWorkspaceGroups
 } from '../src/renderer/src/lib/dashboardPairs'
+import { compactPath } from '../src/renderer/src/lib/workspace'
 import type { Pair } from '../src/renderer/src/store/usePairStore'
 
 function pair(status: Pair['status'], overrides: Partial<Pair> = {}): Pair {
@@ -12,6 +13,7 @@ function pair(status: Pair['status'], overrides: Partial<Pair> = {}): Pair {
     id: `${status}-${overrides.name ?? 'pair'}`,
     name: overrides.name ?? `${status} pair`,
     directory: overrides.directory ?? '/tmp/project',
+    repoPath: overrides.repoPath,
     createdAt: 1,
     status,
     iterations: overrides.iterations ?? 0,
@@ -94,6 +96,37 @@ test('buildWorkspaceGroups shortens Windows paths to the folder name', () => {
     groups.map((group) => group.shortName),
     ['repo', 'app', '/']
   )
+})
+
+test('buildWorkspaceGroups groups worktree pairs under their repository', () => {
+  const groups = buildWorkspaceGroups([
+    pair('Finished', {
+      name: 'spam',
+      directory: '/Users/dev/code/storefront/.worktrees/spam',
+      repoPath: '/Users/dev/code/storefront'
+    }),
+    pair('Executing', {
+      name: 'rate',
+      directory: '/Users/dev/code/storefront/.worktrees/rate',
+      repoPath: '/Users/dev/code/storefront'
+    }),
+    pair('Idle', { name: 'plain', directory: '/Users/dev/code/billing' })
+  ])
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0].shortName, 'storefront')
+  assert.equal(groups[0].pairs.length, 2)
+  assert.equal(groups[0].displayPath, '~/code/storefront')
+  assert.equal(groups[1].shortName, 'billing')
+})
+
+test('compactPath keeps the informative tail of a path', () => {
+  assert.equal(compactPath('/Users/dev/code/storefront'), '~/code/storefront')
+  assert.equal(compactPath('/home/dev'), '~')
+  assert.equal(compactPath('/srv/a/b/c/d'), '…/b/c/d')
+  assert.equal(compactPath('/Users/dev/w/x/y/z/'), '~/…/x/y/z')
+  assert.equal(compactPath('C:\\Users\\tim\\code\\repo'), '~\\code\\repo')
+  assert.equal(compactPath('/'), '/')
+  assert.equal(compactPath('/opt/app'), '/opt/app')
 })
 
 test('buildPairInsights summarizes useful dashboard context', () => {

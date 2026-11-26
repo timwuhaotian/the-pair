@@ -99,6 +99,7 @@ function HistoryList({
               >
                 <button
                   type="button"
+                  aria-current={isViewing ? 'true' : undefined}
                   className="w-full text-left px-2 py-2 cursor-pointer"
                   onClick={() => onSelectTask(run.id)}
                 >

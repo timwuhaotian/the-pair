@@ -33,11 +33,11 @@ export function TimelineActions({
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
       } else {
-        onError?.('Failed to copy timeline report')
+        onError?.(t('errors.reportCopyFailed'))
       }
     } catch (err) {
       console.error('Failed to copy timeline report:', err)
-      onError?.('Failed to copy timeline report')
+      onError?.(t('errors.reportCopyFailed'))
     }
   }
 
@@ -47,7 +47,7 @@ export function TimelineActions({
       await exportAsHtml(timeline, { theme })
     } catch (err) {
       console.error('Failed to export timeline report:', err)
-      onError?.('Failed to export timeline report')
+      onError?.(t('errors.reportExportFailed'))
     }
   }
 

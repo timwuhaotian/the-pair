@@ -110,9 +110,9 @@ export function AppChrome({
   }, [])
 
   return (
-    <div className="app-chrome shrink-0">
+    <header className="app-chrome shrink-0">
       <div className="app-drag flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {selectedPair ? (
             <ChromeIconButton onClick={onBack} testId="chrome-back" title={t('common.back')}>
               <ChevronLeft size={14} />
@@ -123,28 +123,37 @@ export function AppChrome({
             </span>
           )}
 
-          <div className="min-w-0 flex flex-wrap items-baseline gap-2">
-            <h1 className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <h1
+              className="truncate text-[13px] font-semibold tracking-tight text-foreground"
+              title={selectedPair?.name}
+            >
               {selectedPair ? selectedPair.name : t('chrome.title')}
             </h1>
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground-faint">
-              v{appVersion ?? '…'}
-            </span>
-            <a
-              href="https://timwuhaotian.github.io/"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(event) => {
-                event.preventDefault()
-                void openExternalUrl(event.currentTarget.href).catch((error: unknown) => {
-                  console.error('[AppChrome] Failed to open link:', error)
-                })
-              }}
-              className="app-no-drag text-[11px] text-muted-foreground-faint hover:text-foreground/80 transition-colors"
-              title="timwuhaotian"
-            >
-              · by timwuhaotian
-            </a>
+            {/* Version and byline belong to the app's home; inside a pair the
+                row is the pair's own (name, status, branch, task). */}
+            {!selectedPair && (
+              <span className="font-mono text-[10px] tabular-nums text-muted-foreground-faint">
+                v{appVersion ?? '…'}
+              </span>
+            )}
+            {!selectedPair && (
+              <a
+                href="https://timwuhaotian.github.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => {
+                  event.preventDefault()
+                  void openExternalUrl(event.currentTarget.href).catch((error: unknown) => {
+                    console.error('[AppChrome] Failed to open link:', error)
+                  })
+                }}
+                className="app-no-drag text-[11px] text-muted-foreground-faint hover:text-foreground/80 transition-colors"
+                title="timwuhaotian"
+              >
+                · by timwuhaotian
+              </a>
+            )}
             {selectedPair && (
               <StatusBadge
                 status={selectedPair.status}
@@ -199,6 +208,7 @@ export function AppChrome({
                 size="sm"
                 onClick={onOpenSettings}
                 icon={<Settings2 size={11} />}
+                aria-label={t('common.models')}
                 title={t('common.models')}
                 data-testid="chrome-models"
               >
@@ -209,6 +219,7 @@ export function AppChrome({
                 size="sm"
                 onClick={onClearSession}
                 disabled={!canClearSession}
+                aria-label={t('chrome.clearSession')}
                 title={clearSessionTitle}
                 icon={<Eraser size={11} />}
                 data-testid="chrome-clear-session"
@@ -225,6 +236,7 @@ export function AppChrome({
                     ? t('chrome.newTaskDisabledBusy')
                     : `${t('chrome.newTaskHint')} · ${modifierLabel}N`
                 }
+                aria-label={t('chrome.newTask')}
                 icon={<Sparkles size={11} />}
                 data-testid="chrome-new-task"
               >
@@ -272,6 +284,6 @@ export function AppChrome({
           </ChromeIconButton>
         </div>
       </div>
-    </div>
+    </header>
   )
 }

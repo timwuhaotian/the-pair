@@ -42,6 +42,7 @@ export function IterationProgress({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={isUnlimited ? undefined : Math.round(percentage)}
+      aria-valuetext={`${current}/${isUnlimited ? '∞' : effectiveMax}`}
       aria-label={t('errors.iterations')}
       className={cn('space-y-1 font-mono text-[11px]', className)}
       data-testid="iteration-progress"

@@ -24,7 +24,7 @@ interface PairsHubProps {
   deletingPairId: string | null
 }
 
-function PairCard({
+const PairCard = React.memo(function PairCard({
   pair,
   onSelectPair,
   onDeletePair,
@@ -74,21 +74,21 @@ function PairCard({
         <span className="relative z-10 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           {pair.status === 'Paused' ? (
             <IconButton
-              aria-label={t('common.resume', { defaultValue: 'Resume' })}
+              aria-label={t('hub.resumePair', { name: pair.name })}
               onClick={() => onResumePair(pair.id)}
             >
               <Play size={12} />
             </IconButton>
           ) : isPairActive(pair.status) ? (
             <IconButton
-              aria-label={t('common.pause', { defaultValue: 'Pause' })}
+              aria-label={t('hub.pausePair', { name: pair.name })}
               onClick={() => onPausePair(pair.id)}
             >
               <Pause size={12} />
             </IconButton>
           ) : null}
           <IconButton
-            aria-label={t('common.delete', { defaultValue: 'Delete' })}
+            aria-label={t('hub.deletePair', { name: pair.name })}
             onClick={() => onDeletePair(pair)}
             disabled={deletingPairId === pair.id}
             destructive
@@ -120,7 +120,7 @@ function PairCard({
       )}
     </div>
   )
-}
+})
 
 export function PairsHub({
   pairs,
@@ -132,8 +132,24 @@ export function PairsHub({
   deletingPairId
 }: PairsHubProps): React.ReactNode {
   const { t } = useTranslation()
-  const workspaceGroups = buildWorkspaceGroups(pairs)
-  const insights = buildPairInsights(pairs)
+  const workspaceGroups = React.useMemo(() => buildWorkspaceGroups(pairs), [pairs])
+  const insights = React.useMemo(() => buildPairInsights(pairs), [pairs])
+
+  // The parent passes fresh closures on every render; route them through a
+  // ref so the memoized cards only re-render when their own pair changes.
+  const handlersRef = React.useRef({ onSelectPair, onDeletePair, onPausePair, onResumePair })
+  React.useLayoutEffect(() => {
+    handlersRef.current = { onSelectPair, onDeletePair, onPausePair, onResumePair }
+  })
+  const handlers = React.useMemo(
+    () => ({
+      onSelectPair: (pair: Pair) => handlersRef.current.onSelectPair(pair),
+      onDeletePair: (pair: Pair) => handlersRef.current.onDeletePair(pair),
+      onPausePair: (pairId: string) => handlersRef.current.onPausePair(pairId),
+      onResumePair: (pairId: string) => handlersRef.current.onResumePair(pairId)
+    }),
+    []
+  )
   const [recoveryDismissed, setRecoveryDismissed] = React.useState(false)
   // Snapshot rehydration at startup is the crash recovery path — surface the
   // restored pairs that need a human decision as a dismissible banner.
@@ -267,8 +283,8 @@ export function PairsHub({
                   ({workspace.pairs.length})
                 </span>
               </div>
-              <span className="hidden max-w-[28ch] truncate font-mono text-[11px] text-muted-foreground-faint lg:inline">
-                {workspace.directory}
+              <span className="hidden max-w-[40ch] truncate font-mono text-[11px] text-muted-foreground-faint lg:block">
+                {workspace.displayPath}
               </span>
             </header>
             {workspace.statusGroups.map((group) => (
@@ -285,10 +301,10 @@ export function PairsHub({
                       key={pair.id}
                       pair={pair}
                       className={group.pairs.length === 1 ? 'xl:col-span-2' : undefined}
-                      onSelectPair={onSelectPair}
-                      onDeletePair={onDeletePair}
-                      onPausePair={onPausePair}
-                      onResumePair={onResumePair}
+                      onSelectPair={handlers.onSelectPair}
+                      onDeletePair={handlers.onDeletePair}
+                      onPausePair={handlers.onPausePair}
+                      onResumePair={handlers.onResumePair}
                       deletingPairId={deletingPairId}
                     />
                   ))}

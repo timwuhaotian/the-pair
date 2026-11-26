@@ -42,7 +42,7 @@ function renderControls(): void {
 }
 
 test('the update toast sits below the chrome bar and announces itself', () => {
-  useUpdateStore.setState({ showToast: true, toastMessage: 'Boom', toastType: 'error' })
+  useUpdateStore.setState({ showToast: true, toastMessage: 'Done', toastType: 'success' })
   renderUpdate()
 
   const toast = screen.getByRole('status')
@@ -50,15 +50,39 @@ test('the update toast sits below the chrome bar and announces itself', () => {
   const classes = toast.className.split(/\s+/)
   assert.ok(classes.includes('top-12'), toast.className)
   assert.ok(!classes.includes('top-3'), toast.className)
+  assert.ok(screen.getByText('Done'))
+})
+
+test('an error toast is announced assertively', () => {
+  useUpdateStore.setState({ showToast: true, toastMessage: 'Boom', toastType: 'error' })
+  renderUpdate()
+
+  const toast = screen.getByRole('alert')
+  assert.equal(toast.getAttribute('aria-live'), 'assertive')
   assert.ok(screen.getByText('Boom'))
 })
 
 test('the update toast clears itself after four seconds', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
+  useUpdateStore.setState({ showToast: true, toastMessage: 'Done', toastType: 'success' })
+  renderUpdate()
+  assert.ok(screen.getByText('Done'))
+
+  act(() => {
+    t.mock.timers.tick(4000)
+  })
+  assertAbsent(screen.queryByText('Done'))
+})
+
+test('an error toast stays for eight seconds', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   useUpdateStore.setState({ showToast: true, toastMessage: 'Boom', toastType: 'error' })
   renderUpdate()
-  assert.ok(screen.getByText('Boom'))
 
+  act(() => {
+    t.mock.timers.tick(4000)
+  })
+  assert.ok(screen.getByText('Boom'), 'still up after four seconds')
   act(() => {
     t.mock.timers.tick(4000)
   })

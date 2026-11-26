@@ -196,3 +196,65 @@ test('BranchPicker: renders the relative commit dates of remote branches', async
   // Anything older than a month falls back to the absolute date.
   assert.ok(screen.getByText(new Date(daysAgo(60) * 1000).toLocaleDateString()))
 })
+
+test('BranchPicker: arrows, Home and End move the highlight; Enter picks it and refocuses the trigger', async () => {
+  setLocale()
+  state.repo = repoWithRemoteDates()
+  const picks: Array<string | undefined> = []
+  render(wrap(<BranchPicker directory="/repo" onChange={(branch) => picks.push(branch)} />))
+
+  const trigger = await screen.findByRole('button', { name: /select branch/ })
+  fireEvent.click(trigger)
+  const input = await screen.findByRole('combobox', { name: 'Filter branches...' })
+  input.focus()
+  const listbox = screen.getByRole('listbox', { name: 'Branches' })
+  assert.equal(input.getAttribute('aria-controls'), listbox.id)
+
+  const optionId = (name: RegExp): string => screen.getByRole('option', { name }).id
+  // Nothing selected: the "no branch" row is highlighted first.
+  assert.equal(input.getAttribute('aria-activedescendant'), optionId(/no branch/))
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  assert.equal(input.getAttribute('aria-activedescendant'), optionId(/main/))
+  fireEvent.keyDown(input, { key: 'End' })
+  assert.equal(input.getAttribute('aria-activedescendant'), optionId(/origin\/old/))
+  fireEvent.keyDown(input, { key: 'Home' })
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  const highlighted = screen.getByRole('option', { name: /origin\/today/ })
+  assert.equal(highlighted.getAttribute('aria-selected'), 'true')
+  assert.equal(highlighted.getAttribute('tabindex'), '-1')
+
+  fireEvent.keyDown(input, { key: 'Enter' })
+  assert.deepEqual(picks, ['origin/today'])
+  assert.ok(!screen.queryByRole('listbox'), 'menu closed')
+  assert.ok(document.activeElement === trigger, 'focus went back to the trigger')
+})
+
+test('BranchPicker: arrows skip branches a dirty tree cannot switch to', async () => {
+  setLocale()
+  state.repo = { ...repoWithRemoteDates(), isDirty: true }
+  render(wrap(<BranchPicker directory="/repo" onChange={() => undefined} />))
+
+  fireEvent.click(await screen.findByText('select branch (optional)'))
+  const input = await screen.findByRole('combobox', { name: 'Filter branches...' })
+  fireEvent.keyDown(input, { key: 'End' })
+  // Only "no branch" and the current branch are selectable.
+  assert.equal(
+    input.getAttribute('aria-activedescendant'),
+    screen.getByRole('option', { name: /main/ }).id
+  )
+})
+
+test('BranchPicker: Escape closes the menu and returns focus to the trigger', async () => {
+  setLocale()
+  state.repo = repoWithRemoteDates()
+  render(wrap(<BranchPicker directory="/repo" onChange={() => undefined} />))
+
+  const trigger = await screen.findByRole('button', { name: /select branch/ })
+  fireEvent.click(trigger)
+  const input = await screen.findByRole('combobox', { name: 'Filter branches...' })
+  input.focus()
+  fireEvent.keyDown(input, { key: 'Escape' })
+  assert.ok(!screen.queryByRole('listbox'), 'menu closed')
+  assert.ok(document.activeElement === trigger, 'focus is back on the trigger')
+})

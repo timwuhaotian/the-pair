@@ -6,6 +6,7 @@ import test, { afterEach } from 'node:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { mockIPC } from '@tauri-apps/api/mocks'
 import '../../src/renderer/src/tauri-shim.ts'
+import '../../src/renderer/src/i18n.ts'
 import { TimelineActions } from '../../src/renderer/src/components/TimelinePanel.tsx'
 import { MessageCard } from '../../src/renderer/src/components/MessageCard.tsx'
 import type { TimelineData } from '../../src/renderer/src/lib/timeline.ts'
@@ -45,10 +46,13 @@ test('timeline copy and export failures reach the inspector error callback', asy
   const [copy, exportButton] = screen.getAllByRole('button')
 
   fireEvent.click(copy)
-  await waitFor(() => assert.deepEqual(errors, ['Failed to copy timeline report']))
+  await waitFor(() => assert.deepEqual(errors, ["Couldn't copy the report to the clipboard"]))
   fireEvent.click(exportButton)
   await waitFor(() =>
-    assert.deepEqual(errors, ['Failed to copy timeline report', 'Failed to export timeline report'])
+    assert.deepEqual(errors, [
+      "Couldn't copy the report to the clipboard",
+      "Couldn't export the report"
+    ])
   )
 })
 

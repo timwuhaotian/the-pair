@@ -133,3 +133,30 @@ test('an empty repo says no files were found', async () => {
   typeInto('@')
   assert.ok(await screen.findByText('no files found'))
 })
+
+test('the composer textarea points at the @file list and its highlighted row while open', async () => {
+  popoverHeight = 79
+  await openPopover()
+  const textarea = screen.getByTestId('spec')
+  const listbox = screen.getByRole('listbox')
+  assert.equal(textarea.getAttribute('aria-controls'), listbox.id)
+  assert.equal(textarea.getAttribute('aria-autocomplete'), 'list')
+  assert.equal(textarea.getAttribute('aria-haspopup'), 'listbox')
+  const options = screen.getAllByRole('option')
+  assert.equal(textarea.getAttribute('aria-activedescendant'), options[0].id)
+
+  fireEvent.keyDown(textarea, { key: 'ArrowDown' })
+  assert.equal(textarea.getAttribute('aria-activedescendant'), options[1].id)
+  assert.equal(options[1].getAttribute('aria-selected'), 'true')
+
+  fireEvent.keyDown(textarea, { key: 'Escape' })
+  assert.ok(!screen.queryByRole('listbox'), 'popover closed')
+  for (const name of [
+    'aria-controls',
+    'aria-activedescendant',
+    'aria-autocomplete',
+    'aria-haspopup'
+  ]) {
+    assert.ok(!textarea.hasAttribute(name), `${name} removed on close`)
+  }
+})

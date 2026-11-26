@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useCallback, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +6,18 @@ import { cn } from '../lib/utils'
 import { Z, emptyHint, menuItem, popoverSurface } from '../lib/ui'
 import { IconButton } from './ui/IconButton'
 import { isImeKeyEvent } from './keyboard'
+import { scrollActiveOptionIntoView } from '../lib/listbox'
+
+const TABBABLE_SELECTOR =
+  'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
+
+/** True when this Tab would carry focus past the menu's first or last control. */
+function tabLeavesMenu(e: React.KeyboardEvent, menu: HTMLElement | null): boolean {
+  if (e.key !== 'Tab' || !menu) return false
+  const nodes = menu.querySelectorAll<HTMLElement>(TABBABLE_SELECTOR)
+  if (nodes.length === 0) return true
+  return document.activeElement === (e.shiftKey ? nodes[0] : nodes[nodes.length - 1])
+}
 
 interface SkillInfo {
   name: string
@@ -27,6 +39,9 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
   const [selectedIndex, setSelectedIndex] = useState(0)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  const optionId = (index: number): string => `${listId}-option-${index}`
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
 
   const loadSkills = async (): Promise<void> => {
@@ -101,11 +116,27 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
       s.description.toLowerCase().includes(filter.toLowerCase())
   )
 
+  // Clamped during render: a refresh or a narrower filter never leaves the
+  // highlight past the end of the list.
+  const activeIndex =
+    filteredSkills.length === 0 ? -1 : Math.min(selectedIndex, filteredSkills.length - 1)
+
+  /** Close the menu; focus inside it goes back to the trigger instead of <body>. */
+  const closeMenu = (): void => {
+    if (dropdownRef.current?.contains(document.activeElement)) buttonRef.current?.focus()
+    setIsOpen(false)
+  }
+
   const handleSelect = (skill: SkillInfo): void => {
     onSelect(skill.name)
-    setIsOpen(false)
+    closeMenu()
     setFilter('')
     setSelectedIndex(0)
+  }
+
+  const moveHighlight = (index: number): void => {
+    setSelectedIndex(Math.max(0, Math.min(index, filteredSkills.length - 1)))
+    requestAnimationFrame(() => scrollActiveOptionIntoView(listRef.current))
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
@@ -116,22 +147,36 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setSelectedIndex((i) => Math.min(i + 1, filteredSkills.length - 1))
+      moveHighlight(activeIndex + 1)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setSelectedIndex((i) => Math.max(i - 1, 0))
+      moveHighlight(activeIndex - 1)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      moveHighlight(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      moveHighlight(filteredSkills.length - 1)
     } else if (e.key === 'Enter') {
       // Enter selects the highlighted skill; with no match it must still not
       // submit the enclosing modal form.
       e.preventDefault()
       e.stopPropagation()
-      if (filteredSkills[selectedIndex]) handleSelect(filteredSkills[selectedIndex])
+      if (filteredSkills[activeIndex]) handleSelect(filteredSkills[activeIndex])
     }
   }
 
   // Escape inside the open dropdown closes only the dropdown, never the enclosing modal.
   const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!isOpen || e.key !== 'Escape' || isImeKeyEvent(e)) return
+    if (!isOpen || isImeKeyEvent(e)) return
+    if (tabLeavesMenu(e, dropdownRef.current)) {
+      // Tab out of the menu closes it from the trigger; forward Tab then
+      // carries on from the trigger, Shift+Tab stops on it.
+      if (e.shiftKey) e.preventDefault()
+      closeMenu()
+      return
+    }
+    if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
     setIsOpen(false)
@@ -154,6 +199,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
         createPortal(
           <div
             ref={dropdownRef}
+            data-modal-popover
             onKeyDown={handleContainerKeyDown}
             className={cn(
               'fixed w-80 max-h-96 overflow-hidden text-[12px]',
@@ -170,6 +216,11 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
                 type="text"
                 value={filter}
                 aria-label={t('skills.search')}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={filteredSkills.length > 0}
+                aria-controls={listId}
+                aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
                 onChange={(e) => {
                   setFilter(e.target.value)
                   setSelectedIndex(0)
@@ -204,18 +255,28 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps): React.R
                   — {filter ? t('skills.noMatch') : t('skills.empty')} —
                 </div>
               ) : (
-                <div role="listbox" className="p-1">
+                <div
+                  ref={listRef}
+                  id={listId}
+                  role="listbox"
+                  aria-label={t('skills.popoverTitle')}
+                  className="p-1"
+                >
                   {filteredSkills.map((skill, index) => (
                     <button
                       key={skill.name}
+                      id={optionId(index)}
                       type="button"
                       role="option"
-                      aria-selected={index === selectedIndex}
+                      aria-selected={index === activeIndex}
+                      // Focus stays in the search field; the highlighted row is
+                      // its aria-activedescendant, so rows are not Tab stops.
+                      tabIndex={-1}
                       onClick={() => handleSelect(skill)}
                       // Pointer and keyboard share one highlight: hovering moves the active row.
                       onMouseEnter={() => setSelectedIndex(index)}
                       className={cn(
-                        menuItem(index === selectedIndex),
+                        menuItem(index === activeIndex),
                         'flex-col items-start gap-0.5 py-1.5'
                       )}
                     >

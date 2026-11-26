@@ -185,7 +185,8 @@
     "sentBackMessage": "수정을 위해 계획을 되돌렸습니다.",
     "reviewPending": "계획 검토 대기 중",
     "returnToReview": "검토로 돌아가기",
-    "failed": "결정을 보내지 못했습니다. 다시 시도하세요."
+    "failed": "결정을 보내지 못했습니다. 다시 시도하세요.",
+    "feedbackLabel": "멘토에게 보낼 수정 메모"
   },
   "modals": {
     "recommendationHint": "유사한 작업에서 {{mentor}} + {{executor}} 조합이 {{runs}}회 중 {{successes}}회 성공했습니다",
@@ -278,6 +279,7 @@
     "noBranch": "브랜치 없음 (디렉토리에서 작업)",
     "localBranches": "로컬 브랜치",
     "remoteBranches": "원격 브랜치",
+    "branches": "브랜치",
     "current": "현재",
     "trackingBranch": "로컬 추적 브랜치가 생성됩니다",
     "uncommittedChanges": "저장소에 커밋되지 않은 변경사항이 있습니다 — 브랜치 전환 시 작업이 손실될 수 있습니다.",
@@ -440,7 +442,8 @@
       "result": "결과",
       "feedback": "피드백",
       "question": "질문",
-      "progress": "진행 상황"
+      "progress": "진행 상황",
+      "review": "리뷰"
     },
     "earlierStepsButton_one": "이전 {{count}}개 단계 표시",
     "earlierStepsButton_other": "이전 {{count}}개 단계 표시",
@@ -460,7 +463,18 @@
     "checksPassed": "검사 {{passed}}/{{total}}개 통과",
     "checksHeading": "검사",
     "evidenceHeading": "근거",
-    "nextStepsHeading": "다음 단계"
+    "nextStepsHeading": "다음 단계",
+    "transcriptLabel": "대화 기록",
+    "stepStatus": {
+      "running": "진행 중",
+      "completed": "완료",
+      "error": "실패"
+    },
+    "checkStatus": {
+      "passed": "통과",
+      "failed": "실패",
+      "skipped": "건너뜀"
+    }
   },
   "skills": {
     "popoverTitle": "스킬",
@@ -517,7 +531,9 @@
     "iterationsAdaptive": "반복 횟수 (적응형)",
     "iterationLimit": "반복 제한에 도달했습니다 — 수동 개입이 필요합니다",
     "approachingLimit": "반복 한도에 접근 중",
-    "approachingLimitHint": "한도에 도달하면 페어가 자동으로 일시 중지됩니다 — 범위를 좁히거나 턴을 중지하세요."
+    "approachingLimitHint": "한도에 도달하면 페어가 자동으로 일시 중지됩니다 — 범위를 좁히거나 턴을 중지하세요.",
+    "reportCopyFailed": "보고서를 클립보드에 복사하지 못했습니다",
+    "reportExportFailed": "보고서를 내보내지 못했습니다"
   },
   "updates": {
     "install": "v{{version}} 설치",
@@ -597,11 +613,17 @@
     "pairs": "페어",
     "activity": "활동",
     "models": "모델",
-    "insights": "인사이트"
+    "insights": "인사이트",
+    "badgeRunning_other": "{{count}}개 실행 중",
+    "badgeAttention_other": "{{count}}개 확인 필요",
+    "badgeCredentials_other": "자격 증명이 필요한 엔드포인트 {{count}}개"
   },
   "hub": {
     "title": "페어",
-    "subtitle": "페어를 선택해 콘솔을 열거나 새로 만드세요."
+    "subtitle": "페어를 선택해 콘솔을 열거나 새로 만드세요.",
+    "pausePair": "{{name}} 일시정지",
+    "resumePair": "{{name}} 재개",
+    "deletePair": "{{name}} 삭제"
   },
   "insights": {
     "subtitle": "모든 페어의 실행 간 모델 성능."
@@ -614,6 +636,7 @@
     "title": "명령 팔레트",
     "placeholder": "명령을 입력하거나 페어 검색...",
     "noResults": "일치하는 명령이 없음",
+    "results": "명령",
     "groups": {
       "pair": "페어",
       "go": "이동",

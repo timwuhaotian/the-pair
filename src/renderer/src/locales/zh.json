@@ -195,7 +195,8 @@
     "sentBackMessage": "已将计划打回重新规划。",
     "reviewPending": "计划待审核",
     "returnToReview": "返回审核",
-    "failed": "无法提交你的决定，请重试。"
+    "failed": "无法提交你的决定，请重试。",
+    "feedbackLabel": "给导师的修改意见"
   },
   "modals": {
     "recommendationHint": "类似任务中,{{mentor}} + {{executor}} 成功了 {{successes}}/{{runs}} 次",
@@ -288,6 +289,7 @@
     "noBranch": "无分支（在目录中工作）",
     "localBranches": "本地分支",
     "remoteBranches": "远程分支",
+    "branches": "分支",
     "current": "当前",
     "trackingBranch": "将创建本地跟踪分支",
     "uncommittedChanges": "仓库有未提交的更改 — 切换分支可能会丢失工作。",
@@ -450,7 +452,8 @@
       "result": "结果",
       "feedback": "反馈",
       "question": "提问",
-      "progress": "进展"
+      "progress": "进展",
+      "review": "评审"
     },
     "earlierStepsButton_one": "显示之前的 {{count}} 个步骤",
     "earlierStepsButton_other": "显示之前的 {{count}} 个步骤",
@@ -470,7 +473,18 @@
     "checksPassed": "{{passed}}/{{total}} 项检查通过",
     "checksHeading": "检查",
     "evidenceHeading": "依据",
-    "nextStepsHeading": "后续步骤"
+    "nextStepsHeading": "后续步骤",
+    "transcriptLabel": "对话记录",
+    "stepStatus": {
+      "running": "进行中",
+      "completed": "完成",
+      "error": "失败"
+    },
+    "checkStatus": {
+      "passed": "通过",
+      "failed": "失败",
+      "skipped": "跳过"
+    }
   },
   "skills": {
     "popoverTitle": "技能",
@@ -527,7 +541,9 @@
     "iterationsAdaptive": "迭代次数（自适应）",
     "iterationLimit": "已达到迭代限制 — 需要人工干预",
     "approachingLimit": "接近迭代限制",
-    "approachingLimitHint": "配对在达到限制时会自动暂停 — 可考虑缩小范围或停止当前轮次。"
+    "approachingLimitHint": "配对在达到限制时会自动暂停 — 可考虑缩小范围或停止当前轮次。",
+    "reportCopyFailed": "无法将报告复制到剪贴板",
+    "reportExportFailed": "无法导出报告"
   },
   "updates": {
     "install": "安装 v{{version}}",
@@ -597,11 +613,17 @@
     "pairs": "配对",
     "activity": "动态",
     "models": "模型",
-    "insights": "洞察"
+    "insights": "洞察",
+    "badgeRunning_other": "{{count}} 个运行中",
+    "badgeAttention_other": "{{count}} 个需要处理",
+    "badgeCredentials_other": "{{count}} 个端点缺少凭据"
   },
   "hub": {
     "title": "Pairs",
-    "subtitle": "选择一个 Pair 打开会话，或创建一个新的。"
+    "subtitle": "选择一个 Pair 打开会话，或创建一个新的。",
+    "pausePair": "暂停 {{name}}",
+    "resumePair": "继续 {{name}}",
+    "deletePair": "删除 {{name}}"
   },
   "insights": {
     "subtitle": "所有 Pair 的跨运行模型表现。"
@@ -614,6 +636,7 @@
     "title": "命令面板",
     "placeholder": "输入命令或搜索 Pair...",
     "noResults": "没有匹配的命令",
+    "results": "命令",
     "groups": {
       "pair": "Pair",
       "go": "前往",

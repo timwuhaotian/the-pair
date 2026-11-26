@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
 import { Z } from '../../lib/ui'
 import { modalVariants, overlayVariants } from '../../lib/animations'
@@ -10,6 +11,18 @@ import { IconButton } from './IconButton'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Pickers inside a dialog portal their menus to <body> so the dialog's scroll
+ * box never clips them. Such a menu root carries `data-modal-popover`: focus
+ * inside it still belongs to the dialog, and its own key handling (Tab closes
+ * it and hands focus back to its trigger) runs instead of the dialog's trap.
+ */
+const POPOVER_SELECTOR = '[data-modal-popover]'
+
+function isInModalPopover(node: Element | null): boolean {
+  return Boolean(node?.closest(POPOVER_SELECTOR))
+}
 
 interface GlassModalProps {
   isOpen: boolean
@@ -30,6 +43,8 @@ interface GlassModalProps {
   /** False while the dialog must stay up (e.g. mid-install): Esc, the backdrop
    *  and the close button are inert. */
   dismissible?: boolean
+  /** Id of the element that describes the dialog (e.g. a confirmation message). */
+  describedBy?: string
   'data-testid'?: string
 }
 
@@ -45,13 +60,14 @@ export function GlassModal({
   header,
   className,
   dismissible = true,
+  describedBy,
   'data-testid': dataTestId
 }: GlassModalProps): React.ReactNode {
+  const { t } = useTranslation()
   const [portalRoot] = useState<HTMLElement | null>(() => document.body)
   const reduceMotion = useReducedMotion()
   const containerRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const previouslyFocused = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
@@ -64,24 +80,23 @@ export function GlassModal({
   }, [isOpen, dismissible, onClose])
 
   useEffect(() => {
-    if (!isOpen) {
-      // Restore focus when closing
-      previouslyFocused.current?.focus?.()
-      previouslyFocused.current = null
-      return
-    }
+    if (!isOpen) return
 
-    // Save the element that had focus before the modal opened
-    previouslyFocused.current = document.activeElement as HTMLElement | null
+    // The element that had focus before the modal opened gets it back on close.
+    const opener = document.activeElement as HTMLElement | null
 
     // Move focus into the modal — into its body, not the header bar: the
     // close button is chrome, the content is what the user came for.
     const container = containerRef.current
     if (container) {
-      const focusable = (bodyRef.current ?? container).querySelectorAll<HTMLElement>(
-        FOCUSABLE_SELECTOR
-      )
-      if (focusable.length > 0) {
+      const scope = bodyRef.current ?? container
+      // A field marked `data-autofocus` is the dialog's main input (the task
+      // text, say) and wins over whatever control happens to come first.
+      const preferred = scope.querySelector<HTMLElement>('[data-autofocus]:not([disabled])')
+      const focusable = scope.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      if (preferred) {
+        preferred.focus()
+      } else if (focusable.length > 0) {
         focusable[0].focus()
       } else {
         container.focus()
@@ -90,6 +105,8 @@ export function GlassModal({
 
     const handleTab = (e: KeyboardEvent): void => {
       if (e.key !== 'Tab') return
+      // A picker menu portaled out of the dialog handles its own Tab.
+      if (isInModalPopover(document.activeElement)) return
       const el = containerRef.current
       if (!el) return
       const nodes = el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
@@ -117,7 +134,22 @@ export function GlassModal({
     }
 
     document.addEventListener('keydown', handleTab)
-    return () => document.removeEventListener('keydown', handleTab)
+    return () => {
+      document.removeEventListener('keydown', handleTab)
+      // Runs both when `isOpen` turns false and when the caller unmounts the
+      // modal outright (a keyed remount, a conditionally rendered modal), so
+      // focus goes back to the opener either way — once per opening.
+      if (!opener || !opener.isConnected) return
+      const active = document.activeElement
+      // Only reclaim focus the dialog was holding (or lost to <body> when its
+      // DOM went away); a close that moved focus somewhere on purpose wins.
+      const heldByDialog =
+        !active ||
+        active === document.body ||
+        Boolean(container?.contains(active)) ||
+        isInModalPopover(active)
+      if (heldByDialog) opener.focus?.()
+    }
   }, [isOpen])
 
   if (!portalRoot || !isOpen) return null
@@ -143,6 +175,7 @@ export function GlassModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        aria-describedby={describedBy}
         tabIndex={-1}
         data-testid={dataTestId}
         className={cn(
@@ -161,7 +194,7 @@ export function GlassModal({
             </h2>
           )}
           <IconButton
-            aria-label="close"
+            aria-label={t('common.close')}
             onClick={onClose}
             disabled={!dismissible}
             data-testid="modal-close"

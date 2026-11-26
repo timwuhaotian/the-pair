@@ -142,9 +142,14 @@ function AcceptanceRecordBody({ content }: { content: string }): React.ReactNode
               <span aria-hidden className="select-none w-[1ch] tabular-nums">
                 <CheckGlyph status={check.status} />
               </span>
+              <span className="sr-only">
+                {t(`console.checkStatus.${check.status}`, { defaultValue: check.status })}
+              </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-foreground truncate">{check.name}</span>
+                  <span className="text-foreground truncate" title={check.name}>
+                    {check.name}
+                  </span>
                   <span className="text-muted-foreground-faint text-[10px] shrink-0">
                     {formatDuration(check.durationMs)}
                   </span>

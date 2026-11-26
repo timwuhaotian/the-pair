@@ -59,6 +59,7 @@ export function ErrorDetailPanel({
             variant="ghost"
             size="xs"
             onClick={() => setIsExpanded(!isExpanded)}
+            aria-expanded={isExpanded}
             icon={isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
             className="mb-1 text-muted-foreground"
           >

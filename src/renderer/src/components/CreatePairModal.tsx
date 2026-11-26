@@ -386,6 +386,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
                 rows={4}
                 className={cn(fieldInput, 'resize-none leading-relaxed')}
                 required
+                data-autofocus
                 data-testid="pair-task-spec"
               />
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">

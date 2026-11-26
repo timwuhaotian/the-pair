@@ -57,6 +57,7 @@ export function PlanReviewBar({ pair }: { pair: Pair }): React.ReactNode {
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
             placeholder={t('planReview.feedbackPlaceholder')}
+            aria-label={t('planReview.feedbackLabel')}
             rows={3}
             autoFocus
             disabled={submitting}

@@ -110,9 +110,10 @@
     --muted: hsl(40, 12%, 94%);
     /* tier 2: secondary text (labels, metadata). ~6.2:1 on bg — passes AA normal. */
     --muted-foreground: hsl(220, 12%, 38%);
-    /* tier 3: faint text (counts, timestamps, placeholders). 4.87:1 on bg — passes
-       AA normal at 10-12px, so placeholders and tiny labels stay on this token. */
-    --muted-foreground-faint: hsl(220, 8%, 44%);
+    /* tier 3: faint text (counts, timestamps, placeholders). 5.4:1 on bg and
+       ≥4.8:1 on the raised, sunken and secondary surfaces it also sits on, so
+       placeholders and tiny labels pass AA everywhere. */
+    --muted-foreground-faint: hsl(220, 8%, 41%);
     --accent: hsl(40, 12%, 92%);
     --accent-foreground: hsl(220, 18%, 12%);
     --destructive: hsl(0, 65%, 45%);
@@ -127,13 +128,17 @@
     --chart-5: hsl(345, 55%, 48%);
     --radius: 0.25rem;
 
-    /* role + state accents (referenced by terminal utilities) */
+    /* role + state accents (referenced by terminal utilities). On linen these
+       are text colors first: each clears 4.5:1 on every surface and on its own
+       chip tint (see --tone-tint), which the brighter amber and greens did not. */
     --role-mentor: hsl(220, 70%, 42%);
-    --role-executor: hsl(270, 55%, 48%);
-    --role-human: hsl(155, 50%, 35%);
-    --state-running: hsl(28, 80%, 45%);
-    --state-done: hsl(145, 50%, 38%);
-    --state-error: hsl(0, 65%, 48%);
+    --role-executor: hsl(270, 55%, 46%);
+    --role-human: hsl(155, 55%, 27%);
+    --state-running: hsl(28, 85%, 32%);
+    --state-done: hsl(145, 60%, 26%);
+    --state-error: hsl(0, 65%, 42%);
+    /* Chip / badge tint strength behind tone-colored text. */
+    --tone-tint: 14%;
 
     /* Surfaces — flattened, no blur */
     --surface-base: hsl(40, 16%, 97%);
@@ -168,9 +173,9 @@
     --muted: hsl(212, 31%, 10%);
     /* tier 2: secondary text (#8a939e) — ~6.2:1 contrast, solid, never overlay. */
     --muted-foreground: hsl(212, 9%, 58%);
-    /* tier 3: faint text — 4.89:1, passes AA normal at 10-12px (placeholders,
-       counts, timestamps). Kept ~1.3pts below tier 2 so the hierarchy still reads. */
-    --muted-foreground-faint: hsl(217, 13%, 52%);
+    /* tier 3: faint text — 5.6:1 on bg, ≥5:1 on raised panels and popovers
+       (placeholders, counts, timestamps). Kept below tier 2 so the hierarchy reads. */
+    --muted-foreground-faint: hsl(217, 13%, 56%);
     --accent: hsl(218, 32%, 15%);
     --accent-foreground: hsl(213, 25%, 93%);
     --destructive: hsl(3, 92%, 63%); /* harbor error #f85149 */
@@ -190,6 +195,7 @@
     --state-running: hsl(40, 70%, 55%); /* harbor warning #d29922 */
     --state-done: hsl(126, 49%, 55%); /* harbor success #3fb950 */
     --state-error: hsl(3, 92%, 63%);
+    --tone-tint: 18%;
 
     --surface-base: hsl(216, 33%, 6%);
     --surface-raised: hsl(212, 31%, 10%);
@@ -236,6 +242,18 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  /* Rows inside scrolling lists and segmented groups sit flush against their
+     clip edge, where an outset ring loses its sides. Draw it inset there. */
+  :is(
+    [role='option'],
+    [role='radio'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='tab']
+  ):focus-visible {
+    outline-offset: -2px;
   }
 
   /* Belt-and-suspenders: suppress any UA focus ring on pointer focus so the
@@ -453,13 +471,13 @@
   background-color: color-mix(in srgb, var(--role-human) 10%, transparent);
 }
 .bg-state-running {
-  background-color: color-mix(in srgb, var(--state-running) 18%, transparent);
+  background-color: color-mix(in srgb, var(--state-running) var(--tone-tint), transparent);
 }
 .bg-state-done {
-  background-color: color-mix(in srgb, var(--state-done) 18%, transparent);
+  background-color: color-mix(in srgb, var(--state-done) var(--tone-tint), transparent);
 }
 .bg-state-error {
-  background-color: color-mix(in srgb, var(--state-error) 18%, transparent);
+  background-color: color-mix(in srgb, var(--state-error) var(--tone-tint), transparent);
 }
 
 .border-role-mentor {

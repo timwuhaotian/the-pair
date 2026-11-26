@@ -105,7 +105,10 @@ export function InsightsPanel({ className }: InsightsPanelProps): React.ReactNod
                 key={`${combo.mentorModel}|${combo.executorModel}`}
                 className="border-t border-border/60 text-foreground/85"
               >
-                <td className="max-w-0 truncate py-1.5 pr-1 font-mono text-[12px]">
+                <td
+                  className="max-w-0 truncate py-1.5 pr-1 font-mono text-[12px]"
+                  title={`${combo.mentorModel} + ${combo.executorModel}`}
+                >
                   <span className="role-mentor">{combo.mentorModel}</span>
                   <span className="text-muted-foreground-faint"> + </span>
                   <span className="role-executor">{combo.executorModel}</span>

@@ -43,7 +43,10 @@ export function StatusBadge({ status, stalled }: StatusBadgeProps): React.ReactN
 
   return (
     <Chip shape="pill" tone={tone} title={label}>
-      <span aria-hidden className={cn('select-none w-[1ch] tabular-nums', isActive && 'tty-blink')}>
+      <span
+        aria-hidden
+        className={cn('min-w-[1ch] select-none text-center tabular-nums', isActive && 'tty-blink')}
+      >
         {glyph}
       </span>
       <span>{label}</span>

@@ -12,6 +12,8 @@ interface GlassButtonProps {
   icon?: React.ReactNode
   'aria-label'?: string
   'aria-describedby'?: string
+  'aria-expanded'?: boolean
+  'aria-pressed'?: boolean
   title?: string
   'data-testid'?: string
 }
@@ -65,6 +67,8 @@ export function GlassButton({
   icon,
   'aria-label': ariaLabel,
   'aria-describedby': ariaDescribedBy,
+  'aria-expanded': ariaExpanded,
+  'aria-pressed': ariaPressed,
   title,
   'data-testid': dataTestId
 }: GlassButtonProps): React.ReactNode {
@@ -75,6 +79,8 @@ export function GlassButton({
       disabled={disabled}
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
+      aria-expanded={ariaExpanded}
+      aria-pressed={ariaPressed}
       title={title}
       data-testid={dataTestId}
       className={cn(

@@ -1,4 +1,13 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { useTranslation } from 'react-i18next'
@@ -548,10 +557,14 @@ function App(): React.ReactNode {
 
   // Native menu bar events (emitted from the Rust menu in lib.rs). The palette
   // actions below are the single source of truth — menus just re-dispatch here.
-  useEffect(() => {
-    const unlisteners: Array<() => void> = []
-    let active = true
-    const subs: Array<[string, () => void]> = [
+  //
+  // The handlers close over the selected pair, which changes with every state
+  // event while a pair runs. Keep the latest set in a ref and subscribe once:
+  // re-subscribing 13 async IPC listeners each second could drop a menu click
+  // that landed mid-swap.
+  const menuHandlersRef = useRef<Array<[string, () => void]>>([])
+  useLayoutEffect(() => {
+    menuHandlersRef.current = [
       ['app:menu:new-pair', () => setIsCreatePairOpen(true)],
       [
         'app:menu:new-task',
@@ -580,8 +593,15 @@ function App(): React.ReactNode {
       ['app:menu:shortcuts', () => openShortcuts()],
       ['app:menu:palette', () => openPalette()]
     ]
-    for (const [event, handler] of subs) {
-      void listen(event, handler).then((cleanup) => {
+  })
+  useEffect(() => {
+    const unlisteners: Array<() => void> = []
+    let active = true
+    for (const [event] of menuHandlersRef.current) {
+      const dispatch = (): void => {
+        menuHandlersRef.current.find(([name]) => name === event)?.[1]()
+      }
+      void listen(event, dispatch).then((cleanup) => {
         if (active) unlisteners.push(cleanup)
         else cleanup()
       })
@@ -590,19 +610,7 @@ function App(): React.ReactNode {
       active = false
       for (const cleanup of unlisteners) cleanup()
     }
-  }, [
-    selectedPair,
-    handleNewTask,
-    handlePauseSelectedPair,
-    handleResumeSelectedPair,
-    toggleSidebar,
-    toggleTheme,
-    openShortcuts,
-    openPalette,
-    selectSection,
-    selectPair,
-    goHub
-  ])
+  }, [])
 
   const handleRequestClearSession = useCallback((): void => {
     if (!selectedPair) return
@@ -710,6 +718,13 @@ function App(): React.ReactNode {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground">
+      {/* First in tab order, ahead of the title-bar controls it skips. */}
+      <a
+        href="#shell-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:border focus:border-border focus:bg-background focus:px-3 focus:py-1.5 focus:text-[13px] focus:text-foreground"
+      >
+        {t('shell.skipToContent')}
+      </a>
       <div className="flex h-full flex-col">
         <AppChrome
           selectedPair={selectedPair}

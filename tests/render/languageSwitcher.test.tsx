@@ -109,3 +109,53 @@ test('the panel opens below the toggle, or above it when it would overflow', () 
   openMenu()
   assert.equal(screen.getByRole('menu').style.top, `${700 - 220 - 4}px`)
 })
+
+function focusedItemName(): string {
+  const active = document.activeElement
+  return active?.getAttribute('role') === 'menuitemradio' ? (active.textContent ?? '') : ''
+}
+
+test('the toggle announces a menu, and opening focuses the language in use', () => {
+  useLocaleStore.getState().setLocale('ja')
+  const toggle = openMenu()
+  assert.equal(toggle.getAttribute('aria-haspopup'), 'menu')
+  assert.match(focusedItemName(), /日本語/)
+  // Roving tabindex: only the focused item is a Tab stop.
+  const tabStops = screen
+    .getAllByRole('menuitemradio')
+    .filter((item) => item.getAttribute('tabindex') === '0')
+  assert.equal(tabStops.length, 1)
+  assert.ok(tabStops[0] === document.activeElement, 'the Tab stop is the focused item')
+})
+
+test('arrow keys, Home and End move focus through the menu and wrap', () => {
+  openMenu()
+  const menu = screen.getByRole('menu')
+  assert.match(focusedItemName(), /English/)
+  fireEvent.keyDown(menu, { key: 'ArrowDown' })
+  assert.match(focusedItemName(), /中文|简体/)
+  fireEvent.keyDown(menu, { key: 'End' })
+  assert.match(focusedItemName(), /한국어/)
+  fireEvent.keyDown(menu, { key: 'ArrowDown' })
+  assert.match(focusedItemName(), /English/, 'ArrowDown wraps to the first item')
+  fireEvent.keyDown(menu, { key: 'ArrowUp' })
+  assert.match(focusedItemName(), /한국어/, 'ArrowUp wraps to the last item')
+  fireEvent.keyDown(menu, { key: 'Home' })
+  assert.match(focusedItemName(), /English/)
+  const tabStop = screen
+    .getAllByRole('menuitemradio')
+    .find((item) => item.getAttribute('tabindex') === '0')
+  assert.ok(tabStop === document.activeElement, 'the Tab stop follows focus')
+})
+
+test('Tab closes the menu from the toggle; picking an item returns focus there too', () => {
+  const toggle = openMenu()
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Tab' })
+  assert.ok(!menuIsOpen(), 'Tab closed the menu')
+  assert.ok(document.activeElement === toggle, 'focus is back on the toggle')
+
+  fireEvent.click(toggle)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /한국어/ }))
+  assert.ok(!menuIsOpen(), 'picking closed the menu')
+  assert.ok(document.activeElement === toggle, 'focus is back on the toggle after a pick')
+})

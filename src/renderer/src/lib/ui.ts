@@ -59,10 +59,12 @@ export const errorCallout =
 export const neutralCallout =
   'border-l-2 border-border bg-muted/60 px-2.5 py-2 text-[12px] text-muted-foreground'
 
-/** Role-tinted notice in the same border-l-2 voice (mentor default). */
+/** Role-tinted notice in the same border-l-2 voice (mentor default). The tint
+ *  comes from the hand-written `.bg-role-*` mixes: a composed `bg-role-x/10`
+ *  never reaches Tailwind's scanner, so it would render with no background. */
 export function roleCallout(role: 'mentor' | 'executor' | 'human' = 'mentor'): string {
   const c = toneClasses(role)
-  return `border-l-2 ${c.border} ${c.bg}/10 px-2.5 py-2 text-[12px] ${c.fg}`
+  return `border-l-2 ${c.border} ${c.bg} px-2.5 py-2 text-[12px] ${c.fg}`
 }
 
 /** Bottom clearance for scrollable modal bodies so last rows clear sticky footers. */

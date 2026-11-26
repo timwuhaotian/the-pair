@@ -100,7 +100,11 @@ export function ImportWizardModal({
       <div className="space-y-3 px-4 py-4">
         <p className="text-[12px] text-muted-foreground">{t('models.wizard.intro')}</p>
 
-        {error && <p className={cn(errorCallout, 'text-[12px]')}>{error}</p>}
+        {error && (
+          <p role="alert" className={cn(errorCallout, 'text-[12px]')}>
+            {error}
+          </p>
+        )}
 
         {candidates === null || (busy && rows.length === 0) ? (
           <p className="py-6 text-center text-[12px] text-muted-foreground">

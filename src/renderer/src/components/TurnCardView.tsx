@@ -102,6 +102,7 @@ export function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           {(hiddenCount > 0 || showEarlierSteps) && cognitiveEvents.length > MAX_INLINE_EVENTS && (
             <button
               type="button"
+              aria-expanded={showEarlierSteps}
               onClick={() => setShowEarlierSteps((v) => !v)}
               className="font-mono text-[10px] text-muted-foreground-faint hover:text-foreground/80 uppercase tracking-[0.14em] transition-colors cursor-pointer"
             >

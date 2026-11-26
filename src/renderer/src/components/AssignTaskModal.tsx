@@ -292,6 +292,52 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               </div>
             )}
           </div>
+          <div className="flex flex-col gap-1">
+            <div className={cn(fieldLabel, 'flex items-baseline gap-1.5')}>
+              <Sparkles size={11} className="state-running translate-y-px" />
+              <span>{t('onboarding.workflowPreset')}</span>
+            </div>
+            <PresetPicker
+              presets={presets}
+              selectedPresetId={selectedPreset?.id ?? null}
+              onSelect={handlePresetSelect}
+              loading={presetsLoading}
+              onRetry={loadPresets}
+              error={presetsError}
+            />
+          </div>
+
+          <div className="relative flex flex-col gap-1">
+            <label htmlFor={specId} className={fieldLabel}>
+              {t('onboarding.taskSpec')}
+            </label>
+            <textarea
+              id={specId}
+              ref={textareaRef}
+              value={spec}
+              onChange={(e) => setSpec(e.target.value)}
+              placeholder={t('onboarding.taskPlaceholder')}
+              rows={6}
+              className={cn(fieldInput, 'resize-none leading-relaxed')}
+              required
+              data-autofocus
+              data-testid="assign-task-spec"
+            />
+            <div className="absolute top-[26px] right-2 flex items-center gap-1">
+              <SkillPicker projectDir={pair.directory} onSelect={handleSkillSelect} />
+              <FileMention
+                textareaRef={textareaRef}
+                onChange={setSpec}
+                directory={pair.directory}
+                pairId={pair.id}
+                onFileSelect={handleFileSelect}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground-faint">
+              {t('onboarding.charsHint', { count: spec.length })}
+            </p>
+          </div>
+
           {!isRestoring && pairRepoCheck?.isGitRepo && (
             <ToggleRow
               checked={freshWorktree}
@@ -321,51 +367,6 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           {modelsChanged && (
             <div className={roleCallout('mentor')}>→ {t('modals.modelUpdateNote')}</div>
           )}
-
-          <div className="flex flex-col gap-1">
-            <div className={cn(fieldLabel, 'flex items-baseline gap-1.5')}>
-              <Sparkles size={11} className="state-running translate-y-px" />
-              <span>{t('onboarding.workflowPreset')}</span>
-            </div>
-            <PresetPicker
-              presets={presets}
-              selectedPresetId={selectedPreset?.id ?? null}
-              onSelect={handlePresetSelect}
-              loading={presetsLoading}
-              onRetry={loadPresets}
-              error={presetsError}
-            />
-          </div>
-
-          <div className="relative flex flex-col gap-1">
-            <label htmlFor={specId} className={fieldLabel}>
-              {t('onboarding.taskSpec')}
-            </label>
-            <textarea
-              id={specId}
-              ref={textareaRef}
-              value={spec}
-              onChange={(e) => setSpec(e.target.value)}
-              placeholder={t('onboarding.taskPlaceholder')}
-              rows={6}
-              className={cn(fieldInput, 'resize-none leading-relaxed')}
-              required
-              data-testid="assign-task-spec"
-            />
-            <div className="absolute top-[26px] right-2 flex items-center gap-1">
-              <SkillPicker projectDir={pair.directory} onSelect={handleSkillSelect} />
-              <FileMention
-                textareaRef={textareaRef}
-                onChange={setSpec}
-                directory={pair.directory}
-                pairId={pair.id}
-                onFileSelect={handleFileSelect}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground-faint">
-              {t('onboarding.charsHint', { count: spec.length })}
-            </p>
-          </div>
 
           {presetTaskMissing && (
             <div className={warningCallout}>! {t('modals.presetTaskMissing')}</div>

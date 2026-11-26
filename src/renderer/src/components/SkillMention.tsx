@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react'
@@ -14,6 +14,36 @@ import {
   type CaretLineRect,
   type MentionPopupPosition
 } from './mentionText'
+
+/** Listbox wiring set on the composer's textarea while the popup is open. */
+const TEXTAREA_LISTBOX_ATTRS = [
+  'aria-autocomplete',
+  'aria-haspopup',
+  'aria-controls',
+  'aria-activedescendant'
+] as const
+
+/**
+ * The textarea belongs to the composer that renders this popup, so the popup
+ * wires it up itself: it keeps its textbox role (role="combobox" is not
+ * allowed on a <textarea> and would drop its multi-line semantics) and gains
+ * the attributes that point assistive tech at the list and its active option.
+ * Returns a restore function that puts back whatever was there before.
+ */
+function linkTextareaToListbox(textarea: HTMLTextAreaElement, listId: string): () => void {
+  const previous = TEXTAREA_LISTBOX_ATTRS.map(
+    (name) => [name, textarea.getAttribute(name)] as const
+  )
+  textarea.setAttribute('aria-autocomplete', 'list')
+  textarea.setAttribute('aria-haspopup', 'listbox')
+  textarea.setAttribute('aria-controls', listId)
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === null) textarea.removeAttribute(name)
+      else textarea.setAttribute(name, value)
+    }
+  }
+}
 
 interface SkillEntry {
   name: string
@@ -54,6 +84,8 @@ export function SkillMention({
   // the cursor — only keyboard moves bring the active row into view.
   const pointerNavRef = useRef(false)
   const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const listId = useId()
+  const optionId = useCallback((index: number): string => `${listId}-option-${index}`, [listId])
 
   useEffect(() => {
     return () => {
@@ -338,6 +370,24 @@ export function SkillMention({
     setPosition(placeMentionPopup(caret, window.innerHeight, popover.offsetHeight))
   }, [isOpen, caret, results, skills])
 
+  // Wire the composer's textarea to the list while the popup is open: the
+  // highlighted row is its aria-activedescendant.
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || !isOpen) return
+    return linkTextareaToListbox(textarea, listId)
+  }, [isOpen, textareaRef, listId])
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || !isOpen) return
+    if (selectedIndex < results.length) {
+      textarea.setAttribute('aria-activedescendant', optionId(selectedIndex))
+    } else {
+      textarea.removeAttribute('aria-activedescendant')
+    }
+  }, [isOpen, selectedIndex, results, textareaRef, optionId])
+
   // Declared after every other hook so the early return below stays legal.
   useEffect(() => {
     if (isOpen && !pointerNavRef.current) scrollActiveOptionIntoView(listRef.current)
@@ -378,6 +428,7 @@ export function SkillMention({
       </div>
       <div
         ref={listRef}
+        id={listId}
         role="listbox"
         aria-label={t('skills.popoverTitle')}
         className="flex-1 overflow-y-auto p-1 scrollbar-thin"
@@ -390,6 +441,7 @@ export function SkillMention({
           results.map((skill, index) => (
             <div
               key={skill.name}
+              id={optionId(index)}
               role="option"
               aria-selected={index === selectedIndex}
               className={cn(menuItem(index === selectedIndex), 'flex-col items-stretch gap-0.5')}

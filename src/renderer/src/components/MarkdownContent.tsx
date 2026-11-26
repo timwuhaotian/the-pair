@@ -10,20 +10,25 @@ import { rehypeHighlight } from '../lib/rehypeHighlight'
  * None of the render functions capture instance state — they are pure.
  */
 const MARKDOWN_COMPONENTS: Components = {
+  // An agent's `#` sits inside the transcript, under the app's own headings:
+  // shift its levels down so it never competes with the page outline, and
+  // keep the rule glyphs out of the accessible name.
   h1: ({ children }) => (
-    <h1 className="mb-1 text-[14px] font-bold uppercase tracking-[0.08em] text-foreground">
-      ── {children}
-    </h1>
-  ),
-  h2: ({ children }) => (
-    <h2 className="mb-1 mt-2 text-[13px] font-bold uppercase tracking-[0.06em] text-foreground">
-      ─ {children}
-    </h2>
-  ),
-  h3: ({ children }) => (
-    <h3 className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-[0.04em] text-foreground/90">
+    <h3 className="mb-1 text-[14px] font-bold uppercase tracking-[0.08em] text-foreground">
+      <span aria-hidden>── </span>
       {children}
     </h3>
+  ),
+  h2: ({ children }) => (
+    <h4 className="mb-1 mt-2 text-[13px] font-bold uppercase tracking-[0.06em] text-foreground">
+      <span aria-hidden>─ </span>
+      {children}
+    </h4>
+  ),
+  h3: ({ children }) => (
+    <h5 className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-[0.04em] text-foreground/90">
+      {children}
+    </h5>
   ),
   p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
   ul: ({ children }) => <ul className="mb-2 ml-1 space-y-0.5">{children}</ul>,

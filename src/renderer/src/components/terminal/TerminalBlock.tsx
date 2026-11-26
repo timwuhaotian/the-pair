@@ -135,6 +135,7 @@ export function TerminalBlock({
             {effectiveGlyph}
           </span>
         )}
+        {state === 'error' && <span className="sr-only">{t('status.Error')}</span>}
         <span className={cn('font-bold tracking-[0.06em]', ROLE_TEXT_CLASS[role])}>
           {labelText}
         </span>

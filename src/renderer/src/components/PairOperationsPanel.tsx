@@ -95,7 +95,9 @@ function ModifiedFileRow({
         <span className={cn('shrink-0 tabular-nums w-[1ch]', fileStatusTone(file.status))}>
           {file.status === '??' ? '?' : file.status}
         </span>
-        <span className="min-w-0 flex-1 truncate">{file.displayPath}</span>
+        <span className="min-w-0 flex-1 truncate" title={file.displayPath}>
+          {file.displayPath}
+        </span>
       </button>
       {expanded && (
         <div
@@ -482,15 +484,28 @@ function PairOperationsPanel({
   // viewed. Turn tokens only exist live, so an archive shows its totals only.
   const rawUsageMessages = viewingRun?.messages ?? pair.messages
   // A turn the renderer committed and the backend then reported is one turn,
-  // not two: summing the raw list would bill every turn twice.
-  const usageMessages = dropDuplicatedTurns(rawUsageMessages)
+  // not two: summing the raw list would bill every turn twice. The transcript
+  // keeps its identity across state events that didn't change it, so these
+  // passes over it run only when it did.
+  const usageMessages = React.useMemo(
+    () => dropDuplicatedTurns(rawUsageMessages),
+    [rawUsageMessages]
+  )
+  const usageByRole = React.useMemo(() => {
+    const aggregate = (role: 'mentor' | 'executor') => ({
+      totals: sumUsage(usageMessages, role),
+      turn: lastTurnUsage(usageMessages, role),
+      requests: countUsageRequests(usageMessages, role)
+    })
+    return { mentor: aggregate('mentor'), executor: aggregate('executor') }
+  }, [usageMessages])
   const usageRowModels = {
     mentor: viewingRun?.mentorModel ?? pair.mentorModel,
     executor: viewingRun?.executorModel ?? pair.executorModel
   }
   const usageRows: UsageRow[] = (['mentor', 'executor'] as const).map((role) => {
-    const totals = sumUsage(usageMessages, role)
-    const turn = viewingRun ? undefined : lastTurnUsage(usageMessages, role)
+    const totals = usageByRole[role].totals
+    const turn = viewingRun ? undefined : usageByRole[role].turn
     const lastOutputAt = viewingRun
       ? undefined
       : role === 'mentor'
@@ -506,7 +521,7 @@ function PairOperationsPanel({
           ? isAgentExecuting(pair.mentorActivity.phase)
           : isAgentExecuting(pair.executorActivity.phase)),
       totals,
-      requests: countUsageRequests(usageMessages, role),
+      requests: usageByRole[role].requests,
       lastOutputAt,
       cost: estimateCost(getModelByQualifiedId(providers, usageRowModels[role])?.price, totals)
     }
@@ -527,9 +542,37 @@ function PairOperationsPanel({
     usageTotal.inputTokens + usageTotal.outputTokens > 0 ||
     usageRows.some((row) => row.turn !== undefined)
 
+  // Depend on the fields the timeline reads, not the pair object, which is new
+  // on every state event while the pair runs.
+  const {
+    name: pairName,
+    spec: pairSpec,
+    mentorModel: liveMentorModel,
+    executorModel: liveExecutorModel,
+    status: pairStatus,
+    messages: pairMessages,
+    latestAcceptance,
+    modifiedFiles,
+    currentRunStartedAt,
+    currentRunFinishedAt
+  } = pair
   const timelineData = React.useMemo(() => {
     // Archived runs map their own dates/status explicitly — never the live run's.
-    const source = buildTimelineSource(pair, viewingRun)
+    const source = buildTimelineSource(
+      {
+        name: pairName,
+        spec: pairSpec,
+        mentorModel: liveMentorModel,
+        executorModel: liveExecutorModel,
+        status: pairStatus,
+        messages: pairMessages,
+        latestAcceptance,
+        modifiedFiles,
+        currentRunStartedAt,
+        currentRunFinishedAt
+      },
+      viewingRun
+    )
     const messages = source.messages
     if (messages.length === 0) return null
     return buildTimeline(
@@ -545,7 +588,19 @@ function PairOperationsPanel({
       })),
       source
     )
-  }, [pair, viewingRun])
+  }, [
+    pairName,
+    pairSpec,
+    liveMentorModel,
+    liveExecutorModel,
+    pairStatus,
+    pairMessages,
+    latestAcceptance,
+    modifiedFiles,
+    currentRunStartedAt,
+    currentRunFinishedAt,
+    viewingRun
+  ])
 
   const reviewReason =
     pair.status === 'Paused' || pair.status === 'Awaiting Human Review'
@@ -608,12 +663,18 @@ function PairOperationsPanel({
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   }
 
+  // "Still running" only while a turn can actually be in flight; a pair that
+  // stopped (paused, waiting on a human, errored, idle) says so instead.
   const runStateText =
     pair.status === 'Paused'
-      ? `${t('common.paused')} ${formatRunStamp(pair.currentRunFinishedAt)}`
+      ? pair.currentRunFinishedAt
+        ? `${t('common.paused')} ${formatRunStamp(pair.currentRunFinishedAt)}`
+        : t('common.paused')
       : pair.currentRunFinishedAt
         ? `${t('pair.finishedAt', { date: formatRunStamp(pair.currentRunFinishedAt) })}`
-        : t('pair.stillRunning')
+        : isPairActive(pair.status)
+          ? t('pair.stillRunning')
+          : t(`status.${pair.status}`, { defaultValue: pair.status })
 
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
@@ -766,7 +827,10 @@ function PairOperationsPanel({
           {pair.pendingMentorModel && (
             <div className="flex items-center gap-1.5 text-[11px]">
               <Chip tone="running">{t('panel.modelsQueuedBadge')}</Chip>
-              <span className="min-w-0 truncate text-foreground/80">
+              <span
+                className="min-w-0 truncate text-foreground/80"
+                title={t('pair.nextTask', { model: pair.pendingMentorModel })}
+              >
                 {t('pair.nextTask', { model: pair.pendingMentorModel })}
               </span>
             </div>
@@ -792,7 +856,10 @@ function PairOperationsPanel({
           {pair.pendingExecutorModel && (
             <div className="flex items-center gap-1.5 text-[11px]">
               <Chip tone="running">{t('panel.modelsQueuedBadge')}</Chip>
-              <span className="min-w-0 truncate text-foreground/80">
+              <span
+                className="min-w-0 truncate text-foreground/80"
+                title={t('pair.nextTask', { model: pair.pendingExecutorModel })}
+              >
                 {t('pair.nextTask', { model: pair.pendingExecutorModel })}
               </span>
             </div>

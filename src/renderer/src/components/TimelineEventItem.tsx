@@ -1,4 +1,6 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { cn } from '../lib/utils'
 import { TokenChip } from './TokenChip'
 import { Chip } from './ui/Chip'
@@ -32,22 +34,26 @@ function eventGlyph(event: TimelineEvent): { char: string; tone: string } {
   }
 }
 
-function eventLabel(event: TimelineEvent): string {
+/** Terse, lowercase TTY labels in the reader's locale (lowercasing is a no-op for CJK). */
+function eventLabel(event: TimelineEvent, t: TFunction): string {
+  const mentor = t('common.mentor').toLowerCase()
   switch (event.type) {
     case 'mentor-plan':
-      return 'mentor·plan'
+      return `${mentor}·${t('console.messageType.plan')}`
     case 'mentor-review':
-      return 'mentor·review'
+      return `${mentor}·${t('console.messageType.review')}`
     case 'executor-result':
-      return 'executor'
+      return t('common.executor').toLowerCase()
     case 'human-feedback':
-      return 'human'
+      return t('console.you').toLowerCase()
     case 'acceptance-gate':
       return event.acceptanceVerdict
-        ? `[${event.acceptanceVerdict.verdict.toLowerCase()}]`
-        : 'acceptance'
+        ? `[${t(`console.verdict.${event.acceptanceVerdict.verdict.toLowerCase()}`, {
+            defaultValue: event.acceptanceVerdict.verdict.toLowerCase()
+          }).toLowerCase()}]`
+        : t('console.acceptance')
     case 'handoff':
-      return '· handoff'
+      return `· ${t('common.handoff').toLowerCase()}`
   }
 }
 
@@ -56,6 +62,7 @@ export function TimelineEventItem({
   isFirst,
   isLast
 }: TimelineEventItemProps): React.JSX.Element {
+  const { t } = useTranslation()
   const g = eventGlyph(event)
   return (
     <div className="relative flex gap-2 pb-2 last:pb-0 font-mono">
@@ -69,7 +76,7 @@ export function TimelineEventItem({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className={cn('text-[11px] font-bold', g.tone)}>{eventLabel(event)}</span>
+          <span className={cn('text-[11px] font-bold', g.tone)}>{eventLabel(event, t)}</span>
           <span className="text-[10px] tabular-nums text-muted-foreground-faint">
             {formatTimestamp(event.timestamp)}
           </span>

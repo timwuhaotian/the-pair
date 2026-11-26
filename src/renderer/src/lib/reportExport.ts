@@ -318,7 +318,7 @@ export function generateHtmlReport(
       letter-spacing: 0.04em;
     }
     .badge-pass { background: rgba(16,185,129,0.1); color: var(--pass); border: 1px solid rgba(16,185,129,0.2); }
-    .badge-fail { background: rgba(245,158,11,0.1); color: var(--fail); border: 1px solid rgba(245,158,11,0.2); }
+    .badge-fail { background: rgba(202,43,43,0.1); color: var(--fail); border: 1px solid rgba(202,43,43,0.25); }
 
     table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
     th { text-align: left; padding: 0.5rem 0.75rem; background: var(--card-bg); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }

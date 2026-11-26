@@ -22,6 +22,18 @@ try {
 
 const initialLocale = storedLocale ?? defaultLocale
 
+/** BCP 47 tag for `<html lang>`: screen readers pick their voice from it, and
+ *  WebKit picks CJK glyph variants from it (Simplified Chinese, not Japanese). */
+const DOCUMENT_LANG: Record<string, string> = { en: 'en', zh: 'zh-Hans', ja: 'ja', ko: 'ko' }
+
+function applyDocumentLang(locale: string): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = DOCUMENT_LANG[locale] ?? 'en'
+}
+
+i18n.on('languageChanged', applyDocumentLang)
+applyDocumentLang(initialLocale)
+
 void i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },

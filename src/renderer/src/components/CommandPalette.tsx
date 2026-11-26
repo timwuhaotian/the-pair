@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
@@ -21,6 +21,12 @@ interface RankedAction {
   label: string
 }
 
+/** A run of consecutive results under one localized group header. */
+interface ResultGroup {
+  label: string
+  items: Array<{ item: RankedAction; index: number }>
+}
+
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -41,8 +47,9 @@ export function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const previouslyFocused = useRef<HTMLElement | null>(null)
   const reduceMotion = useReducedMotion()
+  const listId = useId()
+  const optionId = (index: number): string => `${listId}-option-${index}`
 
   const available = useMemo(
     () => actions.filter((action) => action.available?.() ?? true),
@@ -83,12 +90,11 @@ export function CommandPalette({
   }, [isOpen, onClose])
 
   useEffect(() => {
-    if (!isOpen) {
-      previouslyFocused.current?.focus?.()
-      previouslyFocused.current = null
-      return
-    }
-    previouslyFocused.current = document.activeElement as HTMLElement | null
+    if (!isOpen) return
+    // Focus goes back here on close — whether `isOpen` turns false or the
+    // caller unmounts the palette outright.
+    const opener = document.activeElement as HTMLElement | null
+    const container = containerRef.current
     inputRef.current?.focus()
     const handleTab = (e: KeyboardEvent): void => {
       if (e.key !== 'Tab') return
@@ -116,7 +122,16 @@ export function CommandPalette({
       }
     }
     document.addEventListener('keydown', handleTab)
-    return () => document.removeEventListener('keydown', handleTab)
+    return () => {
+      document.removeEventListener('keydown', handleTab)
+      if (!opener || !opener.isConnected) return
+      const active = document.activeElement
+      // Only reclaim focus the palette held (or lost to <body> with its DOM);
+      // an action that moved focus on purpose keeps it.
+      if (!active || active === document.body || Boolean(container?.contains(active))) {
+        opener.focus?.()
+      }
+    }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -162,7 +177,14 @@ export function CommandPalette({
     }
   }
 
-  let lastGroup: string | null = null
+  const groups: ResultGroup[] = []
+  results.forEach((item, index) => {
+    const label = t(item.action.groupKey)
+    const current = groups[groups.length - 1]
+    if (current && current.label === label) current.items.push({ item, index })
+    else groups.push({ label, items: [{ item, index }] })
+  })
+  const hasResults = results.length > 0
 
   return createPortal(
     <div
@@ -189,6 +211,11 @@ export function CommandPalette({
             onChange={(e) => handleQueryChange(e.target.value)}
             placeholder={t('palette.placeholder')}
             aria-label={t('palette.placeholder')}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={hasResults}
+            aria-controls={listId}
+            aria-activedescendant={hasResults ? optionId(clampedIndex) : undefined}
             data-testid="command-palette-input"
             ref={inputRef}
             autoComplete="off"
@@ -197,54 +224,74 @@ export function CommandPalette({
           />
           <kbd className={cn(kbd, 'shrink-0')}>esc</kbd>
         </div>
-        <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1.5 scrollbar-thin">
-          {results.length === 0 ? (
+        <div
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label={t('palette.results')}
+          className="max-h-[320px] overflow-y-auto p-1.5 scrollbar-thin"
+        >
+          {!hasResults ? (
             <p className={emptyHint}>{t('palette.noResults')}</p>
           ) : (
-            results.map((item, index) => {
-              const groupLabel = t(item.action.groupKey)
-              const showGroup = groupLabel !== lastGroup
-              lastGroup = groupLabel
-              const isActive = index === clampedIndex
+            groups.map((group, groupIndex) => {
+              const headerId = `${listId}-group-${groupIndex}`
               return (
-                <React.Fragment key={item.action.id}>
-                  {showGroup && (
-                    <div className={cn(sectionLabel, 'px-2.5 pb-0.5 pt-2 first:pt-0.5')}>
-                      {groupLabel}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    data-active={isActive}
-                    data-testid={`palette-item-${item.action.id}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => runAt(index)}
+                <div key={headerId} role="group" aria-labelledby={headerId}>
+                  <div
+                    id={headerId}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors cursor-pointer',
-                      isActive
-                        ? cn(activeTint, 'text-foreground')
-                        : cn('text-foreground/85', hoverTint)
+                      sectionLabel,
+                      'px-2.5 pb-0.5',
+                      groupIndex === 0 ? 'pt-0.5' : 'pt-2'
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    {item.action.shortcut && (
-                      <span className="flex shrink-0 items-center gap-0.5">
-                        {item.action.shortcut.map((part, i) => (
-                          <kbd key={i} className={kbd}>
-                            {part}
-                          </kbd>
-                        ))}
-                      </span>
-                    )}
-                    {isActive && (
-                      <CornerDownLeft
-                        size={12}
-                        aria-hidden
-                        className="shrink-0 text-muted-foreground"
-                      />
-                    )}
-                  </button>
-                </React.Fragment>
+                    {group.label}
+                  </div>
+                  {group.items.map(({ item, index }) => {
+                    const isActive = index === clampedIndex
+                    return (
+                      // Options stay out of the Tab order: focus lives in the
+                      // input and the active row is its aria-activedescendant.
+                      <button
+                        key={item.action.id}
+                        id={optionId(index)}
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        tabIndex={-1}
+                        data-active={isActive}
+                        data-testid={`palette-item-${item.action.id}`}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        onClick={() => runAt(index)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors cursor-pointer',
+                          isActive
+                            ? cn(activeTint, 'text-foreground')
+                            : cn('text-foreground/85', hoverTint)
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                        {item.action.shortcut && (
+                          <span className="flex shrink-0 items-center gap-0.5">
+                            {item.action.shortcut.map((part, i) => (
+                              <kbd key={i} className={kbd}>
+                                {part}
+                              </kbd>
+                            ))}
+                          </span>
+                        )}
+                        {isActive && (
+                          <CornerDownLeft
+                            size={12}
+                            aria-hidden
+                            className="shrink-0 text-muted-foreground"
+                          />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               )
             })
           )}

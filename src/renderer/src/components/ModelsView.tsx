@@ -309,7 +309,11 @@ function DeleteAccountButton({
       >
         <Trash2 size={12} />
       </GlassButton>
-      {error && <span className="text-[11px] state-error">{error}</span>}
+      {error && (
+        <span role="alert" className="text-[11px] state-error">
+          {error}
+        </span>
+      )}
     </>
   )
 }
@@ -376,7 +380,11 @@ function ReplaceKeyModal({
             data-testid="replace-key-input"
           />
         </label>
-        {error && <p className="text-[12px] state-error">{error}</p>}
+        {error && (
+          <p role="alert" className="text-[12px] state-error">
+            {error}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <GlassButton
             variant="ghost"
@@ -527,7 +535,11 @@ function AddProviderModal({
             data-testid="add-provider-models"
           />
         </label>
-        {error && <p className="text-[12px] state-error">{error}</p>}
+        {error && (
+          <p role="alert" className="text-[12px] state-error">
+            {error}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <GlassButton
             variant="ghost"

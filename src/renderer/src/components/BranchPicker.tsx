@@ -1,4 +1,12 @@
-import React, { useEffect, useState, useRef, useMemo, useLayoutEffect, useCallback } from 'react'
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+  useLayoutEffect,
+  useCallback,
+  useId
+} from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, GitBranch, Loader2, Search, X } from 'lucide-react'
 import Fuse from 'fuse.js'
@@ -20,6 +28,21 @@ import {
 import { Chip } from './ui/Chip'
 import { IconButton } from './ui/IconButton'
 import { isImeKeyEvent } from './keyboard'
+import { scrollActiveOptionIntoView } from '../lib/listbox'
+
+const TABBABLE_SELECTOR =
+  'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
+
+/** True when this Tab would carry focus past the menu's first or last control. */
+function tabLeavesMenu(e: React.KeyboardEvent, menu: HTMLElement | null): boolean {
+  if (e.key !== 'Tab' || !menu) return false
+  const nodes = menu.querySelectorAll<HTMLElement>(TABBABLE_SELECTOR)
+  if (nodes.length === 0) return true
+  return document.activeElement === (e.shiftKey ? nodes[0] : nodes[nodes.length - 1])
+}
+
+/** Option key of the "no branch" / "from current branch" row. */
+const NONE_KEY = '\u0000none'
 
 interface BranchPickerProps {
   directory: string
@@ -64,6 +87,11 @@ export function BranchPicker({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  // The keyboard/pointer highlight, by option key so it survives re-filtering.
+  // Null means "the default row" (the selection, or the top match while filtering).
+  const [activeKey, setActiveKey] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 })
 
   const localBranches = useMemo(
@@ -163,6 +191,7 @@ export function BranchPicker({
   useEffect(() => {
     if (isOpen) {
       setSearch('')
+      setActiveKey(null)
       requestAnimationFrame(() => searchInputRef.current?.focus())
     }
   }, [isOpen])
@@ -202,27 +231,109 @@ export function BranchPicker({
 
   const selectedBranch = repoState.branches.find((b) => b.name === value)
 
+  /** Close the menu; focus inside it goes back to the trigger instead of <body>. */
+  const closeMenu = (): void => {
+    if (menuRef.current?.contains(document.activeElement)) triggerRef.current?.focus()
+    setIsOpen(false)
+  }
+
   const handleSelect = (branchName: string): void => {
     if (value === branchName) onChange(undefined)
     else onChange(branchName)
-    setIsOpen(false)
+    closeMenu()
   }
 
   const handleClear = (): void => {
     onChange(undefined)
-    setIsOpen(false)
+    closeMenu()
   }
 
   // Mirrors the `disabled` state of the rows below (dirty tree → only the current branch).
   const isBranchSelectable = (branch: { name: string; isLocal: boolean }): boolean =>
     !repoState.isDirty || (branch.isLocal && repoState.currentBranch === branch.name)
 
-  // Escape inside the open dropdown closes only the dropdown, never the enclosing modal.
+  // Every row of the listbox in display order, with the id the input's
+  // aria-activedescendant points at. Disabled rows are skipped by the keys.
+  const options = [
+    { key: NONE_KEY, selectable: true },
+    ...filteredLocal.map((branch) => ({
+      key: branch.name,
+      selectable: isBranchSelectable(branch)
+    })),
+    ...filteredRemote.map((branch) => ({
+      key: branch.name,
+      selectable: isBranchSelectable(branch)
+    }))
+  ]
+  const optionIds = new Map(
+    options.map((option, index) => [option.key, `${listId}-option-${index}`])
+  )
+  const selectableKeys = options.filter((option) => option.selectable).map((option) => option.key)
+  // While filtering, the top selectable match is the default (Enter takes it);
+  // otherwise the current selection, else the "none" row.
+  const defaultKey = search.trim()
+    ? (selectableKeys.find((key) => key !== NONE_KEY) ?? NONE_KEY)
+    : value && selectableKeys.includes(value)
+      ? value
+      : NONE_KEY
+  const highlightedKey = activeKey && selectableKeys.includes(activeKey) ? activeKey : defaultKey
+
+  const moveHighlight = (key: string | undefined): void => {
+    if (key === undefined) return
+    setActiveKey(key)
+    requestAnimationFrame(() => scrollActiveOptionIntoView(listRef.current))
+  }
+
+  /** Keyboard pick: unlike a click it never toggles the current branch off. */
+  const commitHighlighted = (): void => {
+    if (highlightedKey === NONE_KEY) handleClear()
+    else {
+      onChange(highlightedKey)
+      closeMenu()
+    }
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      // Enter picks the highlighted row; it must never submit the enclosing
+      // form (nor pick anything when it only confirms an IME candidate).
+      e.preventDefault()
+      e.stopPropagation()
+      if (isImeKeyEvent(e)) return
+      commitHighlighted()
+      return
+    }
+    if (isImeKeyEvent(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+    const at = selectableKeys.indexOf(highlightedKey)
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveHighlight(selectableKeys[Math.min(at + 1, selectableKeys.length - 1)])
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveHighlight(selectableKeys[Math.max(at - 1, 0)])
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      moveHighlight(selectableKeys[0])
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      moveHighlight(selectableKeys[selectableKeys.length - 1])
+    }
+  }
+
+  // Escape inside the open dropdown closes only the dropdown, never the
+  // enclosing modal; Tab past its edge closes it from the trigger.
   const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!isOpen || e.key !== 'Escape' || isImeKeyEvent(e)) return
+    if (!isOpen || isImeKeyEvent(e)) return
+    if (tabLeavesMenu(e, menuRef.current)) {
+      // Forward Tab carries on from the trigger; Shift+Tab stops on it.
+      if (e.shiftKey) e.preventDefault()
+      closeMenu()
+      return
+    }
+    if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
-    setIsOpen(false)
+    closeMenu()
     setSearch('')
   }
 
@@ -267,6 +378,7 @@ export function BranchPicker({
         createPortal(
           <div
             ref={menuRef}
+            data-modal-popover
             onKeyDown={handleContainerKeyDown}
             className={cn('fixed max-h-64 overflow-auto', Z.popover, popoverSurface)}
             style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
@@ -282,26 +394,27 @@ export function BranchPicker({
                   type="text"
                   value={search}
                   aria-label={t('pickers.filterBranches')}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return
-                    // Enter picks the top match; it must never submit the enclosing form
-                    // (nor pick anything when it only confirms an IME candidate).
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (isImeKeyEvent(e)) return
-                    const first = [...filteredLocal, ...filteredRemote].find((branch) =>
-                      isBranchSelectable(branch)
-                    )
-                    if (first) handleSelect(first.name)
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded
+                  aria-controls={listId}
+                  aria-activedescendant={optionIds.get(highlightedKey)}
+                  onChange={(e) => {
+                    setSearch(e.target.value)
+                    setActiveKey(null)
                   }}
+                  onKeyDown={handleSearchKeyDown}
                   placeholder={t('pickers.filterBranches')}
                   className={cn(searchInput, 'pr-7')}
                 />
                 {search && (
                   <IconButton
                     aria-label={t('pickers.clearFilter')}
-                    onClick={() => setSearch('')}
+                    onClick={() => {
+                      setSearch('')
+                      setActiveKey(null)
+                      searchInputRef.current?.focus()
+                    }}
                     className="absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2"
                   >
                     <X size={10} />
@@ -310,13 +423,27 @@ export function BranchPicker({
               </div>
             </div>
 
-            <div role="listbox" className="p-1">
+            <div
+              ref={listRef}
+              id={listId}
+              role="listbox"
+              aria-label={t('pickers.branches')}
+              className="p-1"
+            >
+              {/* Rows are not Tab stops: focus stays in the filter field and the
+                  highlighted row is its aria-activedescendant. */}
               <button
+                id={optionIds.get(NONE_KEY)}
                 type="button"
                 role="option"
-                aria-selected={!value}
+                aria-selected={highlightedKey === NONE_KEY}
+                tabIndex={-1}
                 onClick={handleClear}
-                className={cn(menuItem(!value), value && 'text-muted-foreground')}
+                onMouseEnter={() => setActiveKey(NONE_KEY)}
+                className={cn(
+                  menuItem(highlightedKey === NONE_KEY),
+                  value && 'text-muted-foreground'
+                )}
               >
                 — {isBaseVariant ? t('pickers.fromCurrentBranch') : t('pickers.noBranch')}
               </button>
@@ -335,21 +462,28 @@ export function BranchPicker({
                   aria-label={t('pickers.localBranches')}
                   className="mt-1 border-t border-border pt-1"
                 >
-                  <div className={groupHeader}>── {t('pickers.localBranches')} ──</div>
+                  <div aria-hidden className={groupHeader}>
+                    ── {t('pickers.localBranches')} ──
+                  </div>
                   {filteredLocal.map((branch) => {
                     const isCurrent = repoState.currentBranch === branch.name
                     const disabled = repoState.isDirty && !isCurrent
                     const selected = value === branch.name
+                    const highlighted = highlightedKey === branch.name
                     return (
                       <button
                         key={branch.name}
+                        id={optionIds.get(branch.name)}
                         type="button"
                         role="option"
-                        aria-selected={selected}
+                        aria-selected={highlighted}
+                        aria-disabled={disabled || undefined}
                         disabled={disabled}
+                        tabIndex={-1}
                         onClick={() => handleSelect(branch.name)}
+                        onMouseEnter={() => !disabled && setActiveKey(branch.name)}
                         className={cn(
-                          menuItem(selected),
+                          menuItem(highlighted),
                           'items-baseline justify-between',
                           disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent'
                         )}
@@ -387,19 +521,26 @@ export function BranchPicker({
                   aria-label={t('pickers.remoteBranches')}
                   className="mt-1 border-t border-border pt-1"
                 >
-                  <div className={groupHeader}>── {t('pickers.remoteBranches')} ──</div>
+                  <div aria-hidden className={groupHeader}>
+                    ── {t('pickers.remoteBranches')} ──
+                  </div>
                   {filteredRemote.map((branch) => {
                     const selected = value === branch.name
+                    const highlighted = highlightedKey === branch.name
                     return (
                       <button
                         key={branch.name}
+                        id={optionIds.get(branch.name)}
                         type="button"
                         role="option"
-                        aria-selected={selected}
+                        aria-selected={highlighted}
+                        aria-disabled={repoState.isDirty || undefined}
                         disabled={repoState.isDirty}
+                        tabIndex={-1}
                         onClick={() => handleSelect(branch.name)}
+                        onMouseEnter={() => !repoState.isDirty && setActiveKey(branch.name)}
                         className={cn(
-                          menuItem(selected),
+                          menuItem(highlighted),
                           'items-baseline justify-between',
                           repoState.isDirty && 'cursor-not-allowed opacity-40 hover:bg-transparent'
                         )}

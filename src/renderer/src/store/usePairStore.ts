@@ -46,6 +46,7 @@ import { playFinishChime, playErrorAlert, playPauseConfirm } from '../lib/sound'
 import { resolvePairSoundCue, type PairSoundCue } from '../lib/pairSoundCue'
 import { extractErrorMessage } from '../lib/utils'
 import { isPairActive, normalizePairStatus } from '../lib/pairStatus'
+import { reuseById, reuseList, sameRecord } from '../lib/structuralSharing'
 import i18n from '../i18n'
 
 type PairStatus =
@@ -807,13 +808,19 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     const backendIds = new Set(backendMessages.map((m) => m.id))
     const preservedMessages = pair.messages.filter((m) => !backendIds.has(m.id))
     const existingTokenUsage = new Map(pair.messages.map((m) => [m.id, m.tokenUsage]))
-    messages = [
-      ...preservedMessages,
-      ...backendMessages.map((m) => ({
-        ...m,
-        tokenUsage: mergeTokenUsage(m.tokenUsage, existingTokenUsage.get(m.id))
-      }))
-    ].sort((a, b) => a.timestamp - b.timestamp)
+    // Reuse unchanged message objects: the backend resends the whole
+    // transcript with every state event, and fresh identities would re-render
+    // every memoized card once a second while a pair runs.
+    messages = reuseById(
+      pair.messages,
+      [
+        ...preservedMessages,
+        ...backendMessages.map((m) => ({
+          ...m,
+          tokenUsage: mergeTokenUsage(m.tokenUsage, existingTokenUsage.get(m.id))
+        }))
+      ].sort((a, b) => a.timestamp - b.timestamp)
+    )
   }
 
   if (currentTurnCard && currentTurnCard.role !== nextTurn) {
@@ -915,11 +922,21 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     currentTurnCard,
     mentorActivity: nextMentorActivity,
     executorActivity: nextExecutorActivity,
-    modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
+    // Same list → same array, so an expanded diff in the inspector survives
+    // state events that didn't touch the files.
+    modifiedFiles: state.modifiedFiles
+      ? reuseList(pair.modifiedFiles, state.modifiedFiles)
+      : pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
     latestAcceptance:
-      state.latestAcceptance !== undefined ? state.latestAcceptance : pair.latestAcceptance,
+      state.latestAcceptance === undefined
+        ? pair.latestAcceptance
+        : state.latestAcceptance &&
+            pair.latestAcceptance &&
+            sameRecord(pair.latestAcceptance, state.latestAcceptance)
+          ? pair.latestAcceptance
+          : state.latestAcceptance,
     mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
     executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
     currentRunFinishedAt,

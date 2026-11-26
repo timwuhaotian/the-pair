@@ -1,6 +1,6 @@
 import { type Pair } from '../store/usePairStore'
 import { isPairActive } from './pairStatus'
-import { derivePairNameFromDirectory } from './workspace'
+import { compactPath, derivePairNameFromDirectory } from './workspace'
 
 type DashboardPairGroupKey = 'attention' | 'active' | 'paused' | 'ready' | 'finished'
 
@@ -11,10 +11,13 @@ export interface DashboardPairGroup {
 }
 
 export interface DashboardWorkspaceGroup {
-  /** Absolute workspace directory used for grouping. */
+  /** Absolute workspace directory used for grouping: the repository a pair
+   *  belongs to, so pairs in per-task worktrees of one repo share a group. */
   directory: string
   /** Short folder name (last path segment) for display. */
   shortName: string
+  /** The directory with its home prefix and middle elided, tail kept. */
+  displayPath: string
   pairs: Pair[]
   statusGroups: DashboardPairGroup[]
 }
@@ -63,12 +66,17 @@ function shortenWorkspace(directory: string): string {
   return derivePairNameFromDirectory(directory) || directory
 }
 
+/** The workspace a pair belongs to: its repository when it runs in a worktree. */
+export function workspaceKey(pair: Pair): string {
+  return pair.repoPath || pair.directory || '—'
+}
+
 export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {
   const buckets = new Map<string, Pair[]>()
   const orderedKeys: string[] = []
 
   for (const pair of pairs) {
-    const key = pair.directory || '—'
+    const key = workspaceKey(pair)
     if (!buckets.has(key)) {
       buckets.set(key, [])
       orderedKeys.push(key)
@@ -81,6 +89,7 @@ export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {
     return {
       directory,
       shortName: shortenWorkspace(directory),
+      displayPath: compactPath(directory),
       pairs: groupPairs,
       statusGroups: buildPairGroups(groupPairs)
     }
@@ -88,7 +97,7 @@ export function buildWorkspaceGroups(pairs: Pair[]): DashboardWorkspaceGroup[] {
 }
 
 export function buildPairInsights(pairs: Pair[]): DashboardPairInsights {
-  const workspaceCount = new Set(pairs.map((pair) => pair.directory)).size
+  const workspaceCount = new Set(pairs.map(workspaceKey)).size
 
   return {
     needsAttention: pairs.filter(

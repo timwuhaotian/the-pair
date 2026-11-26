@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Languages } from 'lucide-react'
@@ -15,8 +15,12 @@ export function LanguageSwitcher(): React.ReactNode {
   const { locale, setLocale } = useLocaleStore()
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
+  // The item that holds the menu's single Tab stop (roving tabindex).
+  const [focusIndex, setFocusIndex] = useState(0)
   const btnRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const menuId = useId()
 
   const updatePosition = useCallback(() => {
     if (!btnRef.current) return
@@ -30,6 +34,50 @@ export function LanguageSwitcher(): React.ReactNode {
       setPosition({ top, left })
     }
   }, [])
+
+  const openMenu = (): void => {
+    // Opening lands on the language in use, the way a native menu does.
+    setFocusIndex(Math.max(0, LOCALES.indexOf(locale)))
+    setOpen(true)
+  }
+
+  const closeMenu = (): void => {
+    setOpen(false)
+    btnRef.current?.focus()
+  }
+
+  // Focus follows the roving index while the menu is open (and on open).
+  useEffect(() => {
+    if (open) itemRefs.current[focusIndex]?.focus()
+  }, [open, focusIndex])
+
+  const handleMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const last = LOCALES.length - 1
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setFocusIndex((i) => (i >= last ? 0 : i + 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setFocusIndex((i) => (i <= 0 ? last : i - 1))
+        break
+      case 'Home':
+        e.preventDefault()
+        setFocusIndex(0)
+        break
+      case 'End':
+        e.preventDefault()
+        setFocusIndex(last)
+        break
+      case 'Tab':
+        // Tab leaves a menu: close it from the toggle, and let the browser
+        // carry on from there to the next control.
+        setOpen(false)
+        btnRef.current?.focus()
+        break
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -58,14 +106,16 @@ export function LanguageSwitcher(): React.ReactNode {
   }, [open, updatePosition])
 
   return (
-    <div className="relative">
+    <div className="relative flex">
       <IconButton
         ref={btnRef}
         size="md"
         bordered
-        onClick={() => setOpen(!open)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         aria-label={t('chrome.switchLanguage')}
+        aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         data-testid="chrome-language-toggle"
       >
         <Languages size={13} />
@@ -75,8 +125,10 @@ export function LanguageSwitcher(): React.ReactNode {
         createPortal(
           <div
             ref={panelRef}
+            id={menuId}
             role="menu"
             aria-label={t('chrome.language')}
+            onKeyDown={handleMenuKeyDown}
             className={cn(
               'fixed min-w-44 w-max max-w-[calc(100vw-16px)] p-1',
               popoverSurface,
@@ -84,19 +136,26 @@ export function LanguageSwitcher(): React.ReactNode {
             )}
             style={{ top: position.top, left: position.left }}
           >
-            <div className={cn(sectionLabel, 'px-2 py-1')}>{t('chrome.language')}</div>
-            {LOCALES.map((l) => {
+            {/* The menu is already named by this label; the visible copy is decoration. */}
+            <div aria-hidden className={cn(sectionLabel, 'px-2 py-1')}>
+              {t('chrome.language')}
+            </div>
+            {LOCALES.map((l, index) => {
               const isActive = locale === l
               const meta = LOCALE_LABELS[l]
               return (
                 <button
                   key={l}
+                  ref={(node) => {
+                    itemRefs.current[index] = node
+                  }}
                   type="button"
                   role="menuitemradio"
                   aria-checked={isActive}
+                  tabIndex={index === focusIndex ? 0 : -1}
                   onClick={() => {
                     setLocale(l)
-                    setOpen(false)
+                    closeMenu()
                   }}
                   className={menuItem(isActive)}
                 >
@@ -109,7 +168,9 @@ export function LanguageSwitcher(): React.ReactNode {
                   >
                     {isActive ? '●' : '○'}
                   </span>
-                  <span className="text-base leading-none">{meta.flag}</span>
+                  <span aria-hidden className="text-base leading-none">
+                    {meta.flag}
+                  </span>
                   <span className="flex-1">{meta.native}</span>
                 </button>
               )

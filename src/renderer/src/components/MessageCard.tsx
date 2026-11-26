@@ -166,7 +166,9 @@ export const MessageCard = memo(function MessageCard({
             )}
             aria-expanded={detailsExpanded}
           >
-            <span className="text-muted-foreground-faint">{detailsExpanded ? '└─' : '├─'}</span>
+            <span aria-hidden className="text-muted-foreground-faint">
+              {detailsExpanded ? '└─' : '├─'}
+            </span>
             {detailsExpanded ? (
               <ChevronDown size={10} className="text-muted-foreground-faint translate-y-px" />
             ) : (
