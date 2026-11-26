@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.6] - 2026-11-26
+
+An accessibility, keyboard and rendering pass over the shell, pickers, dialogs and console.
+
+### Fixed
+
+- **Every picker is keyboard- and screen-reader-navigable.** The model, branch and skill menus are comboboxes now: arrows, Home and End move the highlight, Enter picks it, Tab closes the menu from its trigger and Escape returns focus there. Rows are no longer Tab stops, disabled rows are skipped, and the highlighted option stays scrolled into view.
+- **Dialogs hand focus back the way it came.** Focus returns to whatever opened a dialog — including dialogs the caller unmounts instead of closing — a marked primary field wins over the first control on open, the confirmation message names the dialog, the close button is labelled in the app's language, and Tab inside a picker portaled to `<body>` is left to that menu rather than the dialog's trap.
+- **The language menu behaves like a menu.** It opens on the language in use, wraps on arrows/Home/End with a roving tab stop, restores the toggle on close, and drives `<html lang>` so screen readers and WebKit glyph selection follow the language.
+- **Statuses and errors reach assistive tech.** Toasts are a live region (errors assertively), pause on hover and keep errors twice as long; run status changes, failed checks and tool-step states carry screen-reader text; the transcript is a named, keyboard-scrollable log; and form errors are alerts.
+- **Timelines and reports are localized.** Event labels, copy and export errors follow the interface language, and the `──` rules in headings are decoration, not part of their accessible name.
+- **Workspace paths read consistently.** Pairs running in per-task worktrees group under their repository on the hub, and paths elide the home directory and keep their informative tail instead of the full absolute path.
+- **Contrast and focus hold in both themes.** The faint text tier clears AA on every surface it sits on, linen's role and state tones were darkened to pass on their chips, chip tints share one token, focus rings inside scrolling rows draw inset, the toast sits on an opaque surface, and Markdown headings no longer compete with the app's outline.
+
+### Changed
+
+- **Streaming state no longer re-renders the whole UI.** Unchanged messages and file lists keep their objects across state events (`reuseById`/`reuseList`), the hub memoizes its cards and grouping, and the menu and shortcut listeners bind once and read the latest state instead of re-subscribing on every event.
+- **Smaller fixes around the shell.** The chrome keeps the version and byline on the home sections and gives a pair its own row, the shell announces its badge counts, hub pair actions are named after their pair, the iteration progress bar reports its value text, the update progress bar animates by transform, and the running step glyph no longer reads as a rotation control.
+
 ## [3.0.5] - 2026-11-23
 
 ### Fixed
